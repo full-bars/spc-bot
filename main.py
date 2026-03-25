@@ -76,7 +76,6 @@ async def send_bot_alert(title: str, description: str, critical: bool = False):
 # ── Events ───────────────────────────────────────────────────────────────────
 @bot.event
 async def on_ready():
-    from cogs.status import BOT_START_TIME
     import cogs.status as status_cog
     status_cog.BOT_START_TIME = datetime.now(timezone.utc)
 
@@ -245,6 +244,7 @@ async def main():
         await bot.load_extension("cogs.mesoscale")
         await bot.load_extension("cogs.watches")
         await bot.load_extension("cogs.status")
+        await bot.load_extension("cogs.radar")
 
         # Register cog tasks with watchdog after loading
         outlooks_cog = bot.cogs.get("OutlooksCog")
