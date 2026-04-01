@@ -220,7 +220,10 @@ class StatusCog(commands.Cog):
         import socket
         hostname = socket.gethostname()
         try:
-            host_ip = socket.gethostbyname(hostname)
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            host_ip = s.getsockname()[0]
+            s.close()
         except Exception:
             host_ip = "unknown"
         lines = ["```", f"═══ SCP/SPC Bot Status ═══", f"Host           : {hostname} ({host_ip})", ""]
