@@ -217,7 +217,13 @@ class StatusCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
 
         now = datetime.now(timezone.utc)
-        lines = ["```", "═══ SCP/SPC Bot Status ═══", ""]
+        import socket
+        hostname = socket.gethostname()
+        try:
+            host_ip = socket.gethostbyname(hostname)
+        except Exception:
+            host_ip = "unknown"
+        lines = ["```", f"═══ SCP/SPC Bot Status ═══", f"Host           : {hostname} ({host_ip})", ""]
 
         if BOT_START_TIME:
             uptime = now - BOT_START_TIME
