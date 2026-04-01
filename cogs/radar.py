@@ -119,13 +119,20 @@ async def download_file(file_key, output_dir, start_time, file_size, filename):
                 progress_data[filename]['completed'] = True
 
     try:
-        await asyncio.get_event_loop().run_in_executor(
+        loop = asyncio.get_event_loop()
+        fut = loop.run_in_executor(
             None,
             lambda: get_s3_client().download_file(bucket, file_key, str(output_path), Callback=progress_callback)
         )
+        await asyncio.wait_for(fut, timeout=120)
         download_time = time.time() - start_time
         speed = (file_size / download_time / 1024 / 1024) * 8 if download_time > 0 else 0
         return output_path, download_time, speed
+    except asyncio.TimeoutError:
+        logger.error(f"Timeout downloading {file_key} after 120s")
+        if output_path.exists():
+            output_path.unlink()
+        raise RuntimeError(f"Download timed out: {filename}")
     except Exception as e:
         logger.error(f"Failed to download {file_key}: {e}")
         raise
@@ -344,20 +351,27 @@ async def download_and_zip(interaction, filtered_files, radar_sites, messages_to
                 break
 
         if not all_uploaded:
-            embed.title = "Upload Failed"
-            embed.description = f"Could not upload files even at minimum size ({format_file_size(MIN_FILE_SIZE)})."
+            embed.title = "Upload Failed — Files Too Large"
+            embed.description = (
+                f"Could not upload to Discord even at minimum split size ({format_file_size(MIN_FILE_SIZE)}).\n"
+                f"Total download was {format_file_size(total_downloaded_size)} across {len(file_paths)} files.\n\n"
+                f"**Try selecting fewer files or a shorter time range.**"
+            )
             embed.color = discord.Color.red()
             await message.edit(embed=embed)
 
     except Exception as e:
-        logger.error(f"Unexpected error in download_and_zip: {e}")
-        embed.title = "Unexpected Error"
-        embed.description = f"An unexpected error occurred: {e}"
-        embed.color = discord.Color.red()
+        logger.error(f"Unexpected error in download_and_zip: {e}", exc_info=True)
         try:
+            embed.title = "Download Failed"
+            embed.description = f"An error occurred and the download was cancelled:\n```{type(e).__name__}: {e}```\nCheck logs for details."
+            embed.color = discord.Color.red()
             await message.edit(embed=embed)
         except Exception:
-            pass
+            try:
+                await channel.send(f"❌ Download failed: `{type(e).__name__}: {e}`")
+            except Exception:
+                pass
 
     finally:
         for file_path, _ in file_paths:
