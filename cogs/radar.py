@@ -207,35 +207,51 @@ async def cleanup_old_files(directory, age_threshold):
 
 
 async def split_and_zip_files(file_paths, radar_sites, split_size, output_dir):
+    """
+    Zip files grouped by radar site. Each site gets its own zip(s).
+    Returns a list of (site, zip_path) tuples.
+    """
     def _zip():
-        chunk_size = 0
-        current_zip_files = []
-        zip_counter = 1
-        zip_paths = []
+        # Group file_paths by radar site
+        by_site = {site: [] for site in radar_sites}
         for file_path, file_info in file_paths:
-            file_size = os.path.getsize(file_path)
-            if chunk_size + file_size > split_size and current_zip_files:
-                zip_path = Path(output_dir) / f"{radar_sites[0]}_part{zip_counter}.zip"
+            site = file_info.get('RadarSite', radar_sites[0])
+            by_site[site].append((file_path, file_info))
+
+        all_zip_paths = []
+        for site, site_files in by_site.items():
+            if not site_files:
+                continue
+            chunk_size = 0
+            current_zip_files = []
+            zip_counter = 1
+            site_zip_paths = []
+            for file_path, file_info in site_files:
+                file_size = os.path.getsize(file_path)
+                if chunk_size + file_size > split_size and current_zip_files:
+                    zip_path = Path(output_dir) / f"{site}_part{zip_counter}.zip"
+                    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                        for fp, fi in current_zip_files:
+                            zipf.write(fp, os.path.join(site, os.path.basename(fp)))
+                    site_zip_paths.append(zip_path)
+                    current_zip_files = []
+                    chunk_size = 0
+                    zip_counter += 1
+                current_zip_files.append((file_path, file_info))
+                chunk_size += file_size
+            if current_zip_files:
+                zip_path = Path(output_dir) / f"{site}_part{zip_counter}.zip"
                 with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                     for fp, fi in current_zip_files:
-                        zipf.write(fp, os.path.join(radar_sites[0], os.path.basename(fp)))
-                zip_paths.append(zip_path)
-                current_zip_files = []
-                chunk_size = 0
-                zip_counter += 1
-            current_zip_files.append((file_path, file_info))
-            chunk_size += file_size
-        if current_zip_files:
-            zip_path = Path(output_dir) / f"{radar_sites[0]}_part{zip_counter}.zip"
-            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                for fp, fi in current_zip_files:
-                    zipf.write(fp, os.path.join(radar_sites[0], os.path.basename(fp)))
-            zip_paths.append(zip_path)
-        if len(zip_paths) == 1:
-            clean_path = Path(output_dir) / f"{radar_sites[0]}.zip"
-            zip_paths[0].rename(clean_path)
-            zip_paths[0] = clean_path
-        return zip_paths
+                        zipf.write(fp, os.path.join(site, os.path.basename(fp)))
+                site_zip_paths.append(zip_path)
+            if len(site_zip_paths) == 1:
+                clean_path = Path(output_dir) / f"{site}.zip"
+                site_zip_paths[0].rename(clean_path)
+                site_zip_paths[0] = clean_path
+            all_zip_paths.extend(site_zip_paths)
+        return all_zip_paths
+
     try:
         return await asyncio.get_event_loop().run_in_executor(None, _zip)
     except Exception as e:
@@ -366,8 +382,9 @@ async def download_and_zip(interaction, filtered_files, radar_sites, messages_to
             instantaneous_speed = (total_downloaded_size / elapsed_time / 1024 / 1024) * 8 if elapsed_time > 0 else 0
             progress = (files_completed / total_files) * 100
             progress_bar = get_progress_bar(progress)
-            description = f"Downloading {total_files} files...\n{progress_bar} (Speed: {instantaneous_speed:.2f} Mbps)\n\n"
+            header = f"Downloading {total_files} files...\n{progress_bar} (Speed: {instantaneous_speed:.2f} Mbps) · {files_completed}/{total_files} complete\n\n"
             with progress_lock:
+                file_lines = []
                 for fname in progress_data:
                     matched_file = None
                     for site in radar_sites:
@@ -379,10 +396,13 @@ async def download_and_zip(interaction, filtered_files, radar_sites, messages_to
                             break
                     if matched_file:
                         percentage = (progress_data[fname]['bytes_transferred'] / matched_file['Size']) * 100
-                        file_bar = get_progress_bar(percentage)
-                        description += f"**{fname}**: {file_bar}\n"
-                    else:
-                        description += f"**{fname}**: [Size Unknown]\n"
+                        if 0 < percentage < 100:
+                            file_bar = get_progress_bar(percentage)
+                            file_lines.append(f"**{fname}**: {file_bar}")
+                per_file_text = "\n".join(file_lines)
+                description = header + per_file_text
+                if len(description) > 3900:
+                    description = header
             embed.description = description
             try:
                 await message.edit(embed=embed)
