@@ -2,7 +2,7 @@
 venv/
 __pycache__/
 *.pyc
-*.log
+*.log*
 *.json
 cached_*
 cache/
