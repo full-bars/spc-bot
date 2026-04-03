@@ -44,8 +44,15 @@ async def check_and_post_day(channel: discord.TextChannel, day: int):
 
     if updated_count == 0:
         if day_key in partial_update_state:
-            logger.info(f"[Day {day}] No updates found; clearing partial state")
-            partial_update_state.pop(day_key, None)
+            # Don't discard partial state just because this cycle found no new updates.
+            # SPC publishes images a minute apart — we may have cached some already.
+            # Only clear if we've been waiting less than 2 minutes (avoids stale state).
+            elapsed = (datetime.now() - partial_update_state[day_key]["start_time"]).total_seconds() / 60
+            if elapsed < 2:
+                logger.debug(f"[Day {day}] No new updates this cycle but partial state is fresh ({elapsed:.1f} min), keeping")
+            else:
+                logger.info(f"[Day {day}] No updates found after {elapsed:.1f} min; clearing partial state")
+                partial_update_state.pop(day_key, None)
         return
 
     if updated_count < total_count:
