@@ -132,7 +132,7 @@ def should_use_cache_for_manual(urls: List[str]) -> bool:
     if day is None:
         return False
     if is_near_spc_update(day):
-        logger.info(f"[CACHE] Near Day {day} update window - forcing fresh download")
+        logger.debug(f"[CACHE] Near Day {day} update window - forcing fresh download")
         return False
     all_exist = all(os.path.exists(get_cache_path_for_url(u)) for u in urls)
     if not all_exist:
@@ -147,7 +147,7 @@ def should_use_cache_for_manual(urls: List[str]) -> bool:
     if ages and min(ages) > timedelta(days=3):
         logger.info("[CACHE] Cached files are older than 3 days; refreshing")
         return False
-    logger.info(f"[CACHE] Using cached files for Day {day} (min age: {min(ages)})")
+    logger.debug(f"[CACHE] Using cached files for Day {day} (min age: {min(ages)})")
     return True
 
 
@@ -187,8 +187,8 @@ async def download_single_image(url: str, cache_file_path: str, cache: Dict[str,
         if url not in cache or cache.get(url) != h:
             cache[url] = h
             atomic_json_dump(cache, cache_file_path)
-            logger.info(f"Updated cache hash for {url}: {h}")
-        logger.info(f"Downloaded and saved: {url} -> {cache_path}")
+            logger.debug(f"Updated cache hash for {url}: {h}")
+        logger.debug(f"Downloaded and saved: {url} -> {cache_path}")
         return cache_path, content, h
     except Exception as e:
         logger.warning(f"Error saving {cache_path}: {e}")
@@ -264,7 +264,7 @@ async def check_partial_updates_parallel(urls: List[str], cache: Dict[str, str])
             downloaded_data[urls[i]] = (content, None)
 
     head_fetched = sum(1 for h in head_results if h)
-    logger.info(f"Partial check: {updated_count}/{total_count} images appear updated "
+    logger.debug(f"Partial check: {updated_count}/{total_count} images appear updated "
                 f"({head_fetched}/{total_count} warranted full fetch)")
     return updated_count, total_count, downloaded_data
 
@@ -284,7 +284,7 @@ async def save_downloaded_images(urls: List[str], downloaded_data: Dict[str, Tup
                     cache[url] = h
                     atomic_json_dump(cache, cache_file_path)
                 files.append(cache_path)
-                logger.info(f"Saved cached file for {url} -> {cache_path}")
+                logger.debug(f"Saved cached file for {url} -> {cache_path}")
             except Exception as e:
                 logger.warning(f"Error writing {cache_path}: {e}")
     return files

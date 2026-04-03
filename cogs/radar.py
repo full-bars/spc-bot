@@ -60,13 +60,13 @@ def get_radar_sites(date):
     try:
         response = get_s3_client().list_objects_v2(Bucket=bucket, Prefix=prefix, Delimiter='/')
         if 'CommonPrefixes' not in response:
-            logger.warning(f"No radar sites found for {date.strftime('%Y-%m-%d')}")
+            logger.warning(f"[RADAR] No radar sites found for {date.strftime('%Y-%m-%d')}")
             return []
         sites = sorted([p['Prefix'].split('/')[-2] for p in response['CommonPrefixes']])
-        logger.info(f"Found {len(sites)} radar sites for {date.strftime('%Y-%m-%d')}")
+        logger.info(f"[RADAR] Found {len(sites)} radar sites for {date.strftime('%Y-%m-%d')}")
         return sites
     except Exception as e:
-        logger.error(f"Error listing radar sites for {date.strftime('%Y-%m-%d')}: {e}")
+        logger.error(f"[RADAR] Error listing radar sites: {e}")
         return []
 
 def list_files(radar_site, dates):
@@ -101,8 +101,10 @@ def list_files(radar_site, dates):
                     f['FileTimestamp'] = f['LastModified']
             all_files.extend(files)
         except Exception as e:
-            logger.error(f"Error listing files for {radar_site} on {date.strftime('%Y-%m-%d')}: {e}")
-    return sorted(all_files, key=lambda x: x['FileTimestamp'], reverse=True)
+            logger.error(f"[RADAR] Error listing files for {radar_site}: {e}")
+    sorted_files = sorted(all_files, key=lambda x: x['FileTimestamp'], reverse=True)
+    logger.debug(f"[RADAR] Listed {len(sorted_files)} files for {radar_site}")
+    return sorted_files
 
 
 async def download_file(file_key, output_dir, start_time, file_size, filename):
@@ -118,24 +120,41 @@ async def download_file(file_key, output_dir, start_time, file_size, filename):
             if progress_data[filename]['bytes_transferred'] >= file_size:
                 progress_data[filename]['completed'] = True
 
-    try:
-        loop = asyncio.get_event_loop()
-        fut = loop.run_in_executor(
-            None,
-            lambda: get_s3_client().download_file(bucket, file_key, str(output_path), Callback=progress_callback)
-        )
-        await asyncio.wait_for(fut, timeout=120)
-        download_time = time.time() - start_time
-        speed = (file_size / download_time / 1024 / 1024) * 8 if download_time > 0 else 0
-        return output_path, download_time, speed
-    except asyncio.TimeoutError:
-        logger.error(f"Timeout downloading {file_key} after 120s")
-        if output_path.exists():
-            output_path.unlink()
-        raise RuntimeError(f"Download timed out: {filename}")
-    except Exception as e:
-        logger.error(f"Failed to download {file_key}: {e}")
-        raise
+    last_err = None
+    for attempt in range(3):
+        if attempt > 0:
+            logger.warning(f"[RADAR] Retry {attempt}/2 for {filename}")
+            await asyncio.sleep(2 ** attempt)
+            with progress_lock:
+                progress_data[filename] = {'bytes_transferred': 0, 'completed': False}
+            if hasattr(_thread_local, 's3_client'):
+                del _thread_local.s3_client
+        try:
+            loop = asyncio.get_event_loop()
+            fut = loop.run_in_executor(
+                None,
+                lambda: get_s3_client().download_file(
+                    bucket, file_key, str(output_path), Callback=progress_callback
+                )
+            )
+            await asyncio.wait_for(fut, timeout=30)
+            download_time = time.time() - start_time
+            speed = (file_size / download_time / 1024 / 1024) * 8 if download_time > 0 else 0
+            logger.debug(f"[RADAR] Downloaded {filename} in {download_time:.1f}s at {speed:.1f} Mbps")
+            return output_path, download_time, speed
+        except asyncio.TimeoutError:
+            logger.warning(f"[RADAR] Timeout on attempt {attempt+1}/3 for {filename} (30s)")
+            if output_path.exists():
+                output_path.unlink()
+            last_err = RuntimeError(f"Download timed out: {filename}")
+        except Exception as e:
+            logger.warning(f"[RADAR] Error on attempt {attempt+1}/3 for {filename}: {e}")
+            if output_path.exists():
+                output_path.unlink()
+            last_err = e
+
+    logger.error(f"[RADAR] All 3 attempts failed for {filename}")
+    raise last_err
 
 
 async def cleanup_old_files(directory, age_threshold):
@@ -149,9 +168,9 @@ async def cleanup_old_files(directory, age_threshold):
             if age > age_threshold:
                 try:
                     item.unlink()
-                    logger.info(f"Deleted old file: {item}")
+                    logger.debug(f"[RADAR] Deleted old file: {item}")
                 except Exception as e:
-                    logger.error(f"Failed to delete old file {item}: {e}")
+                    logger.error(f"[RADAR] Failed to delete old file {item}: {e}")
 
 
 async def split_and_zip_files(file_paths, radar_sites, split_size, output_dir):
@@ -207,6 +226,8 @@ async def download_and_zip(interaction, filtered_files, radar_sites, messages_to
     for f in filtered_files:
         stats_by_site[f['RadarSite']]['files'].append(f)
 
+    logger.info(f"[RADAR] Starting download of {total_files} files for {radar_sites}")
+
     embed = discord.Embed(
         title="Download Progress",
         description=f"Starting download of {total_files} files...\n",
@@ -250,7 +271,7 @@ async def download_and_zip(interaction, filtered_files, radar_sites, messages_to
             try:
                 await message.edit(embed=embed)
             except (discord.errors.NotFound, discord.errors.HTTPException) as e:
-                logger.error(f"Failed to edit message during download: {e}")
+                logger.error(f"[RADAR] Failed to edit progress message: {e}")
             last_update_time = current_time
 
         async def download_with_progress(file_info, idx):
@@ -274,6 +295,7 @@ async def download_and_zip(interaction, filtered_files, radar_sites, messages_to
                 recent_speed = sum(avg_speed_history[-3:]) / 3
                 if recent_speed < baseline_speed * 0.7:
                     current_batch_size = max(BATCH_SIZE_THRESHOLD, current_batch_size // 2)
+                    logger.info(f"[RADAR] Speed drop detected, reducing batch size to {current_batch_size}")
                 if len(avg_speed_history) > 10:
                     avg_speed_history.pop(0)
             batch = files_remaining[:batch_size]
@@ -300,6 +322,7 @@ async def download_and_zip(interaction, filtered_files, radar_sites, messages_to
         )
         embed.color = discord.Color.green()
         await message.edit(embed=embed)
+        logger.info(f"[RADAR] Download complete: {len(file_paths)} files, {format_file_size(total_downloaded_size)}, {instantaneous_speed:.1f} Mbps avg")
 
         size_ladder = [MAX_FILE_SIZE, 50 * 1024 * 1024, 25 * 1024 * 1024, MIN_FILE_SIZE]
         all_uploaded = False
@@ -331,6 +354,7 @@ async def download_and_zip(interaction, filtered_files, radar_sites, messages_to
                     )
                     embed.color = discord.Color.green()
                     await message.edit(embed=embed)
+                    logger.info(f"[RADAR] Uploaded {zip_path.name} ({format_file_size(zip_size)}){part_label}")
                 except discord.errors.HTTPException as e:
                     if e.status == 413 and attempt_size > MIN_FILE_SIZE:
                         next_size = size_ladder[size_ladder.index(attempt_size) + 1]
@@ -345,33 +369,28 @@ async def download_and_zip(interaction, filtered_files, radar_sites, messages_to
                         embed.description = f"Failed to upload {zip_path.name}: {e}\n{progress_bar}"
                         embed.color = discord.Color.red()
                         await message.edit(embed=embed)
+                        logger.error(f"[RADAR] Upload failed for {zip_path.name}: {e}")
                         return
             if not upload_failed:
                 all_uploaded = True
                 break
 
         if not all_uploaded:
-            embed.title = "Upload Failed — Files Too Large"
-            embed.description = (
-                f"Could not upload to Discord even at minimum split size ({format_file_size(MIN_FILE_SIZE)}).\n"
-                f"Total download was {format_file_size(total_downloaded_size)} across {len(file_paths)} files.\n\n"
-                f"**Try selecting fewer files or a shorter time range.**"
-            )
+            embed.title = "Upload Failed"
+            embed.description = f"Could not upload files even at minimum size ({format_file_size(MIN_FILE_SIZE)})."
             embed.color = discord.Color.red()
             await message.edit(embed=embed)
+            logger.error("[RADAR] Upload failed at all size levels")
 
     except Exception as e:
-        logger.error(f"Unexpected error in download_and_zip: {e}", exc_info=True)
+        logger.error(f"[RADAR] Unexpected error in download_and_zip: {e}", exc_info=True)
+        embed.title = "Unexpected Error"
+        embed.description = f"An unexpected error occurred: {e}"
+        embed.color = discord.Color.red()
         try:
-            embed.title = "Download Failed"
-            embed.description = f"An error occurred and the download was cancelled:\n```{type(e).__name__}: {e}```\nCheck logs for details."
-            embed.color = discord.Color.red()
             await message.edit(embed=embed)
         except Exception:
-            try:
-                await channel.send(f"❌ Download failed: `{type(e).__name__}: {e}`")
-            except Exception:
-                pass
+            pass
 
     finally:
         for file_path, _ in file_paths:
@@ -379,17 +398,17 @@ async def download_and_zip(interaction, filtered_files, radar_sites, messages_to
                 try:
                     os.remove(file_path)
                 except Exception as e:
-                    logger.error(f"Failed to delete temporary file {file_path}: {e}")
+                    logger.error(f"[RADAR] Failed to delete temp file {file_path}: {e}")
         for zip_path in Path(output_dir).glob("*.zip"):
             try:
                 zip_path.unlink()
             except Exception as e:
-                logger.error(f"Failed to delete ZIP file {zip_path}: {e}")
+                logger.error(f"[RADAR] Failed to delete zip {zip_path}: {e}")
         if os.path.exists(output_dir):
             try:
                 shutil.rmtree(output_dir)
             except Exception as e:
-                logger.error(f"Failed to delete output directory {output_dir}: {e}")
+                logger.error(f"[RADAR] Failed to delete output dir: {e}")
         with progress_lock:
             progress_data.clear()
         for msg in messages_to_delete:
@@ -856,11 +875,11 @@ class RadarCog(commands.Cog):
         await self._start_download_flow(ctx, ctx.author)
 
     @discord.app_commands.command(name="download", description="Download NEXRAD Level 2 radar data from AWS S3")
-    async def awsdl_slash(self, interaction: discord.Interaction):
+    async def download_slash(self, interaction: discord.Interaction):
         await self._start_download_flow(interaction, interaction.user)
 
     @discord.app_commands.command(name="downloaderstatus", description="Check AWS downloader and S3 latency")
-    async def awsdlstatus_slash(self, interaction: discord.Interaction):
+    async def downloaderstatus_slash(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 
         ws_latency = round(self.bot.latency * 1000)

@@ -69,7 +69,7 @@ async def get_spc_urls(day: int) -> List[str]:
                 logger.warning(f"[DYN_URL] No hazard tabs found for day{day}, using fallback")
                 return fallback
 
-            logger.info(f"[DYN_URL] Resolved day{day} URLs: {urls}")
+            logger.debug(f"[DYN_URL] Resolved day{day} URLs: {urls}")
             return urls
 
         elif day == 3:
@@ -84,7 +84,7 @@ async def get_spc_urls(day: int) -> List[str]:
                 f"{base}day3{otlk_match.group(1)}.png",
                 f"{base}day3{prob_match.group(1)}.png",
             ]
-            logger.info(f"[DYN_URL] Resolved day3 URLs: {urls}")
+            logger.debug(f"[DYN_URL] Resolved day3 URLs: {urls}")
             return urls
 
     except Exception as e:
