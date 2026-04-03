@@ -91,9 +91,9 @@ def list_files(radar_site, dates):
             for f in files:
                 filename = os.path.basename(f['Key'])
                 try:
-                    if len(filename) >= 18 and filename[4:12].isdigit() and filename[12:18].isdigit():
+                    if len(filename) >= 19 and filename[4:12].isdigit() and filename[13:19].isdigit():
                         f['FileTimestamp'] = datetime.strptime(
-                            filename[4:12] + filename[12:18], '%Y%m%d%H%M%S'
+                            filename[4:12] + filename[13:19], '%Y%m%d%H%M%S'
                         ).replace(tzinfo=timezone.utc)
                     else:
                         f['FileTimestamp'] = f['LastModified']
