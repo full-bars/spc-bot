@@ -8,10 +8,11 @@ from discord.ext import commands
 from config import SCP_CHANNEL_ID, SCP_IMAGE_URLS, AUTO_CACHE_FILE, PACIFIC
 from utils.cache import (
     auto_cache,
+    manual_cache,
     last_post_times,
-    check_partial_updates_parallel,
-    save_downloaded_images,
+    download_images_parallel,
 )
+from config import AUTO_CACHE_FILE, MANUAL_CACHE_FILE
 
 logger = logging.getLogger("scp_bot")
 
@@ -56,25 +57,19 @@ class SCPCog(commands.Cog):
                 continue
 
             try:
-                updated_count, total_count, downloaded_data = (
-                    await check_partial_updates_parallel(SCP_IMAGE_URLS, auto_cache)
+                files = await download_images_parallel(
+                    SCP_IMAGE_URLS, MANUAL_CACHE_FILE, manual_cache, use_cached=False
                 )
-                if updated_count > 0:
-                    files = await save_downloaded_images(
-                        SCP_IMAGE_URLS, downloaded_data, AUTO_CACHE_FILE, auto_cache
+                if files:
+                    await channel.send(
+                        "**New SCP Forecast Graphics Available**\n"
+                        "Supercell Composite Parameter — NIU/Gensini CFSv2",
+                        files=[discord.File(fp) for fp in files],
                     )
-                    if files:
-                        await channel.send(
-                            "**New SCP Forecast Graphics Available**\n"
-                            "Supercell Composite Parameter — NIU/Gensini CFSv2",
-                            files=[discord.File(fp) for fp in files],
-                        )
-                        last_post_times["scp"] = datetime.now(timezone.utc)
-                        logger.info(f"[SCP_DAILY] Posted {len(files)} SCP images")
-                    else:
-                        logger.info("[SCP_DAILY] Images updated but no files saved")
+                    last_post_times["scp"] = datetime.now(timezone.utc)
+                    logger.info(f"[SCP_DAILY] Posted {len(files)} SCP images")
                 else:
-                    logger.info("[SCP_DAILY] No SCP image updates detected")
+                    logger.info("[SCP_DAILY] No SCP images could be downloaded")
             except Exception as e:
                 logger.error(f"[SCP_DAILY] Unexpected error: {e}", exc_info=True)
 
