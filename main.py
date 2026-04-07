@@ -138,7 +138,7 @@ async def on_command_error(ctx, error):
 # ── Watchdog ─────────────────────────────────────────────────────────────────
 from discord.ext import tasks
 
-@tasks.loop(minutes=10)
+@tasks.loop(minutes=2)
 async def watchdog_task():
     await bot.wait_until_ready()
 
