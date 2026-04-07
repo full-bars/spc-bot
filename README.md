@@ -2,8 +2,6 @@
 
 A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks, mesoscale discussions, and tornado/severe thunderstorm watches in real time. Includes a NEXRAD Level 2 radar downloader pulling from the NOAA AWS S3 archive with flexible time range selection.
 
-Built with discord.py.
-
 ## Features
 
 - SPC convective outlooks (Day 1, 2, 3, Day 4-8) with dynamic URL resolution
