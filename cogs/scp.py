@@ -3,75 +3,102 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 
-from config import SCP_CHANNEL_ID, SCP_IMAGE_URLS, AUTO_CACHE_FILE, PACIFIC
+from config import AUTO_CACHE_FILE, MANUAL_CACHE_FILE, PACIFIC, SCP_CHANNEL_ID, SCP_IMAGE_URLS
 from utils.cache import (
     auto_cache,
-    manual_cache,
-    last_post_times,
     download_images_parallel,
+    last_post_times,
+    manual_cache,
 )
-from config import AUTO_CACHE_FILE, MANUAL_CACHE_FILE
 
-logger = logging.getLogger("scp_bot")
+logger = logging.getLogger("spc_bot")
 
 
 class SCPCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.task = bot.loop.create_task(self.auto_post_scp_daily())
+        self._next_post_time: datetime | None = None
+        self.auto_post_scp.start()
 
     def cog_unload(self):
-        self.task.cancel()
+        self.auto_post_scp.cancel()
 
-    async def auto_post_scp_daily(self):
+    def _compute_next_post_time(self) -> datetime:
+        """Compute the next 6am or 6pm Pacific post time."""
+        now = datetime.now(PACIFIC)
+        post_hours = [6, 18]
+        future_times = [
+            now.replace(hour=h, minute=0, second=0, microsecond=0)
+            for h in post_hours
+        ]
+        future_times = [
+            t if t > now else t + timedelta(days=1) for t in future_times
+        ]
+        return min(future_times)
+
+    @tasks.loop(minutes=1)
+    async def auto_post_scp(self):
         """
-        Wake up at 6am and 6pm Pacific and post updated SCP forecast
-        graphics from NIU/Gensini if the images have changed.
+        Check every minute if it's time to post SCP graphics.
+        Posts at 6am and 6pm Pacific if the images have changed.
         """
         await self.bot.wait_until_ready()
-        post_hours = [6, 18]
 
-        while not self.bot.is_closed():
-            now = datetime.now(PACIFIC)
-            future_times = [
-                now.replace(hour=h, minute=0, second=0, microsecond=0)
-                for h in post_hours
-            ]
-            future_times = [
-                t if t > now else t + timedelta(days=1)
-                for t in future_times
-            ]
-            target_time = min(future_times)
-            sleep_secs = (target_time - now).total_seconds()
+        if self._next_post_time is None:
+            self._next_post_time = self._compute_next_post_time()
             logger.info(
-                f"[SCP_DAILY] Sleeping {sleep_secs/3600:.2f} hours until "
-                f"next SCP post at {target_time}"
+                f"[SCP_DAILY] Next SCP post scheduled for {self._next_post_time}"
             )
-            await discord.utils.sleep_until(target_time)
 
-            channel = self.bot.get_channel(SCP_CHANNEL_ID)
-            if not channel:
-                logger.warning("[SCP_DAILY] SCP channel not found")
-                continue
+        now = datetime.now(PACIFIC)
+        if now < self._next_post_time:
+            return
 
-            try:
-                files = await download_images_parallel(
-                    SCP_IMAGE_URLS, MANUAL_CACHE_FILE, manual_cache, use_cached=False
+        # Time to post
+        channel = self.bot.get_channel(SCP_CHANNEL_ID)
+        if not channel:
+            logger.warning("[SCP_DAILY] SCP channel not found")
+            self._next_post_time = self._compute_next_post_time()
+            return
+
+        try:
+            files = await download_images_parallel(
+                SCP_IMAGE_URLS,
+                MANUAL_CACHE_FILE,
+                manual_cache,
+                use_cached=False,
+            )
+            if files:
+                await channel.send(
+                    "**New SCP Forecast Graphics Available**\n"
+                    "Supercell Composite Parameter — NIU/Gensini CFSv2",
+                    files=[discord.File(fp) for fp in files],
                 )
-                if files:
-                    await channel.send(
-                        "**New SCP Forecast Graphics Available**\n"
-                        "Supercell Composite Parameter — NIU/Gensini CFSv2",
-                        files=[discord.File(fp) for fp in files],
-                    )
-                    last_post_times["scp"] = datetime.now(timezone.utc)
-                    logger.info(f"[SCP_DAILY] Posted {len(files)} SCP images")
-                else:
-                    logger.info("[SCP_DAILY] No SCP images could be downloaded")
-            except Exception as e:
-                logger.error(f"[SCP_DAILY] Unexpected error: {e}", exc_info=True)
+                last_post_times["scp"] = datetime.now(timezone.utc)
+                logger.info(f"[SCP_DAILY] Posted {len(files)} SCP images")
+            else:
+                logger.info("[SCP_DAILY] No SCP images could be downloaded")
+        except Exception as e:
+            logger.error(f"[SCP_DAILY] Unexpected error: {e}", exc_info=True)
+
+        self._next_post_time = self._compute_next_post_time()
+        logger.info(
+            f"[SCP_DAILY] Next SCP post scheduled for {self._next_post_time}"
+        )
+
+    @auto_post_scp.after_loop
+    async def after_scp_loop(self):
+        if self.auto_post_scp.is_being_cancelled():
+            return
+        task = self.auto_post_scp.get_task()
+        exc = task.exception() if task else None
+        if exc:
+            logger.error(
+                f"[TASK] auto_post_scp stopped: {type(exc).__name__}: {exc}",
+                exc_info=exc,
+            )
 
 
 async def setup(bot: commands.Bot):

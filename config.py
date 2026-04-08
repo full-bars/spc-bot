@@ -1,16 +1,26 @@
 # config.py
 import os
+
 from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _require_int(name: str) -> int:
+    """Require an integer environment variable — fail fast if missing."""
+    val = os.getenv(name)
+    if not val:
+        raise ValueError(f"{name} environment variable not set")
+    return int(val)
+
+
 CONFIG = {
     "token": os.getenv("DISCORD_TOKEN"),
-    "scp_channel_id": int(os.getenv("SCP_CHANNEL_ID", "1228057054262853712")),
-    "spc_channel_id": int(os.getenv("SPC_CHANNEL_ID", "1336294580743704607")),
+    "scp_channel_id": _require_int("SCP_CHANNEL_ID"),
+    "spc_channel_id": _require_int("SPC_CHANNEL_ID"),
     "manual_cache_file": os.getenv("MANUAL_CACHE_FILE", "posted_records.json"),
     "auto_cache_file": os.getenv("AUTO_CACHE_FILE", "auto_posted_records.json"),
-    "guild_id": int(os.getenv("GUILD_ID", "945432219315490867")),
+    "guild_id": _require_int("GUILD_ID"),
     "cache_file_dir": os.getenv("CACHE_DIR", "cache"),
     "log_file": os.getenv("LOG_FILE", "spc_bot.log"),
 }
@@ -30,6 +40,7 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 
 # Timezones
 import pytz
+
 CENTRAL = pytz.timezone("America/Chicago")
 PACIFIC = pytz.timezone("US/Pacific")
 
@@ -37,7 +48,7 @@ PACIFIC = pytz.timezone("US/Pacific")
 SPC_SCHEDULE = {
     1: [1, 6, 13, 20],
     2: [2, 13],
-    3: [3, 15]
+    3: [3, 15],
 }
 
 # SPC URLs
@@ -48,17 +59,17 @@ SPC_URLS_FALLBACK = {
         "https://www.spc.noaa.gov/products/outlook/day1otlk.gif",
         "https://www.spc.noaa.gov/products/outlook/day1probotlk_torn.gif",
         "https://www.spc.noaa.gov/products/outlook/day1probotlk_wind.gif",
-        "https://www.spc.noaa.gov/products/outlook/day1probotlk_hail.gif"
+        "https://www.spc.noaa.gov/products/outlook/day1probotlk_hail.gif",
     ],
     2: [
         "https://www.spc.noaa.gov/products/outlook/day2otlk.gif",
         "https://www.spc.noaa.gov/products/outlook/day2probotlk_torn.gif",
         "https://www.spc.noaa.gov/products/outlook/day2probotlk_wind.gif",
-        "https://www.spc.noaa.gov/products/outlook/day2probotlk_hail.gif"
+        "https://www.spc.noaa.gov/products/outlook/day2probotlk_hail.gif",
     ],
     3: [
         "https://www.spc.noaa.gov/products/outlook/day3otlk.gif",
-        "https://www.spc.noaa.gov/products/outlook/day3prob.gif"
+        "https://www.spc.noaa.gov/products/outlook/day3prob.gif",
     ],
     "48": ["https://www.spc.noaa.gov/products/exper/day4-8/day48prob.gif"],
 }
@@ -71,14 +82,14 @@ SCP_IMAGE_URLS = [
     "https://atlas.niu.edu/forecast/scp/cfs_week2.png",
     "https://atlas.niu.edu/forecast/scp/cfs_week3.png",
     "https://atlas.niu.edu/forecast/scp/gefs_week1__CTRL.png",
-    "https://atlas.niu.edu/forecast/scp/gefs_week2__CTRL.png"
+    "https://atlas.niu.edu/forecast/scp/gefs_week2__CTRL.png",
 ]
 
 # WPC
 WPC_IMAGE_URLS = [
     "https://www.wpc.ncep.noaa.gov/qpf/94ewbg.gif",
     "https://www.wpc.ncep.noaa.gov/qpf/98ewbg.gif",
-    "https://www.wpc.ncep.noaa.gov/qpf/99ewbg.gif"
+    "https://www.wpc.ncep.noaa.gov/qpf/99ewbg.gif",
 ]
 
 # SPC product index URLs

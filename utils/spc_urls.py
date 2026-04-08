@@ -1,25 +1,21 @@
 # utils/spc_urls.py
+import logging
 import os
 import re
-import logging
 from typing import List
 
 from config import (
+    AUTO_CACHE_FILE,
     CACHE_DIR,
+    MANUAL_CACHE_FILE,
     SPC_OUTLOOK_BASE,
     SPC_URLS_FALLBACK,
-    AUTO_CACHE_FILE,
-    MANUAL_CACHE_FILE,
 )
-from utils.http import http_get_bytes, http_get_text
-from utils.cache import (
-    auto_cache,
-    manual_cache,
-    get_cache_path_for_url,
-    atomic_json_dump,
-)
+from utils.change_detection import get_cache_path_for_url
+from utils.http import http_get_bytes
+from utils.persistence import atomic_json_dump
 
-logger = logging.getLogger("scp_bot")
+logger = logging.getLogger("spc_bot")
 
 CIG_MIGRATION_FLAG = os.path.join(CACHE_DIR, ".cig_migration_done")
 
@@ -28,16 +24,19 @@ async def get_spc_urls(day: int) -> List[str]:
     """
     Scrape the SPC outlook HTML page to resolve the current issuance-time PNG URLs
     introduced with the CIG format on March 3, 2026.
+
     Returns empty list if scraping fails — caller will skip posting rather than
     using stale fallback GIFs which may be days old.
     """
-    fallback = []
+    fallback: List[str] = []
     page_url = f"{SPC_OUTLOOK_BASE}/day{day}otlk.html"
 
     try:
         content, status = await http_get_bytes(page_url)
         if not content or status != 200:
-            logger.warning(f"[DYN_URL] Failed to fetch day{day} page (status={status})")
+            logger.warning(
+                f"[DYN_URL] Failed to fetch day{day} page (status={status})"
+            )
             return fallback
 
         html = content.decode("utf-8", errors="ignore")
@@ -45,13 +44,15 @@ async def get_spc_urls(day: int) -> List[str]:
 
         if day in (1, 2):
             otlk_match = re.search(r"show_tab\('(otlk_\d+)'\)", html)
-            hazard_tabs = re.findall(r"show_tab\('(probotlk_\d+_(?:torn|wind|hail))'\)", html)
+            hazard_tabs = re.findall(
+                r"show_tab\('(probotlk_\d+_(?:torn|wind|hail))'\)", html
+            )
 
             if not otlk_match:
                 snippet = html[:500].replace("\n", " ").strip()
                 logger.warning(
-                    f"[DYN_URL] day{day} page fetched OK (status=200) but otlk tab pattern "
-                    f"not found — page structure may have changed. "
+                    f"[DYN_URL] day{day} page fetched OK (status=200) but otlk tab "
+                    f"pattern not found — page structure may have changed. "
                     f"First 500 chars: {snippet!r}"
                 )
                 return fallback
@@ -66,7 +67,9 @@ async def get_spc_urls(day: int) -> List[str]:
                         seen.add(tab)
                         urls.append(f"{base}day{day}{tab}.png")
             else:
-                logger.warning(f"[DYN_URL] No hazard tabs found for day{day}, using fallback")
+                logger.warning(
+                    f"[DYN_URL] No hazard tabs found for day{day}, using fallback"
+                )
                 return fallback
 
             logger.debug(f"[DYN_URL] Resolved day{day} URLs: {urls}")
@@ -77,7 +80,9 @@ async def get_spc_urls(day: int) -> List[str]:
             prob_match = re.search(r"show_tab\('(prob_\d+)'\)", html)
 
             if not otlk_match or not prob_match:
-                logger.warning(f"[DYN_URL] Could not find tabs for day3, using fallback")
+                logger.warning(
+                    f"[DYN_URL] Could not find tabs for day3, using fallback"
+                )
                 return fallback
 
             urls = [
@@ -88,7 +93,9 @@ async def get_spc_urls(day: int) -> List[str]:
             return urls
 
     except Exception as e:
-        logger.warning(f"[DYN_URL] Exception resolving day{day} URLs: {e}, using fallback")
+        logger.warning(
+            f"[DYN_URL] Exception resolving day{day} URLs: {e}, using fallback"
+        )
 
     return fallback
 
@@ -101,7 +108,12 @@ async def cig_migration():
     if os.path.exists(CIG_MIGRATION_FLAG):
         return
 
-    logger.info("[CIG MIGRATION] Running one-time cache bust for CIG PNG format rollout")
+    # Lazy import to avoid circular import at module level
+    from utils.cache import auto_cache, manual_cache
+
+    logger.info(
+        "[CIG MIGRATION] Running one-time cache bust for CIG PNG format rollout"
+    )
 
     all_spc_urls = []
     for day in (1, 2, 3):
@@ -120,8 +132,16 @@ async def cig_migration():
         auto_cache.pop(url, None)
         manual_cache.pop(url, None)
 
-    spc_keys = [k for k in list(auto_cache.keys()) if "spc.noaa.gov/products/outlook" in k]
-    spc_keys += [k for k in list(manual_cache.keys()) if "spc.noaa.gov/products/outlook" in k]
+    spc_keys = [
+        k
+        for k in list(auto_cache.keys())
+        if "spc.noaa.gov/products/outlook" in k
+    ]
+    spc_keys += [
+        k
+        for k in list(manual_cache.keys())
+        if "spc.noaa.gov/products/outlook" in k
+    ]
     for k in spc_keys:
         auto_cache.pop(k, None)
         manual_cache.pop(k, None)
@@ -130,4 +150,7 @@ async def cig_migration():
     atomic_json_dump(manual_cache, MANUAL_CACHE_FILE)
 
     open(CIG_MIGRATION_FLAG, "w").close()
-    logger.info(f"[CIG MIGRATION] Done. Removed {removed_files} cached files and cleared hash entries.")
+    logger.info(
+        f"[CIG MIGRATION] Done. Removed {removed_files} cached files "
+        f"and cleared hash entries."
+    )
