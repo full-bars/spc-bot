@@ -1,33 +1,29 @@
 # cogs/status.py
 import logging
+import socket
 from datetime import datetime, timezone
 from typing import Optional
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 
-from config import (
-    SPC_URLS,
-    SCP_IMAGE_URLS,
-    WPC_IMAGE_URLS,
-    MANUAL_CACHE_FILE,
-)
+from config import MANUAL_CACHE_FILE, SCP_IMAGE_URLS, SPC_URLS, WPC_IMAGE_URLS
 import utils.http as _http
 from utils.cache import (
-    manual_cache,
     auto_cache,
-    posted_mds,
-    posted_watches,
-    partial_update_state,
-    last_post_times,
     check_all_urls_exist_parallel,
     download_images_parallel,
     download_single_image,
     format_timedelta,
+    last_post_times,
+    manual_cache,
+    partial_update_state,
+    posted_mds,
+    posted_watches,
 )
 from utils.spc_urls import get_spc_urls
 
-logger = logging.getLogger("scp_bot")
+logger = logging.getLogger("spc_bot")
 
 BOT_START_TIME: Optional[datetime] = None
 
@@ -41,7 +37,10 @@ async def send_with_handling(source, content: str, file_paths=None):
         except Exception as e:
             logger.warning(f"Could not create discord.File from {fp}: {e}")
     try:
-        if hasattr(source, "response") and getattr(source, "response", None) is not None:
+        if (
+            hasattr(source, "response")
+            and getattr(source, "response", None) is not None
+        ):
             await source.followup.send(content, files=files)
         else:
             await source.send(content, files=files)
@@ -54,11 +53,19 @@ async def send_with_handling(source, content: str, file_paths=None):
         logger.error(f"Unexpected error sending message: {e}")
 
 
-async def fetch_and_send_weather_images(source, urls, title: str, use_cached: bool = False):
+async def fetch_and_send_weather_images(
+    source, urls, title: str, use_cached: bool = False
+):
     if not await check_all_urls_exist_parallel(urls):
-        msg = f"{title.replace('**Latest ', '').replace('**', '')} not currently available."
+        msg = (
+            f"{title.replace('**Latest ', '').replace('**', '')} "
+            f"not currently available."
+        )
         try:
-            if hasattr(source, "response") and getattr(source, "response", None) is not None:
+            if (
+                hasattr(source, "response")
+                and getattr(source, "response", None) is not None
+            ):
                 await source.followup.send(msg)
             else:
                 await source.send(msg)
@@ -72,9 +79,16 @@ async def fetch_and_send_weather_images(source, urls, title: str, use_cached: bo
     if files:
         await send_with_handling(source, title, file_paths=files)
     else:
-        msg = f"No new {title.replace('**Latest ', '').replace('**', '').lower()} available."
+        msg = (
+            f"No new "
+            f"{title.replace('**Latest ', '').replace('**', '').lower()} "
+            f"available."
+        )
         try:
-            if hasattr(source, "response") and getattr(source, "response", None) is not None:
+            if (
+                hasattr(source, "response")
+                and getattr(source, "response", None) is not None
+            ):
                 await source.followup.send(msg)
             else:
                 await source.send(msg)
@@ -86,12 +100,15 @@ class StatusCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # ── Prefix commands ──────────────────────────────────────────────────────
+    # ── Prefix commands ──────────────────────────────────────────────────
 
     @commands.command(name="scp_cmd")
     async def scp_prefix(self, ctx):
         await fetch_and_send_weather_images(
-            ctx, SCP_IMAGE_URLS, "**Latest SCP Forecast Graphics**", use_cached=True
+            ctx,
+            SCP_IMAGE_URLS,
+            "**Latest SCP Forecast Graphics**",
+            use_cached=True,
         )
 
     @commands.command(name="spc1")
@@ -118,25 +135,38 @@ class StatusCog(commands.Cog):
     @commands.command(name="spc48")
     async def spc48_prefix(self, ctx):
         await fetch_and_send_weather_images(
-            ctx, SPC_URLS["48"], "**Latest SPC Day 4-8 Outlook**", use_cached=False
+            ctx,
+            SPC_URLS["48"],
+            "**Latest SPC Day 4-8 Outlook**",
+            use_cached=False,
         )
 
     @commands.command(name="wpc")
     async def wpc_prefix(self, ctx):
         await fetch_and_send_weather_images(
-            ctx, WPC_IMAGE_URLS, "**WPC Excessive Rainfall Outlooks (Day 1-3)**", use_cached=False
+            ctx,
+            WPC_IMAGE_URLS,
+            "**WPC Excessive Rainfall Outlooks (Day 1-3)**",
+            use_cached=False,
         )
 
-    # ── Slash commands ───────────────────────────────────────────────────────
+    # ── Slash commands ───────────────────────────────────────────────────
 
-    @discord.app_commands.command(name="scp", description="Get latest SCP Forecast Graphics")
+    @discord.app_commands.command(
+        name="scp", description="Get latest SCP Forecast Graphics"
+    )
     async def scp_slash(self, interaction: discord.Interaction):
         await interaction.response.defer()
         await fetch_and_send_weather_images(
-            interaction, SCP_IMAGE_URLS, "**Latest SCP Forecast Graphics**", use_cached=True
+            interaction,
+            SCP_IMAGE_URLS,
+            "**Latest SCP Forecast Graphics**",
+            use_cached=True,
         )
 
-    @discord.app_commands.command(name="spc1", description="Get latest SPC Day 1 Outlooks")
+    @discord.app_commands.command(
+        name="spc1", description="Get latest SPC Day 1 Outlooks"
+    )
     async def spc1_slash(self, interaction: discord.Interaction):
         await interaction.response.defer()
         urls = await get_spc_urls(1)
@@ -144,7 +174,9 @@ class StatusCog(commands.Cog):
             interaction, urls, "**Latest SPC Day 1 Outlooks**", use_cached=True
         )
 
-    @discord.app_commands.command(name="spc2", description="Get latest SPC Day 2 Outlooks")
+    @discord.app_commands.command(
+        name="spc2", description="Get latest SPC Day 2 Outlooks"
+    )
     async def spc2_slash(self, interaction: discord.Interaction):
         await interaction.response.defer()
         urls = await get_spc_urls(2)
@@ -152,7 +184,9 @@ class StatusCog(commands.Cog):
             interaction, urls, "**Latest SPC Day 2 Outlooks**", use_cached=True
         )
 
-    @discord.app_commands.command(name="spc3", description="Get latest SPC Day 3 Outlooks")
+    @discord.app_commands.command(
+        name="spc3", description="Get latest SPC Day 3 Outlooks"
+    )
     async def spc3_slash(self, interaction: discord.Interaction):
         await interaction.response.defer()
         urls = await get_spc_urls(3)
@@ -160,28 +194,43 @@ class StatusCog(commands.Cog):
             interaction, urls, "**Latest SPC Day 3 Outlooks**", use_cached=True
         )
 
-    @discord.app_commands.command(name="spc48", description="Get latest SPC Day 4-8 Outlook")
+    @discord.app_commands.command(
+        name="spc48", description="Get latest SPC Day 4-8 Outlook"
+    )
     async def spc48_slash(self, interaction: discord.Interaction):
         await interaction.response.defer()
         await fetch_and_send_weather_images(
-            interaction, SPC_URLS["48"], "**Latest SPC Day 4-8 Outlook**", use_cached=False
+            interaction,
+            SPC_URLS["48"],
+            "**Latest SPC Day 4-8 Outlook**",
+            use_cached=False,
         )
 
-    @discord.app_commands.command(name="wpc", description="Get WPC Day 1-3 Rainfall Outlooks")
+    @discord.app_commands.command(
+        name="wpc", description="Get WPC Day 1-3 Rainfall Outlooks"
+    )
     async def wpc_slash(self, interaction: discord.Interaction):
         await interaction.response.defer()
         await fetch_and_send_weather_images(
-            interaction, WPC_IMAGE_URLS,
-            "**WPC Excessive Rainfall Outlooks (Day 1-3)**", use_cached=False
+            interaction,
+            WPC_IMAGE_URLS,
+            "**WPC Excessive Rainfall Outlooks (Day 1-3)**",
+            use_cached=False,
         )
 
-    @discord.app_commands.command(name="md", description="Show all currently active SPC Mesoscale Discussions")
+    @discord.app_commands.command(
+        name="md",
+        description="Show all currently active SPC Mesoscale Discussions",
+    )
     async def md_slash(self, interaction: discord.Interaction):
         await interaction.response.defer()
         from cogs.mesoscale import fetch_latest_md_numbers, fetch_md_details
+
         md_numbers = await fetch_latest_md_numbers()
         if not md_numbers:
-            await interaction.followup.send("No active Mesoscale Discussions found.")
+            await interaction.followup.send(
+                "No active Mesoscale Discussions found."
+            )
             return
         for md_num in md_numbers:
             image_url, summary, from_cache = await fetch_md_details(md_num)
@@ -190,7 +239,9 @@ class StatusCog(commands.Cog):
                 cache_path, _, _ = await download_single_image(
                     image_url, MANUAL_CACHE_FILE, manual_cache
                 )
-            md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
+            md_page_url = (
+                f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
+            )
             embed = discord.Embed(
                 title=f"🌩️ SPC Mesoscale Discussion #{int(md_num)}",
                 url=md_page_url,
@@ -199,25 +250,35 @@ class StatusCog(commands.Cog):
             if summary:
                 embed.description = summary
             if from_cache:
-                embed.set_footer(text="⚠️ SPC website unreachable — image served from cache")
+                embed.set_footer(
+                    text=(
+                        "⚠️ SPC website unreachable — "
+                        "image served from cache"
+                    )
+                )
             files_to_send = []
             if cache_path:
-                files_to_send.append(discord.File(cache_path, filename=f"md_{md_num}.png"))
+                files_to_send.append(
+                    discord.File(
+                        cache_path, filename=f"md_{md_num}.png"
+                    )
+                )
                 embed.set_image(url=f"attachment://md_{md_num}.png")
             try:
-                await interaction.followup.send(embed=embed, files=files_to_send)
+                await interaction.followup.send(
+                    embed=embed, files=files_to_send
+                )
             except discord.HTTPException as e:
                 logger.error(f"[/md] Failed to send MD #{md_num}: {e}")
 
     @discord.app_commands.command(
         name="status",
-        description="Show bot health, last post times, and current task state"
+        description="Show bot health, last post times, and current task state",
     )
     async def status_slash(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 
         now = datetime.now(timezone.utc)
-        import socket
         hostname = socket.gethostname()
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -226,7 +287,12 @@ class StatusCog(commands.Cog):
             s.close()
         except Exception:
             host_ip = "unknown"
-        lines = ["```", f"═══ SCP/SPC Bot Status ═══", f"Host           : {hostname} ({host_ip})", ""]
+        lines = [
+            "```",
+            "═══ SPC/SPC Bot Status ═══",
+            f"Host           : {hostname} ({host_ip})",
+            "",
+        ]
 
         if BOT_START_TIME:
             uptime = now - BOT_START_TIME
@@ -234,8 +300,13 @@ class StatusCog(commands.Cog):
         else:
             lines.append("Uptime         : unknown")
 
-        session_ok = _http.http_session is not None and not _http.http_session.closed
-        lines.append(f"HTTP Session   : {'OK' if session_ok else 'CLOSED/MISSING'}")
+        session_ok = (
+            _http.http_session is not None
+            and not _http.http_session.closed
+        )
+        lines.append(
+            f"HTTP Session   : {'OK' if session_ok else 'CLOSED/MISSING'}"
+        )
         lines.append("")
 
         lines.append("── Tasks ──────────────────────────────")
@@ -262,7 +333,9 @@ class StatusCog(commands.Cog):
         if partial_update_state:
             lines.append("── Partial Update State ────────────────")
             for day_key, state in partial_update_state.items():
-                elapsed = (datetime.now() - state["start_time"]).total_seconds() / 60
+                elapsed = (
+                    datetime.now() - state["start_time"]
+                ).total_seconds() / 60
                 lines.append(
                     f"  {day_key}: {elapsed:.1f} min elapsed, "
                     f"{len(state['downloaded_data'])} imgs cached"
@@ -274,9 +347,6 @@ class StatusCog(commands.Cog):
         lines.append("```")
 
         await interaction.followup.send("\n".join(lines), ephemeral=True)
-
-
-from discord.ext import tasks
 
 
 async def setup(bot: commands.Bot):

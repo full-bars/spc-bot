@@ -1,0 +1,5 @@
+discord.py==2.7.1
+aiohttp==3.13.3
+boto3==1.42.75
+pytz==2026.1.post1
+python-dotenv==1.2.2

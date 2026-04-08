@@ -1,4 +1,5 @@
 # cogs/outlooks.py
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -8,16 +9,16 @@ from discord.ext import commands, tasks
 from config import SPC_CHANNEL_ID, SPC_URLS
 from utils.cache import (
     auto_cache,
-    partial_update_state,
+    check_all_urls_exist_parallel,
+    check_partial_updates_parallel,
     last_post_times,
     last_posted_urls,
-    check_partial_updates_parallel,
+    partial_update_state,
     save_downloaded_images,
-    check_all_urls_exist_parallel,
 )
 from utils.spc_urls import get_spc_urls
 
-logger = logging.getLogger("scp_bot")
+logger = logging.getLogger("spc_bot")
 
 
 async def check_and_post_day(channel: discord.TextChannel, day: int):
@@ -26,7 +27,8 @@ async def check_and_post_day(channel: discord.TextChannel, day: int):
     Detects partial updates and waits up to 20 minutes for all images before
     posting whatever is available.
     """
-    from config import SPC_URLS_FALLBACK
+    from config import AUTO_CACHE_FILE, SPC_URLS_FALLBACK
+
     urls = await get_spc_urls(day)
     day_key = f"day{day}"
 
@@ -38,20 +40,25 @@ async def check_and_post_day(channel: discord.TextChannel, day: int):
     if not await check_all_urls_exist_parallel(urls):
         return
 
-    updated_count, total_count, downloaded_data = await check_partial_updates_parallel(
-        urls, auto_cache
+    updated_count, total_count, downloaded_data = (
+        await check_partial_updates_parallel(urls, auto_cache)
     )
 
     if updated_count == 0:
         if day_key in partial_update_state:
-            # Don't discard partial state just because this cycle found no new updates.
-            # SPC publishes images a minute apart — we may have cached some already.
-            # Only clear if we've been waiting less than 2 minutes (avoids stale state).
-            elapsed = (datetime.now() - partial_update_state[day_key]["start_time"]).total_seconds() / 60
+            elapsed = (
+                datetime.now() - partial_update_state[day_key]["start_time"]
+            ).total_seconds() / 60
             if elapsed < 2:
-                logger.debug(f"[Day {day}] No new updates this cycle but partial state is fresh ({elapsed:.1f} min), keeping")
+                logger.debug(
+                    f"[Day {day}] No new updates this cycle but partial state "
+                    f"is fresh ({elapsed:.1f} min), keeping"
+                )
             else:
-                logger.info(f"[Day {day}] No updates found after {elapsed:.1f} min; clearing partial state")
+                logger.info(
+                    f"[Day {day}] No updates found after {elapsed:.1f} min; "
+                    f"clearing partial state"
+                )
                 partial_update_state.pop(day_key, None)
         return
 
@@ -78,7 +85,7 @@ async def check_and_post_day(channel: discord.TextChannel, day: int):
                     f"Posting {len(stored)}/{total_count} images."
                 )
                 files = await save_downloaded_images(
-                    urls, stored, auto_cache.__class__, auto_cache
+                    urls, stored, AUTO_CACHE_FILE, auto_cache
                 )
                 if files:
                     try:
@@ -88,7 +95,9 @@ async def check_and_post_day(channel: discord.TextChannel, day: int):
                         )
                         last_post_times[day_key] = datetime.now(timezone.utc)
                     except Exception as e:
-                        logger.error(f"Failed to send partial post for Day {day}: {e}")
+                        logger.error(
+                            f"Failed to send partial post for Day {day}: {e}"
+                        )
                 partial_update_state.pop(day_key, None)
             else:
                 logger.info(
@@ -105,11 +114,16 @@ async def check_and_post_day(channel: discord.TextChannel, day: int):
         elapsed = (
             datetime.now() - partial_update_state[day_key]["start_time"]
         ).total_seconds() / 60
-        logger.info(f"[Day {day}] All images ready after {elapsed:.1f} min. Posting.")
+        logger.info(
+            f"[Day {day}] All images ready after {elapsed:.1f} min. Posting."
+        )
         partial_update_state.pop(day_key, None)
 
     from config import AUTO_CACHE_FILE
-    files = await save_downloaded_images(urls, downloaded_data, AUTO_CACHE_FILE, auto_cache)
+
+    files = await save_downloaded_images(
+        urls, downloaded_data, AUTO_CACHE_FILE, auto_cache
+    )
     if files:
         try:
             await channel.send(
@@ -142,8 +156,12 @@ class OutlooksCog(commands.Cog):
         if not channel:
             logger.warning("SPC channel not found for auto_post_spc")
             return
-        for day in (1, 2, 3):
-            await check_and_post_day(channel, day)
+        # Check all three days concurrently
+        await asyncio.gather(
+            check_and_post_day(channel, 1),
+            check_and_post_day(channel, 2),
+            check_and_post_day(channel, 3),
+        )
 
     @tasks.loop(seconds=20)
     async def aggressive_check_spc(self):
@@ -154,12 +172,17 @@ class OutlooksCog(commands.Cog):
         if not channel:
             logger.warning("SPC channel not found for aggressive_check_spc")
             return
-        for day_key in list(partial_update_state.keys()):
+        # Run partial checks concurrently
+        day_keys = list(partial_update_state.keys())
+        tasks_ = []
+        for day_key in day_keys:
             try:
                 day = int(day_key.replace("day", ""))
             except Exception:
                 continue
-            await check_and_post_day(channel, day)
+            tasks_.append(check_and_post_day(channel, day))
+        if tasks_:
+            await asyncio.gather(*tasks_)
 
     @tasks.loop(minutes=30)
     async def auto_post_spc48(self):
@@ -171,11 +194,12 @@ class OutlooksCog(commands.Cog):
         urls = SPC_URLS["48"]
         if not await check_all_urls_exist_parallel(urls):
             return
-        updated_count, total_count, downloaded_data = await check_partial_updates_parallel(
-            urls, auto_cache
+        updated_count, total_count, downloaded_data = (
+            await check_partial_updates_parallel(urls, auto_cache)
         )
         if updated_count > 0:
             from config import AUTO_CACHE_FILE
+
             files = await save_downloaded_images(
                 urls, downloaded_data, AUTO_CACHE_FILE, auto_cache
             )
@@ -193,25 +217,38 @@ class OutlooksCog(commands.Cog):
     async def after_spc_loop(self):
         if self.auto_post_spc.is_being_cancelled():
             return
-        exc = self.auto_post_spc.get_task().exception() if self.auto_post_spc.get_task() else None
+        task = self.auto_post_spc.get_task()
+        exc = task.exception() if task else None
         if exc:
-            logger.error(f"[TASK] auto_post_spc stopped: {type(exc).__name__}: {exc}", exc_info=exc)
+            logger.error(
+                f"[TASK] auto_post_spc stopped: {type(exc).__name__}: {exc}",
+                exc_info=exc,
+            )
 
     @auto_post_spc48.after_loop
     async def after_spc48_loop(self):
         if self.auto_post_spc48.is_being_cancelled():
             return
-        exc = self.auto_post_spc48.get_task().exception() if self.auto_post_spc48.get_task() else None
+        task = self.auto_post_spc48.get_task()
+        exc = task.exception() if task else None
         if exc:
-            logger.error(f"[TASK] auto_post_spc48 stopped: {type(exc).__name__}: {exc}", exc_info=exc)
+            logger.error(
+                f"[TASK] auto_post_spc48 stopped: {type(exc).__name__}: {exc}",
+                exc_info=exc,
+            )
 
     @aggressive_check_spc.after_loop
     async def after_aggressive_loop(self):
         if self.aggressive_check_spc.is_being_cancelled():
             return
-        exc = self.aggressive_check_spc.get_task().exception() if self.aggressive_check_spc.get_task() else None
+        task = self.aggressive_check_spc.get_task()
+        exc = task.exception() if task else None
         if exc:
-            logger.error(f"[TASK] aggressive_check_spc stopped: {type(exc).__name__}: {exc}", exc_info=exc)
+            logger.error(
+                f"[TASK] aggressive_check_spc stopped: "
+                f"{type(exc).__name__}: {exc}",
+                exc_info=exc,
+            )
 
 
 async def setup(bot: commands.Bot):

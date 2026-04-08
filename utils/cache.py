@@ -1,17 +1,67 @@
 # utils/cache.py
-import os
-import json
-import hashlib
-import logging
-import tempfile
+"""
+In-memory state and download/change-detection orchestration.
+
+Persistence is handled by utils.persistence.
+Content-change detection is handled by utils.change_detection.
+"""
+
 import asyncio
+import logging
+import os
 from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
-from config import CACHE_DIR, AUTO_CACHE_FILE, MANUAL_CACHE_FILE, SPC_SCHEDULE, CENTRAL
-from utils.http import ensure_session, http_head_meta, http_head_ok, http_get_bytes
+import aiohttp
 
-logger = logging.getLogger("scp_bot")
+from config import (
+    AUTO_CACHE_FILE,
+    CACHE_DIR,
+    CENTRAL,
+    MANUAL_CACHE_FILE,
+    SPC_SCHEDULE,
+)
+from utils.change_detection import (
+    calculate_hash_bytes,
+    get_cache_path_for_url,
+    head_changed,
+    is_placeholder_image,
+)
+from utils.http import ensure_session, http_get_bytes, http_head_meta, http_head_ok
+from utils.persistence import (
+    atomic_json_dump,
+    load_json_if_exists,
+    load_set_if_exists,
+    save_set,
+)
+
+logger = logging.getLogger("spc_bot")
+
+# Re-export for backward compatibility
+__all__ = [
+    "auto_cache",
+    "manual_cache",
+    "partial_update_state",
+    "posted_mds",
+    "posted_watches",
+    "active_mds",
+    "active_watches",
+    "last_post_times",
+    "last_posted_urls",
+    "save_set",
+    "atomic_json_dump",
+    "get_cache_path_for_url",
+    "is_placeholder_image",
+    "calculate_hash_bytes",
+    "download_single_image",
+    "download_images_parallel",
+    "check_partial_updates_parallel",
+    "save_downloaded_images",
+    "check_all_urls_exist_parallel",
+    "format_timedelta",
+    "MD_CACHE_FILE",
+    "WATCH_CACHE_FILE",
+]
 
 # ── In-memory state ──────────────────────────────────────────────────────────
 manual_cache: Dict[str, str] = {}
@@ -37,70 +87,9 @@ last_post_times: Dict[str, Optional[datetime]] = {
 }
 last_posted_urls: Dict[str, List[str]] = {}
 
-# Per-URL HEAD snapshot from last poll cycle
-_head_cache: Dict[str, Dict[str, str]] = {}
-
-
-# ── JSON persistence ─────────────────────────────────────────────────────────
-def load_json_if_exists(path: str) -> Dict:
-    try:
-        if os.path.exists(path):
-            with open(path, "r") as f:
-                return json.load(f)
-    except Exception as e:
-        logger.warning(f"Failed to load JSON {path}: {e}")
-    return {}
-
-
-def load_set_if_exists(path: str) -> Set[str]:
-    try:
-        if os.path.exists(path):
-            with open(path, "r") as f:
-                data = json.load(f)
-                return set(data) if isinstance(data, list) else set()
-    except Exception as e:
-        logger.warning(f"Failed to load set JSON {path}: {e}")
-    return set()
-
-
-def save_set(s: Set[str], path: str):
-    atomic_json_dump(sorted(list(s)), path)
-
-
-def atomic_json_dump(data, filepath: str):
-    dirname = os.path.dirname(filepath) or "."
-    os.makedirs(dirname, exist_ok=True)
-    with tempfile.NamedTemporaryFile(mode="w", delete=False, dir=dirname, suffix=".tmp") as tmp_file:
-        json.dump(data, tmp_file, indent=2)
-        tmp_file.flush()
-        os.fsync(tmp_file.fileno())
-    try:
-        os.replace(tmp_file.name, filepath)
-    except Exception as e:
-        logger.warning(f"atomic_json_dump replace failed, trying fallback: {e}")
-        with open(filepath, "w") as f:
-            json.dump(data, f, indent=2)
-
-
-# ── File/hash helpers ────────────────────────────────────────────────────────
-def calculate_hash_bytes(content: bytes) -> str:
-    return hashlib.sha256(content).hexdigest()
-
-
-def get_cache_path_for_url(url: str) -> str:
-    md5 = hashlib.md5(url.encode()).hexdigest()
-    _, ext = os.path.splitext(url)
-    ext = ext if ext else ".img"
-    filename = f"cached_{md5}{ext}"
-    return os.path.join(CACHE_DIR, filename)
-
-
-def is_placeholder_image(content: bytes) -> bool:
-    if not content:
-        return True
-    if len(content) < 2048:
-        return True
-    return False
+# Max tracked items before pruning
+MAX_TRACKED_MDS = 200
+MAX_TRACKED_WATCHES = 200
 
 
 # ── SPC update window helpers ────────────────────────────────────────────────
@@ -134,7 +123,9 @@ def should_use_cache_for_manual(urls: List[str]) -> bool:
     if is_near_spc_update(day):
         logger.debug(f"[CACHE] Near Day {day} update window - forcing fresh download")
         return False
-    all_exist = all(os.path.exists(get_cache_path_for_url(u)) for u in urls)
+    all_exist = all(
+        os.path.exists(get_cache_path_for_url(u)) for u in urls
+    )
     if not all_exist:
         return False
     ages = []
@@ -168,14 +159,22 @@ def format_timedelta(td: timedelta) -> str:
 
 
 # ── Download helpers ─────────────────────────────────────────────────────────
-async def download_single_image(url: str, cache_file_path: str, cache: Dict[str, str], retries: int = 3) -> Tuple[Optional[str], Optional[bytes], Optional[str]]:
+async def download_single_image(
+    url: str,
+    cache_file_path: str,
+    cache: Dict[str, str],
+    retries: int = 3,
+) -> Tuple[Optional[str], Optional[bytes], Optional[str]]:
     content, status = await http_get_bytes(url, retries=retries)
     if content is None or status != 200:
         logger.warning(f"Failed to download {url} (status={status})")
         return None, None, None
 
     if is_placeholder_image(content):
-        logger.info(f"Downloaded placeholder/tiny image for {url} (size={len(content)}), treating as no-update")
+        logger.info(
+            f"Downloaded placeholder/tiny image for {url} (size={len(content)}), "
+            f"treating as no-update"
+        )
         return None, content, None
 
     h = calculate_hash_bytes(content)
@@ -195,9 +194,18 @@ async def download_single_image(url: str, cache_file_path: str, cache: Dict[str,
         return None, None, None
 
 
-async def download_images_parallel(urls: List[str], cache_file_path: str, cache: Dict[str, str], use_cached: bool = False) -> List[str]:
+async def download_images_parallel(
+    urls: List[str],
+    cache_file_path: str,
+    cache: Dict[str, str],
+    use_cached: bool = False,
+) -> List[str]:
     if use_cached and should_use_cache_for_manual(urls):
-        files = [get_cache_path_for_url(u) for u in urls if os.path.exists(get_cache_path_for_url(u))]
+        files = [
+            get_cache_path_for_url(u)
+            for u in urls
+            if os.path.exists(get_cache_path_for_url(u))
+        ]
         logger.info(f"Using cached files for manual request: {files}")
         return files
 
@@ -207,39 +215,38 @@ async def download_images_parallel(urls: List[str], cache_file_path: str, cache:
     return [r[0] for r in results if r and r[0] is not None]
 
 
-async def check_partial_updates_parallel(urls: List[str], cache: Dict[str, str]) -> Tuple[int, int, Dict[str, Tuple[bytes, str]]]:
-    from utils.http import http_session
+async def check_partial_updates_parallel(
+    urls: List[str], cache: Dict[str, str]
+) -> Tuple[int, int, Dict[str, Tuple[bytes, str]]]:
+    """
+    For each URL, do a HEAD check then conditionally fetch.
+    Returns (updated_count, total_count, downloaded_data).
+    """
     await ensure_session()
 
-    async def head_changed(url: str) -> bool:
-        meta = await http_head_meta(url)
-        if meta is None:
-            return True
-        prev = _head_cache.get(url, {})
-        if not prev:
-            _head_cache[url] = meta
-            return True
-        changed = (
-            (meta["etag"] and meta["etag"] != prev.get("etag")) or
-            (meta["last_modified"] and meta["last_modified"] != prev.get("last_modified")) or
-            (meta["content_length"] and meta["content_length"] != prev.get("content_length"))
-        )
-        if changed:
-            _head_cache[url] = meta
-        if not any(meta.values()):
-            return True
-        return changed
+    # HEAD checks in parallel
+    head_results = await asyncio.gather(
+        *[head_changed(u, http_head_meta) for u in urls]
+    )
 
-    async def fetch_if_changed(url: str, head_says_changed: bool):
-        if not head_says_changed:
+    async def fetch_if_changed(
+        url: str, should_fetch: bool
+    ) -> Tuple[bool, Optional[bytes], Optional[str]]:
+        if not should_fetch:
             return False, None, None
         try:
-            from utils.http import http_session as sess
-            async with sess.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+            session = await ensure_session()
+            async with session.get(
+                url, timeout=aiohttp.ClientTimeout(total=10)
+            ) as response:
                 if response.status == 200:
                     content = await response.read()
                     new_hash = calculate_hash_bytes(content) if content else None
-                    if new_hash and (url not in cache or cache.get(url) != new_hash) and not is_placeholder_image(content):
+                    if (
+                        new_hash
+                        and (url not in cache or cache.get(url) != new_hash)
+                        and not is_placeholder_image(content)
+                    ):
                         return True, content, new_hash
                     else:
                         return False, content, new_hash
@@ -247,8 +254,7 @@ async def check_partial_updates_parallel(urls: List[str], cache: Dict[str, str])
             logger.warning(f"Error fetching {url}: {e}")
         return False, None, None
 
-    import aiohttp
-    head_results = await asyncio.gather(*[head_changed(u) for u in urls])
+    # Fetch in parallel for URLs whose HEAD says changed
     fetch_results = await asyncio.gather(
         *[fetch_if_changed(u, head_results[i]) for i, u in enumerate(urls)]
     )
@@ -264,13 +270,22 @@ async def check_partial_updates_parallel(urls: List[str], cache: Dict[str, str])
             downloaded_data[urls[i]] = (content, None)
 
     head_fetched = sum(1 for h in head_results if h)
-    logger.debug(f"Partial check: {updated_count}/{total_count} images appear updated "
-                f"({head_fetched}/{total_count} warranted full fetch)")
+    logger.debug(
+        f"Partial check: {updated_count}/{total_count} images appear updated "
+        f"({head_fetched}/{total_count} warranted full fetch)"
+    )
     return updated_count, total_count, downloaded_data
 
 
-async def save_downloaded_images(urls: List[str], downloaded_data: Dict[str, Tuple[bytes, Optional[str]]], cache_file_path: str, cache: Dict[str, str]) -> List[str]:
+async def save_downloaded_images(
+    urls: List[str],
+    downloaded_data: Dict[str, Tuple[bytes, Optional[str]]],
+    cache_file_path: str,
+    cache: Dict[str, str],
+) -> List[str]:
+    """Save downloaded images to disk and batch-update cache JSON once."""
     files = []
+    cache_dirty = False
     for url in urls:
         if url in downloaded_data:
             content, h = downloaded_data[url]
@@ -282,11 +297,16 @@ async def save_downloaded_images(urls: List[str], downloaded_data: Dict[str, Tup
                     f.write(content)
                 if h:
                     cache[url] = h
-                    atomic_json_dump(cache, cache_file_path)
+                    cache_dirty = True
                 files.append(cache_path)
                 logger.debug(f"Saved cached file for {url} -> {cache_path}")
             except Exception as e:
                 logger.warning(f"Error writing {cache_path}: {e}")
+
+    # Single write instead of per-URL
+    if cache_dirty:
+        atomic_json_dump(cache, cache_file_path)
+
     return files
 
 
@@ -295,8 +315,21 @@ async def check_all_urls_exist_parallel(urls: List[str]) -> bool:
     results = await asyncio.gather(*tasks_, return_exceptions=False)
     ok = all(results)
     if not ok:
-        logger.warning(f"Some URLs not reachable: {[(u, r) for u, r in zip(urls, results) if not r]}")
+        logger.warning(
+            f"Some URLs not reachable: "
+            f"{[(u, r) for u, r in zip(urls, results) if not r]}"
+        )
     return ok
+
+
+def prune_tracked_set(s: Set[str], max_size: int, cache_file: str):
+    """Prune a tracked set to the most recent entries by numeric value."""
+    if len(s) <= max_size:
+        return
+    sorted_items = sorted(s, key=lambda x: int(x) if x.isdigit() else 0)
+    s.clear()
+    s.update(sorted_items[-max_size:])
+    save_set(s, cache_file)
 
 
 # ── Load persisted state on import ───────────────────────────────────────────

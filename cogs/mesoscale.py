@@ -1,25 +1,29 @@
 # cogs/mesoscale.py
-import re
 import logging
+import os
+import re
 from datetime import datetime, timezone
-from typing import List, Tuple, Optional, Dict
+from typing import Dict, List, Optional, Tuple
 
 import discord
 from discord.ext import commands, tasks
 
-from config import SPC_CHANNEL_ID, AUTO_CACHE_FILE, SPC_MD_INDEX_URL
-from utils.http import http_get_text, http_head_meta
+from config import AUTO_CACHE_FILE, SPC_CHANNEL_ID, SPC_MD_INDEX_URL
 from utils.cache import (
-    auto_cache,
-    posted_mds,
-    active_mds,
-    last_post_times,
-    save_set,
-    download_single_image,
     MD_CACHE_FILE,
+    MAX_TRACKED_MDS,
+    active_mds,
+    auto_cache,
+    download_single_image,
+    last_post_times,
+    posted_mds,
+    prune_tracked_set,
 )
+from utils.change_detection import get_cache_path_for_url
+from utils.http import http_get_text, http_head_meta
+from utils.persistence import save_set
 
-logger = logging.getLogger("scp_bot")
+logger = logging.getLogger("spc_bot")
 
 _md_index_head: Dict[str, str] = {}
 
@@ -33,9 +37,15 @@ async def fetch_latest_md_numbers() -> List[str]:
     meta = await http_head_meta(SPC_MD_INDEX_URL)
     if meta is not None and _md_index_head:
         unchanged = (
-            (meta["etag"] and meta["etag"] == _md_index_head.get("etag")) or
-            (meta["last_modified"] and meta["last_modified"] == _md_index_head.get("last_modified")) or
-            (meta["content_length"] and meta["content_length"] == _md_index_head.get("content_length"))
+            (meta["etag"] and meta["etag"] == _md_index_head.get("etag"))
+            or (
+                meta["last_modified"]
+                and meta["last_modified"] == _md_index_head.get("last_modified")
+            )
+            or (
+                meta["content_length"]
+                and meta["content_length"] == _md_index_head.get("content_length")
+            )
         )
         if unchanged and any(meta.values()):
             return []
@@ -46,7 +56,9 @@ async def fetch_latest_md_numbers() -> List[str]:
     if not html:
         return []
 
-    numbers = re.findall(r'href="(?:/products/md/)?md(\d+)\.html"', html, re.IGNORECASE)
+    numbers = re.findall(
+        r'href="(?:/products/md/)?md(\d+)\.html"', html, re.IGNORECASE
+    )
     seen = set()
     result = []
     for n in numbers:
@@ -56,14 +68,13 @@ async def fetch_latest_md_numbers() -> List[str]:
     return result
 
 
-async def fetch_md_details(md_number: str) -> Tuple[Optional[str], Optional[str], bool]:
+async def fetch_md_details(
+    md_number: str,
+) -> Tuple[Optional[str], Optional[str], bool]:
     """
     Fetch an individual MD page and return (image_url, summary_text, from_cache).
     Falls back to cached image if SPC is unreachable.
     """
-    from utils.cache import get_cache_path_for_url
-    import os
-
     page_url = f"https://www.spc.noaa.gov/products/md/md{md_number}.html"
     html = await http_get_text(page_url)
 
@@ -71,30 +82,36 @@ async def fetch_md_details(md_number: str) -> Tuple[Optional[str], Optional[str]
         fallback_url = f"https://www.spc.noaa.gov/products/md/mcd{md_number}.png"
         cached_path = get_cache_path_for_url(fallback_url)
         if os.path.exists(cached_path):
-            logger.info(f"[MD] SPC unreachable for #{md_number}, serving from cache")
+            logger.info(
+                f"[MD] SPC unreachable for #{md_number}, serving from cache"
+            )
             return fallback_url, None, True
-        logger.warning(f"[MD] SPC unreachable for #{md_number} and no cache available")
+        logger.warning(
+            f"[MD] SPC unreachable for #{md_number} and no cache available"
+        )
         return None, None, False
 
     img_match = re.search(
-        rf'src="(mcd{md_number}(?:_full)?\.(?:png|gif))"',
-        html, re.IGNORECASE
+        rf'src="(mcd{md_number}(?:_full)?\.(?:png|gif))"', html, re.IGNORECASE
     )
-    image_url = None
     if img_match:
-        image_url = f"https://www.spc.noaa.gov/products/md/{img_match.group(1)}"
+        image_url = (
+            f"https://www.spc.noaa.gov/products/md/{img_match.group(1)}"
+        )
     else:
         image_url = f"https://www.spc.noaa.gov/products/md/mcd{md_number}.png"
 
     summary = None
-    concerning = re.search(r'(CONCERNING[^\n<]{10,120})', html, re.IGNORECASE)
+    concerning = re.search(r"(CONCERNING[^\n<]{10,120})", html, re.IGNORECASE)
     if concerning:
         summary = concerning.group(1).strip()
     else:
-        text_blocks = re.findall(r'<pre[^>]*>(.*?)</pre>', html, re.DOTALL | re.IGNORECASE)
+        text_blocks = re.findall(
+            r"<pre[^>]*>(.*?)</pre>", html, re.DOTALL | re.IGNORECASE
+        )
         for block in text_blocks:
-            clean = re.sub(r'<[^>]+>', '', block).strip()
-            lines = [l.strip() for l in clean.splitlines() if l.strip()]
+            clean = re.sub(r"<[^>]+>", "", block).strip()
+            lines = [line.strip() for line in clean.splitlines() if line.strip()]
             if lines:
                 summary = " ".join(lines[:3])[:200]
                 break
@@ -122,26 +139,37 @@ class MesoscaleCog(commands.Cog):
             md_numbers = await fetch_latest_md_numbers()
             current_mds = set(md_numbers)
 
-            # ── MD cancellations ───────────────────────────────────────────────
+            # ── MD cancellations ───────────────────────────────────────────
             if current_mds:
                 for md_num in list(active_mds):
                     if md_num not in current_mds:
                         active_mds.discard(md_num)
-                        logger.info(f"[MD] MD #{md_num} no longer on index — posting cancellation")
+                        logger.info(
+                            f"[MD] MD #{md_num} no longer on index — "
+                            f"posting cancellation"
+                        )
                         embed = discord.Embed(
-                            title=f"✅  Mesoscale Discussion #{int(md_num)} — Cancelled",
+                            title=(
+                                f"✅  Mesoscale Discussion #{int(md_num)} "
+                                f"— Cancelled"
+                            ),
                             color=discord.Color.green(),
                             timestamp=datetime.now(timezone.utc),
                         )
                         embed.set_footer(text="SPC MD Monitor")
                         try:
                             await channel.send(embed=embed)
-                            logger.info(f"[MD] Posted cancellation for #{md_num}")
+                            logger.info(
+                                f"[MD] Posted cancellation for #{md_num}"
+                            )
                         except discord.HTTPException as e:
-                            logger.error(f"[MD] Failed to send cancellation for #{md_num}: {e}")
+                            logger.error(
+                                f"[MD] Failed to send cancellation "
+                                f"for #{md_num}: {e}"
+                            )
                             active_mds.add(md_num)
 
-            # ── New MDs ────────────────────────────────────────────────────────
+            # ── New MDs ────────────────────────────────────────────────────
             for md_num in md_numbers:
                 active_mds.add(md_num)
                 if md_num in posted_mds:
@@ -151,14 +179,18 @@ class MesoscaleCog(commands.Cog):
                 image_url, summary, from_cache = await fetch_md_details(md_num)
 
                 if not image_url:
-                    logger.warning(f"[MD] Could not resolve image URL for MD #{md_num}")
+                    logger.warning(
+                        f"[MD] Could not resolve image URL for MD #{md_num}"
+                    )
                     continue
 
                 cache_path, img_content, h = await download_single_image(
                     image_url, AUTO_CACHE_FILE, auto_cache
                 )
 
-                md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
+                md_page_url = (
+                    f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
+                )
                 header = f"**🌩️ SPC Mesoscale Discussion #{md_num}**"
                 if summary:
                     header += f"\n{summary}"
@@ -166,7 +198,9 @@ class MesoscaleCog(commands.Cog):
 
                 try:
                     if cache_path:
-                        await channel.send(header, files=[discord.File(cache_path)])
+                        await channel.send(
+                            header, files=[discord.File(cache_path)]
+                        )
                     else:
                         await channel.send(header)
                     posted_mds.add(md_num)
@@ -174,27 +208,29 @@ class MesoscaleCog(commands.Cog):
                     last_post_times["md"] = datetime.now(timezone.utc)
                     logger.info(f"[MD] Posted MD #{md_num}")
                 except discord.HTTPException as e:
-                    logger.error(f"[MD] Discord send failed for MD #{md_num}: {e}")
+                    logger.error(
+                        f"[MD] Discord send failed for MD #{md_num}: {e}"
+                    )
 
-            # Prune to last 200
-            if len(posted_mds) > 200:
-                sorted_mds = sorted(posted_mds, key=lambda x: int(x) if x.isdigit() else 0)
-                posted_mds.clear()
-                posted_mds.update(sorted_mds[-200:])
-                save_set(posted_mds, MD_CACHE_FILE)
+            # Prune tracked MDs
+            prune_tracked_set(posted_mds, MAX_TRACKED_MDS, MD_CACHE_FILE)
 
         except Exception as e:
-            logger.error(f"[MD] Unexpected error in auto_post_md: {e}", exc_info=True)
+            logger.error(
+                f"[MD] Unexpected error in auto_post_md: {e}", exc_info=True
+            )
 
     @auto_post_md.after_loop
     async def after_md_loop(self):
         if self.auto_post_md.is_being_cancelled():
             return
-        exc = self.auto_post_md.get_task().exception() if self.auto_post_md.get_task() else None
+        task = self.auto_post_md.get_task()
+        exc = task.exception() if task else None
         if exc:
             logger.error(
                 f"[TASK] auto_post_md stopped due to exception: "
-                f"{type(exc).__name__}: {exc}", exc_info=exc
+                f"{type(exc).__name__}: {exc}",
+                exc_info=exc,
             )
 
 
