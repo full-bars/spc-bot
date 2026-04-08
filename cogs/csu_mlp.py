@@ -1,5 +1,7 @@
 # cogs/csu_mlp.py
+import json
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 
 import discord
@@ -79,8 +81,34 @@ async def _resolve_best_url(day: int) -> tuple[str | None, str]:
     return None, ""
 
 
-# Auto-post state — which days posted today, reset at 15 UTC
-_posted_today: set[int] = set()
+
+def _state_file() -> str:
+    from config import CACHE_DIR
+    return os.path.join(CACHE_DIR, "csu_mlp_posted.json")
+
+def _load_posted_today() -> set[int]:
+    """Load posted days for today from disk. Returns empty set if stale or missing."""
+    try:
+        with open(_state_file()) as f:
+            data = json.load(f)
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if data.get("date") == today:
+            return set(data.get("days", []))
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        pass
+    return set()
+
+def _save_posted_today(posted: set[int]):
+    """Persist posted days for today to disk."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    try:
+        with open(_state_file(), 'w') as f:
+            json.dump({"date": today, "days": sorted(posted)}, f)
+    except Exception as e:
+        logger.warning(f"[CSU-MLP] Failed to save posted state: {e}")
+
+# Auto-post state — which days posted today, persisted to disk
+_posted_today: set[int] = _load_posted_today()
 _availability_log: dict[int, str] = {}  # day -> first-seen time string
 
 
@@ -186,6 +214,7 @@ class CSUMLPCog(commands.Cog):
                 logger.info("[CSU-MLP] Resetting daily posted state")
                 _posted_today.clear()
                 _availability_log.clear()
+                _save_posted_today(_posted_today)
 
         # Only poll 16-23 UTC
         if not (16 <= now_utc.hour < 23):
@@ -228,6 +257,7 @@ class CSUMLPCog(commands.Cog):
                     files=[discord.File(cache_path)],
                 )
                 _posted_today.add(day)
+                _save_posted_today(_posted_today)
                 last_post_times[f"csu_day{day}"] = now_utc
                 logger.info(f"[CSU-MLP] Auto-posted Day {day} ({label})")
             except Exception as e:
