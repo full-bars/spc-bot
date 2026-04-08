@@ -293,6 +293,7 @@ async def main():
         await bot.load_extension("cogs.status")
         await bot.load_extension("cogs.radar")
         await bot.load_extension("cogs.csu_mlp")
+        await bot.load_extension("cogs.ncar")
 
         # Register cog tasks with watchdog after loading
         outlooks_cog = bot.cogs.get("OutlooksCog")
@@ -300,6 +301,7 @@ async def main():
         watches_cog = bot.cogs.get("WatchesCog")
         scp_cog = bot.cogs.get("SCPCog")
         csu_mlp_cog = bot.cogs.get("CSUMLPCog")
+        ncar_cog = bot.cogs.get("NCARCog")
 
         if outlooks_cog:
             MANAGED_TASKS.extend(
@@ -327,6 +329,10 @@ async def main():
         if csu_mlp_cog:
             MANAGED_TASKS.append(
                 (csu_mlp_cog.csu_mlp_daily_poll, "csu_mlp_daily_poll")
+            )
+        if ncar_cog:
+            MANAGED_TASKS.append(
+                (ncar_cog.wxnext_daily_poll, "wxnext_daily_poll")
             )
 
         watchdog_task.start()
