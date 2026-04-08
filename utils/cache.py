@@ -87,6 +87,7 @@ last_post_times: Dict[str, Optional[datetime]] = {
     "csu_day1": None, "csu_day2": None, "csu_day3": None,
     "csu_day4": None, "csu_day5": None, "csu_day6": None,
     "csu_day7": None, "csu_day8": None,
+    "csu_panel12": None, "csu_panel38": None,
 }
 last_posted_urls: Dict[str, List[str]] = {}
 
