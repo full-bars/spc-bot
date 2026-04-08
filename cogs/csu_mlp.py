@@ -1,0 +1,232 @@
+# cogs/csu_mlp.py
+import logging
+from datetime import datetime, timedelta, timezone
+
+import discord
+from discord.ext import commands, tasks
+
+from config import MANUAL_CACHE_FILE, SCP_CHANNEL_ID
+from utils.cache import (
+    download_single_image,
+    last_post_times,
+    manual_cache,
+)
+from utils.http import http_head_ok
+
+logger = logging.getLogger("spc_bot")
+
+BASE = "https://schumacher.atmos.colostate.edu/weather/csu_mlp/archive"
+VERSION = "2021"
+
+# Days 1-3 use all-hazard slug; 4-8 use aggregate slug
+def _product_slug(day: int) -> str:
+    if day <= 3:
+        return f"severe_ml_day{day}_all_gefso"
+    return f"severe_ml_day{day}_gefso"
+
+def _build_url(day: int, init_date: datetime, init_hour: str) -> str:
+    date_str = init_date.strftime("%Y%m%d")
+    valid_date = init_date + timedelta(days=day)
+    valid_str = valid_date.strftime("%m%d")
+    product = _product_slug(day)
+    folder = f"severe_gefso_{VERSION}_day{day}"
+    return f"{BASE}/{folder}/{date_str}{init_hour}/{product}_{valid_str}12.png"
+
+async def _resolve_best_url(day: int) -> tuple[str | None, str]:
+    """
+    Try 12z init first (if it's likely ready), fall back to 00z, then
+    yesterday's 12z. Returns (url, label) or (None, "").
+    """
+    now_utc = datetime.now(timezone.utc)
+    today = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    candidates = []
+    # 12z init: only try after 18 UTC (conservative 6hr buffer)
+    if now_utc.hour >= 18:
+        candidates.append((today, "12", "12z"))
+    candidates.append((today, "00", "00z"))
+    # last resort: yesterday 12z
+    candidates.append((today - timedelta(days=1), "12", "yesterday 12z"))
+
+    for init_date, init_hour, label in candidates:
+        url = _build_url(day, init_date, init_hour)
+        if await http_head_ok(url):
+            logger.debug(f"[CSU-MLP] Day {day}: resolved {label} -> {url}")
+            return url, label
+
+    logger.warning(f"[CSU-MLP] Day {day}: no URL available")
+    return None, ""
+
+
+# Auto-post state — which days posted today, reset at 15 UTC
+_posted_today: set[int] = set()
+_availability_log: dict[int, str] = {}  # day -> first-seen time string
+
+
+class CSUMLPCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.csu_mlp_daily_poll.start()
+
+    def cog_unload(self):
+        self.csu_mlp_daily_poll.cancel()
+
+    # ── Shared fetch+send helper ──────────────────────────────────────────
+
+    async def _fetch_and_send(self, source, day: int):
+        url, label = await _resolve_best_url(day)
+        if not url:
+            msg = (
+                f"CSU-MLP Day {day} isn't available yet. "
+                f"Try again after ~11am MT."
+            )
+            if hasattr(source, "followup"):
+                await source.followup.send(msg)
+            else:
+                await source.send(msg)
+            return
+
+        cache_path, _, _ = await download_single_image(
+            url, MANUAL_CACHE_FILE, manual_cache
+        )
+        if not cache_path:
+            msg = f"Failed to download CSU-MLP Day {day} image."
+            if hasattr(source, "followup"):
+                await source.followup.send(msg)
+            else:
+                await source.send(msg)
+            return
+
+        day_range = "Medium Range " if day >= 4 else ""
+        title = f"**CSU-MLP {day_range}Day {day} Severe Weather Forecast** (init: {label})"
+        try:
+            if hasattr(source, "followup"):
+                await source.followup.send(
+                    title, files=[discord.File(cache_path)]
+                )
+            else:
+                await source.send(title, files=[discord.File(cache_path)])
+        except discord.HTTPException as e:
+            logger.error(f"[CSU-MLP] Send failed for Day {day}: {e}")
+
+    # ── Slash commands ────────────────────────────────────────────────────
+
+    @discord.app_commands.command(name="csu1", description="CSU-MLP Day 1 severe weather ML forecast")
+    async def csu1(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        await self._fetch_and_send(interaction, 1)
+
+    @discord.app_commands.command(name="csu2", description="CSU-MLP Day 2 severe weather ML forecast")
+    async def csu2(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        await self._fetch_and_send(interaction, 2)
+
+    @discord.app_commands.command(name="csu3", description="CSU-MLP Day 3 severe weather ML forecast")
+    async def csu3(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        await self._fetch_and_send(interaction, 3)
+
+    @discord.app_commands.command(name="csu4", description="CSU-MLP Day 4 severe weather ML forecast")
+    async def csu4(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        await self._fetch_and_send(interaction, 4)
+
+    @discord.app_commands.command(name="csu5", description="CSU-MLP Day 5 severe weather ML forecast")
+    async def csu5(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        await self._fetch_and_send(interaction, 5)
+
+    @discord.app_commands.command(name="csu6", description="CSU-MLP Day 6 severe weather ML forecast")
+    async def csu6(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        await self._fetch_and_send(interaction, 6)
+
+    @discord.app_commands.command(name="csu7", description="CSU-MLP Day 7 severe weather ML forecast")
+    async def csu7(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        await self._fetch_and_send(interaction, 7)
+
+    @discord.app_commands.command(name="csu8", description="CSU-MLP Day 8 severe weather ML forecast")
+    async def csu8(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        await self._fetch_and_send(interaction, 8)
+
+    # ── Auto-post polling loop ────────────────────────────────────────────
+
+    @tasks.loop(minutes=10)
+    async def csu_mlp_daily_poll(self):
+        await self.bot.wait_until_ready()
+
+        now_utc = datetime.now(timezone.utc)
+
+        # Reset at 15 UTC daily before products start appearing
+        if now_utc.hour == 15 and now_utc.minute < 10:
+            if _posted_today:
+                logger.info("[CSU-MLP] Resetting daily posted state")
+                _posted_today.clear()
+                _availability_log.clear()
+
+        # Only poll 16-23 UTC
+        if not (16 <= now_utc.hour < 23):
+            return
+
+        channel = self.bot.get_channel(SCP_CHANNEL_ID)
+        if not channel:
+            logger.warning("[CSU-MLP] SCP channel not found")
+            return
+
+        for day in range(1, 9):
+            if day in _posted_today:
+                continue
+
+            url, label = await _resolve_best_url(day)
+            if not url:
+                continue
+
+            # Timing research log — first time each day's product is seen
+            if day not in _availability_log:
+                first_seen = now_utc.strftime("%Y-%m-%d %H:%MZ")
+                _availability_log[day] = first_seen
+                logger.info(
+                    f"[CSU-MLP] \U0001f4ca TIMING LOG — "
+                    f"Day {day} first available at {first_seen} ({label})"
+                )
+
+            cache_path, _, _ = await download_single_image(
+                url, MANUAL_CACHE_FILE, manual_cache
+            )
+            if not cache_path:
+                logger.warning(f"[CSU-MLP] Download failed for Day {day}")
+                continue
+
+            try:
+                day_range = "Medium Range " if day >= 4 else ""
+                await channel.send(
+                    f"**CSU-MLP {day_range}Day {day} Severe Weather Forecast**"
+                    f" (init: {label})",
+                    files=[discord.File(cache_path)],
+                )
+                _posted_today.add(day)
+                last_post_times[f"csu_day{day}"] = now_utc
+                logger.info(f"[CSU-MLP] Auto-posted Day {day} ({label})")
+            except Exception as e:
+                logger.error(
+                    f"[CSU-MLP] Failed to post Day {day}: {e}", exc_info=True
+                )
+
+    @csu_mlp_daily_poll.after_loop
+    async def after_csu_mlp_poll(self):
+        if self.csu_mlp_daily_poll.is_being_cancelled():
+            return
+        task = self.csu_mlp_daily_poll.get_task()
+        exc = task.exception() if task else None
+        if exc:
+            logger.error(
+                f"[TASK] csu_mlp_daily_poll stopped: "
+                f"{type(exc).__name__}: {exc}",
+                exc_info=exc,
+            )
+
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(CSUMLPCog(bot))
