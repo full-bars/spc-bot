@@ -8,6 +8,7 @@ A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks
 * SPC mesoscale discussions with cancellation tracking
 * Tornado and severe thunderstorm watch alerts via NWS API
 * NIU/Gensini CFSv2/GEFS supercell composite parameter (SCP) graphics, twice daily
+* CSU-MLP machine learning severe weather forecasts (Days 1-8 + 6-panel summaries), auto-posted daily with `/csu1`-`/csu8`, `/csupanel12`, and `/csupanel38` slash commands
 * NEXRAD Level 2 radar downloader from NOAA AWS S3
   * Single or multi-site downloads with per-site ZIP packaging
   * Z-to-Z range, start+duration, explicit datetime, or N most recent files
@@ -60,7 +61,8 @@ spc-bot/
 │   ├── outlooks.py          # SPC Day 1-3 and Day 4-8 auto-posting
 │   ├── mesoscale.py         # SPC Mesoscale Discussion monitoring
 │   ├── watches.py           # SPC Watch monitoring via NWS API
-│   ├── scp.py               # NIU/Gensini SCP graphics posting
+│   ├── scp.py               # NIU/Gensini SCP graphics, twice daily
+│   ├── csu_mlp.py           # CSU-MLP ML severe weather forecasts, Days 1-8 and 6-panels
 │   ├── status.py            # Bot status and manual slash commands
 │   └── radar/
 │       ├── __init__.py      # Radar cog registration

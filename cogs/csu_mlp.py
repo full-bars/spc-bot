@@ -33,6 +33,31 @@ def _build_url(day: int, init_date: datetime, init_hour: str) -> str:
     folder = f"severe_gefso_{VERSION}_day{day}"
     return f"{BASE}/{folder}/{date_str}{init_hour}/{product}_{valid_str}12.png"
 
+
+def _build_panel_url(product: str, init_date: datetime) -> str:
+    """Build URL for 6-panel products. Always 00z, folder is always day1."""
+    date_str = init_date.strftime("%Y%m%d")
+    valid_str = init_date.strftime("%m%d")
+    return f"{BASE}/severe_gefso_{VERSION}_day1/{date_str}00/{product}_{valid_str}12.png"
+
+
+async def _resolve_panel_url(product: str) -> tuple[str | None, str]:
+    """Resolve best available 6-panel URL. 00z only, tries today then yesterday."""
+    now_utc = datetime.now(timezone.utc)
+    today = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    candidates = [
+        (today, "00z"),
+        (today - timedelta(days=1), "yesterday 00z"),
+    ]
+    for init_date, label in candidates:
+        url = _build_panel_url(product, init_date)
+        if await _url_is_image(url):
+            logger.debug(f"[CSU-MLP] {product}: resolved {label} -> {url}")
+            return url, label
+    logger.warning(f"[CSU-MLP] {product}: no URL available")
+    return None, ""
+
+
 async def _url_is_image(url: str) -> bool:
     """
     Check if a URL actually serves an image by inspecting Content-Type.
@@ -121,6 +146,39 @@ class CSUMLPCog(commands.Cog):
         self.csu_mlp_daily_poll.cancel()
 
     # ── Shared fetch+send helper ──────────────────────────────────────────
+
+
+    @discord.app_commands.command(name="csupanel12", description="CSU-MLP 6-panel hazard summary Days 1-2")
+    async def csupanel12(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        url, label = await _resolve_panel_url("hazards_fcst_6panel")
+        if not url:
+            await interaction.followup.send("CSU-MLP Days 1-2 6-panel isn't available yet. Try after ~11am MT.")
+            return
+        cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE, manual_cache)
+        if not cache_path:
+            await interaction.followup.send("Failed to download CSU-MLP Days 1-2 6-panel.")
+            return
+        await interaction.followup.send(
+            f"**CSU-MLP Days 1-2 Hazard 6-Panel** (init: {label})",
+            files=[discord.File(cache_path)]
+        )
+
+    @discord.app_commands.command(name="csupanel38", description="CSU-MLP 6-panel hazard summary Days 3-8")
+    async def csupanel38(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        url, label = await _resolve_panel_url("severe_fcst_6panel")
+        if not url:
+            await interaction.followup.send("CSU-MLP Days 3-8 6-panel isn't available yet. Try after ~11am MT.")
+            return
+        cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE, manual_cache)
+        if not cache_path:
+            await interaction.followup.send("Failed to download CSU-MLP Days 3-8 6-panel.")
+            return
+        await interaction.followup.send(
+            f"**CSU-MLP Days 3-8 Severe 6-Panel** (init: {label})",
+            files=[discord.File(cache_path)]
+        )
 
     async def _fetch_and_send(self, source, day: int):
         url, label = await _resolve_best_url(day)
@@ -264,6 +322,36 @@ class CSUMLPCog(commands.Cog):
                 logger.error(
                     f"[CSU-MLP] Failed to post Day {day}: {e}", exc_info=True
                 )
+
+        # Auto-post 6-panel products
+        for product, label_name, state_key in [
+            ("hazards_fcst_6panel", "Days 1-2 Hazard 6-Panel", "panel12"),
+            ("severe_fcst_6panel", "Days 3-8 Severe 6-Panel", "panel38"),
+        ]:
+            if state_key in _posted_today:
+                continue
+            url, label = await _resolve_panel_url(product)
+            if not url:
+                continue
+            if state_key not in _availability_log:
+                first_seen = now_utc.strftime("%Y-%m-%d %H:%MZ")
+                _availability_log[state_key] = first_seen
+                logger.info(f"[CSU-MLP] 📊 TIMING LOG — {label_name} first available at {first_seen} ({label})")
+            cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE, manual_cache)
+            if not cache_path:
+                logger.warning(f"[CSU-MLP] Download failed for {label_name}")
+                continue
+            try:
+                await channel.send(
+                    f"**CSU-MLP {label_name}** (init: {label})",
+                    files=[discord.File(cache_path)]
+                )
+                _posted_today.add(state_key)
+                _save_posted_today(_posted_today)
+                last_post_times[f"csu_{state_key}"] = now_utc
+                logger.info(f"[CSU-MLP] Auto-posted {label_name} ({label})")
+            except Exception as e:
+                logger.error(f"[CSU-MLP] Failed to post {label_name}: {e}", exc_info=True)
 
     @csu_mlp_daily_poll.after_loop
     async def after_csu_mlp_poll(self):
