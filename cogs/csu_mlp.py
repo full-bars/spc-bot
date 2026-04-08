@@ -128,7 +128,7 @@ def _save_posted_today(posted: set[int]):
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     try:
         with open(_state_file(), 'w') as f:
-            json.dump({"date": today, "days": sorted(posted)}, f)
+            json.dump({"date": today, "days": sorted(posted, key=str)}, f)
     except Exception as e:
         logger.warning(f"[CSU-MLP] Failed to save posted state: {e}")
 
