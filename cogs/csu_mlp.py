@@ -11,7 +11,6 @@ from utils.cache import (
     last_post_times,
     manual_cache,
 )
-from utils.http import http_head_ok
 
 logger = logging.getLogger("spc_bot")
 
@@ -32,25 +31,47 @@ def _build_url(day: int, init_date: datetime, init_hour: str) -> str:
     folder = f"severe_gefso_{VERSION}_day{day}"
     return f"{BASE}/{folder}/{date_str}{init_hour}/{product}_{valid_str}12.png"
 
+async def _url_is_image(url: str) -> bool:
+    """
+    Check if a URL actually serves an image by inspecting Content-Type.
+    The CSU server returns 200+HTML for missing files instead of 404.
+    """
+    from utils.http import ensure_session
+    import aiohttp
+    try:
+        session = await ensure_session()
+        async with session.head(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+            ct = resp.headers.get("Content-Type", "")
+            return resp.status == 200 and "image" in ct
+    except Exception as e:
+        logger.debug(f"[CSU-MLP] HEAD check failed for {url}: {e}")
+        return False
+
+
 async def _resolve_best_url(day: int) -> tuple[str | None, str]:
     """
-    Try 12z init first (if it's likely ready), fall back to 00z, then
-    yesterday's 12z. Returns (url, label) or (None, "").
+    Try 12z init first for days 1-3 (if likely ready), always 00z for days 4-8.
+    Falls back to yesterday's init as last resort.
+    Returns (url, label) or (None, "").
     """
     now_utc = datetime.now(timezone.utc)
     today = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
 
     candidates = []
-    # 12z init: only try after 18 UTC (conservative 6hr buffer)
-    if now_utc.hour >= 18:
-        candidates.append((today, "12", "12z"))
-    candidates.append((today, "00", "00z"))
-    # last resort: yesterday 12z
-    candidates.append((today - timedelta(days=1), "12", "yesterday 12z"))
+    if day <= 3:
+        # 12z init only available for days 1-3, try after 18 UTC
+        if now_utc.hour >= 18:
+            candidates.append((today, "12", "12z"))
+        candidates.append((today, "00", "00z"))
+        candidates.append((today - timedelta(days=1), "12", "yesterday 12z"))
+    else:
+        # Days 4-8: 00z only
+        candidates.append((today, "00", "00z"))
+        candidates.append((today - timedelta(days=1), "00", "yesterday 00z"))
 
     for init_date, init_hour, label in candidates:
         url = _build_url(day, init_date, init_hour)
-        if await http_head_ok(url):
+        if await _url_is_image(url):
             logger.debug(f"[CSU-MLP] Day {day}: resolved {label} -> {url}")
             return url, label
 
