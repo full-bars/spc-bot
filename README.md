@@ -14,7 +14,9 @@ A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks
   * Single or multi-site downloads with per-site ZIP packaging
   * Z-to-Z range, start+duration, explicit datetime, or N most recent files
 
-## Deployment
+## Setup
+
+### Automatic (recommended)
 
 A deploy script is included that creates a virtual environment, configures your `.env` interactively, creates a dedicated non-root system user, and installs a systemd service that starts automatically on boot.
 
@@ -24,17 +26,11 @@ cd spc-bot
 sudo ./deploy.sh
 ```
 
-The script will prompt you for your Discord bot token and channel IDs, then handle everything else. Once complete:
+The script will prompt you for your Discord bot token and channel IDs, then handle everything else.
 
-```bash
-systemctl status spcbot      # check status
-journalctl -u spcbot -f      # follow logs
-systemctl restart spcbot     # restart
-```
 
-## Manual Setup
+### Manual
 
-If you prefer to set up manually:
 
 
 1. Clone the repository:
