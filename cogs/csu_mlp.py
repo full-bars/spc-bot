@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import discord
 from discord.ext import commands, tasks
 
-from config import MANUAL_CACHE_FILE, SCP_CHANNEL_ID
+from config import MANUAL_CACHE_FILE, MODELS_CHANNEL_ID
 from utils.cache import (
     download_single_image,
     last_post_times,
@@ -278,7 +278,7 @@ class CSUMLPCog(commands.Cog):
         if not (16 <= now_utc.hour < 23):
             return
 
-        channel = self.bot.get_channel(SCP_CHANNEL_ID)
+        channel = self.bot.get_channel(MODELS_CHANNEL_ID)
         if not channel:
             logger.warning("[CSU-MLP] SCP channel not found")
             return

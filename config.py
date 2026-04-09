@@ -16,7 +16,7 @@ def _require_int(name: str) -> int:
 
 CONFIG = {
     "token": os.getenv("DISCORD_TOKEN"),
-    "scp_channel_id": _require_int("SCP_CHANNEL_ID"),
+    "models_channel_id": _require_int("MODELS_CHANNEL_ID"),
     "spc_channel_id": _require_int("SPC_CHANNEL_ID"),
     "manual_cache_file": os.getenv("MANUAL_CACHE_FILE", "posted_records.json"),
     "auto_cache_file": os.getenv("AUTO_CACHE_FILE", "auto_posted_records.json"),
@@ -29,7 +29,7 @@ if not CONFIG["token"]:
     raise ValueError("DISCORD_TOKEN environment variable not set")
 
 TOKEN = CONFIG["token"]
-SCP_CHANNEL_ID = CONFIG["scp_channel_id"]
+MODELS_CHANNEL_ID = CONFIG["models_channel_id"]
 SPC_CHANNEL_ID = CONFIG["spc_channel_id"]
 MANUAL_CACHE_FILE = os.path.join(CONFIG["cache_file_dir"], CONFIG["manual_cache_file"])
 AUTO_CACHE_FILE = os.path.join(CONFIG["cache_file_dir"], CONFIG["auto_cache_file"])
