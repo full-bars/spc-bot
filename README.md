@@ -14,6 +14,12 @@ A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks
   * Single or multi-site downloads with per-site ZIP packaging
   * Z-to-Z range, start+duration, explicit datetime, or N most recent files
 
+## Prerequisites
+
+* Python 3.10+
+* A Discord bot token and application ([Discord Developer Portal](https://discord.com/developers/applications))
+* Channel IDs for where the bot should post
+
 ## Setup
 
 ### Automatic (recommended)
