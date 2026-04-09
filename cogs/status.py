@@ -310,12 +310,24 @@ class StatusCog(commands.Cog):
         lines.append("")
 
         lines.append("── Tasks ──────────────────────────────")
+        task_labels = {
+            "auto_post_spc":        "NOAA-SPC outlooks",
+            "aggressive_check_spc": "NOAA-SPC aggressive check",
+            "auto_post_spc48":      "NOAA-SPC Day 4-8",
+            "auto_post_md":         "NOAA-SPC mesoscale discussions",
+            "auto_post_watches":    "NOAA-SPC watches",
+            "auto_post_scp":        "NIU/Gensini SCP graphics",
+            "csu_mlp_daily_poll":   "CSU-MLP forecasts",
+            "wxnext_daily_poll":    "NCAR WxNext2",
+            "watchdog_task":        "watchdog",
+        }
         for cog_name, cog in self.bot.cogs.items():
             for task_name in dir(cog):
                 task = getattr(cog, task_name, None)
                 if isinstance(task, tasks.Loop):
                     status = "running" if task.is_running() else "STOPPED"
-                    lines.append(f"  {task_name:<30} {status}")
+                    label = task_labels.get(task_name, task_name)
+                    lines.append(f"  {label:<35} {status}")
         lines.append("")
 
         lines.append("── Last Auto-Posts ─────────────────────")

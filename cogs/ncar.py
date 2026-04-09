@@ -134,7 +134,7 @@ class NCARCog(commands.Cog):
         today_str = now_utc.strftime("%Y-%m-%d")
 
         # Reset state at 04 UTC daily (before products start appearing)
-        if now_utc.hour == 4 and now_utc.minute < 10:
+        if now_utc.hour == 3 and now_utc.minute < 10:
             if _posted_state.get("date") == today_str:
                 logger.info("[NCAR] Resetting daily posted state")
                 _posted_state = {}
@@ -142,7 +142,7 @@ class NCARCog(commands.Cog):
                 _save_state("", "")
 
         # Only poll 06-18 UTC
-        if not (6 <= now_utc.hour < 18):
+        if not (5 <= now_utc.hour < 9):
             return
 
         # Already posted today's image
