@@ -355,3 +355,177 @@ class TestHttp:
         response = MagicMock()
         response.headers = {"Retry-After": "Wed, 09 Apr 2026 12:00:00 GMT"}
         assert _get_retry_after(response) is None
+
+
+# ── csu_mlp tests ─────────────────────────────────────────────────────────────
+
+class TestCSUMLPUrls:
+    def test_build_url_day1_00z(self):
+        from cogs.csu_mlp import _build_url
+        from datetime import datetime, timezone
+
+        date = datetime(2026, 4, 8, tzinfo=timezone.utc)
+        url = _build_url(1, date, "00")
+        assert "severe_gefso_2021_day1" in url
+        assert "2026040800" in url
+        assert "severe_ml_day1_all_gefso" in url
+        assert "040912.png" in url
+
+    def test_build_url_day1_12z(self):
+        from cogs.csu_mlp import _build_url
+        from datetime import datetime, timezone
+
+        date = datetime(2026, 4, 8, tzinfo=timezone.utc)
+        url = _build_url(1, date, "12")
+        assert "2026040812" in url
+
+    def test_build_url_day4_uses_aggregate_slug(self):
+        from cogs.csu_mlp import _build_url
+        from datetime import datetime, timezone
+
+        date = datetime(2026, 4, 8, tzinfo=timezone.utc)
+        url = _build_url(4, date, "00")
+        assert "severe_ml_day4_gefso" in url
+        assert "severe_ml_day4_all_gefso" not in url
+
+    def test_build_url_day3_uses_all_slug(self):
+        from cogs.csu_mlp import _build_url
+        from datetime import datetime, timezone
+
+        date = datetime(2026, 4, 8, tzinfo=timezone.utc)
+        url = _build_url(3, date, "00")
+        assert "severe_ml_day3_all_gefso" in url
+
+    def test_build_url_valid_date_offset(self):
+        from cogs.csu_mlp import _build_url
+        from datetime import datetime, timezone
+
+        date = datetime(2026, 4, 8, tzinfo=timezone.utc)
+        url = _build_url(2, date, "00")
+        # valid date = init + 2 days = Apr 10
+        assert "041012.png" in url
+
+    def test_build_url_day8(self):
+        from cogs.csu_mlp import _build_url
+        from datetime import datetime, timezone
+
+        date = datetime(2026, 4, 8, tzinfo=timezone.utc)
+        url = _build_url(8, date, "00")
+        assert "severe_gefso_2021_day8" in url
+        assert "severe_ml_day8_gefso" in url
+        assert "041612.png" in url
+
+    def test_build_panel_url_hazards(self):
+        from cogs.csu_mlp import _build_panel_url
+        from datetime import datetime, timezone
+
+        date = datetime(2026, 4, 8, tzinfo=timezone.utc)
+        url = _build_panel_url("hazards_fcst_6panel", date)
+        assert "severe_gefso_2021_day1" in url
+        assert "2026040800" in url
+        assert "hazards_fcst_6panel_040812.png" in url
+
+    def test_build_panel_url_severe(self):
+        from cogs.csu_mlp import _build_panel_url
+        from datetime import datetime, timezone
+
+        date = datetime(2026, 4, 8, tzinfo=timezone.utc)
+        url = _build_panel_url("severe_fcst_6panel", date)
+        assert "severe_fcst_6panel_040812.png" in url
+
+    def test_load_posted_today_missing_file(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CACHE_DIR", str(tmp_path))
+        # Force re-evaluation of _state_file with new CACHE_DIR
+        import importlib, cogs.csu_mlp
+        importlib.reload(cogs.csu_mlp)
+        from cogs.csu_mlp import _load_posted_today
+        result = _load_posted_today()
+        assert result == set()
+
+    def test_load_posted_today_stale_date(self, tmp_path, monkeypatch):
+        import json
+        monkeypatch.setenv("CACHE_DIR", str(tmp_path))
+        state_file = tmp_path / "csu_mlp_posted.json"
+        state_file.write_text(json.dumps({"date": "2020-01-01", "days": [1, 2, 3]}))
+        import importlib, cogs.csu_mlp
+        importlib.reload(cogs.csu_mlp)
+        from cogs.csu_mlp import _load_posted_today
+        result = _load_posted_today()
+        assert result == set()
+
+    def test_load_posted_today_current_date(self, tmp_path):
+        import json
+        from datetime import datetime, timezone
+        from unittest.mock import patch
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        state_file = tmp_path / "csu_mlp_posted.json"
+        state_file.write_text(json.dumps({"date": today, "days": [1, 2, "panel12"]}))
+        with patch("cogs.csu_mlp._state_file", return_value=str(state_file)):
+            from cogs.csu_mlp import _load_posted_today
+            result = _load_posted_today()
+        assert 1 in result
+        assert 2 in result
+        assert "panel12" in result
+
+
+# ── ncar tests ────────────────────────────────────────────────────────────────
+
+class TestNCARWxNext:
+    def test_wxnext_url_format(self):
+        from cogs.ncar import _wxnext_url
+        from datetime import datetime, timezone
+
+        date = datetime(2026, 4, 8, tzinfo=timezone.utc)
+        url = _wxnext_url(date)
+        assert url == (
+            "https://www2.mmm.ucar.edu/projects/ncar_ensemble/ainwp/img"
+            "/predictions_grid_wxnext_mean_any_2026040800.png"
+        )
+
+    def test_wxnext_url_different_date(self):
+        from cogs.ncar import _wxnext_url
+        from datetime import datetime, timezone
+
+        date = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        url = _wxnext_url(date)
+        assert "2026010100.png" in url
+
+    def test_load_state_missing_file(self, tmp_path):
+        from unittest.mock import patch
+        missing = str(tmp_path / "ncar_posted.json")
+        with patch("cogs.ncar._state_file", return_value=missing):
+            from cogs.ncar import _load_state
+            result = _load_state()
+        assert result == {}
+
+    def test_load_state_valid(self, tmp_path):
+        import json
+        from unittest.mock import patch
+        state_file = tmp_path / "ncar_posted.json"
+        state_file.write_text(json.dumps({"date": "2026-04-08", "hash": "abc123"}))
+        with patch("cogs.ncar._state_file", return_value=str(state_file)):
+            from cogs.ncar import _load_state
+            result = _load_state()
+        assert result["date"] == "2026-04-08"
+        assert result["hash"] == "abc123"
+
+    def test_load_state_corrupt(self, tmp_path):
+        from unittest.mock import patch
+        state_file = tmp_path / "ncar_posted.json"
+        state_file.write_text("not json {{{")
+        with patch("cogs.ncar._state_file", return_value=str(state_file)):
+            from cogs.ncar import _load_state
+            result = _load_state()
+        assert result == {}
+
+    def test_save_state(self, tmp_path, monkeypatch):
+        import json
+        monkeypatch.setenv("CACHE_DIR", str(tmp_path))
+        import importlib, cogs.ncar
+        importlib.reload(cogs.ncar)
+        from cogs.ncar import _save_state, _state_file
+        _save_state("2026-04-08", "hashvalue123")
+        with open(_state_file()) as f:
+            data = json.load(f)
+        assert data["date"] == "2026-04-08"
+        assert data["hash"] == "hashvalue123"
