@@ -78,7 +78,7 @@ else
     read -rsp "  Discord Bot Token: " DISCORD_TOKEN
     echo ""
     read -rp  "  SPC Channel ID:    " SPC_CHANNEL_ID
-    read -rp  "  SCP Channel ID:    " SCP_CHANNEL_ID
+    read -rp  "  Models Channel ID:    " MODELS_CHANNEL_ID
     read -rp  "  Guild ID:          " GUILD_ID
     echo ""
 
@@ -87,7 +87,7 @@ else
 DISCORD_TOKEN=${DISCORD_TOKEN}
 # Required — no defaults, bot will not start without these
 SPC_CHANNEL_ID=${SPC_CHANNEL_ID}
-SCP_CHANNEL_ID=${SCP_CHANNEL_ID}
+MODELS_CHANNEL_ID=${MODELS_CHANNEL_ID}
 GUILD_ID=${GUILD_ID}
 # Optional — these have sensible defaults
 # CACHE_DIR=cache
