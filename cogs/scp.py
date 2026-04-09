@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import discord
 from discord.ext import commands, tasks
 
-from config import AUTO_CACHE_FILE, MANUAL_CACHE_FILE, PACIFIC, SCP_CHANNEL_ID, SCP_IMAGE_URLS
+from config import AUTO_CACHE_FILE, MANUAL_CACHE_FILE, PACIFIC, MODELS_CHANNEL_ID, SCP_IMAGE_URLS
 from utils.cache import (
     auto_cache,
     download_images_parallel,
@@ -57,7 +57,7 @@ class SCPCog(commands.Cog):
             return
 
         # Time to post
-        channel = self.bot.get_channel(SCP_CHANNEL_ID)
+        channel = self.bot.get_channel(MODELS_CHANNEL_ID)
         if not channel:
             logger.warning("[SCP_DAILY] SCP channel not found")
             self._next_post_time = self._compute_next_post_time()

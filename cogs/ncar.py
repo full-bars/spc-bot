@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import discord
 from discord.ext import commands, tasks
 
-from config import MANUAL_CACHE_FILE, SCP_CHANNEL_ID
+from config import MANUAL_CACHE_FILE, MODELS_CHANNEL_ID
 from utils.cache import (
     calculate_hash_bytes,
     download_single_image,
@@ -168,7 +168,7 @@ class NCARCog(commands.Cog):
             _save_state(today_str, h)
             return
 
-        channel = self.bot.get_channel(SCP_CHANNEL_ID)
+        channel = self.bot.get_channel(MODELS_CHANNEL_ID)
         if not channel:
             logger.warning("[NCAR] SCP channel not found")
             return
