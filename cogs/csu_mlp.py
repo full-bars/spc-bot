@@ -275,7 +275,7 @@ class CSUMLPCog(commands.Cog):
                 _save_posted_today(_posted_today)
 
         # Only poll 16-23 UTC
-        if not (16 <= now_utc.hour < 23):
+        if not (15 <= now_utc.hour < 20):
             return
 
         channel = self.bot.get_channel(MODELS_CHANNEL_ID)
