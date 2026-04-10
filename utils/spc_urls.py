@@ -1,23 +1,14 @@
 # utils/spc_urls.py
 import logging
-import os
 import re
 from typing import List
 
 from config import (
-    AUTO_CACHE_FILE,
-    CACHE_DIR,
-    MANUAL_CACHE_FILE,
     SPC_OUTLOOK_BASE,
-    SPC_URLS_FALLBACK,
 )
-from utils.change_detection import get_cache_path_for_url
 from utils.http import http_get_bytes
-from utils.persistence import atomic_json_dump
 
 logger = logging.getLogger("spc_bot")
-
-CIG_MIGRATION_FLAG = os.path.join(CACHE_DIR, ".cig_migration_done")
 
 
 async def get_spc_urls(day: int) -> List[str]:
@@ -98,59 +89,3 @@ async def get_spc_urls(day: int) -> List[str]:
         )
 
     return fallback
-
-
-async def cig_migration():
-    """
-    One-time cache bust for the CIG PNG format rollout on March 3, 2026.
-    Removes stale GIF caches and hash entries so the bot re-downloads fresh PNGs.
-    """
-    if os.path.exists(CIG_MIGRATION_FLAG):
-        return
-
-    # Lazy import to avoid circular import at module level
-    from utils.cache import auto_cache, manual_cache
-
-    logger.info(
-        "[CIG MIGRATION] Running one-time cache bust for CIG PNG format rollout"
-    )
-
-    all_spc_urls = []
-    for day in (1, 2, 3):
-        all_spc_urls.extend(SPC_URLS_FALLBACK[day])
-
-    removed_files = 0
-    for url in all_spc_urls:
-        path = get_cache_path_for_url(url)
-        if os.path.exists(path):
-            try:
-                os.remove(path)
-                removed_files += 1
-                logger.info(f"[CIG MIGRATION] Removed stale cache file: {path}")
-            except Exception as e:
-                logger.warning(f"[CIG MIGRATION] Could not remove {path}: {e}")
-        auto_cache.pop(url, None)
-        manual_cache.pop(url, None)
-
-    spc_keys = [
-        k
-        for k in list(auto_cache.keys())
-        if "spc.noaa.gov/products/outlook" in k
-    ]
-    spc_keys += [
-        k
-        for k in list(manual_cache.keys())
-        if "spc.noaa.gov/products/outlook" in k
-    ]
-    for k in spc_keys:
-        auto_cache.pop(k, None)
-        manual_cache.pop(k, None)
-
-    atomic_json_dump(auto_cache, AUTO_CACHE_FILE)
-    atomic_json_dump(manual_cache, MANUAL_CACHE_FILE)
-
-    open(CIG_MIGRATION_FLAG, "w").close()
-    logger.info(
-        f"[CIG MIGRATION] Done. Removed {removed_files} cached files "
-        f"and cleared hash entries."
-    )
