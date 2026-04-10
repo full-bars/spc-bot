@@ -1,6 +1,6 @@
 # WxAlert / SPCBot
 
-A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks, mesoscale discussions, and tornado/severe thunderstorm watches in real time. Includes a NEXRAD Level 2 radar downloader pulling from the NOAA AWS S3 archive with flexible time range selection.
+A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks, mesoscale discussions, and tornado/severe thunderstorm watches in real time. Includes a NEXRAD Level 2 radar downloader pulling from the NOAA AWS S3 archive and a VWP hodograph generator for any NEXRAD or TDWR site.
 
 ## Features
 
@@ -10,6 +10,7 @@ A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks
 * NIU/Gensini CFSv2/GEFS supercell composite parameter (SCP) graphics, twice daily
 * CSU-MLP machine learning severe weather forecasts (Days 1-8 + 6-panel summaries), auto-posted daily with `/csu1`-`/csu8`, `/csupanel12`, and `/csupanel38` slash commands
 * NCAR WxNext2 Mean AI convective hazard forecast (Days 1-8), auto-posted daily with `/wxnext` slash command
+* VWP hodograph generation for any NEXRAD or TDWR site (200 sites) via `/hodograph`, with auto ASOS surface wind and storm parameter table
 * NEXRAD Level 2 radar downloader from NOAA AWS S3
   * Single or multi-site downloads with per-site ZIP packaging
   * Z-to-Z range, start+duration, explicit datetime, or N most recent files
@@ -81,6 +82,7 @@ spc-bot/
 ├── config.py                # Configuration from environment variables
 ├── requirements.txt         # Python dependencies
 ├── .env.example             # Template for required environment variables
+├── CREDITS.md               # Third-party attributions
 ├── utils/
 │   ├── http.py              # Async HTTP session management
 │   ├── persistence.py       # Atomic JSON load/save helpers
@@ -94,15 +96,27 @@ spc-bot/
 │   ├── scp.py               # NIU/Gensini SCP graphics, twice daily
 │   ├── csu_mlp.py           # CSU-MLP ML severe weather forecasts, Days 1-8 and 6-panels
 │   ├── ncar.py              # NCAR WxNext2 AI severe weather forecast
+│   ├── hodograph.py         # VWP hodograph generation via /hodograph
 │   ├── status.py            # Bot status and manual slash commands
 │   └── radar/
 │       ├── __init__.py      # Radar cog registration
 │       ├── s3.py            # S3 client, file listing, time parsing
 │       ├── downloads.py     # Download orchestration, zipping, progress
 │       └── views.py         # Discord UI views and modals
+├── lib/
+│   └── vad_plotter/         # Hodograph library (vad-plotter by Tim Supinie)
+│       ├── vad.py           # Main entry point, called as subprocess
+│       ├── vad_reader.py    # NEXRAD VWP binary parser
+│       ├── plot.py          # Hodograph plotting with matplotlib
+│       ├── params.py        # Storm parameter computations
+│       ├── wsr88d.py        # Radar site info and filename utilities
+│       ├── asos.py          # ASOS surface wind fetching
+│       └── utils.py         # Shared exception types
 └── tests/
     ├── conftest.py          # Test environment setup
-    └── test_utils.py        # Unit tests for utilities
+    ├── test_utils.py        # Unit tests for utilities
+    ├── test_watches.py      # Unit tests for watch VTEC parsing
+    └── test_hodograph.py    # Unit tests for hodograph cog
 ```
 
 ## Status
@@ -114,3 +128,7 @@ Work in progress. Actively developed in my free time, expect some bugs.
 * [discord.py](https://github.com/Rapptz/discord.py)
 * [aiohttp](https://github.com/aio-libs/aiohttp)
 * [boto3](https://github.com/boto/boto3)
+* [numpy](https://numpy.org)
+* [matplotlib](https://matplotlib.org)
+* [requests](https://requests.readthedocs.io)
+* [vad-plotter](https://github.com/tsupinie/vad-plotter) by Tim Supinie
