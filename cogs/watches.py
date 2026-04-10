@@ -34,7 +34,7 @@ from utils.persistence import save_set
 logger = logging.getLogger("spc_bot")
 
 
-async def fetch_active_watches_nws() -> Dict[str, dict]:
+async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
     """
     Fetch active SPC watches from the NWS Alerts API.
     Returns dict: watch_num -> {"type": "SVR"|"TORNADO", "expires": datetime}
@@ -45,12 +45,12 @@ async def fetch_active_watches_nws() -> Dict[str, dict]:
         logger.warning(
             f"[WATCH] NWS API returned status {status} — will retry next cycle"
         )
-        return {}
+        return None
     try:
         data = _json.loads(content)
     except Exception as e:
         logger.warning(f"[WATCH] NWS API JSON parse error: {e}")
-        return {}
+        return None
 
     result = {}
     for feature in data.get("features", []):
@@ -90,6 +90,9 @@ async def fetch_latest_watch_numbers() -> List[Tuple[str, str]]:
     falls back to SPC HTML scrape if API fails.
     """
     nws = await fetch_active_watches_nws()
+    if nws is None:
+        logger.warning("[WATCH] NWS API fetch failed — skipping, no fallback for auto loop")
+        return []
     if nws:
         return [(num, info["type"]) for num, info in nws.items()]
 
@@ -424,7 +427,7 @@ async def _execute_watches(interaction: discord.Interaction):
     """Shared implementation for /watches and /ww slash commands."""
     await interaction.response.defer()
     nws_watches = await fetch_active_watches_nws()
-    if not nws_watches:
+    if nws_watches is None or not nws_watches:
         entries = await fetch_latest_watch_numbers()
         nws_watches = {
             num: {"type": wtype, "expires": None} for num, wtype in entries
@@ -494,6 +497,11 @@ class WatchesCog(commands.Cog):
 
         try:
             nws_watches = await fetch_active_watches_nws()
+            if nws_watches is None:
+                logger.warning(
+                    "[WATCH] NWS API fetch failed — skipping cycle, active set unchanged"
+                )
+                return
             now_utc = datetime.now(timezone.utc)
 
             # ── Cancellations ──────────────────────────────────────────────
