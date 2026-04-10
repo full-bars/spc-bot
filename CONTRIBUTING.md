@@ -44,11 +44,13 @@ or inline where invoked, not into the configured channels.
 | `/csupanel12` | Show CSU-MLP 6-panel summary for Days 1–2 |
 | `/csupanel38` | Show CSU-MLP 6-panel summary for Days 3–8 |
 | `/wxnext` | Show the latest NCAR WxNext2 Mean AI convective hazard forecast |
+| `/wpc` | Show the latest WPC Day 1–3 rainfall outlooks |
 
 ### Radar
 | Command | Description |
 |---|---|
-| `/radar` | Open the NEXRAD Level 2 radar downloader UI (site selection, time range, ZIP download) |
+| `/download` | Open the NEXRAD Level 2 radar downloader UI (site selection, time range, ZIP download) |
+| `/downloaderstatus` | Check AWS downloader and S3 latency |
 
 ### Status
 | Command | Description |
