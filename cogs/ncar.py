@@ -142,7 +142,7 @@ class NCARCog(commands.Cog):
                 _save_state("", "")
 
         # Only poll 06-18 UTC
-        if not (5 <= now_utc.hour < 9):
+        if not (5 <= now_utc.hour < 12):
             return
 
         # Already posted today's image
