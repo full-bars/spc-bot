@@ -320,6 +320,7 @@ class StatusCog(commands.Cog):
             "csu_mlp_daily_poll":   "CSU-MLP forecasts",
             "wxnext_daily_poll":    "NCAR WxNext2",
             "watchdog_task":        "watchdog",
+            "periodic_cleanup":      "periodic cache cleanup",
         }
         for cog_name, cog in self.bot.cogs.items():
             for task_name in dir(cog):
