@@ -12,7 +12,6 @@ from discord.ext import commands, tasks
 
 from config import CACHE_DIR, GUILD_ID, TOKEN, CONFIG
 from utils.http import close_session, ensure_session
-from utils.spc_urls import cig_migration
 from utils.cache import (
     auto_cache,
     last_post_times,
@@ -90,8 +89,6 @@ async def on_ready():
     logger.info(f"Logged in as {bot.user} (id={bot.user.id})")
 
     await ensure_session()
-    await cig_migration()
-
     # Startup cleanup: remove cached files older than 7 days
     cache_age_limit = timedelta(days=7)
     now = datetime.now()
