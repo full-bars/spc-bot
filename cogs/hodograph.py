@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import os
+import sys
 
 import discord
 from discord.ext import commands
@@ -20,7 +21,7 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
     os.makedirs(HODO_OUTPUT_DIR, exist_ok=True)
     output_path = os.path.join(HODO_OUTPUT_DIR, f"{site.lower()}_hodograph.png")
 
-    cmd = ["python3", VAD_SCRIPT, "-f", output_path, site]
+    cmd = [sys.executable, VAD_SCRIPT, "-f", output_path, site]
     logger.info(f"[HODO] Generating hodograph for {site}: {' '.join(cmd)}")
 
     process = await asyncio.create_subprocess_exec(
