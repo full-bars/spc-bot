@@ -57,19 +57,20 @@ class RadarCog(commands.Cog):
     @discord.app_commands.describe(
         sites="Radar site code(s) e.g. KICT or KICT KUEX KOAX (space or comma separated)",
         time="Quick time preset — skips interactive flow",
+        count="Number of most recent files to download (overrides time)",
     )
     @discord.app_commands.choices(time=[
         Choice(name="Last 1 hour", value="1h"),
         Choice(name="Last 2 hours", value="2h"),
         Choice(name="Last 3 hours", value="3h"),
         Choice(name="Last 4 hours", value="4h"),
-        Choice(name="10 Most Recent Files", value="recent10"),
     ])
     async def download_slash(
         self,
         interaction: discord.Interaction,
         sites: str = None,
         time: Choice[str] = None,
+        count: int = None,
     ):
         # No args — full interactive flow
         if not sites:
@@ -84,6 +85,18 @@ class RadarCog(commands.Cog):
         if not radar_sites:
             await interaction.response.send_message(
                 "Please enter at least one valid radar site code.", ephemeral=True
+            )
+            return
+
+        # count overrides time — go straight to N most recent download
+        if count is not None:
+            await interaction.response.defer()
+            now = datetime.now(timezone.utc)
+            await run_download(
+                interaction, radar_sites, [],
+                start_dt=None, end_dt=None,
+                dates_to_query=[now],
+                max_files=count,
             )
             return
 
@@ -109,24 +122,16 @@ class RadarCog(commands.Cog):
         now = datetime.now(timezone.utc)
         messages_to_delete = []
 
-        if time.value == "recent10":
-            await run_download(
-                interaction, radar_sites, messages_to_delete,
-                start_dt=None, end_dt=None,
-                dates_to_query=[now],
-                max_files=10,
-            )
-        else:
-            hours = int(time.value.replace("h", ""))
-            start_dt = now - timedelta(hours=hours)
-            dates_to_query = [now]
-            if start_dt.date() < now.date():
-                dates_to_query.insert(0, now - timedelta(days=1))
-            await run_download(
-                interaction, radar_sites, messages_to_delete,
-                start_dt=start_dt, end_dt=now,
-                dates_to_query=dates_to_query,
-            )
+        hours = int(time.value.replace("h", ""))
+        start_dt = now - timedelta(hours=hours)
+        dates_to_query = [now]
+        if start_dt.date() < now.date():
+            dates_to_query.insert(0, now - timedelta(days=1))
+        await run_download(
+            interaction, radar_sites, messages_to_delete,
+            start_dt=start_dt, end_dt=now,
+            dates_to_query=dates_to_query,
+        )
 
     @discord.app_commands.command(
         name="downloaderstatus",
