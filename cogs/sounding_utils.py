@@ -20,7 +20,16 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
-import sounderpy as spy
+import io
+import sys
+
+# Suppress SounderPy's startup banner
+_stdout = sys.stdout
+sys.stdout = io.StringIO()
+try:
+    import sounderpy as spy
+finally:
+    sys.stdout = _stdout
 
 from config import CACHE_DIR
 
