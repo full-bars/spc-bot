@@ -7,6 +7,7 @@ import discord
 from discord.ext import commands, tasks
 
 from config import SPC_CHANNEL_ID, SPC_URLS
+from utils.backoff import TaskBackoff
 from utils.cache import (
     auto_cache,
     check_all_urls_exist_parallel,
@@ -140,6 +141,7 @@ async def check_and_post_day(channel: discord.TextChannel, day: int):
 class OutlooksCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._spc_backoff = TaskBackoff("auto_post_spc")
         self.auto_post_spc.start()
         self.aggressive_check_spc.start()
         self.auto_post_spc48.start()
@@ -152,16 +154,22 @@ class OutlooksCog(commands.Cog):
     @tasks.loop(seconds=30)
     async def auto_post_spc(self):
         await self.bot.wait_until_ready()
+        if self._spc_backoff.should_skip():
+            return
         channel = self.bot.get_channel(SPC_CHANNEL_ID)
         if not channel:
             logger.warning("SPC channel not found for auto_post_spc")
             return
-        # Check all three days concurrently
-        await asyncio.gather(
-            check_and_post_day(channel, 1),
-            check_and_post_day(channel, 2),
-            check_and_post_day(channel, 3),
-        )
+        try:
+            await asyncio.gather(
+                check_and_post_day(channel, 1),
+                check_and_post_day(channel, 2),
+                check_and_post_day(channel, 3),
+            )
+            self._spc_backoff.success()
+        except Exception as e:
+            logger.warning(f"[auto_post_spc] cycle failed: {e}")
+            await self._spc_backoff.failure(self.bot)
 
     @tasks.loop(seconds=20)
     async def aggressive_check_spc(self):

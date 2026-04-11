@@ -130,6 +130,12 @@ in `CACHE_DIR` so restarts don't cause duplicate posts.
 
 ---
 
+## Task Backoff
+
+The `TaskBackoff` class in `utils/backoff.py` provides per-task exponential backoff for the high-frequency polling loops (`auto_post_spc`, `auto_post_md`, `auto_post_watches`). When a loop cycle fails, subsequent cycles are skipped with increasing delays (0s, 0s, 30s, 60s, 120s, 300s). After 5 consecutive failures a non-critical health alert is posted. On success the counter resets.
+
+---
+
 ## Watchdog
 
 A `watchdog_task` loop runs every 2 minutes. It:
