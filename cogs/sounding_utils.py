@@ -227,18 +227,17 @@ def parse_sounding_time(time_str: Optional[str]) -> Optional[tuple[str, str, str
         )
 
 def get_recent_sounding_times(n: int = 4) -> list[tuple[str, str, str, str]]:
-    """Return the n most recent 00z/12z sounding times."""
+    """
+    Return the n most recent 00z/12z sounding times that are in the past.
+    """
+    from datetime import timedelta
     now = datetime.now(timezone.utc)
     times = []
-    # Work backwards from now, checking 00z and 12z
-    for days_back in range(4):
+    for days_back in range(5):
         for hour in [12, 0]:
             dt = now.replace(
                 hour=hour, minute=0, second=0, microsecond=0
-            )
-            if days_back > 0:
-                from datetime import timedelta
-                dt = dt.replace(hour=hour) - __import__("datetime").timedelta(days=days_back)
+            ) - timedelta(days=days_back)
             if dt < now:
                 times.append((
                     str(dt.year),
