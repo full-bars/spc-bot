@@ -36,6 +36,17 @@ sudo ./deploy.sh
 
 The script will prompt you for your Discord bot token and channel IDs, then handle everything else.
 
+The bot is installed to `/opt/spc-bot` and runs as a dedicated non-root `spcbot` user. The following aliases are added automatically:
+
+```bash
+spcon        # start the bot
+spcoff       # stop the bot
+spcrestart   # restart the bot
+spcstatus    # show status
+spclog       # follow live logs
+spclog50     # show last 50 log lines
+```
+
 
 ### Manual
 
@@ -79,7 +90,7 @@ python -m pytest tests/ -v
 ```
 spc-bot/
 ├── main.py                  # Bot entrypoint, watchdog, signal handling
-├── deploy.sh                # One-command deployment script
+├── deploy.sh                # One-command deployment script (installs to /opt/spc-bot)
 ├── config.py                # Configuration from environment variables
 ├── requirements.txt         # Python dependencies
 ├── .env.example             # Template for required environment variables
