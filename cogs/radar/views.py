@@ -961,14 +961,5 @@ class TimeRangeView(View):
             dates_to_query=self._dates_for_hours(4),
         )
 
-    @discord.ui.button(label="10 Most Recent", style=ButtonStyle.grey, row=1)
-    async def most_recent(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.defer()
-        now = datetime.now(timezone.utc)
-        await run_download(
-            interaction, self.radar_sites, self.messages_to_delete,
-            start_dt=None, end_dt=None,
-            dates_to_query=[now],
-            max_files=10,
-        )
+
 

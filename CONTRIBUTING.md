@@ -52,7 +52,7 @@ or inline where invoked, not into the configured channels.
 ### Radar
 | Command | Description |
 |---|---|
-| `/download` | Open the NEXRAD Level 2 radar downloader UI. Optional `sites` (space or comma separated codes e.g. `KICT KUEX`) and `time` (Last 1h/2h/3h/4h or 10 Most Recent) for quick-start without interactive flow. |
+| `/download` | Open the NEXRAD Level 2 radar downloader UI. Optional `sites` (space or comma separated codes e.g. `KICT KUEX`), `time` (Last 1h/2h/3h/4h), and `count` (number of most recent files) for quick-start without interactive flow. |
 | `/downloaderstatus` | Check AWS downloader and S3 latency |
 
 ### Status
