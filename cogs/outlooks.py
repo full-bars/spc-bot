@@ -8,6 +8,7 @@ from discord.ext import commands, tasks
 
 from config import SPC_CHANNEL_ID, SPC_URLS
 from utils.backoff import TaskBackoff
+from utils.db import get_posted_urls, set_posted_urls
 from utils.cache import (
     auto_cache,
     check_all_urls_exist_parallel,
@@ -133,6 +134,7 @@ async def check_and_post_day(channel: discord.TextChannel, day: int):
             )
             last_post_times[day_key] = datetime.now(timezone.utc)
             last_posted_urls[day_key] = urls
+            asyncio.create_task(set_posted_urls(day_key, urls))
             logger.info(f"[Day {day}] Posted {len(files)} images. URLs: {urls}")
         except Exception as e:
             logger.error(f"Failed to send post for Day {day}: {e}")

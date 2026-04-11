@@ -102,6 +102,15 @@ async def on_ready():
             os.rename(db_path, db_path + ".corrupted")
         await get_db()
     await migrate_from_json()
+
+    # Restore last posted URLs
+    from utils.db import get_posted_urls
+    from utils.cache import last_posted_urls
+    for day_key in ["day1", "day2", "day3"]:
+        urls = await get_posted_urls(day_key)
+        if urls:
+            last_posted_urls[day_key] = urls
+            logger.info(f"[DB] Restored posted URLs for {day_key}")
     logger.info("[DB] Database ready")
 
     # Startup cleanup: remove cached files older than 7 days
