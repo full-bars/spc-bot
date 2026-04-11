@@ -40,9 +40,7 @@ or inline where invoked, not into the configured channels.
 | Command | Description |
 |---|---|
 | `/scp` | Show the latest NIU/Gensini SCP forecast graphics. Optional `fresh:True` bypasses cache. |
-| `/csu1` – `/csu8` | Show CSU-MLP ML severe weather forecast for Days 1–8 |
-| `/csupanel12` | Show CSU-MLP 6-panel summary for Days 1–2 |
-| `/csupanel38` | Show CSU-MLP 6-panel summary for Days 3–8 |
+| `/csu` | Show CSU-MLP ML severe weather forecast — choose from Days 1–8, 6-Panel Days 1-2, or 6-Panel Days 3-8 via dropdown |
 | `/wxnext` | Show the latest NCAR WxNext2 Mean AI convective hazard forecast |
 | `/wpc` | Show the latest WPC Day 1–3 rainfall outlooks |
 

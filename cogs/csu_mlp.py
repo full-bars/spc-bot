@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timedelta, timezone
 
 import discord
+from discord.app_commands import Choice
 from discord.ext import commands, tasks
 
 from config import MANUAL_CACHE_FILE, MODELS_CHANNEL_ID
@@ -148,38 +149,6 @@ class CSUMLPCog(commands.Cog):
     # ── Shared fetch+send helper ──────────────────────────────────────────
 
 
-    @discord.app_commands.command(name="csupanel12", description="CSU-MLP 6-panel hazard summary Days 1-2")
-    async def csupanel12(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        url, label = await _resolve_panel_url("hazards_fcst_6panel")
-        if not url:
-            await interaction.followup.send("CSU-MLP Days 1-2 6-panel isn't available yet. Try after ~11am MT.")
-            return
-        cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE, manual_cache)
-        if not cache_path:
-            await interaction.followup.send("Failed to download CSU-MLP Days 1-2 6-panel.")
-            return
-        await interaction.followup.send(
-            f"**CSU-MLP Days 1-2 Hazard 6-Panel** (init: {label})",
-            files=[discord.File(cache_path)]
-        )
-
-    @discord.app_commands.command(name="csupanel38", description="CSU-MLP 6-panel hazard summary Days 3-8")
-    async def csupanel38(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        url, label = await _resolve_panel_url("severe_fcst_6panel")
-        if not url:
-            await interaction.followup.send("CSU-MLP Days 3-8 6-panel isn't available yet. Try after ~11am MT.")
-            return
-        cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE, manual_cache)
-        if not cache_path:
-            await interaction.followup.send("Failed to download CSU-MLP Days 3-8 6-panel.")
-            return
-        await interaction.followup.send(
-            f"**CSU-MLP Days 3-8 Severe 6-Panel** (init: {label})",
-            files=[discord.File(cache_path)]
-        )
-
     async def _fetch_and_send(self, source, day: int):
         url, label = await _resolve_best_url(day)
         if not url:
@@ -216,47 +185,53 @@ class CSUMLPCog(commands.Cog):
         except discord.HTTPException as e:
             logger.error(f"[CSU-MLP] Send failed for Day {day}: {e}")
 
-    # ── Slash commands ────────────────────────────────────────────────────
+    # ── Slash command ─────────────────────────────────────────────────────
 
-    @discord.app_commands.command(name="csu1", description="CSU-MLP Day 1 severe weather ML forecast")
-    async def csu1(self, interaction: discord.Interaction):
+    @discord.app_commands.command(name="csu", description="CSU-MLP severe weather ML forecast")
+    @discord.app_commands.describe(product="Which CSU-MLP product to display")
+    @discord.app_commands.choices(product=[
+        Choice(name="Day 1", value="1"),
+        Choice(name="Day 2", value="2"),
+        Choice(name="Day 3", value="3"),
+        Choice(name="Day 4 (Medium Range)", value="4"),
+        Choice(name="Day 5 (Medium Range)", value="5"),
+        Choice(name="Day 6 (Medium Range)", value="6"),
+        Choice(name="Day 7 (Medium Range)", value="7"),
+        Choice(name="Day 8 (Medium Range)", value="8"),
+        Choice(name="6-Panel Days 1-2", value="panel12"),
+        Choice(name="6-Panel Days 3-8", value="panel38"),
+    ])
+    async def csu(self, interaction: discord.Interaction, product: Choice[str]):
         await interaction.response.defer()
-        await self._fetch_and_send(interaction, 1)
-
-    @discord.app_commands.command(name="csu2", description="CSU-MLP Day 2 severe weather ML forecast")
-    async def csu2(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        await self._fetch_and_send(interaction, 2)
-
-    @discord.app_commands.command(name="csu3", description="CSU-MLP Day 3 severe weather ML forecast")
-    async def csu3(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        await self._fetch_and_send(interaction, 3)
-
-    @discord.app_commands.command(name="csu4", description="CSU-MLP Day 4 severe weather ML forecast")
-    async def csu4(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        await self._fetch_and_send(interaction, 4)
-
-    @discord.app_commands.command(name="csu5", description="CSU-MLP Day 5 severe weather ML forecast")
-    async def csu5(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        await self._fetch_and_send(interaction, 5)
-
-    @discord.app_commands.command(name="csu6", description="CSU-MLP Day 6 severe weather ML forecast")
-    async def csu6(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        await self._fetch_and_send(interaction, 6)
-
-    @discord.app_commands.command(name="csu7", description="CSU-MLP Day 7 severe weather ML forecast")
-    async def csu7(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        await self._fetch_and_send(interaction, 7)
-
-    @discord.app_commands.command(name="csu8", description="CSU-MLP Day 8 severe weather ML forecast")
-    async def csu8(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        await self._fetch_and_send(interaction, 8)
+        val = product.value
+        if val == "panel12":
+            url, label = await _resolve_panel_url("hazards_fcst_6panel")
+            if not url:
+                await interaction.followup.send("CSU-MLP Days 1-2 6-panel isn't available yet. Try after ~11am MT.")
+                return
+            cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE, manual_cache)
+            if not cache_path:
+                await interaction.followup.send("Failed to download CSU-MLP Days 1-2 6-panel.")
+                return
+            await interaction.followup.send(
+                f"**CSU-MLP Days 1-2 Hazard 6-Panel** (init: {label})",
+                files=[discord.File(cache_path)]
+            )
+        elif val == "panel38":
+            url, label = await _resolve_panel_url("severe_fcst_6panel")
+            if not url:
+                await interaction.followup.send("CSU-MLP Days 3-8 6-panel isn't available yet. Try after ~11am MT.")
+                return
+            cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE, manual_cache)
+            if not cache_path:
+                await interaction.followup.send("Failed to download CSU-MLP Days 3-8 6-panel.")
+                return
+            await interaction.followup.send(
+                f"**CSU-MLP Days 3-8 Severe 6-Panel** (init: {label})",
+                files=[discord.File(cache_path)]
+            )
+        else:
+            await self._fetch_and_send(interaction, int(val))
 
     # ── Auto-post polling loop ────────────────────────────────────────────
 
