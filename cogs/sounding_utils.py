@@ -255,20 +255,22 @@ def get_recent_sounding_times(n: int = 4) -> list[tuple[str, str, str, str]]:
 
 async def filter_stations_with_data(stations: list[dict], n_times: int = 2) -> list[dict]:
     """
-    Check each station in parallel against the most recent sounding times.
+    Check each station in parallel against the single most recent sounding time.
+    If the most recent time has no data, try the previous one — but all stations
+    are checked concurrently to keep total wait time minimal.
     Returns only stations that have at least one available sounding.
-    Runs checks concurrently to minimize wait time.
     """
     import asyncio
     times = get_recent_sounding_times(n_times)
 
     async def has_data(station: dict) -> tuple[dict, bool]:
         station_id = station.get("icao") or station.get("wmo")
-        for year, month, day, hour in times:
-            data = await fetch_sounding(station_id, year, month, day, hour)
-            if data:
-                return station, True
-        return station, False
+        # Check all times concurrently for this station
+        results = await asyncio.gather(*[
+            fetch_sounding(station_id, y, mo, d, h)
+            for y, mo, d, h in times
+        ])
+        return station, any(r is not None for r in results)
 
     results = await asyncio.gather(*[has_data(s) for s in stations])
     return [s for s, ok in results if ok]
