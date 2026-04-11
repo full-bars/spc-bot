@@ -155,43 +155,47 @@ class StatusCog(commands.Cog):
     @discord.app_commands.command(
         name="scp", description="Get latest SCP Forecast Graphics"
     )
-    async def scp_slash(self, interaction: discord.Interaction):
+    @discord.app_commands.describe(fresh="Bypass cache and fetch the latest images directly")
+    async def scp_slash(self, interaction: discord.Interaction, fresh: Optional[bool] = False):
         await interaction.response.defer()
         await fetch_and_send_weather_images(
             interaction,
             SCP_IMAGE_URLS,
             "**Latest SCP Forecast Graphics**",
-            use_cached=True,
+            use_cached=not fresh,
         )
 
     @discord.app_commands.command(
         name="spc1", description="Get latest SPC Day 1 Outlooks"
     )
-    async def spc1_slash(self, interaction: discord.Interaction):
+    @discord.app_commands.describe(fresh="Bypass cache and fetch the latest images directly")
+    async def spc1_slash(self, interaction: discord.Interaction, fresh: Optional[bool] = False):
         await interaction.response.defer()
         urls = await get_spc_urls(1)
         await fetch_and_send_weather_images(
-            interaction, urls, "**Latest SPC Day 1 Outlooks**", use_cached=True
+            interaction, urls, "**Latest SPC Day 1 Outlooks**", use_cached=not fresh
         )
 
     @discord.app_commands.command(
         name="spc2", description="Get latest SPC Day 2 Outlooks"
     )
-    async def spc2_slash(self, interaction: discord.Interaction):
+    @discord.app_commands.describe(fresh="Bypass cache and fetch the latest images directly")
+    async def spc2_slash(self, interaction: discord.Interaction, fresh: Optional[bool] = False):
         await interaction.response.defer()
         urls = await get_spc_urls(2)
         await fetch_and_send_weather_images(
-            interaction, urls, "**Latest SPC Day 2 Outlooks**", use_cached=True
+            interaction, urls, "**Latest SPC Day 2 Outlooks**", use_cached=not fresh
         )
 
     @discord.app_commands.command(
         name="spc3", description="Get latest SPC Day 3 Outlooks"
     )
-    async def spc3_slash(self, interaction: discord.Interaction):
+    @discord.app_commands.describe(fresh="Bypass cache and fetch the latest images directly")
+    async def spc3_slash(self, interaction: discord.Interaction, fresh: Optional[bool] = False):
         await interaction.response.defer()
         urls = await get_spc_urls(3)
         await fetch_and_send_weather_images(
-            interaction, urls, "**Latest SPC Day 3 Outlooks**", use_cached=True
+            interaction, urls, "**Latest SPC Day 3 Outlooks**", use_cached=not fresh
         )
 
     @discord.app_commands.command(
