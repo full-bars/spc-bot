@@ -110,8 +110,19 @@ fi
 
 # ── File permissions ──────────────────────────────────────────────────────────
 info "Setting permissions..."
-chown -R "$SERVICE_USER":"$SERVICE_USER" "$INSTALL_DIR"
+
+# Bot code is owned by root so any admin can git pull
+# Only runtime dirs need to be writable by the spcbot user
+CACHE_DIR="${INSTALL_DIR}/cache"
+mkdir -p "$CACHE_DIR"
+
+# spcbot owns only what it needs to write at runtime
+chown -R "$SERVICE_USER":"$SERVICE_USER" "$CACHE_DIR"
+chown "$SERVICE_USER":"$SERVICE_USER" "$ENV_FILE"
 chmod 600 "$ENV_FILE"
+
+# Everything else stays root-owned but world-readable
+chmod -R a+rX "$INSTALL_DIR"
 
 # ── Systemd service ───────────────────────────────────────────────────────────
 info "Installing systemd service..."
@@ -151,6 +162,7 @@ alias spcrestart='sudo systemctl restart spcbot'
 alias spcstatus='systemctl status spcbot'
 alias spclog='journalctl -u spcbot -f'
 alias spclog50='journalctl -u spcbot -n 50'
+alias spcupdate='cd /opt/spc-bot && sudo git pull && sudo systemctl restart spcbot && echo "Bot updated and restarted."'
 ALIASES
 chmod 644 "$ALIASES_FILE"
 info "Aliases installed. Run 'source /etc/profile.d/spcbot-aliases.sh' or open a new shell to use them."
@@ -166,5 +178,6 @@ echo "  spcrestart   — restart the bot"
 echo "  spcstatus    — show bot status"
 echo "  spclog       — follow live logs"
 echo "  spclog50     — show last 50 log lines"
+echo "  spcupdate    — pull latest code and restart"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
