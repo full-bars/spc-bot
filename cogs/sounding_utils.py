@@ -252,6 +252,27 @@ def get_recent_sounding_times(n: int = 4) -> list[tuple[str, str, str, str]]:
 
 # ── SounderPy fetch and plot ──────────────────────────────────────────────────
 
+
+async def filter_stations_with_data(stations: list[dict], n_times: int = 2) -> list[dict]:
+    """
+    Check each station in parallel against the most recent sounding times.
+    Returns only stations that have at least one available sounding.
+    Runs checks concurrently to minimize wait time.
+    """
+    import asyncio
+    times = get_recent_sounding_times(n_times)
+
+    async def has_data(station: dict) -> tuple[dict, bool]:
+        station_id = station.get("icao") or station.get("wmo")
+        for year, month, day, hour in times:
+            data = await fetch_sounding(station_id, year, month, day, hour)
+            if data:
+                return station, True
+        return station, False
+
+    results = await asyncio.gather(*[has_data(s) for s in stations])
+    return [s for s, ok in results if ok]
+
 async def fetch_sounding(
     station_id: str,
     year: str, month: str, day: str, hour: str,
