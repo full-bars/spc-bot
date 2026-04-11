@@ -49,17 +49,17 @@ async def check_and_post_day(channel: discord.TextChannel, day: int):
             elapsed = (
                 datetime.now() - partial_update_state[day_key]["start_time"]
             ).total_seconds() / 60
-            if elapsed < 2:
-                logger.debug(
-                    f"[Day {day}] No new updates this cycle but partial state "
-                    f"is fresh ({elapsed:.1f} min), keeping"
-                )
-            else:
-                logger.info(
-                    f"[Day {day}] No updates found after {elapsed:.1f} min; "
-                    f"clearing partial state"
+            if elapsed > 20:
+                logger.warning(
+                    f"[Day {day}] Timeout after {elapsed:.1f} min with no further "
+                    f"updates — clearing partial state without posting"
                 )
                 partial_update_state.pop(day_key, None)
+            else:
+                logger.debug(
+                    f"[Day {day}] No new updates this cycle, still waiting "
+                    f"({elapsed:.1f} min elapsed)"
+                )
         return
 
     if updated_count < total_count:
