@@ -13,7 +13,7 @@ from pathlib import Path
 
 import discord
 
-from cogs.radar.s3 import download_file, list_files, resolve_z_range
+from cogs.radar.s3 import s3_download_file, list_files, resolve_z_range
 
 logger = logging.getLogger("spc_bot")
 
@@ -72,7 +72,7 @@ async def download_file(file_key, output_dir, start_time, file_size, filename):
                 }
         try:
             await asyncio.wait_for(
-                download_file(file_key, str(output_path), progress_callback),
+                s3_download_file(file_key, str(output_path), progress_callback),
                 timeout=30,
             )
             download_time = time.time() - start_time
