@@ -82,7 +82,12 @@ async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
             logger.info(
                 f"[WATCH] NWS API: #{watch_num} ({wtype}) expires {expires_dt}"
             )
-            result[watch_num] = {"type": wtype, "expires": expires_dt}
+            affected_zones = props.get("affectedZones", [])
+            result[watch_num] = {
+                "type": wtype,
+                "expires": expires_dt,
+                "affected_zones": affected_zones,
+            }
     return result
 
 
