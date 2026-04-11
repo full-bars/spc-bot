@@ -254,7 +254,7 @@ def get_recent_sounding_times(n: int = 4) -> list[tuple[str, str, str, str]]:
 # ── SounderPy fetch and plot ──────────────────────────────────────────────────
 
 
-async def filter_stations_with_data(stations: list[dict], n_times: int = 2) -> list[dict]:
+async def filter_stations_with_data(stations: list[dict], n_times: int = 1) -> list[dict]:
     """
     Check each station in parallel against the single most recent sounding time.
     If the most recent time has no data, try the previous one — but all stations
