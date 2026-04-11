@@ -2,14 +2,16 @@
 """NEXRAD Level 2 radar data downloader from NOAA AWS S3."""
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 import logging
 import time
 
 import aiohttp
 import discord
+from discord.app_commands import Choice
 from discord.ext import commands, tasks
 
-from cogs.radar.downloads import cleanup_old_files, OUTPUT_DIR, CLEANUP_AGE_THRESHOLD
+from cogs.radar.downloads import cleanup_old_files, run_download, OUTPUT_DIR, CLEANUP_AGE_THRESHOLD
 from cogs.radar.s3 import _s3, get_radar_sites
 from cogs.radar.views import StartView
 
@@ -52,8 +54,79 @@ class RadarCog(commands.Cog):
         name="download",
         description="Download NEXRAD Level 2 radar data from AWS S3",
     )
-    async def download_slash(self, interaction: discord.Interaction):
-        await self._start_download_flow(interaction, interaction.user)
+    @discord.app_commands.describe(
+        sites="Radar site code(s) e.g. KICT or KICT KUEX KOAX (space or comma separated)",
+        time="Quick time preset — skips interactive flow",
+    )
+    @discord.app_commands.choices(time=[
+        Choice(name="Last 1 hour", value="1h"),
+        Choice(name="Last 2 hours", value="2h"),
+        Choice(name="Last 3 hours", value="3h"),
+        Choice(name="Last 4 hours", value="4h"),
+        Choice(name="10 Most Recent Files", value="recent10"),
+    ])
+    async def download_slash(
+        self,
+        interaction: discord.Interaction,
+        sites: str = None,
+        time: Choice[str] = None,
+    ):
+        # No args — full interactive flow
+        if not sites:
+            await self._start_download_flow(interaction, interaction.user)
+            return
+
+        # Parse site codes — accept space or comma separated, uppercase
+        import re
+        raw_sites = re.split(r"[,\s]+", sites.strip().upper())
+        radar_sites = [s for s in raw_sites if s]
+
+        if not radar_sites:
+            await interaction.response.send_message(
+                "Please enter at least one valid radar site code.", ephemeral=True
+            )
+            return
+
+        # Sites only — show time preset buttons
+        if not time:
+            from cogs.radar.views import TimeRangeView
+            await interaction.response.defer()
+            view = TimeRangeView(
+                radar_sites=radar_sites,
+                messages_to_delete=[],
+                original_user=interaction.user,
+            )
+            embed = discord.Embed(
+                title="AWS NEXRAD Data Downloader",
+                description="Sites: **{}**\nSelect a time range:".format(", ".join(radar_sites)),
+                color=0x0000FF,
+            )
+            await interaction.followup.send(embed=embed, view=view)
+            return
+
+        # Both sites and time — go straight to download
+        await interaction.response.defer()
+        now = datetime.now(timezone.utc)
+        messages_to_delete = []
+
+        if time.value == "recent10":
+            await run_download(
+                interaction, radar_sites, messages_to_delete,
+                start_dt=None, end_dt=None,
+                dates_to_query=[now],
+                max_files=10,
+            )
+        else:
+            hours = int(time.value.replace("h", ""))
+            start_dt = now - timedelta(hours=hours)
+            dates_to_query = [now]
+            if start_dt.date() < now.date():
+                dates_to_query.insert(0, now - timedelta(days=1))
+            await run_download(
+                interaction, radar_sites, messages_to_delete,
+                start_dt=start_dt, end_dt=now,
+                dates_to_query=dates_to_query,
+            )
 
     @discord.app_commands.command(
         name="downloaderstatus",
