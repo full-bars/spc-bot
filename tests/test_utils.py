@@ -607,3 +607,27 @@ class TestSoundingUtils:
         from cogs.sounding_views import _plot_path
         path = _plot_path("OUN", "2026", "04", "10", "12")
         assert "sounding_OUN_20260410_12z" in path
+
+
+# ── Import smoke tests ────────────────────────────────────────────────────────
+
+class TestCogImports:
+    """Verify all cogs can be imported without errors."""
+    def test_import_mesoscale(self):
+        import cogs.mesoscale
+    def test_import_watches(self):
+        import cogs.watches
+    def test_import_outlooks(self):
+        import cogs.outlooks
+    def test_import_csu_mlp(self):
+        import cogs.csu_mlp
+    def test_import_ncar(self):
+        import cogs.ncar
+    def test_import_sounding(self):
+        import cogs.sounding
+    def test_import_sounding_utils(self):
+        import cogs.sounding_utils
+    def test_import_status(self):
+        import cogs.status
+    def test_import_scp(self):
+        import cogs.scp
