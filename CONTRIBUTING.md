@@ -121,12 +121,11 @@ changed (hash-based detection). Uses `MODELS_CHANNEL_ID`.
 
 ### Sounding Plots
 
-The `/sounding` command geocodes the location, finds nearby RAOB stations that have verified data in the Wyoming archive, and presents an interactive station and time picker. Plots are generated headlessly via SounderPy and posted to the channel where the command was used. Per-user dark mode preference is persisted to `sounding_prefs.json`. Auto-posting of soundings for areas with active severe weather is planned.
+The `/sounding` command geocodes the location, finds nearby RAOB stations that have verified data in the Wyoming archive, and presents an interactive station and time picker. Plots are generated headlessly via SounderPy and posted to the channel where the command was used. Per-user dark mode preference is persisted to the local SQLite database. Auto-posting of soundings for areas with active severe weather is planned.
 
 ### CSU-MLP and NCAR WxNext2
 
-Both poll once daily around model update time. State is persisted to a JSON file
-in `CACHE_DIR` so restarts don't cause duplicate posts.
+Both poll once daily around model update time. State is persisted to the SQLite database so restarts don't cause duplicate posts.
 
 ---
 
@@ -171,7 +170,3 @@ If the database fails an integrity check on startup, it is renamed to `bot_state
 ```bash
 pip install pytest pytest-asyncio
 python -m pytest tests/ -v
-```
-
-Tests use monkeypatched HTTP helpers and fixture payloads — no network access or
-Discord connection required.
