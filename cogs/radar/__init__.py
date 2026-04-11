@@ -10,7 +10,7 @@ import discord
 from discord.ext import commands, tasks
 
 from cogs.radar.downloads import cleanup_old_files, OUTPUT_DIR, CLEANUP_AGE_THRESHOLD
-from cogs.radar.s3 import get_s3_client, get_radar_sites
+from cogs.radar.s3 import _s3, get_radar_sites
 from cogs.radar.views import StartView
 
 logger = logging.getLogger("spc_bot")
@@ -69,16 +69,13 @@ class RadarCog(commands.Cog):
         )
         try:
             s3_start = time.time()
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: get_s3_client().list_objects_v2(
+            async with _s3() as s3:
+                await s3.list_objects_v2(
                     Bucket="unidata-nexrad-level2",
                     Prefix="2026/",
                     Delimiter="/",
                     MaxKeys=1,
-                ),
-            )
+                )
             s3_latency = round((time.time() - s3_start) * 1000)
             s3_icon = (
                 "🟢"

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import discord
 
-from cogs.radar.s3 import get_s3_client, list_files, _thread_local
+from cogs.radar.s3 import download_file, list_files, resolve_z_range
 
 logger = logging.getLogger("spc_bot")
 
@@ -70,20 +70,11 @@ async def download_file(file_key, output_dir, start_time, file_size, filename):
                     "bytes_transferred": 0,
                     "completed": False,
                 }
-            if hasattr(_thread_local, "s3_client"):
-                del _thread_local.s3_client
         try:
-            loop = asyncio.get_running_loop()
-            fut = loop.run_in_executor(
-                None,
-                lambda: get_s3_client().download_file(
-                    bucket,
-                    file_key,
-                    str(output_path),
-                    Callback=progress_callback,
-                ),
+            await asyncio.wait_for(
+                download_file(file_key, str(output_path), progress_callback),
+                timeout=30,
             )
-            await asyncio.wait_for(fut, timeout=30)
             download_time = time.time() - start_time
             speed = (
                 (file_size / download_time / 1024 / 1024) * 8
@@ -259,11 +250,8 @@ async def run_download(
 
     all_files = []
     try:
-        loop = asyncio.get_running_loop()
         for radar_site in radar_sites:
-            files = await loop.run_in_executor(
-                None, list_files, radar_site, dates_to_query
-            )
+            files = await list_files(radar_site, dates_to_query)
             all_files.extend(files)
     except RuntimeError as e:
         await send_error(interaction, "S3 Unreachable", str(e))
