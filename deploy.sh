@@ -136,6 +136,12 @@ chmod -R a+rX "$INSTALL_DIR"
 # venv needs to be executable by spcbot
 chown -R "$SERVICE_USER":"$SERVICE_USER" "$VENV_DIR"
 
+# Create and fix permissions for runtime files
+touch "${INSTALL_DIR}/spc_bot.log"
+chown "$SERVICE_USER":"$SERVICE_USER" "${INSTALL_DIR}/spc_bot.log"
+mkdir -p "${CACHE_DIR}/matplotlib"
+chown -R "$SERVICE_USER":"$SERVICE_USER" "${CACHE_DIR}/matplotlib"
+
 # ── Git safe directory for root ───────────────────────────────────────────────
 git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
 info "Git safe directory configured."
@@ -158,6 +164,7 @@ RestartSec=10
 StandardOutput=journal
 StandardError=journal
 EnvironmentFile=${ENV_FILE}
+Environment=MPLCONFIGDIR=/opt/spc-bot/cache/matplotlib
 
 [Install]
 WantedBy=multi-user.target
@@ -193,7 +200,10 @@ echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 info "Deployment complete! Bot installed to ${INSTALL_DIR}"
 echo ""
-echo "  Open a new shell then use:"
+echo "  NOTE: You may need to log out and back in for aliases to take effect."
+echo "  Or run: source /etc/bash.bashrc"
+echo ""
+echo "  Then use:"
 echo "  spcon        — start the bot"
 echo "  spcoff       — stop the bot"
 echo "  spcrestart   — restart the bot"
