@@ -291,6 +291,7 @@ async def main():
         await bot.load_extension("cogs.radar")
         await bot.load_extension("cogs.csu_mlp")
         await bot.load_extension("cogs.ncar")
+        await bot.load_extension("cogs.sounding")
         await bot.load_extension("cogs.hodograph")
 
         # Register cog tasks with watchdog after loading
