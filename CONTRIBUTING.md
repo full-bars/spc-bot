@@ -24,9 +24,9 @@ or inline where invoked, not into the configured channels.
 ### SPC Outlooks
 | Command | Description |
 |---|---|
-| `/spc1` | Fetch and display the latest SPC Day 1 outlook graphics |
-| `/spc2` | Fetch and display the latest SPC Day 2 outlook graphics |
-| `/spc3` | Fetch and display the latest SPC Day 3 outlook graphics |
+| `/spc1` | Fetch and display the latest SPC Day 1 outlook graphics. Optional `fresh:True` bypasses cache. |
+| `/spc2` | Fetch and display the latest SPC Day 2 outlook graphics. Optional `fresh:True` bypasses cache. |
+| `/spc3` | Fetch and display the latest SPC Day 3 outlook graphics. Optional `fresh:True` bypasses cache. |
 | `/spc48` | Fetch and display the latest SPC Day 4–8 outlook graphics |
 
 ### Watches & Mesoscale Discussions
@@ -39,12 +39,17 @@ or inline where invoked, not into the configured channels.
 ### Model Forecasts
 | Command | Description |
 |---|---|
-| `/scp` | Show the latest NIU/Gensini SCP forecast graphics |
+| `/scp` | Show the latest NIU/Gensini SCP forecast graphics. Optional `fresh:True` bypasses cache. |
 | `/csu1` – `/csu8` | Show CSU-MLP ML severe weather forecast for Days 1–8 |
 | `/csupanel12` | Show CSU-MLP 6-panel summary for Days 1–2 |
 | `/csupanel38` | Show CSU-MLP 6-panel summary for Days 3–8 |
 | `/wxnext` | Show the latest NCAR WxNext2 Mean AI convective hazard forecast |
 | `/wpc` | Show the latest WPC Day 1–3 rainfall outlooks |
+
+### Soundings
+| Command | Description |
+|---|---|
+| `/sounding` | Plot an observed RAOB sounding — accepts city names, radar site codes (e.g. `KTLX`), or RAOB station IDs. Optional `time` (MM-DD-YYYY 00z/12z) and `dark` (saves preference) parameters. Shows nearest stations with data and an interactive time picker. |
 
 ### Radar
 | Command | Description |
@@ -116,6 +121,10 @@ scraping the SPC watch index HTML directly.
 Posted at 6am and 6pm Pacific daily, but only if the images have actually
 changed (hash-based detection). Uses `MODELS_CHANNEL_ID`.
 
+### Sounding Plots
+
+The `/sounding` command geocodes the location, finds nearby RAOB stations that have verified data in the Wyoming archive, and presents an interactive station and time picker. Plots are generated headlessly via SounderPy and posted to the channel where the command was used. Per-user dark mode preference is persisted to `sounding_prefs.json`. Auto-posting of soundings for areas with active severe weather is planned.
+
 ### CSU-MLP and NCAR WxNext2
 
 Both poll once daily around model update time. State is persisted to a JSON file
@@ -147,6 +156,7 @@ All persistent state lives in `CACHE_DIR` (default: `cache/`):
 | `watch_posted.json` | Set of posted watch numbers (pruned to last 50) |
 | `csu_mlp_posted.json` | Date and set of CSU-MLP days posted today |
 | `ncar_posted.json` | Date and hash of last posted NCAR image |
+| `sounding_prefs.json` | Per-user sounding dark mode preferences |
 
 All writes go through `atomic_json_dump` which writes to a temp file then renames,
 preventing corruption on sudden shutdown.
