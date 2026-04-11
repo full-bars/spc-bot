@@ -104,7 +104,7 @@ async def list_files(radar_site: str, dates: list) -> list[dict]:
     return sorted(all_files, key=lambda x: x["FileTimestamp"], reverse=True)
 
 
-async def download_file(file_key: str, output_path: str, progress_callback=None) -> None:
+async def s3_download_file(file_key: str, output_path: str, progress_callback=None) -> None:
     """Download a single file from S3 with optional progress callback."""
     async with _s3() as s3:
         await s3.download_file(
