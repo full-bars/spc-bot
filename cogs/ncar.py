@@ -14,6 +14,7 @@ from utils.cache import (
     last_post_times,
     manual_cache,
 )
+from utils.db import delete_state, get_state, set_state
 from utils.http import ensure_session
 
 import aiohttp
@@ -28,24 +29,22 @@ def _wxnext_url(date: datetime) -> str:
     return f"{WXNEXT_BASE}/predictions_grid_wxnext_mean_any_{date.strftime('%Y%m%d')}00.png"
 
 
-def _state_file() -> str:
-    from config import CACHE_DIR
-    return os.path.join(CACHE_DIR, "ncar_posted.json")
-
-
-def _load_state() -> dict:
-    """Load posted state. Returns dict with date and hash."""
+async def _load_state() -> dict:
+    """Load posted state from DB."""
     try:
-        with open(_state_file()) as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
+        raw = await get_state("ncar_posted")
+        if raw:
+            return json.loads(raw)
+    except Exception as e:
+        logger.warning(f"[NCAR] Failed to load state: {e}")
+    return {}
 
 
-def _save_state(date_str: str, image_hash: str):
+async def _save_state(date_str: str, image_hash: str):
+    """Persist state to DB."""
+    value = json.dumps({"date": date_str, "hash": image_hash})
     try:
-        with open(_state_file(), "w") as f:
-            json.dump({"date": date_str, "hash": image_hash}, f)
+        await set_state("ncar_posted", value)
     except Exception as e:
         logger.warning(f"[NCAR] Failed to save state: {e}")
 
@@ -84,7 +83,7 @@ async def _resolve_wxnext() -> tuple[str | None, bytes | None, str | None]:
 
 
 # ── State ─────────────────────────────────────────────────────────────────────
-_posted_state: dict = _load_state()
+_posted_state: dict = {}  # loaded async on first poll
 _timing_logged: bool = False
 
 
@@ -129,6 +128,8 @@ class NCARCog(commands.Cog):
     async def wxnext_daily_poll(self):
         await self.bot.wait_until_ready()
         global _posted_state, _timing_logged
+        if not _posted_state:
+            _posted_state = await _load_state()
 
         now_utc = datetime.now(timezone.utc)
         today_str = now_utc.strftime("%Y-%m-%d")
@@ -165,7 +166,7 @@ class NCARCog(commands.Cog):
         if _posted_state.get("hash") == h:
             logger.debug("[NCAR] Image hash unchanged, skipping")
             _posted_state["date"] = today_str
-            _save_state(today_str, h)
+            await _save_state(today_str, h)
             return
 
         channel = self.bot.get_channel(MODELS_CHANNEL_ID)
@@ -186,7 +187,7 @@ class NCARCog(commands.Cog):
                 files=[discord.File(cache_path)],
             )
             _posted_state = {"date": today_str, "hash": h}
-            _save_state(today_str, h)
+            await _save_state(today_str, h)
             last_post_times["wxnext"] = now_utc
             logger.info("[NCAR] Auto-posted WxNext2")
         except Exception as e:

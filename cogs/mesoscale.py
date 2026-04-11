@@ -22,7 +22,7 @@ from utils.cache import (
 )
 from utils.change_detection import get_cache_path_for_url
 from utils.http import http_get_text, http_head_meta
-from utils.persistence import save_set
+from utils.db import add_posted_md, prune_posted_mds
 
 logger = logging.getLogger("spc_bot")
 
@@ -206,7 +206,8 @@ class MesoscaleCog(commands.Cog):
                     else:
                         await channel.send(header)
                     posted_mds.add(md_num)
-                    save_set(posted_mds, MD_CACHE_FILE)
+                    asyncio.create_task(add_posted_md(str(md_num)))
+                    asyncio.create_task(prune_posted_mds())
                     last_post_times["md"] = datetime.now(timezone.utc)
                     logger.info(f"[MD] Posted MD #{md_num}")
                 except discord.HTTPException as e:

@@ -49,10 +49,10 @@ class SoundingCog(commands.Cog):
 
         # Resolve dark mode preference
         if dark is not None:
-            set_user_dark_mode(interaction.user.id, dark)
+            await set_user_dark_mode(interaction.user.id, dark)
             dark_mode = dark
         else:
-            dark_mode = get_user_dark_mode(interaction.user.id)
+            dark_mode = await get_user_dark_mode(interaction.user.id)
 
         # Parse time if provided
         time_args = None
