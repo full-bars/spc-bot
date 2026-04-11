@@ -11,6 +11,7 @@ import discord
 from discord.ext import commands
 
 from cogs.sounding_utils import (
+    filter_stations_with_data,
     find_nearest_stations,
     get_raob_stations,
     get_recent_sounding_times,
@@ -97,6 +98,36 @@ class SoundingCog(commands.Cog):
                 ephemeral=True,
             )
             return
+
+        # Verify stations actually have data in Wyoming archive
+        # Search wider if needed (up to 10 candidates)
+        candidates = find_nearest_stations(lat, lon, stations_df, n=10)
+        candidates = [s for s in candidates if s.get("icao") or s.get("wmo")]
+
+        checking_embed = discord.Embed(
+            title="⏳ Checking Station Availability...",
+            description="Verifying which nearby stations have sounding data...",
+            color=discord.Color.blurple(),
+        )
+        await interaction.followup.send(embed=checking_embed)
+        status_msg = await interaction.original_response()
+
+        verified = await filter_stations_with_data(candidates)
+        nearest = verified[:3]
+
+        if not nearest:
+            error_embed = discord.Embed(
+                title="❌ No Sounding Data Available",
+                description=(
+                    "No nearby upper air stations have recent sounding data "
+                    "in the Wyoming archive.\nTry a different location."
+                ),
+                color=discord.Color.red(),
+            )
+            await status_msg.edit(embed=error_embed)
+            return
+
+        await status_msg.delete()
 
         # If only one station and time specified, go straight to plot
         if len(nearest) == 1 and time_args:
