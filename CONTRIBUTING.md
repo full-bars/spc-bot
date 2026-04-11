@@ -121,7 +121,7 @@ changed (hash-based detection). Uses `MODELS_CHANNEL_ID`.
 
 ### Sounding Plots
 
-The `/sounding` command geocodes the location, finds nearby RAOB stations that have verified data in the Wyoming archive, and presents an interactive station and time picker. Plots are generated headlessly via SounderPy and posted to the channel where the command was used. Per-user dark mode preference is persisted to the local SQLite database. Auto-posting of soundings for areas with active severe weather is planned.
+The `/sounding` command geocodes the location, finds nearby RAOB stations that have verified data in the Wyoming archive, and presents an interactive station and time picker. Plots are generated headlessly via SounderPy and posted to the channel where the command was used. Per-user dark mode preference is persisted to the local SQLite database. Auto-posting of soundings is active — when a new 00z or 12z sounding cycle becomes available, the bot checks for active SPC watches and posts soundings for up to 3 nearby RAOB stations per watch to `SPC_CHANNEL_ID`.
 
 ### CSU-MLP and NCAR WxNext2
 

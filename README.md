@@ -11,6 +11,7 @@ A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks
 * CSU-MLP machine learning severe weather forecasts (Days 1-8 + 6-panel summaries), auto-posted daily with `/csu1`-`/csu8`, `/csupanel12`, and `/csupanel38` slash commands
 * NCAR WxNext2 Mean AI convective hazard forecast (Days 1-8), auto-posted daily with `/wxnext` slash command
 * Observed RAOB sounding plots via SounderPy with `/sounding` — supports city names, radar site codes, and station IDs with interactive station and time selection
+* Auto-posts soundings for RAOB stations near active SPC watches at 00z/12z sounding cycles
 * VWP hodograph generation for any NEXRAD or TDWR site (200 sites) via `/hodograph`, with auto ASOS surface wind and storm parameter table
 * NEXRAD Level 2 radar downloader from NOAA AWS S3
   * Single or multi-site downloads with per-site ZIP packaging

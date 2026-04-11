@@ -251,6 +251,45 @@ def get_recent_sounding_times(n: int = 4) -> list[tuple[str, str, str, str]]:
     return times
 
 
+
+async def get_watch_area_centroid(affected_zones: list) -> tuple[float, float] | None:
+    """
+    Fetch zone polygons from NWS and return the centroid of the watch area.
+    Returns (lat, lon) or None on failure.
+    """
+    import aiohttp
+    all_lats = []
+    all_lons = []
+
+    async with aiohttp.ClientSession(
+        headers={"User-Agent": "spc-bot-sounding/1.0"}
+    ) as session:
+        for zone_url in affected_zones[:10]:  # cap at 10 zones
+            try:
+                async with session.get(
+                    zone_url, timeout=aiohttp.ClientTimeout(total=5)
+                ) as resp:
+                    data = await resp.json()
+                geometry = data.get("geometry")
+                if not geometry:
+                    continue
+                coords = geometry.get("coordinates", [])
+                if geometry["type"] == "Polygon":
+                    for lon, lat in coords[0]:
+                        all_lats.append(lat)
+                        all_lons.append(lon)
+                elif geometry["type"] == "MultiPolygon":
+                    for polygon in coords:
+                        for lon, lat in polygon[0]:
+                            all_lats.append(lat)
+                            all_lons.append(lon)
+            except Exception as e:
+                logger.warning(f"[SOUNDING] Zone fetch failed for {zone_url}: {e}")
+
+    if not all_lats:
+        return None
+    return sum(all_lats) / len(all_lats), sum(all_lons) / len(all_lons)
+
 # ── SounderPy fetch and plot ──────────────────────────────────────────────────
 
 
