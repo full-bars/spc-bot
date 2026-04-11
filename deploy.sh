@@ -141,6 +141,7 @@ touch "${INSTALL_DIR}/spc_bot.log"
 chown "$SERVICE_USER":"$SERVICE_USER" "${INSTALL_DIR}/spc_bot.log"
     chown "$SERVICE_USER":"$SERVICE_USER" "${INSTALL_DIR}/radar_data"
     chmod 775 "${INSTALL_DIR}"
+    chown root:"$SERVICE_USER" "${INSTALL_DIR}"
 mkdir -p "${CACHE_DIR}/matplotlib"
 chown -R "$SERVICE_USER":"$SERVICE_USER" "${CACHE_DIR}/matplotlib"
 
