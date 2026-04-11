@@ -101,7 +101,8 @@ spc-bot/
 │   ├── change_detection.py  # HEAD-based change detection, hashing
 │   ├── cache.py             # In-memory state, download orchestration
 │   └── spc_urls.py          # SPC outlook URL resolution
-│   └── backoff.py           # Exponential backoff tracker for task loops
+│   ├── backoff.py              # Exponential backoff tracker for task loops
+│   └── db.py                   # Async SQLite state manager (aiosqlite)
 ├── cogs/
 │   ├── outlooks.py          # SPC Day 1-3 and Day 4-8 auto-posting
 │   ├── mesoscale.py         # SPC Mesoscale Discussion monitoring
