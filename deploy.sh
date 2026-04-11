@@ -139,6 +139,7 @@ chown -R "$SERVICE_USER":"$SERVICE_USER" "$VENV_DIR"
 # Create and fix permissions for runtime files
 touch "${INSTALL_DIR}/spc_bot.log"
 chown "$SERVICE_USER":"$SERVICE_USER" "${INSTALL_DIR}/spc_bot.log"
+    chown "$SERVICE_USER":"$SERVICE_USER" "${INSTALL_DIR}/radar_data"
 mkdir -p "${CACHE_DIR}/matplotlib"
 chown -R "$SERVICE_USER":"$SERVICE_USER" "${CACHE_DIR}/matplotlib"
 
