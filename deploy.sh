@@ -1,15 +1,16 @@
 #!/bin/bash
 # deploy.sh — WxAlert/SPCBot deployment script
-# Sets up a Python venv, configures .env interactively,
-# and installs a systemd service running as a dedicated non-root user.
+# Installs to /opt/spc-bot, runs as dedicated non-root spcbot user,
+# and adds shell aliases for easy management.
 
 set -e
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INSTALL_DIR="/opt/spc-bot"
+SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVICE_USER="spcbot"
 SERVICE_NAME="spcbot"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-VENV_DIR="${REPO_DIR}/venv"
+VENV_DIR="${INSTALL_DIR}/venv"
 PYTHON_MIN_MAJOR=3
 PYTHON_MIN_MINOR=10
 
@@ -50,6 +51,15 @@ else
     info "User '$SERVICE_USER' already exists."
 fi
 
+# ── Copy files to install directory ──────────────────────────────────────────
+info "Installing to ${INSTALL_DIR}..."
+mkdir -p "$INSTALL_DIR"
+
+# Copy all bot files except venv, cache, logs, and .env
+rsync -a --exclude='venv/' --exclude='cache/' --exclude='*.log*'     --exclude='.env' --exclude='__pycache__/' --exclude='*.pyc'     "${SOURCE_DIR}/" "${INSTALL_DIR}/"
+
+info "Files copied to ${INSTALL_DIR}."
+
 # ── Virtual environment ───────────────────────────────────────────────────────
 if [ ! -d "$VENV_DIR" ]; then
     info "Creating virtual environment..."
@@ -60,11 +70,11 @@ fi
 
 info "Installing dependencies..."
 "$VENV_DIR/bin/pip" install --upgrade pip --quiet
-"$VENV_DIR/bin/pip" install -r "${REPO_DIR}/requirements.txt" --quiet
+"$VENV_DIR/bin/pip" install -r "${INSTALL_DIR}/requirements.txt" --quiet
 info "Dependencies installed."
 
 # ── Interactive .env setup ────────────────────────────────────────────────────
-ENV_FILE="${REPO_DIR}/.env"
+ENV_FILE="${INSTALL_DIR}/.env"
 if [ -f "$ENV_FILE" ]; then
     warn ".env already exists. Skipping interactive setup."
     warn "Edit ${ENV_FILE} manually if you need to change values."
@@ -78,7 +88,7 @@ else
     read -rsp "  Discord Bot Token: " DISCORD_TOKEN
     echo ""
     read -rp  "  SPC Channel ID:    " SPC_CHANNEL_ID
-    read -rp  "  Models Channel ID:    " MODELS_CHANNEL_ID
+    read -rp  "  Models Channel ID: " MODELS_CHANNEL_ID
     read -rp  "  Guild ID:          " GUILD_ID
     echo ""
 
@@ -100,7 +110,7 @@ fi
 
 # ── File permissions ──────────────────────────────────────────────────────────
 info "Setting permissions..."
-chown -R "$SERVICE_USER":"$SERVICE_USER" "$REPO_DIR"
+chown -R "$SERVICE_USER":"$SERVICE_USER" "$INSTALL_DIR"
 chmod 600 "$ENV_FILE"
 
 # ── Systemd service ───────────────────────────────────────────────────────────
@@ -114,7 +124,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=${SERVICE_USER}
-WorkingDirectory=${REPO_DIR}
+WorkingDirectory=${INSTALL_DIR}
 ExecStart=${VENV_DIR}/bin/python main.py
 Restart=on-failure
 RestartSec=10
@@ -130,13 +140,31 @@ systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"
 systemctl restart "$SERVICE_NAME"
 
+# ── Shell aliases ─────────────────────────────────────────────────────────────
+info "Installing shell aliases..."
+ALIASES_FILE="/etc/profile.d/spcbot-aliases.sh"
+cat > "$ALIASES_FILE" << 'ALIASES'
+# WxAlert SPCBot management aliases
+alias spcon='sudo systemctl start spcbot'
+alias spcoff='sudo systemctl stop spcbot'
+alias spcrestart='sudo systemctl restart spcbot'
+alias spcstatus='systemctl status spcbot'
+alias spclog='journalctl -u spcbot -f'
+alias spclog50='journalctl -u spcbot -n 50'
+ALIASES
+chmod 644 "$ALIASES_FILE"
+info "Aliases installed. Run 'source /etc/profile.d/spcbot-aliases.sh' or open a new shell to use them."
+
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-info "Deployment complete!"
+info "Deployment complete! Bot installed to ${INSTALL_DIR}"
 echo ""
-echo "  Useful commands:"
-echo "  systemctl status $SERVICE_NAME"
-echo "  journalctl -u $SERVICE_NAME -f"
-echo "  systemctl restart $SERVICE_NAME"
+echo "  Available commands:"
+echo "  spcon        — start the bot"
+echo "  spcoff       — stop the bot"
+echo "  spcrestart   — restart the bot"
+echo "  spcstatus    — show bot status"
+echo "  spclog       — follow live logs"
+echo "  spclog50     — show last 50 log lines"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
