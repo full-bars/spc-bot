@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Tuple
 
 import discord
 from discord.ext import commands, tasks
+from utils.backoff import TaskBackoff
 
 from config import AUTO_CACHE_FILE, SPC_CHANNEL_ID, SPC_MD_INDEX_URL
 from utils.cache import (
@@ -122,6 +123,7 @@ async def fetch_md_details(
 class MesoscaleCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._md_backoff = TaskBackoff("auto_post_md")
         self.auto_post_md.start()
 
     def cog_unload(self):
