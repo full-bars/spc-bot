@@ -27,13 +27,18 @@ logger = logging.getLogger("spc_bot")
 DB_PATH = os.path.join(CACHE_DIR, "bot_state.db")
 _LOCK = asyncio.Lock()
 _db: Optional[aiosqlite.Connection] = None
+_connecting: bool = False
 
 
 async def get_db() -> aiosqlite.Connection:
-    """Get or create the shared database connection."""
-    global _db
-    if _db is None:
-        _db = await _connect()
+    """Get or create the shared database connection (singleton)."""
+    global _db, _connecting
+    if _db is not None:
+        return _db
+    async with _LOCK:
+        # Check again inside lock in case another coroutine connected first
+        if _db is None:
+            _db = await _connect()
     return _db
 
 
