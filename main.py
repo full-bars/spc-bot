@@ -133,25 +133,26 @@ async def on_ready():
             logger.info(f"[DB] Restored posted URLs for {day_key}")
     logger.info("[DB] Database ready")
 
-    # Startup cleanup: remove cached files older than 7 days
-    cache_age_limit = timedelta(days=7)
-    now = datetime.now()
-    for filename in os.listdir(CACHE_DIR):
-        if filename.startswith("cached_"):
-            file_path = os.path.join(CACHE_DIR, filename)
-            try:
-                file_time = datetime.fromtimestamp(
-                    os.path.getmtime(file_path)
-                )
-                if now - file_time > cache_age_limit:
-                    os.remove(file_path)
-                    logger.info(
-                        f"Deleted old cached file on startup: {filename}"
-                    )
-            except Exception as e:
-                logger.warning(
-                    f"Error deleting old cached file {filename}: {e}"
-                )
+    # Startup cleanup: run in executor to avoid blocking event loop
+    import os as _os
+    _cache_dir = CACHE_DIR
+    def _do_cleanup():
+        cache_age_limit = timedelta(days=7)
+        now = datetime.now()
+        try:
+            for filename in _os.listdir(_cache_dir):
+                if filename.startswith("cached_"):
+                    file_path = _os.path.join(_cache_dir, filename)
+                    try:
+                        file_time = datetime.fromtimestamp(_os.path.getmtime(file_path))
+                        if now - file_time > cache_age_limit:
+                            _os.remove(file_path)
+                            logger.info(f"Deleted old cached file on startup: {filename}")
+                    except Exception as e:
+                        logger.warning(f"Error deleting old cached file {filename}: {e}")
+        except Exception as e:
+            logger.warning(f"Startup cleanup error: {e}")
+    asyncio.get_event_loop().run_in_executor(None, _do_cleanup)
 
     # Slash command sync
     try:
