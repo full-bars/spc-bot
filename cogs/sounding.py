@@ -101,7 +101,7 @@ class SoundingCog(commands.Cog):
 
         # Verify stations actually have data in Wyoming archive
         # Search wider if needed (up to 10 candidates)
-        candidates = find_nearest_stations(lat, lon, stations_df, n=10)
+        candidates = find_nearest_stations(lat, lon, stations_df, n=6)
         candidates = [s for s in candidates if s.get("icao") or s.get("wmo")]
 
         checking_embed = discord.Embed(
