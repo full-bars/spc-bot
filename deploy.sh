@@ -151,6 +151,10 @@ systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"
 systemctl restart "$SERVICE_NAME"
 
+# ── Git safe directory ───────────────────────────────────────────────────────
+info "Configuring git safe directory..."
+git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
+
 # ── Shell aliases ─────────────────────────────────────────────────────────────
 info "Installing shell aliases..."
 ALIASES_FILE="/etc/profile.d/spcbot-aliases.sh"
