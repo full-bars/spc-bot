@@ -76,6 +76,11 @@ async def _create_tables(db: aiosqlite.Connection):
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS posted_urls (
+            day_key TEXT PRIMARY KEY,
+            urls    TEXT NOT NULL
+        );
     """)
 
 
@@ -374,3 +379,38 @@ async def migrate_from_json():
         logger.info(f"[DB] Migrated from JSON: {', '.join(migrated)}")
     else:
         logger.info("[DB] No JSON migration needed")
+
+
+# ── Posted URLs ───────────────────────────────────────────────────────────────
+
+async def get_posted_urls(day_key: str) -> list:
+    """Get last posted URLs for a day key."""
+    try:
+        db = await get_db()
+        async with db.execute(
+            "SELECT urls FROM posted_urls WHERE day_key = ?", (day_key,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                import json
+                return json.loads(row["urls"])
+    except Exception as e:
+        logger.warning(f"[DB] get_posted_urls failed for {day_key}: {e}")
+    return []
+
+
+async def set_posted_urls(day_key: str, urls: list):
+    """Store last posted URLs for a day key."""
+    import json
+    try:
+        async with _LOCK:
+            db = await get_db()
+            await db.execute(
+                """INSERT INTO posted_urls (day_key, urls)
+                   VALUES (?, ?)
+                   ON CONFLICT(day_key) DO UPDATE SET urls=excluded.urls""",
+                (day_key, json.dumps(urls)),
+            )
+            await db.commit()
+    except Exception as e:
+        logger.warning(f"[DB] set_posted_urls failed for {day_key}: {e}")
