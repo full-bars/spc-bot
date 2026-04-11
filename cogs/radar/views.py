@@ -864,10 +864,7 @@ class StartView(View):
         today = (
             datetime.now(timezone.utc) - timedelta(days=1)
         ).replace(hour=0, minute=0, second=0, microsecond=0)
-        loop = asyncio.get_running_loop()
-        radar_sites = await loop.run_in_executor(
-            None, get_radar_sites, today
-        )
+        radar_sites = await get_radar_sites(today)
         if not radar_sites:
             await interaction.response.send_message(
                 embed=discord.Embed(
