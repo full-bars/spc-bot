@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Tuple
 
 import discord
 from discord.ext import commands, tasks
+from utils.backoff import TaskBackoff
 
 from config import (
     AUTO_CACHE_FILE,
@@ -482,6 +483,7 @@ async def _execute_watches(interaction: discord.Interaction):
 class WatchesCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._watches_backoff = TaskBackoff("auto_post_watches")
         self.auto_post_watches.start()
 
     def cog_unload(self):
@@ -490,6 +492,8 @@ class WatchesCog(commands.Cog):
     @tasks.loop(minutes=2)
     async def auto_post_watches(self):
         await self.bot.wait_until_ready()
+        if self._watches_backoff.should_skip():
+            return
         channel = self.bot.get_channel(SPC_CHANNEL_ID)
         if not channel:
             logger.warning("SPC channel not found for auto_post_watches")
@@ -641,7 +645,12 @@ class WatchesCog(commands.Cog):
                 posted_watches, MAX_TRACKED_WATCHES, WATCH_CACHE_FILE
             )
 
+            self._watches_backoff.success()
         except Exception as e:
+            logger.error(
+                f"[WATCH] Unexpected error in auto_post_watches: {e}",
+            )
+            await self._watches_backoff.failure(self.bot)
             logger.error(
                 f"[WATCH] Unexpected error in auto_post_watches: {e}",
                 exc_info=True,
