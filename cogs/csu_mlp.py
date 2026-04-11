@@ -2,6 +2,8 @@
 import json
 import logging
 import os
+
+from utils.db import get_state, set_state
 from datetime import datetime, timedelta, timezone
 
 import discord
@@ -108,33 +110,30 @@ async def _resolve_best_url(day: int) -> tuple[str | None, str]:
 
 
 
-def _state_file() -> str:
-    from config import CACHE_DIR
-    return os.path.join(CACHE_DIR, "csu_mlp_posted.json")
-
-def _load_posted_today() -> set[int]:
-    """Load posted days for today from disk. Returns empty set if stale or missing."""
+async def _load_posted_today() -> set:
+    """Load posted days for today from DB. Returns empty set if stale or missing."""
     try:
-        with open(_state_file()) as f:
-            data = json.load(f)
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        if data.get("date") == today:
-            return set(data.get("days", []))
-    except (FileNotFoundError, json.JSONDecodeError, KeyError):
-        pass
+        raw = await get_state("csu_mlp_posted")
+        if raw:
+            data = json.loads(raw)
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            if data.get("date") == today:
+                return set(data.get("days", []))
+    except Exception as e:
+        logger.warning(f"[CSU-MLP] Failed to load posted state: {e}")
     return set()
 
-def _save_posted_today(posted: set[int]):
-    """Persist posted days for today to disk."""
+async def _save_posted_today(posted: set):
+    """Persist posted days for today to DB."""
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    value = json.dumps({"date": today, "days": sorted(posted, key=str)})
     try:
-        with open(_state_file(), 'w') as f:
-            json.dump({"date": today, "days": sorted(posted, key=str)}, f)
+        await set_state("csu_mlp_posted", value)
     except Exception as e:
         logger.warning(f"[CSU-MLP] Failed to save posted state: {e}")
 
 # Auto-post state — which days posted today, persisted to disk
-_posted_today: set[int] = _load_posted_today()
+_posted_today: set = set()  # loaded async on first poll
 _availability_log: dict[int, str] = {}  # day -> first-seen time string
 
 
@@ -238,6 +237,9 @@ class CSUMLPCog(commands.Cog):
     @tasks.loop(minutes=10)
     async def csu_mlp_daily_poll(self):
         await self.bot.wait_until_ready()
+        global _posted_today
+        if not _posted_today:
+            _posted_today = await _load_posted_today()
 
         now_utc = datetime.now(timezone.utc)
 
@@ -247,7 +249,7 @@ class CSUMLPCog(commands.Cog):
                 logger.info("[CSU-MLP] Resetting daily posted state")
                 _posted_today.clear()
                 _availability_log.clear()
-                _save_posted_today(_posted_today)
+                await _save_posted_today(_posted_today)
 
         # Only poll 16-23 UTC
         if not (15 <= now_utc.hour < 22):
@@ -290,7 +292,7 @@ class CSUMLPCog(commands.Cog):
                     files=[discord.File(cache_path)],
                 )
                 _posted_today.add(day)
-                _save_posted_today(_posted_today)
+                await _save_posted_today(_posted_today)
                 last_post_times[f"csu_day{day}"] = now_utc
                 logger.info(f"[CSU-MLP] Auto-posted Day {day} ({label})")
             except Exception as e:
@@ -322,7 +324,7 @@ class CSUMLPCog(commands.Cog):
                     files=[discord.File(cache_path)]
                 )
                 _posted_today.add(state_key)
-                _save_posted_today(_posted_today)
+                await _save_posted_today(_posted_today)
                 last_post_times[f"csu_{state_key}"] = now_utc
                 logger.info(f"[CSU-MLP] Auto-posted {label_name} ({label})")
             except Exception as e:
