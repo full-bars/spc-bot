@@ -326,13 +326,24 @@ async def delete_state(key: str):
 async def migrate_from_json():
     """
     One-time migration: import existing JSON state into SQLite.
-    Safe to call multiple times — skips if data already exists.
+    Only runs if the database is empty to avoid overwriting current state.
     """
     import json
     from config import (
         AUTO_CACHE_FILE, MANUAL_CACHE_FILE,
     )
     from utils.cache import MD_CACHE_FILE, WATCH_CACHE_FILE
+
+    # Skip migration if DB already has data
+    try:
+        db = await get_db()
+        async with db.execute("SELECT COUNT(*) as cnt FROM image_hashes") as cursor:
+            row = await cursor.fetchone()
+            if row and row["cnt"] > 0:
+                logger.info("[DB] Skipping JSON migration — DB already populated")
+                return
+    except Exception as e:
+        logger.warning(f"[DB] Migration check failed: {e}")
 
     migrated = []
 
