@@ -10,6 +10,7 @@ A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks
 * NIU/Gensini CFSv2/GEFS supercell composite parameter (SCP) graphics, twice daily
 * CSU-MLP machine learning severe weather forecasts (Days 1-8 + 6-panel summaries), auto-posted daily with `/csu1`-`/csu8`, `/csupanel12`, and `/csupanel38` slash commands
 * NCAR WxNext2 Mean AI convective hazard forecast (Days 1-8), auto-posted daily with `/wxnext` slash command
+* Observed RAOB sounding plots via SounderPy with `/sounding` — supports city names, radar site codes, and station IDs with interactive station and time selection
 * VWP hodograph generation for any NEXRAD or TDWR site (200 sites) via `/hodograph`, with auto ASOS surface wind and storm parameter table
 * NEXRAD Level 2 radar downloader from NOAA AWS S3
   * Single or multi-site downloads with per-site ZIP packaging
@@ -95,6 +96,9 @@ spc-bot/
 │   ├── watches.py           # SPC Watch monitoring via NWS API
 │   ├── scp.py               # NIU/Gensini SCP graphics, twice daily
 │   ├── csu_mlp.py           # CSU-MLP ML severe weather forecasts, Days 1-8 and 6-panels
+│   ├── sounding.py          # RAOB sounding plots via SounderPy
+│   ├── sounding_utils.py    # Location resolution, station lookup, plot generation
+│   ├── sounding_views.py    # Discord UI views for sounding interaction
 │   ├── ncar.py              # NCAR WxNext2 AI severe weather forecast
 │   ├── hodograph.py         # VWP hodograph generation via /hodograph
 │   ├── status.py            # Bot status and manual slash commands
@@ -128,6 +132,8 @@ Work in progress. Actively developed in my free time, expect some bugs.
 * [discord.py](https://github.com/Rapptz/discord.py)
 * [aiohttp](https://github.com/aio-libs/aiohttp)
 * [boto3](https://github.com/boto/boto3)
+* [sounderpy](https://github.com/kylejgillett/sounderpy)
+* [MetPy](https://github.com/Unidata/MetPy)
 * [numpy](https://numpy.org)
 * [matplotlib](https://matplotlib.org)
 * [requests](https://requests.readthedocs.io)

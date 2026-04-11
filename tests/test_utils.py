@@ -529,3 +529,88 @@ class TestNCARWxNext:
             data = json.load(f)
         assert data["date"] == "2026-04-08"
         assert data["hash"] == "hashvalue123"
+
+
+# ── sounding_utils tests ──────────────────────────────────────────────────────
+
+class TestSoundingUtils:
+    def test_haversine_known_distance(self):
+        from cogs.sounding_utils import haversine
+        # OKC to Norman, OK — roughly 27km
+        dist = haversine(35.47, -97.52, 35.22, -97.44)
+        assert 25 < dist < 35
+
+    def test_haversine_same_point(self):
+        from cogs.sounding_utils import haversine
+        assert haversine(35.0, -97.0, 35.0, -97.0) == 0.0
+
+    def test_find_nearest_stations(self):
+        from cogs.sounding_utils import find_nearest_stations
+        import pandas as pd
+        # Mini fake station dataframe
+        df = pd.DataFrame([
+            {"ICAO": "KOKC", "WMO": "72357", "NAME": "OKLAHOMA CITY",
+             "LOC": "OK US", "lat": 35.23, "lon": -97.47, "dist_km": 0},
+            {"ICAO": "KOUN", "WMO": "72353", "NAME": "NORMAN",
+             "LOC": "OK US", "lat": 35.22, "lon": -97.44, "dist_km": 0},
+            {"ICAO": "KTLX", "WMO": "72364", "NAME": "TULSA",
+             "LOC": "OK US", "lat": 36.20, "lon": -95.98, "dist_km": 0},
+        ])
+        results = find_nearest_stations(35.47, -97.52, df, n=2)
+        assert len(results) == 2
+        assert results[0]["icao"] == "KOKC"
+
+    def test_parse_sounding_time_valid(self):
+        from cogs.sounding_utils import parse_sounding_time
+        result = parse_sounding_time("04-10-2026 12z")
+        assert result == ("2026", "04", "10", "12")
+
+    def test_parse_sounding_time_00z(self):
+        from cogs.sounding_utils import parse_sounding_time
+        result = parse_sounding_time("04-10-2026 00z")
+        assert result == ("2026", "04", "10", "00")
+
+    def test_parse_sounding_time_invalid_hour(self):
+        from cogs.sounding_utils import parse_sounding_time
+        import pytest
+        with pytest.raises(ValueError):
+            parse_sounding_time("04-10-2026 06z")
+
+    def test_parse_sounding_time_bad_format(self):
+        from cogs.sounding_utils import parse_sounding_time
+        import pytest
+        with pytest.raises(ValueError):
+            parse_sounding_time("2026-04-10 12z")
+
+    def test_parse_sounding_time_none(self):
+        from cogs.sounding_utils import parse_sounding_time
+        assert parse_sounding_time(None) is None
+
+    def test_get_recent_sounding_times(self):
+        from cogs.sounding_utils import get_recent_sounding_times
+        times = get_recent_sounding_times(4)
+        assert len(times) == 4
+        for year, month, day, hour in times:
+            assert hour in ("00", "12")
+            assert len(year) == 4
+            assert len(month) == 2
+            assert len(day) == 2
+
+    def test_user_dark_mode_prefs(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CACHE_DIR", str(tmp_path))
+        import importlib
+        import cogs.sounding_utils as su
+        importlib.reload(su)
+        # Default should be False
+        assert su.get_user_dark_mode(12345) is False
+        # Set to True
+        su.set_user_dark_mode(12345, True)
+        assert su.get_user_dark_mode(12345) is True
+        # Set back to False
+        su.set_user_dark_mode(12345, False)
+        assert su.get_user_dark_mode(12345) is False
+
+    def test_plot_path_format(self):
+        from cogs.sounding_views import _plot_path
+        path = _plot_path("OUN", "2026", "04", "10", "12")
+        assert "sounding_OUN_20260410_12z" in path
