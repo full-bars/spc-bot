@@ -103,9 +103,19 @@ async def on_ready():
         await get_db()
     await migrate_from_json()
 
-    # Restore last posted URLs
-    from utils.db import get_posted_urls
-    from utils.cache import last_posted_urls
+    # Restore in-memory caches from DB
+    from utils.db import get_all_hashes, get_posted_urls
+    from utils.cache import auto_cache, manual_cache, last_posted_urls
+
+    db_auto = await get_all_hashes("auto")
+    if db_auto:
+        auto_cache.update(db_auto)
+        logger.info(f"[DB] Loaded {len(db_auto)} auto hashes into cache")
+
+    db_manual = await get_all_hashes("manual")
+    if db_manual:
+        manual_cache.update(db_manual)
+        logger.info(f"[DB] Loaded {len(db_manual)} manual hashes into cache")
     for day_key in ["day1", "day2", "day3"]:
         urls = await get_posted_urls(day_key)
         if urls:
