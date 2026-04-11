@@ -30,7 +30,7 @@ from utils.cache import (
 )
 from utils.change_detection import get_cache_path_for_url, is_placeholder_image
 from utils.http import http_get_bytes, http_get_text
-from utils.persistence import save_set
+from utils.db import add_posted_watch, prune_posted_watches
 
 logger = logging.getLogger("spc_bot")
 
@@ -632,7 +632,8 @@ class WatchesCog(commands.Cog):
                     )
                     await channel.send(embed=embed, files=files)
                     posted_watches.add(watch_num)
-                    save_set(posted_watches, WATCH_CACHE_FILE)
+                    asyncio.create_task(add_posted_watch(str(watch_num)))
+                    asyncio.create_task(prune_posted_watches())
                     last_post_times["watch"] = datetime.now(timezone.utc)
                     logger.info(f"[WATCH] Posted watch #{watch_num}")
                 except discord.HTTPException as e:

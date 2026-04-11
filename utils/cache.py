@@ -21,6 +21,7 @@ from config import (
     MANUAL_CACHE_FILE,
     SPC_SCHEDULE,
 )
+from utils.db import set_hash, set_hashes_batch
 from utils.change_detection import (
     calculate_hash_bytes,
     get_cache_path_for_url,
@@ -191,7 +192,8 @@ async def download_single_image(
             f.write(content)
         if url not in cache or cache.get(url) != h:
             cache[url] = h
-            atomic_json_dump(cache, cache_file_path)
+            cache_type = "manual" if "manual" in cache_file_path else "auto"
+            asyncio.create_task(set_hash(url, h, cache_type))
             logger.debug(f"Updated cache hash for {url}: {h}")
         logger.debug(f"Downloaded and saved: {url} -> {cache_path}")
         return cache_path, content, h
@@ -311,7 +313,10 @@ async def save_downloaded_images(
 
     # Single write instead of per-URL
     if cache_dirty:
-        atomic_json_dump(cache, cache_file_path)
+        cache_type = "manual" if "manual" in cache_file_path else "auto"
+        asyncio.create_task(set_hashes_batch(
+            {url: cache[url] for url in urls if url in cache}, cache_type
+        ))
 
     return files
 
