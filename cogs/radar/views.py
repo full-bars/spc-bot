@@ -895,3 +895,80 @@ class StartView(View):
         await interaction.response.send_message(embed=embed, view=view)
         msg = await interaction.original_response()
         self.messages_to_delete.append(msg)
+
+class TimeRangeView(View):
+    """Standalone time range picker for quick-start /download with known sites."""
+    def __init__(self, radar_sites, messages_to_delete, original_user):
+        super().__init__(timeout=300)
+        self.radar_sites = radar_sites
+        self.messages_to_delete = messages_to_delete
+        self.original_user = original_user
+        self.date = datetime.now(timezone.utc)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user != self.original_user:
+            await interaction.response.send_message(
+                "This interaction is not yours.", ephemeral=True
+            )
+            return False
+        return True
+
+    def _dates_for_hours(self, hours):
+        now = datetime.now(timezone.utc)
+        start = now - timedelta(hours=hours)
+        dates = [self.date]
+        if start.date() < self.date.date():
+            dates.insert(0, self.date - timedelta(days=1))
+        return dates
+
+    @discord.ui.button(label="Last 1h", style=ButtonStyle.green, row=0)
+    async def last_1h(self, interaction: discord.Interaction, button: Button):
+        await interaction.response.defer()
+        now = datetime.now(timezone.utc)
+        await run_download(
+            interaction, self.radar_sites, self.messages_to_delete,
+            start_dt=now - timedelta(hours=1), end_dt=now,
+            dates_to_query=self._dates_for_hours(1),
+        )
+
+    @discord.ui.button(label="Last 2h", style=ButtonStyle.green, row=0)
+    async def last_2h(self, interaction: discord.Interaction, button: Button):
+        await interaction.response.defer()
+        now = datetime.now(timezone.utc)
+        await run_download(
+            interaction, self.radar_sites, self.messages_to_delete,
+            start_dt=now - timedelta(hours=2), end_dt=now,
+            dates_to_query=self._dates_for_hours(2),
+        )
+
+    @discord.ui.button(label="Last 3h", style=ButtonStyle.green, row=0)
+    async def last_3h(self, interaction: discord.Interaction, button: Button):
+        await interaction.response.defer()
+        now = datetime.now(timezone.utc)
+        await run_download(
+            interaction, self.radar_sites, self.messages_to_delete,
+            start_dt=now - timedelta(hours=3), end_dt=now,
+            dates_to_query=self._dates_for_hours(3),
+        )
+
+    @discord.ui.button(label="Last 4h", style=ButtonStyle.green, row=0)
+    async def last_4h(self, interaction: discord.Interaction, button: Button):
+        await interaction.response.defer()
+        now = datetime.now(timezone.utc)
+        await run_download(
+            interaction, self.radar_sites, self.messages_to_delete,
+            start_dt=now - timedelta(hours=4), end_dt=now,
+            dates_to_query=self._dates_for_hours(4),
+        )
+
+    @discord.ui.button(label="10 Most Recent", style=ButtonStyle.grey, row=1)
+    async def most_recent(self, interaction: discord.Interaction, button: Button):
+        await interaction.response.defer()
+        now = datetime.now(timezone.utc)
+        await run_download(
+            interaction, self.radar_sites, self.messages_to_delete,
+            start_dt=None, end_dt=None,
+            dates_to_query=[now],
+            max_files=10,
+        )
+
