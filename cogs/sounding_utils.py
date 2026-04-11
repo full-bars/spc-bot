@@ -32,10 +32,10 @@ finally:
     sys.stdout = _stdout
 
 from config import CACHE_DIR
+from utils.db import get_state, set_state
 
 logger = logging.getLogger("spc_bot")
 
-PREFS_FILE = os.path.join(CACHE_DIR, "sounding_prefs.json")
 RAOB_STATIONS_URL = "https://raw.githubusercontent.com/kylejgillett/sounderpy/main/src/RAOB-STATIONS.txt"
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 USER_AGENT = "spc-bot-sounding/1.0"
@@ -46,28 +46,20 @@ _station_cache: Optional[pd.DataFrame] = None
 
 # ── User preferences ──────────────────────────────────────────────────────────
 
-def load_prefs() -> dict:
+async def get_user_dark_mode(user_id: int) -> bool:
+    """Get user dark mode preference from DB."""
     try:
-        with open(PREFS_FILE) as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
+        raw = await get_state(f"sounding_dark_{user_id}")
+        return raw == "1" if raw is not None else False
+    except Exception:
+        return False
 
-def save_prefs(prefs: dict):
+async def set_user_dark_mode(user_id: int, dark: bool):
+    """Save user dark mode preference to DB."""
     try:
-        with open(PREFS_FILE, "w") as f:
-            json.dump(prefs, f)
+        await set_state(f"sounding_dark_{user_id}", "1" if dark else "0")
     except Exception as e:
-        logger.warning(f"[SOUNDING] Failed to save prefs: {e}")
-
-def get_user_dark_mode(user_id: int) -> bool:
-    prefs = load_prefs()
-    return prefs.get(str(user_id), {}).get("dark", False)
-
-def set_user_dark_mode(user_id: int, dark: bool):
-    prefs = load_prefs()
-    prefs.setdefault(str(user_id), {})["dark"] = dark
-    save_prefs(prefs)
+        logger.warning(f"[SOUNDING] Failed to save dark mode pref: {e}")
 
 
 # ── Station list ──────────────────────────────────────────────────────────────

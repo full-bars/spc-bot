@@ -151,19 +151,18 @@ Tasks are registered with the watchdog in `main.py` after cogs load.
 
 ## Persistence
 
-All persistent state lives in `CACHE_DIR` (default: `cache/`):
+All persistent state lives in a single SQLite database at `CACHE_DIR/bot_state.db`, managed by `utils/db.py` using `aiosqlite`. The database uses WAL mode and a 5-second busy timeout for safe concurrent access.
 
-| File | Contents |
+| Table | Contents |
 |---|---|
-| `auto_posted_records.json` | Hashes of auto-posted images, used for change detection |
-| `posted_records.json` | Hashes of manually-fetched images |
-| `watch_posted.json` | Set of posted watch numbers (pruned to last 50) |
-| `csu_mlp_posted.json` | Date and set of CSU-MLP days posted today |
-| `ncar_posted.json` | Date and hash of last posted NCAR image |
-| `sounding_prefs.json` | Per-user sounding dark mode preferences |
+| `image_hashes` | URL → hash mapping for change detection (replaces JSON hash caches) |
+| `posted_mds` | Set of posted MD numbers (pruned to last 200) |
+| `posted_watches` | Set of posted watch numbers (pruned to last 200) |
+| `bot_state` | Key/value store for CSU-MLP, NCAR, and sounding preferences |
 
-All writes go through `atomic_json_dump` which writes to a temp file then renames,
-preventing corruption on sudden shutdown.
+On first startup, existing JSON files are automatically migrated into the database. The in-memory dicts (`auto_cache`, `manual_cache`, `posted_mds`, `posted_watches`) are kept as a fast lookup layer — the database is the persistence layer only.
+
+If the database fails an integrity check on startup, it is renamed to `bot_state.db.corrupted` and recreated from scratch.
 
 ---
 

@@ -12,6 +12,7 @@ from discord.ext import commands, tasks
 
 from config import CACHE_DIR, GUILD_ID, TOKEN, CONFIG
 from utils.http import close_session, ensure_session
+from utils.db import check_integrity, close_db, get_db, migrate_from_json
 from utils.cache import (
     auto_cache,
     last_post_times,
@@ -89,6 +90,20 @@ async def on_ready():
     logger.info(f"Logged in as {bot.user} (id={bot.user.id})")
 
     await ensure_session()
+
+    # Initialize database
+    db_ok = await check_integrity()
+    if not db_ok:
+        logger.warning("[DB] Database integrity check failed — recreating")
+        import os
+        from config import CACHE_DIR
+        db_path = os.path.join(CACHE_DIR, "bot_state.db")
+        if os.path.exists(db_path):
+            os.rename(db_path, db_path + ".corrupted")
+        await get_db()
+    await migrate_from_json()
+    logger.info("[DB] Database ready")
+
     # Startup cleanup: remove cached files older than 7 days
     cache_age_limit = timedelta(days=7)
     now = datetime.now()
@@ -253,6 +268,7 @@ async def _shutdown():
     except Exception:
         pass
     await close_session()
+    await close_db()
     try:
         await bot.close()
     except Exception as e:
