@@ -175,8 +175,9 @@ class FailoverCog(commands.Cog):
         try:
             if self.bot.state.is_primary:
                 if self._ready and self._tunnel_url:
-                    await self._write_url_to_upstash(self._tunnel_url)
                     await self._check_for_demotion()
+                    if self.bot.state.is_primary:  # still primary after demotion check
+                        await self._write_url_to_upstash(self._tunnel_url)
             else:
                 await self._standby_cycle()
         except Exception as e:
