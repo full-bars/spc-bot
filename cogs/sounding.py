@@ -28,7 +28,7 @@ from cogs.sounding_utils import (
 )
 import os
 from cogs.sounding_views import StationSelectionView, post_sounding
-from cogs.sounding_utils import fetch_sounding, generate_plot
+from cogs.sounding_utils import fetch_acars_sounding, fetch_sounding, generate_plot
 
 logger = logging.getLogger("spc_bot")
 
@@ -135,6 +135,42 @@ class SoundingCog(commands.Cog):
                     logger.info(f"[SOUNDING-AUTO] Posted {station_id} for watch #{watch_num}")
                 except Exception as e:
                     logger.error(f"[SOUNDING-AUTO] Failed to post: {e}")
+
+        # ── ACARS auto-posting ────────────────────────────────────────────
+        acars_profiles = await get_acars_profiles_near(lat, lon, max_dist_km=300, hours_back=1)
+        for profile in acars_profiles[:2]:
+            post_key = f"acars:{watch_num}:{profile['airport']}:{time_key}"
+            if post_key in self._posted_watch_soundings:
+                continue
+
+            logger.info(f"[SOUNDING-AUTO] Posting ACARS {profile['airport']} near {watch_label} #{watch_num}")
+            self._posted_watch_soundings.add(post_key)
+
+            clean_data = await fetch_acars_sounding(
+                profile["profile_id"], profile["year"], profile["month"],
+                profile["day"], profile["acars_hour"]
+            )
+            if not clean_data:
+                continue
+
+            output_path = __import__("os").path.join(
+                __import__("config").CACHE_DIR,
+                f"acars_{profile['airport']}_{profile['year']}{profile['month']}{profile['day']}_{profile['acars_hour']}z"
+            )
+            success = await generate_plot(clean_data, output_path)
+            png_path = output_path + ".png"
+            if not success or not __import__("os").path.exists(png_path):
+                continue
+
+            caption = (
+                f"**Auto ACARS \u2014 {profile['airport']}**\n"
+                f"Valid: {profile['time_label']} | Near active {watch_label} #{watch_num}"
+            )
+            try:
+                await channel.send(caption, files=[discord.File(png_path)])
+                logger.info(f"[SOUNDING-AUTO] Posted ACARS {profile['airport']} for watch #{watch_num}")
+            except Exception as e:
+                logger.error(f"[SOUNDING-AUTO] Failed to post ACARS: {e}")
 
     @discord.app_commands.command(
         name="sounding",

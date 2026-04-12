@@ -408,6 +408,7 @@ class CombinedSoundingView(View):
                     f"Valid: {p['time_label']} | {mode_label} mode"
                 )
                 await interaction.channel.send(caption, files=[discord.File(png_path)])
+                logger.info(f"[ACARS] Posted {p['airport']} profile")
 
             btn.callback = acars_cb
             self.add_item(btn)
@@ -523,6 +524,6 @@ async def _post_from_clean_data(
                 except Exception:
                     pass
         await interaction.channel.send(caption, files=[discord.File(png_path)])
+        logger.info(f"[SOUNDING] Posted {station_id} {year}/{month}/{day} {hour}z")
     except Exception as e:
-        import logging
-        logging.getLogger("spc_bot").error(f"[SOUNDING] Failed to post: {e}")
+        logger.error(f"[SOUNDING] Failed to post: {e}", exc_info=True)
