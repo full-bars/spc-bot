@@ -107,3 +107,36 @@ async def setup(bot):
             self.bot.logger.info("Local database tables hydrated from Upstash.")
         except Exception as e:
             self.bot.logger.error(f"Hydration failed: {e}")
+
+
+    async def hydrate_local_state(self):
+        """Pull remote state and force-inject into correct tables."""
+        try:
+            self.bot.logger.info("[SYNC] Attempting to pull state from Upstash...")
+            # 1. Pull the data
+            remote_data = await self.bot.state.redis.get("spcbot:state:posted_records")
+            
+            if not remote_data:
+                self.bot.logger.warning("[SYNC] No remote data found in Redis.")
+                return
+
+            self.bot.logger.info(f"[SYNC] Data received: {type(remote_data)}")
+
+            # 2. Handle flat list (just MD numbers) vs Dict (MDs and Watches)
+            md_list = []
+            if isinstance(remote_data, list):
+                md_list = remote_data
+            elif isinstance(remote_data, dict):
+                md_list = remote_data.get('mds', [])
+
+            # 3. Inject into SQLite
+            if md_list:
+                for md in md_list:
+                    await self.bot.db.execute(
+                        "INSERT OR IGNORE INTO posted_mds (md_number) VALUES (?)", 
+                        (str(md),)
+                    )
+                self.bot.logger.info(f"[SYNC] Successfully hydrated {len(md_list)} MDs.")
+                
+        except Exception as e:
+            self.bot.logger.error(f"[SYNC] Critical failure during hydration: {e}")
