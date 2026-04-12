@@ -110,20 +110,21 @@ class FailoverCog(commands.Cog):
         try:
             self._tunnel_proc = await asyncio.create_subprocess_exec(
                 "cloudflared", "tunnel", "--url", f"http://localhost:{STATE_PORT}",
-                stdout=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
             )
-            # Read stderr to find the tunnel URL (cloudflared prints it there)
+            # Read stderr to find the tunnel URL (cloudflared logs to stderr)
             async def _read_url():
                 while True:
                     line = await self._tunnel_proc.stderr.readline()
                     if not line:
                         break
                     text = line.decode()
-                    if "trycloudflare.com" in text:
+                    if "https://" in text and "trycloudflare.com" in text:
                         for word in text.split():
-                            if "trycloudflare.com" in word:
-                                self._tunnel_url = word.strip()
+                            if word.startswith("https://") and "trycloudflare.com" in word:
+                                url = word.strip().rstrip("|").strip()
+                                self._tunnel_url = url
                                 logger.info(f"[FAILOVER] Tunnel URL: {self._tunnel_url}")
                                 await self._write_url_to_upstash(self._tunnel_url)
                                 return
