@@ -1,48 +1,39 @@
 import pytest
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 from cogs.failover import Failover
 
 @pytest.mark.asyncio
-async def test_sync_on_load():
-    """Test that the cog starts the sync loop and triggers a push for Primary."""
+async def test_sync_loop_primary_pushes():
+    """Test that the sync loop triggers a push if the bot is primary."""
     bot = MagicMock()
     bot.state = MagicMock()
     bot.state.is_primary = True
     bot.wait_until_ready = AsyncMock()
-    bot.db = MagicMock()
-    bot.config = MagicMock()
-    bot.session = MagicMock()
     
     cog = Failover(bot)
-    cog.push_state_to_redis = AsyncMock()
-    cog.hydrate_local_state = AsyncMock()
+    cog.perform_push = AsyncMock()
+    cog.perform_hydration = AsyncMock()
     
-    with patch.object(cog.sync_loop, 'start') as mock_start:
-        # We test the logic inside initialize_sync directly to avoid task timing issues
-        await cog.initialize_sync()
-        
-        bot.wait_until_ready.assert_called_once()
-        mock_start.assert_called_once()
-        cog.push_state_to_redis.assert_called_once()
+    # Manually trigger the loop's underlying function
+    await cog.sync_loop()
+    
+    cog.perform_push.assert_called_once()
+    cog.perform_hydration.assert_not_called()
 
 @pytest.mark.asyncio
-async def test_hydration_on_load_for_standby():
-    """Test that standby rank pulls data on load."""
+async def test_sync_loop_standby_hydrates():
+    """Test that the sync loop triggers hydration if the bot is standby."""
     bot = MagicMock()
     bot.state = MagicMock()
     bot.state.is_primary = False
     bot.wait_until_ready = AsyncMock()
-    bot.db = MagicMock()
-    bot.config = MagicMock()
-    bot.session = MagicMock()
     
     cog = Failover(bot)
-    cog.push_state_to_redis = AsyncMock()
-    cog.hydrate_local_state = AsyncMock()
+    cog.perform_push = AsyncMock()
+    cog.perform_hydration = AsyncMock()
     
-    with patch.object(cog.sync_loop, 'start'):
-        await cog.initialize_sync()
-        
-        cog.hydrate_local_state.assert_called_once()
-        cog.push_state_to_redis.assert_not_called()
+    # Manually trigger the loop's underlying function
+    await cog.sync_loop()
+    
+    cog.perform_hydration.assert_called_once()
+    cog.perform_push.assert_not_called()
