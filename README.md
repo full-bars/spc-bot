@@ -91,7 +91,8 @@ python -m pytest tests/ -v
 ```
 spc-bot/
 ├── main.py                  # Bot entrypoint, watchdog, signal handling
-├── deploy.sh                # One-command deployment script (installs to /opt/spc-bot)
+├── deploy.sh                # One-command deployment script
+├── install-hooks.sh         # Installs pre-push git hooks (syntax + test checks)
 ├── config.py                # Configuration from environment variables
 ├── requirements.txt         # Python dependencies
 ├── .env.example             # Template for required environment variables
@@ -100,24 +101,25 @@ spc-bot/
 │   ├── http.py              # Async HTTP session management
 │   ├── persistence.py       # Atomic JSON load/save helpers
 │   ├── change_detection.py  # HEAD-based change detection, hashing
-│   ├── cache.py             # In-memory state, download orchestration
-│   └── spc_urls.py          # SPC outlook URL resolution
+│   ├── cache.py             # Download orchestration, legacy globals (deprecated)
+│   ├── state.py             # BotState class — single source of truth for in-memory state
+│   ├── spc_urls.py          # SPC outlook URL resolution
 │   ├── backoff.py           # Exponential backoff tracker for task loops
-│   └── db.py                # Async SQLite state manager (aiosqlite)
+│   └── db.py                # Async SQLite state manager (aiosqlite), WAL mode
 ├── cogs/
 │   ├── outlooks.py          # SPC Day 1-3 and Day 4-8 auto-posting
 │   ├── mesoscale.py         # SPC Mesoscale Discussion monitoring
-│   ├── watches.py           # SPC Watch monitoring via NWS API
+│   ├── watches.py           # SPC watch monitoring via NWS API (stores affected_zones)
 │   ├── scp.py               # NIU/Gensini SCP graphics, twice daily
-│   ├── csu_mlp.py           # CSU-MLP ML severe weather forecasts, Days 1-8 and 6-panels
-│   ├── sounding.py          # RAOB sounding plots via SounderPy
-│   ├── sounding_utils.py    # Location resolution, station lookup, plot generation
-│   ├── sounding_views.py    # Discord UI views for sounding interaction
+│   ├── csu_mlp.py           # CSU-MLP consolidated /csu command with Choice dropdown
 │   ├── ncar.py              # NCAR WxNext2 AI severe weather forecast
+│   ├── sounding.py          # RAOB+ACARS sounding plots; auto-posts near active watches
+│   ├── sounding_utils.py    # Location resolution, IEM fetch (all hours), ACARS fetch, plot generation
+│   ├── sounding_views.py    # Discord UI: CombinedSoundingView, IEMTimeSelectionView, ACARS views
 │   ├── hodograph.py         # VWP hodograph generation via /hodograph
 │   ├── status.py            # Bot status and manual slash commands
 │   └── radar/
-│       ├── __init__.py      # Radar cog registration
+│       ├── __init__.py      # Radar cog: /download with quick-start site+time+count params
 │       ├── s3.py            # S3 client, file listing, time parsing
 │       ├── downloads.py     # Download orchestration, zipping, progress
 │       └── views.py         # Discord UI views and modals
@@ -132,8 +134,9 @@ spc-bot/
 │       └── utils.py         # Shared exception types
 └── tests/
     ├── conftest.py          # Test environment setup
-    ├── test_utils.py        # Unit tests for utilities
+    ├── test_utils.py        # Unit tests for utilities and sounding parsing
     ├── test_watches.py      # Unit tests for watch VTEC parsing
+    ├── test_integration.py  # Integration tests: BotState, cog instantiation, function signatures
     └── test_hodograph.py    # Unit tests for hodograph cog
 ```
 
