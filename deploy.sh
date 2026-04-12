@@ -86,6 +86,26 @@ info "Installing/updating dependencies..."
 "${VENV_DIR}/bin/pip" install -r "${INSTALL_DIR}/requirements.txt" --quiet
 info "Dependencies installed."
 
+# ── Install cloudflared (for failover tunnel) ───────────────────────────────
+if ! command -v cloudflared &>/dev/null; then
+    info "Installing cloudflared..."
+    ARCH=$(uname -m)
+    case "$ARCH" in
+        x86_64)  CF_ARCH="amd64" ;;
+        aarch64) CF_ARCH="arm64" ;;
+        armv7l)  CF_ARCH="arm" ;;
+        *)       warn "Unknown arch $ARCH — skipping cloudflared install" ; CF_ARCH="" ;;
+    esac
+    if [ -n "$CF_ARCH" ]; then
+        curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH}" -o /tmp/cloudflared
+        chmod +x /tmp/cloudflared
+        mv /tmp/cloudflared /usr/local/bin/cloudflared
+        info "cloudflared installed ($CF_ARCH)."
+    fi
+else
+    info "cloudflared already installed."
+fi
+
 # ── Interactive .env setup ────────────────────────────────────────────────────
 ENV_FILE="${INSTALL_DIR}/.env"
 if [ -f "$ENV_FILE" ]; then
