@@ -9,32 +9,35 @@ logger = logging.getLogger("spc_bot")
 class Failover(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        # Bring back the visibility
+        rank = getattr(bot.state, 'rank', 'UNKNOWN')
+        logger.info(f"--- [Failover System Initialized | Rank: {rank}] ---")
 
     async def cog_load(self):
-        """Triggered when the cog is loaded."""
         asyncio.create_task(self.initialize_sync())
 
     async def initialize_sync(self):
-        """Wait for the bot and its custom attributes to be ready."""
         await self.bot.wait_until_ready()
         
-        # Increased patience: Wait up to 60 seconds (30 * 2s)
         retries = 0
-        while retries < 30:
-            db_ready = hasattr(self.bot, 'db') and self.bot.db is not None
-            config_ready = hasattr(self.bot, 'config') and self.bot.config is not None
-            session_ready = hasattr(self.bot, 'session') and self.bot.session is not None
+        while retries < 15:
+            # More permissive check
+            db = getattr(self.bot, 'db', None)
+            config = getattr(self.bot, 'config', None)
+            session = getattr(self.bot, 'session', None)
             
-            if db_ready and config_ready and session_ready:
+            if db and config and session:
+                logger.info(f"[SYNC] All systems ready after {retries*2}s. Starting logic.")
                 break
                 
             await asyncio.sleep(2)
             retries += 1
-            if retries % 5 == 0: # Log every 10 seconds to keep logs clean
-                logger.info(f"[SYNC] Waiting for bot attributes (Attempt {retries}/30)...")
+            if retries % 2 == 0:
+                logger.info(f"[SYNC] Waiting for attributes (Attempt {retries}/15)...")
 
-        if retries >= 30:
-            logger.error("[SYNC] Critical Failure: Bot attributes never initialized after 60s.")
+        if retries >= 15:
+            attrs = [a for a in ['db', 'config', 'session'] if not hasattr(self.bot, a)]
+            logger.error(f"[SYNC] Critical Failure. Missing: {attrs}")
             return
 
         if not self.sync_loop.is_running():
@@ -47,17 +50,14 @@ class Failover(commands.Cog):
 
     @tasks.loop(minutes=5)
     async def sync_loop(self):
-        """Periodic backup for Primary."""
         if self.bot.state.is_primary:
             await self.push_state_to_redis()
 
     async def push_state_to_redis(self):
-        """Primary pushes last 25 records to Upstash."""
         try:
             data = {}
             async with self.bot.db.execute("SELECT md_number FROM posted_mds ORDER BY id DESC LIMIT 25") as cursor:
                 data['mds'] = [row[0] for row in await cursor.fetchall()]
-            
             async with self.bot.db.execute("SELECT watch_number FROM posted_watches ORDER BY id DESC LIMIT 25") as cursor:
                 data['watches'] = [row[0] for row in await cursor.fetchall()]
 
@@ -73,7 +73,6 @@ class Failover(commands.Cog):
             logger.error(f"[SYNC] Push Error: {e}")
 
     async def hydrate_local_state(self):
-        """Standby pulls state from Upstash."""
         try:
             url = f"{self.bot.config.UPSTASH_REDIS_REST_URL}/get/spcbot:state:posted_records"
             headers = {"Authorization": f"Bearer {self.bot.config.UPSTASH_REDIS_REST_TOKEN}"}
@@ -81,8 +80,7 @@ class Failover(commands.Cog):
             async with self.bot.session.get(url, headers=headers) as resp:
                 if resp.status == 200:
                     res_json = await resp.json()
-                    if not res_json.get('result'):
-                        return
+                    if not res_json.get('result'): return
                     
                     data = json.loads(res_json['result'])
                     async with self.bot.db.cursor() as cursor:
