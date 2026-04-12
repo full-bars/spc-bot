@@ -565,7 +565,7 @@ class TestSoundingUtils:
         from cogs.sounding_utils import parse_sounding_time
         import pytest
         with pytest.raises(ValueError):
-            parse_sounding_time("04-10-2026 06z")
+            parse_sounding_time("04-10-2026 25z")  # invalid hour > 23
 
     def test_parse_sounding_time_bad_format(self):
         from cogs.sounding_utils import parse_sounding_time
