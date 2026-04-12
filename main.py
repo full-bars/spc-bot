@@ -39,6 +39,7 @@ except Exception as e:
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
+bot.state = BotState()
 
 # Watchdog state
 _task_fail_counts = {}
@@ -77,10 +78,6 @@ async def send_bot_alert(
 @bot.event
 async def on_ready():
     import cogs.status as status_cog
-
-    # Initialize BotState if not already done
-    if not hasattr(bot, "state"):
-        bot.state = BotState()
 
     status_cog.BOT_START_TIME = datetime.now(timezone.utc)
 
