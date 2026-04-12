@@ -15,6 +15,7 @@ class BotState:
     """Encapsulates all mutable in-memory state for the bot."""
 
     def __init__(self):
+        self.is_primary: bool = True  # overridden by IS_PRIMARY env var in main.py
         # ── Image hash caches ─────────────────────────────────────────────
         self.auto_cache: Dict[str, str] = {}
         self.manual_cache: Dict[str, str] = {}
@@ -55,4 +56,8 @@ class BotState:
                 if isinstance(v, dict)
             },
             "last_posted_urls": self.last_posted_urls,
+            "last_post_times": {
+                k: v.isoformat() if v else None
+                for k, v in self.last_post_times.items()
+            },
         }

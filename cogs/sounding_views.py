@@ -125,15 +125,15 @@ async def post_sounding(
         await interaction.channel.send(caption, files=[discord.File(png_path)])
         logger.info(f"[SOUNDING] Posted {station_id} {used_year}/{used_month}/{used_day} {used_hour}z")
 
-        # Clean up ephemeral messages on success
+        # Edit status msg to show success but keep selection available
         if status_msg:
             try:
-                await status_msg.delete()
-            except Exception:
-                pass
-        for msg in messages_to_delete:
-            try:
-                await msg.delete()
+                done_embed = discord.Embed(
+                    title=f"✅ Posted — {station_id} {used_year}/{used_month}/{used_day} {used_hour}z",
+                    description="Select another station or time above to post more.",
+                    color=discord.Color.green(),
+                )
+                await status_msg.edit(embed=done_embed, view=None)
             except Exception:
                 pass
 
@@ -306,15 +306,16 @@ class CombinedSoundingView(View):
 
             async def raob_cb(interaction, s=station):
                 if self.time_args:
-                    loading_embed = discord.Embed(
-                        title="⏳ Fetching Sounding Data...",
-                        description="Contacting archive...",
-                        color=discord.Color.blurple(),
-                    )
-                    await interaction.response.edit_message(embed=loading_embed, view=None)
-                    status_msg = await interaction.original_response()
+                    await interaction.response.defer(ephemeral=True)
                     year, month, day, hour = self.time_args
                     sid = s.get("icao") or s.get("wmo")
+                    status_msg = await interaction.followup.send(
+                        embed=discord.Embed(
+                            title="⏳ Fetching Sounding Data...",
+                            description=f"Fetching {sid} at {hour}z...",
+                            color=discord.Color.blurple(),
+                        ), ephemeral=True, wait=True
+                    )
                     clean_data = await fetch_sounding(
                         sid, year, month, day, hour,
                         station_name=s["name"],
@@ -331,15 +332,15 @@ class CombinedSoundingView(View):
                             color=discord.Color.red(),
                         ))
                 else:
-                    # Show time picker with all available times from IEM
-                    loading_embed = discord.Embed(
-                        title="⏳ Loading Available Times...",
-                        color=discord.Color.blurple(),
-                    )
-                    await interaction.response.edit_message(embed=loading_embed, view=None)
-                    status_msg = await interaction.original_response()
-
+                    # Show time picker — defer+followup keeps station picker visible
+                    await interaction.response.defer(ephemeral=True)
                     sid = s.get("icao") or s.get("wmo")
+                    status_msg = await interaction.followup.send(
+                        embed=discord.Embed(
+                            title="⏳ Loading Available Times...",
+                            color=discord.Color.blurple(),
+                        ), ephemeral=True, wait=True
+                    )
                     avail = await get_available_sounding_times_iem(sid, hours_back=36)
                     if not avail:
                         await status_msg.edit(embed=discord.Embed(
@@ -348,9 +349,8 @@ class CombinedSoundingView(View):
                             color=discord.Color.red(),
                         ))
                         return
-
                     view = IEMTimeSelectionView(s, avail[:8], self.dark_mode,
-                                                self.original_user, [status_msg])
+                                               self.original_user, [])
                     embed = discord.Embed(
                         title=f"Select Time — {s['name']} ({sid})",
                         description="\n".join([f"`{t[3]}z` {t[1]}-{t[2]}-{t[0]}" for t in avail[:8]]),
@@ -373,8 +373,10 @@ class CombinedSoundingView(View):
                     description=f"Retrieving ACARS data for {p['airport']}...",
                     color=discord.Color.blurple(),
                 )
-                await interaction.response.edit_message(embed=loading_embed, view=None)
-                status_msg = await interaction.original_response()
+                await interaction.response.defer(ephemeral=True)
+                status_msg = await interaction.followup.send(
+                    embed=loading_embed, ephemeral=True, wait=True
+                )
 
                 clean_data = await fetch_acars_sounding(
                     p["profile_id"], p["year"], p["month"], p["day"], p["acars_hour"]
@@ -428,7 +430,7 @@ class IEMTimeSelectionView(View):
 
     def __init__(self, station: dict, times: list, dark_mode: bool,
                  original_user: discord.User, messages_to_delete: list = None):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self.station = station
         self.times = times
         self.dark_mode = dark_mode
@@ -444,15 +446,15 @@ class IEMTimeSelectionView(View):
             btn = Button(label=label, style=ButtonStyle.green, row=row)
 
             async def cb(interaction, y=year, mo=month, d=day, h=hour):
-                loading_embed = discord.Embed(
-                    title="⏳ Fetching Sounding Data...",
-                    description="Contacting archive...",
-                    color=discord.Color.blurple(),
-                )
-                await interaction.response.edit_message(embed=loading_embed, view=None)
-                status_msg = await interaction.original_response()
-
+                await interaction.response.defer(ephemeral=True)
                 sid = self.station.get("icao") or self.station.get("wmo")
+                status_msg = await interaction.followup.send(
+                    embed=discord.Embed(
+                        title="⏳ Fetching Sounding Data...",
+                        description=f"Fetching {sid} at {h}z...",
+                        color=discord.Color.blurple(),
+                    ), ephemeral=True, wait=True
+                )
                 clean_data = await fetch_sounding(
                     sid, y, mo, d, h,
                     station_name=self.station["name"],
