@@ -5,7 +5,7 @@ import logging
 import aiohttp
 from discord.ext import commands
 
-logger = logging.getLogger("cogs.failover")
+logger = logging.getLogger("spc_bot")
 
 class FailoverCog(commands.Cog):
     def __init__(self, bot):
@@ -17,6 +17,7 @@ class FailoverCog(commands.Cog):
         self.lock_key = "spcbot:leader:lock"
         self.state_key = "spcbot:state:sync"
         self.heartbeat_task = self.bot.loop.create_task(self.heartbeat_loop())
+        logger.info(f"--- [Failover System Initialized | Rank: {self.rank}] ---")
 
     @commands.Cog.listener()
     async def on_ready(self):
