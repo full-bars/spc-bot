@@ -117,6 +117,7 @@ spc-bot/
 │   ├── sounding_utils.py    # Location resolution, IEM fetch (all hours), ACARS fetch, plot generation
 │   ├── sounding_views.py    # Discord UI: CombinedSoundingView, IEMTimeSelectionView, ACARS views
 │   ├── hodograph.py         # VWP hodograph generation via /hodograph
+│   ├── failover.py          # HTTP failover: cloudflared tunnel, Upstash coordination, primary/standby logic
 │   ├── status.py            # Bot status and manual slash commands
 │   └── radar/
 │       ├── __init__.py      # Radar cog: /download with quick-start site+time+count params

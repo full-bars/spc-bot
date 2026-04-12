@@ -170,3 +170,28 @@ If the database fails an integrity check on startup, it is renamed to `bot_state
 ```bash
 pip install pytest pytest-asyncio
 python -m pytest tests/ -v
+
+---
+
+## Failover Configuration
+
+WxAlert supports a primary/standby failover architecture using Cloudflare tunnels and Upstash Redis for coordination.
+
+### How it works
+- **Primary** runs an aiohttp HTTP server on `STATE_PORT` (default 8765), starts a cloudflared tunnel, and writes the tunnel URL to Upstash Redis with a 7-minute TTL every 30 seconds.
+- **Standby** polls Upstash every 30 seconds. If the primary URL is missing or unreachable for 3 consecutive checks (~90 seconds), it promotes itself, loads all cogs, starts its own tunnel, and writes its URL to Upstash.
+- When the primary comes back online, it reads the standby's URL from Upstash, hydrates its state from the standby via `GET /state`, then writes its own URL. The standby detects the URL change and demotes itself, pushing accumulated state back to the primary via `POST /sync`.
+
+### Required `.env` variables
+
+| Variable | Primary | Standby |
+|---|---|---|
+| `IS_PRIMARY` | `true` | `false` |
+| `FAILOVER_TOKEN` | shared secret | same shared secret |
+| `STATE_PORT` | `8765` (default) | `8765` (default) |
+| `UPSTASH_REDIS_REST_URL` | your Upstash URL | same |
+| `UPSTASH_REDIS_REST_TOKEN` | your Upstash token | same |
+
+### Dependencies
+- `cloudflared` must be installed on both servers (handled by `deploy.sh`)
+- A free Upstash Redis instance is sufficient (well within free tier limits)
