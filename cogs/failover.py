@@ -1,211 +1,55 @@
-from discord.ext import tasks
 import os
 import json
 import asyncio
 import logging
-import aiohttp
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 logger = logging.getLogger("spc_bot")
 
-class FailoverCog(commands.Cog):
+class Failover(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.rank = bot.state.rank
-        self.url = os.getenv("UPSTASH_REDIS_REST_URL")
-        self.token = os.getenv("UPSTASH_REDIS_REST_TOKEN")
-        self.headers = {"Authorization": f"Bearer {self.token}"}
-        self.lock_key = "spcbot:leader:lock"
-        self.state_key = "spcbot:state:sync"
-        self.heartbeat_task = self.bot.loop.create_task(self.heartbeat_loop())
-        logger.info(f"--- [Failover System Initialized | Rank: {self.rank}] ---")
 
-    @commands.Cog.listener()
-    async def on_ready(self):
-        if not self.sync_loop.is_running(): self.sync_loop.start()
-        if self.bot.state.is_primary: await self.push_state_to_redis()
-        await self.hydrate_local_state()
-        await asyncio.sleep(1.5)
-        status = "PRIMARY" if self.bot.state.is_primary else "STANDBY"
-        logger.info("--- [Failover System Online] ---")
-        logger.info(f"Rank: {self.rank} | Mode: {status}")
-        logger.info(f"Target: {self.url.split('//')[-1]}")
-        logger.info("-------------------------------")
-
-    async def heartbeat_loop(self):
-        await self.bot.wait_until_ready()
-        while not self.bot.is_closed():
-            try:
-                async with aiohttp.ClientSession(headers=self.headers) as session:
-                    if self.bot.state.is_primary:
-                        await session.get(f"{self.url}/set/{self.lock_key}/{self.rank}/EX/60")
-                        state_data = json.dumps(self.bot.state.to_dict())
-                        async with session.post(f"{self.url}/set/{self.state_key}", data=state_data) as resp:
-                            if resp.status != 200:
-                                logger.error(f"[Failover] State sync failed: {resp.status}")
-                    else:
-                        async with session.get(f"{self.url}/get/{self.lock_key}") as resp:
-                            data = await resp.json()
-                            if data.get("result") is None:
-                                logger.warning("[Failover] Primary lost. Promoting standby.")
-                                self.bot.state.is_primary = True
-                                async with session.get(f"{self.url}/get/{self.state_key}") as s_resp:
-                                    s_data = await s_resp.json()
-                                    if s_data.get("result"):
-                                        self.bot.state.from_dict(json.loads(s_data["result"]))
-                            else:
-                                async with session.get(f"{self.url}/get/{self.state_key}") as s_resp:
-                                    s_data = await s_resp.json()
-                                    if s_data.get("result"):
-                                        self.bot.state.from_dict(json.loads(s_data["result"]))
-            except Exception as e:
-                logger.error(f"[Failover] Loop error: {e}")
-            await asyncio.sleep(20)
-
-async def setup(bot):
-    # This fires immediately during bot.load_extension()
-    print("--- [Failover Extension Loading] ---") 
-    await bot.add_cog(FailoverCog(bot))
-    print("--- [Failover Extension Loaded] ---")
-
-    async def hydrate_local_state(self):
-        """Pull remote posted records from Redis to prevent duplicate alerts on boot."""
-        try:
-            # Fetch the list from Upstash
-            remote_data = await self.redis.get("spcbot:state:posted_records")
-            if remote_data:
-                # Insert into local SQLite
-                async with self.bot.db.execute_batch() as batch:
-                    await batch.executemany(
-                        "INSERT OR IGNORE INTO posted_records (id) VALUES (?)",
-                        [(r,) for r in remote_data]
-                    )
-                self.bot.logger.info(f"Hydrated {len(remote_data)} records from Redis.")
-        except Exception as e:
-            self.bot.logger.error(f"Failed to hydrate state: {e}")
-
-    async def hydrate_local_state(self):
-        """Pull remote posted records from Redis and route to correct SQLite tables."""
-        try:
-            remote_data = await self.redis.get("spcbot:state:posted_records")
-            if not remote_data:
-                return
-
-            # remote_data is likely a dict like {'mds': [...], 'watches': [...]} 
-            # or a flat list we need to sort. Adjusting for your schema:
-            
-            async with self.bot.db.cursor() as cursor:
-                # Hydrate MDs
-                if 'mds' in remote_data:
-                    await cursor.executemany(
-                        "INSERT OR IGNORE INTO posted_mds (md_number) VALUES (?)",
-                        [(m,) for m in remote_data['mds']]
-                    )
-                # Hydrate Watches
-                if 'watches' in remote_data:
-                    await cursor.executemany(
-                        "INSERT OR IGNORE INTO posted_watches (watch_number) VALUES (?)",
-                        [(w,) for w in remote_data['watches']]
-                    )
-            self.bot.logger.info("Local database tables hydrated from Upstash.")
-        except Exception as e:
-            self.bot.logger.error(f"Hydration failed: {e}")
-
-
-    async def hydrate_local_state(self):
-        """Pull remote state and force-inject into correct tables."""
-        try:
-            self.bot.logger.info("[SYNC] Attempting to pull state from Upstash...")
-            # 1. Pull the data
-            remote_data = await self.bot.state.redis.get("spcbot:state:posted_records")
-            
-            if not remote_data:
-                self.bot.logger.warning("[SYNC] No remote data found in Redis.")
-                return
-
-            self.bot.logger.info(f"[SYNC] Data received: {type(remote_data)}")
-
-            # 2. Handle flat list (just MD numbers) vs Dict (MDs and Watches)
-            md_list = []
-            if isinstance(remote_data, list):
-                md_list = remote_data
-            elif isinstance(remote_data, dict):
-                md_list = remote_data.get('mds', [])
-
-            # 3. Inject into SQLite
-            if md_list:
-                for md in md_list:
-                    await self.bot.db.execute(
-                        "INSERT OR IGNORE INTO posted_mds (md_number) VALUES (?)", 
-                        (str(md),)
-                    )
-                self.bot.logger.info(f"[SYNC] Successfully hydrated {len(md_list)} MDs.")
-                
-        except Exception as e:
-            self.bot.logger.error(f"[SYNC] Critical failure during hydration: {e}")
-
-    async def push_state_to_redis(self):
-        """Portland (Primary) pushes recent history to Upstash via aiohttp."""
-        if not self.bot.state.is_primary:
-            return
-
-        try:
-            # 1. Gather last 25 entries from each relevant table
-            data = {}
-            
-            async with self.bot.db.execute("SELECT md_number FROM posted_mds ORDER BY id DESC LIMIT 25") as cursor:
-                data['mds'] = [row[0] for row in await cursor.fetchall()]
-            
-            async with self.bot.db.execute("SELECT watch_number FROM posted_watches ORDER BY id DESC LIMIT 25") as cursor:
-                data['watches'] = [row[0] for row in await cursor.fetchall()]
-
-            # 2. Prepare the Upstash REST call
-            url = f"{self.bot.config.UPSTASH_REDIS_REST_URL}/set/spcbot:state:posted_records"
-            headers = {"Authorization": f"Bearer {self.bot.config.UPSTASH_REDIS_REST_TOKEN}"}
-            
-            # Upstash REST requires the value to be a string (JSON string)
-            async with self.bot.session.post(url, headers=headers, data=json.dumps(data)) as resp:
-                if resp.status == 200:
-                    self.bot.logger.info(f"[SYNC] Pushed {len(data['mds'])} MDs and {len(data['watches'])} Watches to Upstash.")
-                else:
-                    text = await resp.text()
-                    self.bot.logger.error(f"[SYNC] Push failed: {resp.status} - {text}")
-
-        except Exception as e:
-            self.bot.logger.error(f"[SYNC] Critical error in push: {e}")
+    async def cog_load(self):
+        """Triggered when the cog is loaded."""
+        if not self.sync_loop.is_running():
+            self.sync_loop.start()
+        
+        # Immediate background sync/pull
+        if self.bot.state.is_primary:
+            asyncio.create_task(self.push_state_to_redis())
+        else:
+            asyncio.create_task(self.hydrate_local_state())
 
     @tasks.loop(minutes=5)
     async def sync_loop(self):
-        """Periodic task for Portland to backup state to Upstash."""
+        """Periodic backup for Primary."""
         if self.bot.state.is_primary:
             await self.push_state_to_redis()
 
     async def push_state_to_redis(self):
-        """Primary pushes last 25 records to Upstash via aiohttp."""
+        """Primary pushes last 25 records to Upstash."""
         try:
             data = {}
-            # Get last 25 MDs
             async with self.bot.db.execute("SELECT md_number FROM posted_mds ORDER BY id DESC LIMIT 25") as cursor:
                 data['mds'] = [row[0] for row in await cursor.fetchall()]
             
-            # Get last 25 Watches
             async with self.bot.db.execute("SELECT watch_number FROM posted_watches ORDER BY id DESC LIMIT 25") as cursor:
                 data['watches'] = [row[0] for row in await cursor.fetchall()]
 
             url = f"{self.bot.config.UPSTASH_REDIS_REST_URL}/set/spcbot:state:posted_records"
             headers = {"Authorization": f"Bearer {self.bot.config.UPSTASH_REDIS_REST_TOKEN}"}
             
-            import json
             async with self.bot.session.post(url, headers=headers, data=json.dumps(data)) as resp:
                 if resp.status == 200:
-                    self.bot.logger.info(f"[SYNC] Pushed {len(data['mds'])} MDs and {len(data['watches'])} Watches to Upstash.")
+                    logger.info(f"[SYNC] Pushed {len(data['mds'])} MDs and {len(data['watches'])} Watches to Upstash.")
                 else:
-                    self.bot.logger.error(f"[SYNC] Push failed: {resp.status}")
+                    logger.error(f"[SYNC] Push failed: {resp.status}")
         except Exception as e:
-            self.bot.logger.error(f"[SYNC] Push Error: {e}")
+            logger.error(f"[SYNC] Push Error: {e}")
 
     async def hydrate_local_state(self):
-        """Standby pulls state from Upstash and populates SQLite."""
+        """Standby pulls state from Upstash and populates local SQLite."""
         url = f"{self.bot.config.UPSTASH_REDIS_REST_URL}/get/spcbot:state:posted_records"
         headers = {"Authorization": f"Bearer {self.bot.config.UPSTASH_REDIS_REST_TOKEN}"}
         
@@ -213,12 +57,10 @@ async def setup(bot):
             async with self.bot.session.get(url, headers=headers) as resp:
                 if resp.status == 200:
                     res_json = await resp.json()
-                    import json
-                    # Upstash REST returns the value in a 'result' field
-                    if not res_json.get('result'): return
+                    if not res_json.get('result'):
+                        return
                     
                     data = json.loads(res_json['result'])
-                    
                     async with self.bot.db.cursor() as cursor:
                         if 'mds' in data:
                             for md in data['mds']:
@@ -226,6 +68,9 @@ async def setup(bot):
                         if 'watches' in data:
                             for w in data['watches']:
                                 await cursor.execute("INSERT OR IGNORE INTO posted_watches (watch_number) VALUES (?)", (w,))
-                    self.bot.logger.info("[SYNC] Hydrated local DB from Upstash.")
+                    logger.info("[SYNC] Hydrated local DB from Upstash.")
         except Exception as e:
-            self.bot.logger.error(f"[SYNC] Hydration Error: {e}")
+            logger.error(f"[SYNC] Hydration Error: {e}")
+
+async def setup(bot):
+    await bot.add_cog(Failover(bot))
