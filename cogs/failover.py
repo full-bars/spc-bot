@@ -52,6 +52,7 @@ class FailoverCog(commands.Cog):
         self._tunnel_url = None
         self._primary_failures = 0
         self._max_failures = 3
+        self._ready = False
 
     async def cog_load(self):
         if self.bot.state.is_primary:
@@ -127,6 +128,7 @@ class FailoverCog(commands.Cog):
                             if word.startswith("https://") and "trycloudflare.com" in word:
                                 url = word.strip().rstrip("|").strip()
                                 self._tunnel_url = url
+                                self._ready = True
                                 logger.info(f"[FAILOVER] Tunnel URL: {self._tunnel_url}")
                                 await self._write_url_to_upstash(self._tunnel_url)
                                 return
@@ -157,8 +159,9 @@ class FailoverCog(commands.Cog):
         await self.bot.wait_until_ready()
         try:
             if self.bot.state.is_primary:
-                await self._write_url_to_upstash(self._tunnel_url or "unknown")
-                await self._check_for_demotion()
+                if self._ready and self._tunnel_url:
+                    await self._write_url_to_upstash(self._tunnel_url)
+                    await self._check_for_demotion()
             else:
                 await self._standby_cycle()
         except Exception as e:
