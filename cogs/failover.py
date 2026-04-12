@@ -22,6 +22,8 @@ class FailoverCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
+        if not self.sync_loop.is_running(): self.sync_loop.start()
+        if self.bot.state.is_primary: await self.push_state_to_redis()
         await self.hydrate_local_state()
         await asyncio.sleep(1.5)
         status = "PRIMARY" if self.bot.state.is_primary else "STANDBY"
