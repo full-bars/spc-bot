@@ -56,4 +56,8 @@ class BotState:
                 if isinstance(v, dict)
             },
             "last_posted_urls": self.last_posted_urls,
+            "last_post_times": {
+                k: v.isoformat() if v else None
+                for k, v in self.last_post_times.items()
+            },
         }
