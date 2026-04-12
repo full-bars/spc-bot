@@ -160,9 +160,9 @@ class OutlooksCog(commands.Cog):
             return
         try:
             await asyncio.gather(
-                check_and_post_day(channel, 1),
-                check_and_post_day(channel, 2),
-                check_and_post_day(channel, 3),
+                check_and_post_day(channel, 1, self.bot.state),
+                check_and_post_day(channel, 2, self.bot.state),
+                check_and_post_day(channel, 3, self.bot.state),
             )
             self._spc_backoff.success()
         except Exception as e:
@@ -186,7 +186,7 @@ class OutlooksCog(commands.Cog):
                 day = int(day_key.replace("day", ""))
             except Exception:
                 continue
-            tasks_.append(check_and_post_day(channel, day))
+            tasks_.append(check_and_post_day(channel, day, self.bot.state))
         if tasks_:
             await asyncio.gather(*tasks_)
 
