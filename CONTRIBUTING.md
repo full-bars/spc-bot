@@ -47,7 +47,7 @@ or inline where invoked, not into the configured channels.
 ### Soundings
 | Command | Description |
 |---|---|
-| `/sounding` | Plot an observed RAOB sounding — accepts city names, radar site codes (e.g. `KTLX`), or RAOB station IDs. Optional `time` (MM-DD-YYYY 00z/12z) and `dark` (saves preference) parameters. Shows nearest stations with data and an interactive time picker. |
+| `/sounding` | Plot an observed sounding — accepts city names, radar site codes (e.g. `KTLX`), or RAOB station IDs. Optional `time` (MM-DD-YYYY HHz, any hour supported via IEM) and `dark` (saves preference) parameters. Shows nearest RAOB stations with available times discovered via IEM, plus nearby ACARS aircraft profiles. |
 
 ### Radar
 | Command | Description |

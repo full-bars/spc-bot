@@ -212,8 +212,8 @@ def parse_sounding_time(time_str: Optional[str]) -> Optional[tuple[str, str, str
         date_part, hour_part = parts
         dt = datetime.strptime(date_part, "%m-%d-%Y")
         hour = int(hour_part)
-        if hour not in (0, 12):
-            raise ValueError("Hour must be 00 or 12")
+        if not (0 <= hour <= 23):
+            raise ValueError("Hour must be 00-23")
         return (
             str(dt.year),
             str(dt.month).zfill(2),
@@ -290,6 +290,266 @@ async def get_watch_area_centroid(affected_zones: list) -> tuple[float, float] |
         return None
     return sum(all_lats) / len(all_lats), sum(all_lons) / len(all_lons)
 
+
+# ── IEM sounding functions ────────────────────────────────────────────────────
+
+IEM_RAOB_URL = "https://mesonet.agron.iastate.edu/json/raob.py"
+
+
+def _iem_to_clean_data(profile: dict, station_id: str, station_name: str,
+                        lat: float, lon: float, elev: float, valid: str) -> dict:
+    """
+    Convert IEM RAOB profile dict to SounderPy clean_data format.
+    IEM fields: pres, hght, tmpc, dwpc, drct, sknt
+    SounderPy fields: p, z, T, Td, u, v, site_info, titles
+    """
+    import numpy as np
+    from metpy.units import units
+
+    levels = [lv for lv in profile if lv.get("pres") is not None
+              and lv.get("tmpc") is not None
+              and lv.get("dwpc") is not None]
+
+    if not levels:
+        return None
+
+    pres = np.array([lv["pres"] for lv in levels], dtype=float)
+    hght = np.array([lv.get("hght") or 0 for lv in levels], dtype=float)
+    tmpc = np.array([lv["tmpc"] for lv in levels], dtype=float)
+    dwpc = np.array([lv["dwpc"] for lv in levels], dtype=float)
+
+    # Convert wind direction/speed to u/v components
+    drct = np.array([lv.get("drct") or 0 for lv in levels], dtype=float)
+    sknt = np.array([lv.get("sknt") or 0 for lv in levels], dtype=float)
+    u = -sknt * np.sin(np.deg2rad(drct))
+    v = -sknt * np.cos(np.deg2rad(drct))
+
+    # Parse valid time
+    try:
+        from datetime import datetime, timezone
+        dt = datetime.fromisoformat(valid.replace("Z", "+00:00"))
+        time_str = dt.strftime("%Hz %d %b %Y").upper()
+        run_time = [str(dt.year), str(dt.month).zfill(2),
+                    str(dt.day).zfill(2), f"{dt.hour:02d}:{dt.minute:02d}"]
+    except Exception:
+        time_str = valid
+        run_time = ["none", "none", "none", "none"]
+
+    return {
+        "p": pres * units("hPa"),
+        "z": hght * units("meter"),
+        "T": tmpc * units("degC"),
+        "Td": dwpc * units("degC"),
+        "u": u * units("knot"),
+        "v": v * units("knot"),
+        "site_info": {
+            "site-id": station_id,
+            "site-name": station_name,
+            "site-lctn": "United States",
+            "site-latlon": [lat, lon],
+            "site-elv": str(int(elev)) if elev else "0",
+            "source": "RAOB OBSERVED (IEM)",
+            "model": "no-model",
+            "fcst-hour": "no-fcst-hour",
+            "run-time": run_time,
+            "valid-time": run_time,
+        },
+        "titles": {
+            "top_title": "RAOB OBSERVED VERTICAL PROFILE",
+            "left_title": f"VALID: {run_time[1]}-{run_time[2]}-{run_time[0]} {run_time[3]}Z",
+            "right_title": f"{station_id} - {station_name} | {lat:.2f}, {lon:.2f}",
+        },
+    }
+
+
+async def fetch_iem_sounding(station_id: str, year: str, month: str,
+                              day: str, hour: str,
+                              station_name: str = "",
+                              lat: float = 0, lon: float = 0,
+                              elev: float = 0) -> Optional[dict]:
+    """
+    Fetch a sounding from IEM and convert to SounderPy clean_data format.
+    Falls back to SounderPy (Wyoming) if IEM fails.
+    """
+    ts = f"{year}-{month}-{day}T{hour}:00:00Z"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                IEM_RAOB_URL,
+                params={"station": station_id, "ts": ts},
+                headers={"User-Agent": USER_AGENT},
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+
+        profiles = data.get("profiles", [])
+        if not profiles or not profiles[0].get("profile"):
+            return None
+
+        profile_data = profiles[0]
+        clean = _iem_to_clean_data(
+            profile_data["profile"],
+            station_id=station_id,
+            station_name=station_name or station_id,
+            lat=lat, lon=lon, elev=elev,
+            valid=profile_data.get("valid", ts),
+        )
+        if clean:
+            logger.debug(f"[IEM] Got sounding for {station_id} at {ts}")
+        return clean
+    except Exception as e:
+        logger.debug(f"[IEM] Failed for {station_id} at {ts}: {e}")
+        return None
+
+
+async def get_available_sounding_times_iem(
+    station_id: str,
+    hours_back: int = 24,
+) -> list[tuple[str, str, str, str]]:
+    """
+    Check IEM for all available sounding times for a station
+    in the last N hours. Returns list of (year, month, day, hour) tuples.
+    Checks all hours concurrently for speed.
+    """
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+
+    async def check_hour(dt: datetime) -> Optional[tuple]:
+        ts = dt.strftime("%Y-%m-%dT%H:00:00Z")
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    IEM_RAOB_URL,
+                    params={"station": station_id, "ts": ts},
+                    headers={"User-Agent": USER_AGENT},
+                    timeout=aiohttp.ClientTimeout(total=8),
+                ) as resp:
+                    if resp.status != 200:
+                        return None
+                    data = await resp.json()
+            profiles = data.get("profiles", [])
+            if profiles and profiles[0].get("profile"):
+                return (
+                    str(dt.year),
+                    str(dt.month).zfill(2),
+                    str(dt.day).zfill(2),
+                    str(dt.hour).zfill(2),
+                )
+        except Exception:
+            pass
+        return None
+
+    times_to_check = [
+        now - timedelta(hours=h)
+        for h in range(hours_back + 1)
+        if (now - timedelta(hours=h)) < now
+    ]
+
+    results = await asyncio.gather(*[check_hour(dt) for dt in times_to_check])
+    found = [r for r in results if r is not None]
+    # Sort most recent first
+    found.sort(key=lambda x: (x[0], x[1], x[2], x[3]), reverse=True)
+    return found
+
+
+# ── ACARS functions ───────────────────────────────────────────────────────────
+
+_ACARS_STATION_COORDS: dict = {}
+
+
+async def get_acars_profiles_near(
+    lat: float, lon: float,
+    max_dist_km: float = 400,
+    hours_back: int = 3,
+) -> list[dict]:
+    """
+    Find available ACARS profiles near a location.
+    Returns list of dicts sorted by distance.
+    """
+    import sounderpy as spy
+    from datetime import timedelta
+
+    now = datetime.now(timezone.utc)
+    results = []
+    seen_airports = set()
+
+    for h_back in range(hours_back + 1):
+        check_time = now - timedelta(hours=h_back)
+        year = check_time.strftime("%Y")
+        month = check_time.strftime("%m")
+        day = check_time.strftime("%d")
+        hour = check_time.strftime("%H")
+
+        try:
+            loop = asyncio.get_running_loop()
+            acars = await loop.run_in_executor(
+                None, lambda y=year, mo=month, d=day, hr=hour: spy.acars_data(y, mo, d, hr)
+            )
+            profiles = await loop.run_in_executor(None, acars.list_profiles)
+        except Exception as e:
+            logger.debug(f"[ACARS] No profiles for {year}/{month}/{day} {hour}z: {e}")
+            continue
+
+        for profile_id in profiles:
+            airport_code = profile_id.split("_")[0]
+            if airport_code in seen_airports:
+                continue
+
+            airport_latlon = _ACARS_STATION_COORDS.get(airport_code)
+            if airport_latlon is None:
+                try:
+                    latlon = await loop.run_in_executor(
+                        None, lambda code=airport_code: spy.get_latlon("metar", code)
+                    )
+                    airport_latlon = (float(latlon[0]), float(latlon[1]))
+                    _ACARS_STATION_COORDS[airport_code] = airport_latlon
+                except Exception:
+                    continue
+
+            dist = haversine(lat, lon, airport_latlon[0], airport_latlon[1])
+            if dist <= max_dist_km:
+                seen_airports.add(airport_code)
+                time_part = profile_id.split("_")[1] if "_" in profile_id else hour + "00"
+                results.append({
+                    "profile_id": profile_id,
+                    "airport": airport_code,
+                    "name": airport_code,
+                    "lat": airport_latlon[0],
+                    "lon": airport_latlon[1],
+                    "dist_km": round(dist, 1),
+                    "year": year,
+                    "month": month,
+                    "day": day,
+                    "acars_hour": hour,
+                    "time_label": f"{time_part[:2]}:{time_part[2:]}z" if len(time_part) >= 4 else f"{time_part}z",
+                })
+
+    results.sort(key=lambda x: x["dist_km"])
+    return results[:5]
+
+
+async def fetch_acars_sounding(
+    profile_id: str,
+    year: str, month: str, day: str, hour: str,
+) -> Optional[dict]:
+    """Fetch an ACARS sounding profile and return SounderPy clean_data."""
+    import sounderpy as spy
+    loop = asyncio.get_running_loop()
+    try:
+        acars = await loop.run_in_executor(
+            None, lambda: spy.acars_data(year, month, day, hour)
+        )
+        await loop.run_in_executor(None, acars.list_profiles)
+        clean_data = await loop.run_in_executor(
+            None, lambda: acars.get_profile(profile_id)
+        )
+        return clean_data
+    except Exception as e:
+        logger.warning(f"[ACARS] Fetch failed for {profile_id}: {e}")
+        return None
+
 # ── SounderPy fetch and plot ──────────────────────────────────────────────────
 
 
@@ -305,7 +565,11 @@ async def filter_stations_with_data(stations: list[dict], n_times: int = 1) -> l
 
     async def has_data(station: dict) -> tuple[dict, bool]:
         station_id = station.get("icao") or station.get("wmo")
-        # Check all times concurrently for this station
+        # Use IEM to check availability (faster, more reliable than Wyoming)
+        available = await get_available_sounding_times_iem(station_id, hours_back=36)
+        if available:
+            return station, True
+        # Fall back to Wyoming check
         results = await asyncio.gather(*[
             fetch_sounding(station_id, y, mo, d, h)
             for y, mo, d, h in times
@@ -318,8 +582,22 @@ async def filter_stations_with_data(stations: list[dict], n_times: int = 1) -> l
 async def fetch_sounding(
     station_id: str,
     year: str, month: str, day: str, hour: str,
+    station_name: str = "",
+    lat: float = 0, lon: float = 0, elev: float = 0,
 ) -> Optional[dict]:
-    """Fetch sounding data. Returns clean_data dict or None on failure."""
+    """
+    Fetch sounding data. Returns clean_data dict or None on failure.
+    Tries IEM first (supports all hours), falls back to Wyoming via SounderPy.
+    """
+    # Try IEM first
+    iem_data = await fetch_iem_sounding(
+        station_id, year, month, day, hour,
+        station_name=station_name, lat=lat, lon=lon, elev=elev
+    )
+    if iem_data:
+        return iem_data
+
+    # Fall back to Wyoming via SounderPy
     loop = asyncio.get_running_loop()
     try:
         clean_data = await loop.run_in_executor(
