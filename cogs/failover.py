@@ -80,3 +80,30 @@ async def setup(bot):
                 self.bot.logger.info(f"Hydrated {len(remote_data)} records from Redis.")
         except Exception as e:
             self.bot.logger.error(f"Failed to hydrate state: {e}")
+
+    async def hydrate_local_state(self):
+        """Pull remote posted records from Redis and route to correct SQLite tables."""
+        try:
+            remote_data = await self.redis.get("spcbot:state:posted_records")
+            if not remote_data:
+                return
+
+            # remote_data is likely a dict like {'mds': [...], 'watches': [...]} 
+            # or a flat list we need to sort. Adjusting for your schema:
+            
+            async with self.bot.db.cursor() as cursor:
+                # Hydrate MDs
+                if 'mds' in remote_data:
+                    await cursor.executemany(
+                        "INSERT OR IGNORE INTO posted_mds (md_number) VALUES (?)",
+                        [(m,) for m in remote_data['mds']]
+                    )
+                # Hydrate Watches
+                if 'watches' in remote_data:
+                    await cursor.executemany(
+                        "INSERT OR IGNORE INTO posted_watches (watch_number) VALUES (?)",
+                        [(w,) for w in remote_data['watches']]
+                    )
+            self.bot.logger.info("Local database tables hydrated from Upstash.")
+        except Exception as e:
+            self.bot.logger.error(f"Hydration failed: {e}")
