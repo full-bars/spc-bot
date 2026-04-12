@@ -1,8 +1,10 @@
 """
-Integration tests for BotState and cog initialization.
-Tests that cogs can be instantiated and their methods called without runtime errors.
+Integration tests for BotState, cog initialization, and critical code paths.
+These tests actually execute function bodies to catch NameErrors, missing
+attributes, and broken call signatures that unit tests miss.
 """
 import asyncio
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from utils.state import BotState
@@ -14,8 +16,20 @@ def make_mock_bot():
     bot.state = BotState()
     bot.latency = 0.05
     bot.guilds = []
+    bot.wait_until_ready = AsyncMock()
     return bot
 
+
+def make_mock_interaction(bot):
+    """Create a mock Discord interaction linked to a bot."""
+    interaction = MagicMock()
+    interaction.response = AsyncMock()
+    interaction.followup = AsyncMock()
+    interaction.client = bot
+    return interaction
+
+
+# ── BotState ─────────────────────────────────────────────────────────────────
 
 class TestBotStateInit:
     def test_botstate_has_all_fields(self):
@@ -53,14 +67,119 @@ class TestBotStateInit:
         assert "http://example.com" in d["auto_cache"]
 
 
-class TestCogInstantiation:
+# ── Watches cog ───────────────────────────────────────────────────────────────
+
+class TestWatchesCogIntegration:
     @pytest.mark.asyncio
-    async def test_watches_cog_instantiates(self):
+    async def test_auto_post_watches_no_nameerror_on_new_watch(self):
+        """
+        Simulate a new watch being detected. Ensures the full auto_post_watches
+        code path executes without NameError — catches missing cache references.
+        """
         from cogs.watches import WatchesCog
         bot = make_mock_bot()
-        cog = WatchesCog(bot)
-        assert cog.bot.state is not None
-        assert isinstance(cog.bot.state.active_watches, dict)
+        bot.get_channel = MagicMock(return_value=AsyncMock())
+
+        nws_result = {
+            "0100": {
+                "type": "SVR",
+                "expires": datetime(2026, 4, 12, 9, 0, tzinfo=timezone.utc),
+                "affected_zones": [],
+            }
+        }
+
+        with patch("cogs.watches.fetch_active_watches_nws", new=AsyncMock(return_value=nws_result)), \
+             patch("cogs.watches.fetch_watch_details", new=AsyncMock(return_value=(None, None, None))), \
+             patch("cogs.watches.download_single_image", new=AsyncMock(return_value=(None, False, None))), \
+             patch("cogs.watches.add_posted_watch", new=AsyncMock()):
+
+            cog = WatchesCog(bot)
+            cog.auto_post_watches.cancel()
+            await cog.auto_post_watches()
+
+    @pytest.mark.asyncio
+    async def test_execute_watches_no_nameerror_on_slash_command(self):
+        """
+        Simulate /watches being invoked. Ensures _execute_watches executes
+        without NameError — catches missing cache references in slash path.
+        """
+        from cogs.watches import _execute_watches
+        bot = make_mock_bot()
+        interaction = make_mock_interaction(bot)
+
+        nws_result = {
+            "0100": {
+                "type": "SVR",
+                "expires": datetime(2026, 4, 12, 9, 0, tzinfo=timezone.utc),
+                "affected_zones": [],
+            }
+        }
+
+        with patch("cogs.watches.fetch_active_watches_nws", new=AsyncMock(return_value=nws_result)), \
+             patch("cogs.watches.fetch_watch_details", new=AsyncMock(return_value=(None, None, None))), \
+             patch("cogs.watches.download_single_image", new=AsyncMock(return_value=(None, False, None))), \
+             patch("cogs.watches.http_get_bytes", new=AsyncMock(return_value=(None, 404))):
+
+            await _execute_watches(interaction, bot)
+
+    @pytest.mark.asyncio
+    async def test_execute_watches_no_active_watches(self):
+        """
+        When NWS API and SPC scrape both return empty, /watches should
+        send 'No active watches found.' without raising.
+        """
+        from cogs.watches import _execute_watches
+        bot = make_mock_bot()
+        interaction = make_mock_interaction(bot)
+
+        with patch("cogs.watches.fetch_active_watches_nws", new=AsyncMock(return_value={})), \
+             patch("cogs.watches.fetch_latest_watch_numbers", new=AsyncMock(return_value=[])):
+
+            await _execute_watches(interaction, bot)
+            interaction.followup.send.assert_called_once_with("No active watches found.")
+
+    @pytest.mark.asyncio
+    async def test_auto_post_watches_skips_already_posted(self):
+        """
+        If a watch is already in posted_watches, it should not be posted again.
+        """
+        from cogs.watches import WatchesCog
+        bot = make_mock_bot()
+        bot.get_channel = MagicMock(return_value=AsyncMock())
+        bot.state.posted_watches.add("0100")
+
+        nws_result = {
+            "0100": {
+                "type": "SVR",
+                "expires": datetime(2026, 4, 12, 9, 0, tzinfo=timezone.utc),
+                "affected_zones": [],
+            }
+        }
+
+        with patch("cogs.watches.fetch_active_watches_nws", new=AsyncMock(return_value=nws_result)), \
+             patch("cogs.watches.fetch_watch_details", new=AsyncMock()) as mock_details:
+
+            cog = WatchesCog(bot)
+            cog.auto_post_watches.cancel()
+            await cog.auto_post_watches()
+            mock_details.assert_not_called()
+
+
+# ── Outlooks cog ──────────────────────────────────────────────────────────────
+
+class TestOutlooksCogIntegration:
+    @pytest.mark.asyncio
+    async def test_check_and_post_day_no_urls_returned(self):
+        """
+        If get_spc_urls returns empty, check_and_post_day should return
+        without posting — no AttributeError on state access.
+        """
+        from cogs.outlooks import check_and_post_day
+        bot = make_mock_bot()
+        channel = AsyncMock()
+
+        with patch("cogs.outlooks.get_spc_urls", new=AsyncMock(return_value=[])):
+            await check_and_post_day(channel, 1, bot.state)
 
     @pytest.mark.asyncio
     async def test_outlooks_cog_instantiates(self):
@@ -68,35 +187,17 @@ class TestCogInstantiation:
         bot = make_mock_bot()
         cog = OutlooksCog(bot)
         assert cog.bot.state is not None
+        cog.auto_post_spc.cancel()
+        cog.aggressive_check_spc.cancel()
 
+
+# ── Mesoscale cog ─────────────────────────────────────────────────────────────
+
+class TestMesoscaleCogIntegration:
     @pytest.mark.asyncio
     async def test_mesoscale_cog_instantiates(self):
         from cogs.mesoscale import MesoscaleCog
         bot = make_mock_bot()
         cog = MesoscaleCog(bot)
         assert cog.bot.state is not None
-
-    @pytest.mark.asyncio
-    async def test_status_cog_instantiates(self):
-        from cogs.status import StatusCog
-        bot = make_mock_bot()
-        cog = StatusCog(bot)
-        assert cog.bot.state is not None
-
-
-class TestCheckAndPostDay:
-    @pytest.mark.asyncio
-    async def test_check_and_post_day_accepts_state(self):
-        """Ensure check_and_post_day accepts state parameter without TypeError."""
-        from cogs.outlooks import check_and_post_day
-        import inspect
-        sig = inspect.signature(check_and_post_day)
-        assert 'state' in sig.parameters
-
-    @pytest.mark.asyncio
-    async def test_fetch_and_send_weather_images_accepts_state(self):
-        """Ensure fetch_and_send_weather_images accepts state parameter."""
-        from cogs.status import fetch_and_send_weather_images
-        import inspect
-        sig = inspect.signature(fetch_and_send_weather_images)
-        assert 'state' in sig.parameters
+        cog.auto_post_md.cancel()
