@@ -18,15 +18,24 @@ class Failover(commands.Cog):
         """Wait for the bot and its custom attributes to be ready."""
         await self.bot.wait_until_ready()
         
-        # Robustness: Wait for main.py to finish attaching custom attributes
+        # Increased patience: Wait up to 60 seconds (30 * 2s)
         retries = 0
-        while not hasattr(self.bot, 'db') or not hasattr(self.bot, 'config') or not hasattr(self.bot, 'session'):
-            if retries > 10:
-                logger.error("[SYNC] Critical Failure: Bot attributes never initialized.")
-                return
+        while retries < 30:
+            db_ready = hasattr(self.bot, 'db') and self.bot.db is not None
+            config_ready = hasattr(self.bot, 'config') and self.bot.config is not None
+            session_ready = hasattr(self.bot, 'session') and self.bot.session is not None
+            
+            if db_ready and config_ready and session_ready:
+                break
+                
             await asyncio.sleep(2)
             retries += 1
-            logger.info(f"[SYNC] Waiting for bot attributes (Attempt {retries})...")
+            if retries % 5 == 0: # Log every 10 seconds to keep logs clean
+                logger.info(f"[SYNC] Waiting for bot attributes (Attempt {retries}/30)...")
+
+        if retries >= 30:
+            logger.error("[SYNC] Critical Failure: Bot attributes never initialized after 60s.")
+            return
 
         if not self.sync_loop.is_running():
             self.sync_loop.start()
