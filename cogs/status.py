@@ -14,8 +14,6 @@ from utils.cache import (
     download_images_parallel,
     download_single_image,
     format_timedelta,
-    posted_mds,
-    posted_watches,
 )
 from utils.spc_urls import get_spc_urls
 
@@ -104,6 +102,7 @@ class StatusCog(commands.Cog):
             ctx,
             SCP_IMAGE_URLS,
             "**Latest SCP Forecast Graphics**",
+            self.bot.state,
             use_cached=True,
         )
 
@@ -111,21 +110,21 @@ class StatusCog(commands.Cog):
     async def spc1_prefix(self, ctx):
         urls = await get_spc_urls(1)
         await fetch_and_send_weather_images(
-            ctx, urls, "**Latest SPC Day 1 Outlooks**", use_cached=True
+            ctx, urls, "**Latest SPC Day 1 Outlooks**", self.bot.state, use_cached=True
         )
 
     @commands.command(name="spc2")
     async def spc2_prefix(self, ctx):
         urls = await get_spc_urls(2)
         await fetch_and_send_weather_images(
-            ctx, urls, "**Latest SPC Day 2 Outlooks**", use_cached=True
+            ctx, urls, "**Latest SPC Day 2 Outlooks**", self.bot.state, use_cached=True
         )
 
     @commands.command(name="spc3")
     async def spc3_prefix(self, ctx):
         urls = await get_spc_urls(3)
         await fetch_and_send_weather_images(
-            ctx, urls, "**Latest SPC Day 3 Outlooks**", use_cached=True
+            ctx, urls, "**Latest SPC Day 3 Outlooks**", self.bot.state, use_cached=True
         )
 
     @commands.command(name="spc48")
@@ -134,13 +133,15 @@ class StatusCog(commands.Cog):
             ctx,
             SPC_URLS["48"],
             "**Latest SPC Day 4-8 Outlook**",
+            self.bot.state,
             use_cached=False,
         )
 
     @commands.command(name="wpc")
     async def wpc_prefix(self, ctx):
         await fetch_and_send_weather_images(
-            ctx, WPC_IMAGE_URLS, "**WPC Excessive Rainfall Outlooks (Day 1-3, self.bot.state)**",
+            ctx, WPC_IMAGE_URLS, "**WPC Excessive Rainfall Outlooks (Day 1-3)**",
+            self.bot.state,
             use_cached=False,
         )
 
@@ -156,6 +157,7 @@ class StatusCog(commands.Cog):
             interaction,
             SCP_IMAGE_URLS,
             "**Latest SCP Forecast Graphics**",
+            self.bot.state,
             use_cached=not fresh,
         )
 
@@ -167,7 +169,7 @@ class StatusCog(commands.Cog):
         await interaction.response.defer()
         urls = await get_spc_urls(1)
         await fetch_and_send_weather_images(
-            interaction, urls, "**Latest SPC Day 1 Outlooks**", use_cached=not fresh
+            interaction, urls, "**Latest SPC Day 1 Outlooks**", self.bot.state, use_cached=not fresh
         )
 
     @discord.app_commands.command(
@@ -178,7 +180,7 @@ class StatusCog(commands.Cog):
         await interaction.response.defer()
         urls = await get_spc_urls(2)
         await fetch_and_send_weather_images(
-            interaction, urls, "**Latest SPC Day 2 Outlooks**", use_cached=not fresh
+            interaction, urls, "**Latest SPC Day 2 Outlooks**", self.bot.state, use_cached=not fresh
         )
 
     @discord.app_commands.command(
@@ -189,7 +191,7 @@ class StatusCog(commands.Cog):
         await interaction.response.defer()
         urls = await get_spc_urls(3)
         await fetch_and_send_weather_images(
-            interaction, urls, "**Latest SPC Day 3 Outlooks**", use_cached=not fresh
+            interaction, urls, "**Latest SPC Day 3 Outlooks**", self.bot.state, use_cached=not fresh
         )
 
     @discord.app_commands.command(
@@ -201,6 +203,7 @@ class StatusCog(commands.Cog):
             interaction,
             SPC_URLS["48"],
             "**Latest SPC Day 4-8 Outlook**",
+            self.bot.state,
             use_cached=False,
         )
 
@@ -210,7 +213,8 @@ class StatusCog(commands.Cog):
     async def wpc_slash(self, interaction: discord.Interaction):
         await interaction.response.defer()
         await fetch_and_send_weather_images(
-            interaction, WPC_IMAGE_URLS, "**WPC Excessive Rainfall Outlooks (Day 1-3, self.bot.state)**",
+            interaction, WPC_IMAGE_URLS, "**WPC Excessive Rainfall Outlooks (Day 1-3)**",
+            self.bot.state,
             use_cached=False,
         )
 
@@ -351,8 +355,8 @@ class StatusCog(commands.Cog):
                 )
             lines.append("")
 
-        lines.append(f"MDs tracked    : {len(posted_mds)}")
-        lines.append(f"Watches tracked: {len(posted_watches)}")
+        lines.append(f"MDs tracked    : {len(self.bot.state.active_mds)}")
+        lines.append(f"Watches tracked: {len(self.bot.state.active_watches)}")
         lines.append("```")
 
         await interaction.followup.send("\n".join(lines), ephemeral=True)
