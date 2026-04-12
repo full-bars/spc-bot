@@ -140,3 +140,89 @@ async def setup(bot):
                 
         except Exception as e:
             self.bot.logger.error(f"[SYNC] Critical failure during hydration: {e}")
+
+    async def push_state_to_redis(self):
+        """Portland (Primary) pushes recent history to Upstash via aiohttp."""
+        if not self.bot.state.is_primary:
+            return
+
+        try:
+            # 1. Gather last 25 entries from each relevant table
+            data = {}
+            
+            async with self.bot.db.execute("SELECT md_number FROM posted_mds ORDER BY id DESC LIMIT 25") as cursor:
+                data['mds'] = [row[0] for row in await cursor.fetchall()]
+            
+            async with self.bot.db.execute("SELECT watch_number FROM posted_watches ORDER BY id DESC LIMIT 25") as cursor:
+                data['watches'] = [row[0] for row in await cursor.fetchall()]
+
+            # 2. Prepare the Upstash REST call
+            url = f"{self.bot.config.UPSTASH_REDIS_REST_URL}/set/spcbot:state:posted_records"
+            headers = {"Authorization": f"Bearer {self.bot.config.UPSTASH_REDIS_REST_TOKEN}"}
+            
+            # Upstash REST requires the value to be a string (JSON string)
+            async with self.bot.session.post(url, headers=headers, data=json.dumps(data)) as resp:
+                if resp.status == 200:
+                    self.bot.logger.info(f"[SYNC] Pushed {len(data['mds'])} MDs and {len(data['watches'])} Watches to Upstash.")
+                else:
+                    text = await resp.text()
+                    self.bot.logger.error(f"[SYNC] Push failed: {resp.status} - {text}")
+
+        except Exception as e:
+            self.bot.logger.error(f"[SYNC] Critical error in push: {e}")
+
+    @tasks.loop(minutes=5)
+    async def sync_loop(self):
+        """Periodic task for Portland to backup state to Upstash."""
+        if self.bot.state.is_primary:
+            await self.push_state_to_redis()
+
+    async def push_state_to_redis(self):
+        """Primary pushes last 25 records to Upstash via aiohttp."""
+        try:
+            data = {}
+            # Get last 25 MDs
+            async with self.bot.db.execute("SELECT md_number FROM posted_mds ORDER BY id DESC LIMIT 25") as cursor:
+                data['mds'] = [row[0] for row in await cursor.fetchall()]
+            
+            # Get last 25 Watches
+            async with self.bot.db.execute("SELECT watch_number FROM posted_watches ORDER BY id DESC LIMIT 25") as cursor:
+                data['watches'] = [row[0] for row in await cursor.fetchall()]
+
+            url = f"{self.bot.config.UPSTASH_REDIS_REST_URL}/set/spcbot:state:posted_records"
+            headers = {"Authorization": f"Bearer {self.bot.config.UPSTASH_REDIS_REST_TOKEN}"}
+            
+            import json
+            async with self.bot.session.post(url, headers=headers, data=json.dumps(data)) as resp:
+                if resp.status == 200:
+                    self.bot.logger.info(f"[SYNC] Pushed {len(data['mds'])} MDs and {len(data['watches'])} Watches to Upstash.")
+                else:
+                    self.bot.logger.error(f"[SYNC] Push failed: {resp.status}")
+        except Exception as e:
+            self.bot.logger.error(f"[SYNC] Push Error: {e}")
+
+    async def hydrate_local_state(self):
+        """Standby pulls state from Upstash and populates SQLite."""
+        url = f"{self.bot.config.UPSTASH_REDIS_REST_URL}/get/spcbot:state:posted_records"
+        headers = {"Authorization": f"Bearer {self.bot.config.UPSTASH_REDIS_REST_TOKEN}"}
+        
+        try:
+            async with self.bot.session.get(url, headers=headers) as resp:
+                if resp.status == 200:
+                    res_json = await resp.json()
+                    import json
+                    # Upstash REST returns the value in a 'result' field
+                    if not res_json.get('result'): return
+                    
+                    data = json.loads(res_json['result'])
+                    
+                    async with self.bot.db.cursor() as cursor:
+                        if 'mds' in data:
+                            for md in data['mds']:
+                                await cursor.execute("INSERT OR IGNORE INTO posted_mds (md_number) VALUES (?)", (md,))
+                        if 'watches' in data:
+                            for w in data['watches']:
+                                await cursor.execute("INSERT OR IGNORE INTO posted_watches (watch_number) VALUES (?)", (w,))
+                    self.bot.logger.info("[SYNC] Hydrated local DB from Upstash.")
+        except Exception as e:
+            self.bot.logger.error(f"[SYNC] Hydration Error: {e}")
