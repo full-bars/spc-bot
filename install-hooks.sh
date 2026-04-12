@@ -1,10 +1,18 @@
 #!/bin/bash
-# install-hooks.sh — Install git hooks for spc-bot development
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOKS_DIR="$REPO_ROOT/.git/hooks"
 
 cat > "$HOOKS_DIR/pre-push" << 'HOOK'
 #!/bin/bash
+while read local_ref local_sha remote_ref remote_sha; do
+    if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+        exit 0
+    fi
+    if echo "$remote_ref" | grep -q "^refs/tags/"; then
+        exit 0
+    fi
+done
+
 echo "Running pre-push checks..."
 cd "$(git rev-parse --show-toplevel)"
 source venv/bin/activate 2>/dev/null || true
@@ -31,4 +39,4 @@ echo "All checks passed."
 HOOK
 
 chmod +x "$HOOKS_DIR/pre-push"
-echo "Hooks installed. Run './install-hooks.sh' on any new clone."
+echo "Hooks installed."
