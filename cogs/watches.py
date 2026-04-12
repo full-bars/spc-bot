@@ -433,11 +433,14 @@ async def _execute_watches(interaction: discord.Interaction):
     """Shared implementation for /watches and /ww slash commands."""
     await interaction.response.defer()
     nws_watches = await fetch_active_watches_nws()
+    logger.info(f"[/watches] NWS API returned: {nws_watches}")
     if nws_watches is None or not nws_watches:
         entries = await fetch_latest_watch_numbers()
+        logger.info(f"[/watches] SPC scrape fallback returned: {entries}")
         nws_watches = {
             num: {"type": wtype, "expires": None} for num, wtype in entries
         }
+    logger.info(f"[/watches] Final watch set: {nws_watches}")
     if not nws_watches:
         await interaction.followup.send("No active watches found.")
         return
