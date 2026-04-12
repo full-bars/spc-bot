@@ -158,6 +158,7 @@ class FailoverCog(commands.Cog):
         try:
             if self.bot.state.is_primary:
                 await self._write_url_to_upstash(self._tunnel_url or "unknown")
+                await self._check_for_demotion()
             else:
                 await self._standby_cycle()
         except Exception as e:
@@ -242,6 +243,13 @@ class FailoverCog(commands.Cog):
             logger.info(f"[FAILOVER] Synced {len(synced)} slash commands")
         except Exception as e:
             logger.error(f"[FAILOVER] Failed to sync commands: {e}")
+
+    async def _check_for_demotion(self):
+        """If we are acting primary but another server wrote a newer URL, demote."""
+        stored_url = await self._get_primary_url()
+        if stored_url and stored_url != self._tunnel_url:
+            logger.info(f"[FAILOVER] Detected new primary at {stored_url} — demoting")
+            await self._demote(stored_url)
 
     async def _demote(self, primary_url: str):
         """Push accumulated state to primary then demote."""
