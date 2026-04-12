@@ -5,6 +5,7 @@ Supports city names, radar site codes, and RAOB station IDs.
 """
 
 import json
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -13,6 +14,8 @@ import discord
 from discord.ext import commands, tasks
 
 from cogs.sounding_utils import (
+    get_acars_profiles_near,
+    get_available_sounding_times_iem,
     get_watch_area_centroid,
     filter_stations_with_data,
     find_nearest_stations,
@@ -139,7 +142,7 @@ class SoundingCog(commands.Cog):
     )
     @discord.app_commands.describe(
         location="City name, state, radar site (e.g. KTLX), or RAOB station (e.g. OUN)",
-        time="Sounding time: MM-DD-YYYY 00z or MM-DD-YYYY 12z (default: most recent)",
+        time="Sounding time: MM-DD-YYYY HHz (e.g. 04-11-2026 18z) — any hour supported",
         dark="Use dark mode (saves your preference)",
     )
     async def sounding(
