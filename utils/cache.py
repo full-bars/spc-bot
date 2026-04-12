@@ -343,8 +343,6 @@ def prune_tracked_set(s: Set[str], max_size: int, cache_file: str):
     save_set(s, cache_file)
 
 
-# ── Load persisted state on import ───────────────────────────────────────────
-manual_cache.update(load_json_if_exists(MANUAL_CACHE_FILE))
-auto_cache.update(load_json_if_exists(AUTO_CACHE_FILE))
-posted_mds.update(load_set_if_exists(MD_CACHE_FILE))
-posted_watches.update(load_set_if_exists(WATCH_CACHE_FILE))
+# ── Legacy module-level globals (deprecated — use bot.state instead) ─────────
+# Kept for backward compatibility with any remaining direct imports.
+# New code should access state via bot.state (BotState instance).
