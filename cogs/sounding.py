@@ -222,12 +222,18 @@ class SoundingCog(commands.Cog):
         verified = await filter_stations_with_data(candidates)
         nearest = verified[:3]
 
-        if not nearest:
+        # Run RAOB verification and ACARS search concurrently
+        acars_task = asyncio.create_task(get_acars_profiles_near(lat, lon, max_dist_km=400))
+        verified = await filter_stations_with_data(candidates)
+        acars_profiles = await acars_task
+        nearest = verified[:3]
+
+        if not nearest and not acars_profiles:
             error_embed = discord.Embed(
                 title="❌ No Sounding Data Available",
                 description=(
-                    "No nearby upper air stations have recent sounding data "
-                    "in the Wyoming archive.\nTry a different location."
+                    "No nearby upper air stations or aircraft profiles found.\n"
+                    "Try a different location."
                 ),
                 color=discord.Color.red(),
             )
@@ -236,8 +242,8 @@ class SoundingCog(commands.Cog):
 
         await status_msg.delete()
 
-        # If only one station and time specified, go straight to plot
-        if len(nearest) == 1 and time_args:
+        # If only one RAOB station, no ACARS, and time specified — go straight to plot
+        if len(nearest) == 1 and not acars_profiles and time_args:
             year, month, day, hour = time_args
             await post_sounding(
                 interaction, nearest[0],
@@ -246,38 +252,46 @@ class SoundingCog(commands.Cog):
             )
             return
 
-        # Build station selection embed
-        lines = []
-        for i, s in enumerate(nearest, 1):
-            sid = s.get("icao") or s.get("wmo")
-            lines.append(
-                f"**{i}.** {s['name']} `{sid}` — {s['dist_km']} km away"
-            )
+        # Build combined embed
+        description_lines = []
 
-        time_note = ""
-        if time_args:
-            y, mo, d, h = time_args
-            time_note = "\nTime: **{}-{}-{} {}z**".format(mo, d, y, h)
-        else:
-            recent = get_recent_sounding_times(2)
-            time_strs = [f"`{mo}-{d}-{y} {h}z`" for y, mo, d, h in recent]
-            time_note = "\nWill show time picker \u2014 recent times: {}".format(', '.join(time_strs))
+        if nearest:
+            description_lines.append("**\U0001f4e1 RAOB Upper Air Stations:**")
+            for s in nearest:
+                sid = s.get("icao") or s.get("wmo")
+                avail = await get_available_sounding_times_iem(sid, hours_back=36)
+                time_strs = [f"`{t[3]}z`" for t in avail[:4]]
+                times_note = " | ".join(time_strs) if time_strs else "no recent data"
+                description_lines.append(
+                    "• {} `{}` — {} km | {}".format(s["name"], sid, s["dist_km"], times_note)
+                )
+
+        if acars_profiles:
+            description_lines.append("")
+            description_lines.append("**\u2708\ufe0f ACARS Aircraft Profiles:**")
+            for p in acars_profiles:
+                description_lines.append(
+                    "• `{}` — {} km | {}".format(p["airport"], p["dist_km"], p["time_label"])
+                )
 
         embed = discord.Embed(
-            title=f"Nearest Upper Air Stations to {location_desc}",
-            description="\n".join(lines) + time_note,
+            title="Nearest Sounding Data to {}".format(location_desc),
+            description="\n".join(description_lines),
             color=discord.Color.blurple(),
         )
-        mode_str = "🌙 Dark" if dark_mode else "☀️ Light"
-        embed.set_footer(text=f"Mode: {mode_str} | Select a station below")
+        mode_str = "\U0001f319 Dark" if dark_mode else "\u2600\ufe0f Light"
+        embed.set_footer(text="Mode: {} | Select below".format(mode_str))
 
-        view = StationSelectionView(
-            stations=nearest,
+        from cogs.sounding_views import CombinedSoundingView
+        view = CombinedSoundingView(
+            raob_stations=nearest,
+            acars_profiles=acars_profiles,
             time_args=time_args,
             dark_mode=dark_mode,
             original_user=interaction.user,
         )
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
 
 
 async def setup(bot: commands.Bot):
