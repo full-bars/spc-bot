@@ -21,12 +21,7 @@ from config import (
 from utils.cache import (
     MAX_TRACKED_WATCHES,
     WATCH_CACHE_FILE,
-    active_watches,
-    auto_cache,
     download_single_image,
-    last_post_times,
-    manual_cache,
-    posted_watches,
     prune_tracked_set,
 )
 from utils.change_detection import get_cache_path_for_url, is_placeholder_image
@@ -515,7 +510,7 @@ class WatchesCog(commands.Cog):
             now_utc = datetime.now(timezone.utc)
 
             # ── Cancellations ──────────────────────────────────────────────
-            for watch_num, info in list(active_watches.items()):
+            for watch_num, info in list(self.bot.state.active_watches.items()):
                 wtype = info["type"] if isinstance(info, dict) else info
                 expires = (
                     info.get("expires") if isinstance(info, dict) else None
@@ -529,7 +524,7 @@ class WatchesCog(commands.Cog):
                 ):
                     continue
 
-                active_watches.pop(watch_num, None)
+                self.bot.state.active_watches.pop(watch_num, None)
                 reason = "expired" if expired_by_time else "no longer active"
                 logger.info(
                     f"[WATCH] Watch #{watch_num} {reason} — "
@@ -559,12 +554,12 @@ class WatchesCog(commands.Cog):
                         f"[WATCH] Failed to send cancellation "
                         f"for #{watch_num}: {e}"
                     )
-                    active_watches[watch_num] = info
+                    self.bot.state.active_watches[watch_num] = info
 
             # ── New watches ────────────────────────────────────────────────
             for watch_num, nws_info in nws_watches.items():
-                active_watches[watch_num] = nws_info
-                if watch_num in posted_watches:
+                self.bot.state.active_watches[watch_num] = nws_info
+                if watch_num in self.bot.state.posted_watches:
                     continue
 
                 wtype = nws_info.get("type", "SVR")
@@ -637,10 +632,10 @@ class WatchesCog(commands.Cog):
                         else []
                     )
                     await channel.send(embed=embed, files=files)
-                    posted_watches.add(watch_num)
+                    self.bot.state.posted_watches.add(watch_num)
                     asyncio.create_task(add_posted_watch(str(watch_num)))
                     asyncio.create_task(prune_posted_watches())
-                    last_post_times["watch"] = datetime.now(timezone.utc)
+                    self.bot.state.last_post_times["watch"] = datetime.now(timezone.utc)
                     logger.info(f"[WATCH] Posted watch #{watch_num}")
                 except discord.HTTPException as e:
                     logger.error(
@@ -649,7 +644,7 @@ class WatchesCog(commands.Cog):
 
             # Prune tracked watches
             prune_tracked_set(
-                posted_watches, MAX_TRACKED_WATCHES, WATCH_CACHE_FILE
+                self.bot.state.posted_watches, MAX_TRACKED_WATCHES, WATCH_CACHE_FILE
             )
 
             self._watches_backoff.success()

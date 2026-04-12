@@ -10,14 +10,10 @@ from discord.ext import commands, tasks
 from config import MANUAL_CACHE_FILE, SCP_IMAGE_URLS, SPC_URLS, WPC_IMAGE_URLS
 import utils.http as _http
 from utils.cache import (
-    auto_cache,
     check_all_urls_exist_parallel,
     download_images_parallel,
     download_single_image,
     format_timedelta,
-    last_post_times,
-    manual_cache,
-    partial_update_state,
     posted_mds,
     posted_watches,
 )
@@ -74,7 +70,7 @@ async def fetch_and_send_weather_images(
         return
 
     files = await download_images_parallel(
-        urls, MANUAL_CACHE_FILE, manual_cache, use_cached=use_cached
+        urls, MANUAL_CACHE_FILE, self.bot.state.manual_cache, use_cached=use_cached
     )
     if files:
         await send_with_handling(source, title, file_paths=files)
@@ -241,7 +237,7 @@ class StatusCog(commands.Cog):
             cache_path = None
             if image_url:
                 cache_path, _, _ = await download_single_image(
-                    image_url, MANUAL_CACHE_FILE, manual_cache
+                    image_url, MANUAL_CACHE_FILE, self.bot.state.manual_cache
                 )
             md_page_url = (
                 f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
@@ -336,7 +332,7 @@ class StatusCog(commands.Cog):
         lines.append("")
 
         lines.append("── Last Auto-Posts ─────────────────────")
-        for key, dt in last_post_times.items():
+        for key, dt in self.bot.state.last_post_times.items():
             if dt:
                 ago = now - dt
                 lines.append(
@@ -347,9 +343,9 @@ class StatusCog(commands.Cog):
                 lines.append(f"  {key:<10} never this session")
         lines.append("")
 
-        if partial_update_state:
+        if self.bot.state.partial_update_state:
             lines.append("── Partial Update State ────────────────")
-            for day_key, state in partial_update_state.items():
+            for day_key, state in self.bot.state.partial_update_state.items():
                 elapsed = (
                     datetime.now() - state["start_time"]
                 ).total_seconds() / 60
