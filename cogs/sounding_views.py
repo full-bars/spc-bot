@@ -447,15 +447,15 @@ class IEMTimeSelectionView(View):
             btn = Button(label=label, style=ButtonStyle.green, row=row)
 
             async def cb(interaction, y=year, mo=month, d=day, h=hour):
-                loading_embed = discord.Embed(
-                    title="⏳ Fetching Sounding Data...",
-                    description="Contacting archive...",
-                    color=discord.Color.blurple(),
-                )
-                await interaction.response.edit_message(embed=loading_embed, view=None)
-                status_msg = await interaction.original_response()
-
+                await interaction.response.defer(ephemeral=True)
                 sid = self.station.get("icao") or self.station.get("wmo")
+                status_msg = await interaction.followup.send(
+                    embed=discord.Embed(
+                        title="⏳ Fetching Sounding Data...",
+                        description=f"Fetching {sid} at {h}z...",
+                        color=discord.Color.blurple(),
+                    ), ephemeral=True, wait=True
+                )
                 clean_data = await fetch_sounding(
                     sid, y, mo, d, h,
                     station_name=self.station["name"],
