@@ -62,10 +62,25 @@ class FailoverCog(commands.Cog):
 
     async def cog_unload(self):
         self.sync_loop.cancel()
+        if self.bot.state.is_primary:
+            await self._delete_url_from_upstash()
         if self._http_runner:
             await self._http_runner.cleanup()
         if self._tunnel_proc:
             self._tunnel_proc.terminate()
+
+    async def _delete_url_from_upstash(self):
+        try:
+            headers = {**UPSTASH_HEADERS, "Content-Type": "application/json"}
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    UPSTASH_URL,
+                    headers=headers,
+                    json=["DEL", "spcbot:primary_url"],
+                ) as resp:
+                    logger.info(f"[FAILOVER] Deleted primary URL from Upstash on shutdown")
+        except Exception as e:
+            logger.error(f"[FAILOVER] Failed to delete URL from Upstash: {e}")
 
     # ── HTTP server (primary only) ────────────────────────────────────────
 
