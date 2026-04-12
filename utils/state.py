@@ -15,6 +15,7 @@ class BotState:
     """Encapsulates all mutable in-memory state for the bot."""
 
     def __init__(self):
+        self.is_primary: bool = True  # overridden by IS_PRIMARY env var in main.py
         # ── Image hash caches ─────────────────────────────────────────────
         self.auto_cache: Dict[str, str] = {}
         self.manual_cache: Dict[str, str] = {}
