@@ -314,6 +314,7 @@ async def main():
         await bot.load_extension("cogs.ncar")
         await bot.load_extension("cogs.sounding")
         await bot.load_extension("cogs.hodograph")
+        await bot.load_extension("cogs.failover")
 
         # Register cog tasks with watchdog after loading
         outlooks_cog = bot.cogs.get("OutlooksCog")
