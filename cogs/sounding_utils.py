@@ -599,7 +599,10 @@ async def fetch_sounding(
     if iem_data:
         return iem_data
 
-    # Fall back to Wyoming via SounderPy
+    # Fall back to Wyoming via SounderPy only for standard 00z/12z times
+    # (Wyoming only has standard launch times, not special soundings)
+    if hour not in ("00", "12"):
+        return None
     loop = asyncio.get_running_loop()
     try:
         clean_data = await loop.run_in_executor(
@@ -608,7 +611,7 @@ async def fetch_sounding(
         )
         return clean_data
     except Exception as e:
-        logger.warning(f"[SOUNDING] Fetch failed for {station_id} {year}/{month}/{day} {hour}z: {e}")
+        logger.debug(f"[SOUNDING] Wyoming fallback failed for {station_id} {year}/{month}/{day} {hour}z: {e}")
         return None
 
 async def generate_plot(
