@@ -306,15 +306,16 @@ class CombinedSoundingView(View):
 
             async def raob_cb(interaction, s=station):
                 if self.time_args:
-                    loading_embed = discord.Embed(
-                        title="⏳ Fetching Sounding Data...",
-                        description="Contacting archive...",
-                        color=discord.Color.blurple(),
-                    )
-                    await interaction.response.edit_message(embed=loading_embed, view=None)
-                    status_msg = await interaction.original_response()
+                    await interaction.response.defer(ephemeral=True)
                     year, month, day, hour = self.time_args
                     sid = s.get("icao") or s.get("wmo")
+                    status_msg = await interaction.followup.send(
+                        embed=discord.Embed(
+                            title="⏳ Fetching Sounding Data...",
+                            description=f"Fetching {sid} at {hour}z...",
+                            color=discord.Color.blurple(),
+                        ), ephemeral=True, wait=True
+                    )
                     clean_data = await fetch_sounding(
                         sid, year, month, day, hour,
                         station_name=s["name"],
@@ -373,8 +374,10 @@ class CombinedSoundingView(View):
                     description=f"Retrieving ACARS data for {p['airport']}...",
                     color=discord.Color.blurple(),
                 )
-                await interaction.response.edit_message(embed=loading_embed, view=None)
-                status_msg = await interaction.original_response()
+                await interaction.response.defer(ephemeral=True)
+                status_msg = await interaction.followup.send(
+                    embed=loading_embed, ephemeral=True, wait=True
+                )
 
                 clean_data = await fetch_acars_sounding(
                     p["profile_id"], p["year"], p["month"], p["day"], p["acars_hour"]
