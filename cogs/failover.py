@@ -21,9 +21,7 @@ class Failover(commands.Cog):
     async def sync_loop(self):
         await self.bot.wait_until_ready()
         try:
-            # Rank check is the only thing we trust the bot object for
             is_primary = getattr(self.bot.state, 'is_primary', False)
-            
             if is_primary:
                 await self.perform_push()
             else:
@@ -32,17 +30,16 @@ class Failover(commands.Cog):
             logger.error(f"[SYNC] Loop Error: {e}")
 
     async def perform_push(self):
-        """Fetches from local DB (disk or bot) and pushes to Upstash."""
         db_path = "/opt/spc-bot/cache/bot_state.db"
         url = os.getenv("UPSTASH_REDIS_REST_URL")
         token = os.getenv("UPSTASH_REDIS_REST_TOKEN")
 
         try:
-            # Direct SQLite lookup
             conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
             cursor = conn.cursor()
-            mds = [row[0] for row in cursor.execute("SELECT md_number FROM posted_mds ORDER BY id DESC LIMIT 25").fetchall()]
-            watches = [row[0] for row in cursor.execute("SELECT watch_number FROM posted_watches ORDER BY id DESC LIMIT 25").fetchall()]
+            # Removed 'ORDER BY id' as the column doesn't exist
+            mds = [row[0] for row in cursor.execute("SELECT md_number FROM posted_mds LIMIT 50").fetchall()]
+            watches = [row[0] for row in cursor.execute("SELECT watch_number FROM posted_watches LIMIT 50").fetchall()]
             conn.close()
 
             if not mds and not watches:
@@ -61,7 +58,6 @@ class Failover(commands.Cog):
             logger.error(f"[SYNC] Push Error: {e}")
 
     async def perform_hydration(self):
-        """Pulls from Upstash and writes directly to disk."""
         db_path = "/opt/spc-bot/cache/bot_state.db"
         url = os.getenv("UPSTASH_REDIS_REST_URL")
         token = os.getenv("UPSTASH_REDIS_REST_TOKEN")
