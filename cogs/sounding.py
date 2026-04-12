@@ -47,7 +47,6 @@ class SoundingCog(commands.Cog):
         """Post soundings for RAOB stations near active watches at 00z/12z."""
         await self.bot.wait_until_ready()
         from config import SPC_CHANNEL_ID
-        from utils.cache import active_watches
 
         now = datetime.now(timezone.utc)
         hour = now.hour
@@ -61,14 +60,14 @@ class SoundingCog(commands.Cog):
         date_key = now.strftime("%Y-%m-%d")
         time_key = f"{date_key}_{sounding_time}z"
 
-        if not active_watches:
+        if not self.bot.state.active_watches:
             return
 
         channel = self.bot.get_channel(SPC_CHANNEL_ID)
         if not channel:
             return
 
-        logger.info(f"[SOUNDING-AUTO] Checking {len(active_watches)} active watches for {time_key}")
+        logger.info(f"[SOUNDING-AUTO] Checking {len(self.bot.state.active_watches)} active watches for {time_key}")
 
         try:
             stations_df = await get_raob_stations()
@@ -80,7 +79,7 @@ class SoundingCog(commands.Cog):
         month = now.strftime("%m")
         day = now.strftime("%d")
 
-        for watch_num, info in list(active_watches.items()):
+        for watch_num, info in list(self.bot.state.active_watches.items()):
             affected_zones = info.get("affected_zones", []) if isinstance(info, dict) else []
             if not affected_zones:
                 continue

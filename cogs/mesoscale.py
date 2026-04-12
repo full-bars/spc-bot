@@ -14,11 +14,7 @@ from config import AUTO_CACHE_FILE, SPC_CHANNEL_ID, SPC_MD_INDEX_URL
 from utils.cache import (
     MD_CACHE_FILE,
     MAX_TRACKED_MDS,
-    active_mds,
-    auto_cache,
     download_single_image,
-    last_post_times,
-    posted_mds,
     prune_tracked_set,
 )
 from utils.change_detection import get_cache_path_for_url
@@ -144,9 +140,9 @@ class MesoscaleCog(commands.Cog):
 
             # ── MD cancellations ───────────────────────────────────────────
             if current_mds:
-                for md_num in list(active_mds):
+                for md_num in list(self.bot.state.active_mds):
                     if md_num not in current_mds:
-                        active_mds.discard(md_num)
+                        self.bot.state.active_mds.discard(md_num)
                         logger.info(
                             f"[MD] MD #{md_num} no longer on index — "
                             f"posting cancellation"
@@ -170,12 +166,12 @@ class MesoscaleCog(commands.Cog):
                                 f"[MD] Failed to send cancellation "
                                 f"for #{md_num}: {e}"
                             )
-                            active_mds.add(md_num)
+                            self.bot.state.active_mds.add(md_num)
 
             # ── New MDs ────────────────────────────────────────────────────
             for md_num in md_numbers:
-                active_mds.add(md_num)
-                if md_num in posted_mds:
+                self.bot.state.active_mds.add(md_num)
+                if md_num in self.bot.state.posted_mds:
                     continue
 
                 logger.info(f"[MD] New MD detected: #{md_num}")
@@ -188,7 +184,7 @@ class MesoscaleCog(commands.Cog):
                     continue
 
                 cache_path, img_content, h = await download_single_image(
-                    image_url, AUTO_CACHE_FILE, auto_cache
+                    image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
                 )
 
                 md_page_url = (
@@ -206,10 +202,10 @@ class MesoscaleCog(commands.Cog):
                         )
                     else:
                         await channel.send(header)
-                    posted_mds.add(md_num)
+                    self.bot.state.posted_mds.add(md_num)
                     asyncio.create_task(add_posted_md(str(md_num)))
                     asyncio.create_task(prune_posted_mds())
-                    last_post_times["md"] = datetime.now(timezone.utc)
+                    self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
                     logger.info(f"[MD] Posted MD #{md_num}")
                 except discord.HTTPException as e:
                     logger.error(
@@ -217,7 +213,7 @@ class MesoscaleCog(commands.Cog):
                     )
 
             # Prune tracked MDs
-            prune_tracked_set(posted_mds, MAX_TRACKED_MDS, MD_CACHE_FILE)
+            prune_tracked_set(self.bot.state.posted_mds, MAX_TRACKED_MDS, MD_CACHE_FILE)
 
         except Exception as e:
             logger.error(
