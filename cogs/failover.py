@@ -133,12 +133,17 @@ class FailoverCog(commands.Cog):
 
     async def _write_url_to_upstash(self, url: str):
         try:
+            headers = {**UPSTASH_HEADERS, "Content-Type": "application/json"}
             async with aiohttp.ClientSession() as session:
-                await session.post(
-                    f"{UPSTASH_URL}/set/spcbot:primary_url/{url}/EX/{HEARTBEAT_TTL}",
-                    headers=UPSTASH_HEADERS,
-                )
-            logger.info(f"[FAILOVER] Wrote primary URL to Upstash (TTL {HEARTBEAT_TTL}s)")
+                async with session.post(
+                    UPSTASH_URL,
+                    headers=headers,
+                    json=["SET", "spcbot:primary_url", url, "EX", str(HEARTBEAT_TTL)],
+                ) as resp:
+                    if resp.status == 200:
+                        logger.info(f"[FAILOVER] Wrote primary URL to Upstash (TTL {HEARTBEAT_TTL}s)")
+                    else:
+                        logger.error(f"[FAILOVER] Upstash write failed: {resp.status}")
         except Exception as e:
             logger.error(f"[FAILOVER] Failed to write URL to Upstash: {e}")
 
@@ -183,10 +188,12 @@ class FailoverCog(commands.Cog):
 
     async def _get_primary_url(self) -> str | None:
         try:
+            headers = {**UPSTASH_HEADERS, "Content-Type": "application/json"}
             async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"{UPSTASH_URL}/get/spcbot:primary_url",
-                    headers=UPSTASH_HEADERS,
+                async with session.post(
+                    UPSTASH_URL,
+                    headers=headers,
+                    json=["GET", "spcbot:primary_url"],
                     timeout=aiohttp.ClientTimeout(total=5),
                 ) as resp:
                     if resp.status == 200:
