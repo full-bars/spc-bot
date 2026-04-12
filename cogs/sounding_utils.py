@@ -411,18 +411,20 @@ async def fetch_iem_sounding(station_id: str, year: str, month: str,
 async def get_available_sounding_times_iem(
     station_id: str,
     hours_back: int = 24,
+    skip_cache: bool = False,
 ) -> list[tuple[str, str, str, str]]:
     """
     Check IEM for all available sounding times for a station
     in the last N hours. Returns list of (year, month, day, hour) tuples.
-    Checks all hours concurrently for speed. Results are cached for 30 minutes.
+    Checks all hours concurrently for speed. Results are cached for 15 minutes.
+    Use skip_cache=True for auto-posting tasks that need fresh data.
     """
     from datetime import timedelta
     now = datetime.now(timezone.utc)
 
-    # Check cache
+    # Check cache (skip for auto-post tasks)
     cache_key = f"{station_id}:{hours_back}"
-    if cache_key in _AVAILABILITY_CACHE:
+    if not skip_cache and cache_key in _AVAILABILITY_CACHE:
         cached_time, cached_result = _AVAILABILITY_CACHE[cache_key]
         if (now - cached_time).total_seconds() < AVAILABILITY_CACHE_TTL:
             logger.debug(f"[IEM] Cache hit for {station_id} availability")
