@@ -12,13 +12,22 @@ class Failover(commands.Cog):
 
     async def cog_load(self):
         """Triggered when the cog is loaded."""
-        # Create a background task so we don't block the bot loading
         asyncio.create_task(self.initialize_sync())
 
     async def initialize_sync(self):
-        """Wait for the bot to be ready before starting sync logic."""
+        """Wait for the bot and its custom attributes to be ready."""
         await self.bot.wait_until_ready()
         
+        # Robustness: Wait for main.py to finish attaching custom attributes
+        retries = 0
+        while not hasattr(self.bot, 'db') or not hasattr(self.bot, 'config') or not hasattr(self.bot, 'session'):
+            if retries > 10:
+                logger.error("[SYNC] Critical Failure: Bot attributes never initialized.")
+                return
+            await asyncio.sleep(2)
+            retries += 1
+            logger.info(f"[SYNC] Waiting for bot attributes (Attempt {retries})...")
+
         if not self.sync_loop.is_running():
             self.sync_loop.start()
         
@@ -36,11 +45,6 @@ class Failover(commands.Cog):
     async def push_state_to_redis(self):
         """Primary pushes last 25 records to Upstash."""
         try:
-            # Check if DB is attached to bot
-            if not hasattr(self.bot, 'db'):
-                logger.warning("[SYNC] DB not yet available.")
-                return
-
             data = {}
             async with self.bot.db.execute("SELECT md_number FROM posted_mds ORDER BY id DESC LIMIT 25") as cursor:
                 data['mds'] = [row[0] for row in await cursor.fetchall()]

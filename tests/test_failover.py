@@ -10,6 +10,9 @@ async def test_sync_on_load():
     bot.state = MagicMock()
     bot.state.is_primary = True
     bot.wait_until_ready = AsyncMock()
+    bot.db = MagicMock()
+    bot.config = MagicMock()
+    bot.session = MagicMock()
     
     cog = Failover(bot)
     cog.push_state_to_redis = AsyncMock()
@@ -30,6 +33,9 @@ async def test_hydration_on_load_for_standby():
     bot.state = MagicMock()
     bot.state.is_primary = False
     bot.wait_until_ready = AsyncMock()
+    bot.db = MagicMock()
+    bot.config = MagicMock()
+    bot.session = MagicMock()
     
     cog = Failover(bot)
     cog.push_state_to_redis = AsyncMock()
