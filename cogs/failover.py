@@ -20,11 +20,16 @@ class Failover(commands.Cog):
         
         retries = 0
         while retries < 15:
-            # Look directly at the bot's dict to bypass any proxy/scope weirdness
-            db = self.bot.__dict__.get('db') or getattr(self.bot, 'db', None)
-            config = self.bot.__dict__.get('config') or getattr(self.bot, 'config', None)
-            session = self.bot.__dict__.get('session') or getattr(self.bot, 'session', None)
+            # 1. Try standard access
+            db = getattr(self.bot, 'db', None)
+            config = getattr(self.bot, 'config', None)
+            session = getattr(self.bot, 'session', None)
             
+            # 2. Try raw dict access
+            if not db: db = self.bot.__dict__.get('db')
+            if not config: config = self.bot.__dict__.get('config')
+            if not session: session = self.bot.__dict__.get('session')
+
             if db and config and session:
                 logger.info(f"[SYNC] All systems ready after {retries*2}s.")
                 break
@@ -34,31 +39,43 @@ class Failover(commands.Cog):
             if retries % 2 == 0:
                 logger.info(f"[SYNC] Polling attributes (Attempt {retries}/15)...")
 
-        if retries >= 15:
-            missing = [a for a in ['db', 'config', 'session'] if not (self.bot.__dict__.get(a) or hasattr(self.bot, a))]
-            logger.error(f"[SYNC] Critical Failure. Missing: {missing}")
-            return
+        if not db or not config:
+            logger.error(f"[SYNC] Attribute detection failed. Forcing manual lookup via state object...")
+            # Last ditch effort: Try to pull from the bot's state object if main.py put it there
+            db = getattr(self.bot.state, 'db', None)
+            config = getattr(self.bot.state, 'config', None)
 
+        if not db or not config:
+            # Absolute last resort: just try to access them directly and catch the error
+            try:
+                db = self.bot.db
+                config = self.bot.config
+                session = self.bot.session
+            except AttributeError:
+                logger.error("[SYNC] Absolute Critical Failure. Attributes unreachable via any scope.")
+                return
+
+        # Start logic
         if not self.sync_loop.is_running():
             self.sync_loop.start()
         
         if self.bot.state.is_primary:
-            await self.push_state_to_redis()
+            await self.push_state_to_redis(db, config, session)
         else:
-            await self.hydrate_local_state()
+            await self.hydrate_local_state(db, config, session)
 
     @tasks.loop(minutes=5)
     async def sync_loop(self):
         if self.bot.state.is_primary:
-            await self.push_state_to_redis()
+            # Re-fetch attributes for the periodic loop
+            db = getattr(self.bot, 'db', None) or self.bot.__dict__.get('db')
+            config = getattr(self.bot, 'config', None) or self.bot.__dict__.get('config')
+            session = getattr(self.bot, 'session', None) or self.bot.__dict__.get('session')
+            if db and config and session:
+                await self.push_state_to_redis(db, config, session)
 
-    async def push_state_to_redis(self):
+    async def push_state_to_redis(self, db, config, session):
         try:
-            # Use the direct dict access here too
-            db = self.bot.__dict__.get('db') or self.bot.db
-            config = self.bot.__dict__.get('config') or self.bot.config
-            session = self.bot.__dict__.get('session') or self.bot.session
-
             data = {}
             async with db.execute("SELECT md_number FROM posted_mds ORDER BY id DESC LIMIT 25") as cursor:
                 data['mds'] = [row[0] for row in await cursor.fetchall()]
@@ -76,12 +93,8 @@ class Failover(commands.Cog):
         except Exception as e:
             logger.error(f"[SYNC] Push Error: {e}")
 
-    async def hydrate_local_state(self):
+    async def hydrate_local_state(self, db, config, session):
         try:
-            db = self.bot.__dict__.get('db') or self.bot.db
-            config = self.bot.__dict__.get('config') or self.bot.config
-            session = self.bot.__dict__.get('session') or self.bot.session
-
             url = f"{config.UPSTASH_REDIS_REST_URL}/get/spcbot:state:posted_records"
             headers = {"Authorization": f"Bearer {config.UPSTASH_REDIS_REST_TOKEN}"}
             
