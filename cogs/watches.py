@@ -429,7 +429,7 @@ class WatchPaginatorView(discord.ui.View):
                 pass
 
 
-async def _execute_watches(interaction: discord.Interaction):
+async def _execute_watches(interaction: discord.Interaction, bot: commands.Bot):
     """Shared implementation for /watches and /ww slash commands."""
     await interaction.response.defer()
     nws_watches = await fetch_active_watches_nws()
@@ -470,7 +470,7 @@ async def _execute_watches(interaction: discord.Interaction):
         cache_path = None
         if image_url:
             cache_path, _, _ = await download_single_image(
-                image_url, MANUAL_CACHE_FILE, manual_cache
+                image_url, MANUAL_CACHE_FILE, bot.state.manual_cache
             )
         watch_data.append(
             (watch_num, nws_info, image_url, text_summary, probs, cache_path)
@@ -592,7 +592,7 @@ class WatchesCog(commands.Cog):
                 cache_path = None
                 if image_url:
                     cache_path, _, _ = await download_single_image(
-                        image_url, AUTO_CACHE_FILE, auto_cache
+                        image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
                     )
 
                 embed = discord.Embed(
@@ -683,14 +683,14 @@ class WatchesCog(commands.Cog):
         description="Show all currently active SPC watches",
     )
     async def watches_slash(self, interaction: discord.Interaction):
-        await _execute_watches(interaction)
+        await _execute_watches(interaction, self.bot)
 
     @discord.app_commands.command(
         name="ww",
         description="Show all currently active SPC watches",
     )
     async def ww_slash(self, interaction: discord.Interaction):
-        await _execute_watches(interaction)
+        await _execute_watches(interaction, self.bot)
 
 
 async def setup(bot: commands.Bot):
