@@ -50,7 +50,7 @@ async def send_with_handling(source, content: str, file_paths=None):
 
 
 async def fetch_and_send_weather_images(
-    source, urls, title: str, use_cached: bool = False
+    source, urls, title: str, state, use_cached: bool = False
 ):
     if not await check_all_urls_exist_parallel(urls):
         msg = (
@@ -70,7 +70,7 @@ async def fetch_and_send_weather_images(
         return
 
     files = await download_images_parallel(
-        urls, MANUAL_CACHE_FILE, self.bot.state.manual_cache, use_cached=use_cached
+        urls, MANUAL_CACHE_FILE, state.manual_cache, use_cached=use_cached
     )
     if files:
         await send_with_handling(source, title, file_paths=files)
@@ -140,9 +140,7 @@ class StatusCog(commands.Cog):
     @commands.command(name="wpc")
     async def wpc_prefix(self, ctx):
         await fetch_and_send_weather_images(
-            ctx,
-            WPC_IMAGE_URLS,
-            "**WPC Excessive Rainfall Outlooks (Day 1-3)**",
+            ctx, WPC_IMAGE_URLS, "**WPC Excessive Rainfall Outlooks (Day 1-3, self.bot.state)**",
             use_cached=False,
         )
 
@@ -212,9 +210,7 @@ class StatusCog(commands.Cog):
     async def wpc_slash(self, interaction: discord.Interaction):
         await interaction.response.defer()
         await fetch_and_send_weather_images(
-            interaction,
-            WPC_IMAGE_URLS,
-            "**WPC Excessive Rainfall Outlooks (Day 1-3)**",
+            interaction, WPC_IMAGE_URLS, "**WPC Excessive Rainfall Outlooks (Day 1-3, self.bot.state)**",
             use_cached=False,
         )
 
