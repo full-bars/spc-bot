@@ -10,12 +10,8 @@ from config import SPC_CHANNEL_ID, SPC_URLS
 from utils.backoff import TaskBackoff
 from utils.db import get_posted_urls, set_posted_urls
 from utils.cache import (
-    auto_cache,
     check_all_urls_exist_parallel,
     check_partial_updates_parallel,
-    last_post_times,
-    last_posted_urls,
-    partial_update_state,
     save_downloaded_images,
 )
 from utils.spc_urls import get_spc_urls
@@ -35,7 +31,7 @@ async def check_and_post_day(channel: discord.TextChannel, day: int):
     day_key = f"day{day}"
 
     fallback_urls = SPC_URLS_FALLBACK.get(day, [])
-    if urls == fallback_urls and last_posted_urls.get(day_key) == urls:
+    if urls == fallback_urls and self.bot.state.last_posted_urls.get(day_key) == urls:
         logger.info(f"[Day {day}] Fallback URLs unchanged from last post — skipping")
         return
 
@@ -43,20 +39,20 @@ async def check_and_post_day(channel: discord.TextChannel, day: int):
         return
 
     updated_count, total_count, downloaded_data = (
-        await check_partial_updates_parallel(urls, auto_cache)
+        await check_partial_updates_parallel(urls, self.bot.state.auto_cache)
     )
 
     if updated_count == 0:
-        if day_key in partial_update_state:
+        if day_key in self.bot.state.partial_update_state:
             elapsed = (
-                datetime.now() - partial_update_state[day_key]["start_time"]
+                datetime.now() - self.bot.state.partial_update_state[day_key]["start_time"]
             ).total_seconds() / 60
             if elapsed > 20:
                 logger.warning(
                     f"[Day {day}] Timeout after {elapsed:.1f} min with no further "
                     f"updates — clearing partial state without posting"
                 )
-                partial_update_state.pop(day_key, None)
+                self.bot.state.partial_update_state.pop(day_key, None)
             else:
                 logger.debug(
                     f"[Day {day}] No new updates this cycle, still waiting "
@@ -65,8 +61,8 @@ async def check_and_post_day(channel: discord.TextChannel, day: int):
         return
 
     if updated_count < total_count:
-        if day_key not in partial_update_state:
-            partial_update_state[day_key] = {
+        if day_key not in self.bot.state.partial_update_state:
+            self.bot.state.partial_update_state[day_key] = {
                 "start_time": datetime.now(),
                 "downloaded_data": downloaded_data,
             }
@@ -75,10 +71,10 @@ async def check_and_post_day(channel: discord.TextChannel, day: int):
                 f"Entering aggressive check mode."
             )
         else:
-            stored = partial_update_state[day_key]["downloaded_data"]
+            stored = self.bot.state.partial_update_state[day_key]["downloaded_data"]
             stored.update({k: v for k, v in downloaded_data.items() if v is not None})
             elapsed = (
-                datetime.now() - partial_update_state[day_key]["start_time"]
+                datetime.now() - self.bot.state.partial_update_state[day_key]["start_time"]
             ).total_seconds() / 60
 
             if elapsed > 20:
@@ -87,7 +83,7 @@ async def check_and_post_day(channel: discord.TextChannel, day: int):
                     f"Posting {len(stored)}/{total_count} images."
                 )
                 files = await save_downloaded_images(
-                    urls, stored, AUTO_CACHE_FILE, auto_cache
+                    urls, stored, AUTO_CACHE_FILE, self.bot.state.auto_cache
                 )
                 if files:
                     try:
@@ -95,12 +91,12 @@ async def check_and_post_day(channel: discord.TextChannel, day: int):
                             f"**Latest SPC Day {day} Outlooks**",
                             files=[discord.File(fp) for fp in files],
                         )
-                        last_post_times[day_key] = datetime.now(timezone.utc)
+                        self.bot.state.last_post_times[day_key] = datetime.now(timezone.utc)
                     except Exception as e:
                         logger.error(
                             f"Failed to send partial post for Day {day}: {e}"
                         )
-                partial_update_state.pop(day_key, None)
+                self.bot.state.partial_update_state.pop(day_key, None)
             else:
                 logger.info(
                     f"[Day {day}] Waiting: {updated_count}/{total_count} updated "
@@ -109,22 +105,22 @@ async def check_and_post_day(channel: discord.TextChannel, day: int):
         return
 
     # All images updated
-    if day_key in partial_update_state:
-        saved = partial_update_state[day_key]["downloaded_data"]
+    if day_key in self.bot.state.partial_update_state:
+        saved = self.bot.state.partial_update_state[day_key]["downloaded_data"]
         saved.update({k: v for k, v in downloaded_data.items() if v is not None})
         downloaded_data = saved
         elapsed = (
-            datetime.now() - partial_update_state[day_key]["start_time"]
+            datetime.now() - self.bot.state.partial_update_state[day_key]["start_time"]
         ).total_seconds() / 60
         logger.info(
             f"[Day {day}] All images ready after {elapsed:.1f} min. Posting."
         )
-        partial_update_state.pop(day_key, None)
+        self.bot.state.partial_update_state.pop(day_key, None)
 
     from config import AUTO_CACHE_FILE
 
     files = await save_downloaded_images(
-        urls, downloaded_data, AUTO_CACHE_FILE, auto_cache
+        urls, downloaded_data, AUTO_CACHE_FILE, self.bot.state.auto_cache
     )
     if files:
         try:
@@ -132,8 +128,8 @@ async def check_and_post_day(channel: discord.TextChannel, day: int):
                 f"**Latest SPC Day {day} Outlooks**",
                 files=[discord.File(fp) for fp in files],
             )
-            last_post_times[day_key] = datetime.now(timezone.utc)
-            last_posted_urls[day_key] = urls
+            self.bot.state.last_post_times[day_key] = datetime.now(timezone.utc)
+            self.bot.state.last_posted_urls[day_key] = urls
             asyncio.create_task(set_posted_urls(day_key, urls))
             logger.info(f"[Day {day}] Posted {len(files)} images. URLs: {urls}")
         except Exception as e:
@@ -176,14 +172,14 @@ class OutlooksCog(commands.Cog):
     @tasks.loop(seconds=20)
     async def aggressive_check_spc(self):
         await self.bot.wait_until_ready()
-        if not partial_update_state:
+        if not self.bot.state.partial_update_state:
             return
         channel = self.bot.get_channel(SPC_CHANNEL_ID)
         if not channel:
             logger.warning("SPC channel not found for aggressive_check_spc")
             return
         # Run partial checks concurrently
-        day_keys = list(partial_update_state.keys())
+        day_keys = list(self.bot.state.partial_update_state.keys())
         tasks_ = []
         for day_key in day_keys:
             try:
@@ -205,13 +201,13 @@ class OutlooksCog(commands.Cog):
         if not await check_all_urls_exist_parallel(urls):
             return
         updated_count, total_count, downloaded_data = (
-            await check_partial_updates_parallel(urls, auto_cache)
+            await check_partial_updates_parallel(urls, self.bot.state.auto_cache)
         )
         if updated_count > 0:
             from config import AUTO_CACHE_FILE
 
             files = await save_downloaded_images(
-                urls, downloaded_data, AUTO_CACHE_FILE, auto_cache
+                urls, downloaded_data, AUTO_CACHE_FILE, self.bot.state.auto_cache
             )
             if files:
                 try:
@@ -219,7 +215,7 @@ class OutlooksCog(commands.Cog):
                         "**Latest SPC Day 4-8 Outlook**",
                         files=[discord.File(fp) for fp in files],
                     )
-                    last_post_times["day48"] = datetime.now(timezone.utc)
+                    self.bot.state.last_post_times["day48"] = datetime.now(timezone.utc)
                 except Exception as e:
                     logger.error(f"Failed to send SPC48 post: {e}")
 
