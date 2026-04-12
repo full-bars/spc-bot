@@ -10,8 +10,10 @@ from discord import ButtonStyle
 from discord.ui import Button, View
 
 from cogs.sounding_utils import (
+    fetch_acars_sounding,
     fetch_sounding,
     generate_plot,
+    get_available_sounding_times_iem,
     get_recent_sounding_times,
     get_user_dark_mode,
 )
@@ -271,3 +273,256 @@ class StationSelectionView(View):
             )
             return False
         return True
+
+
+class CombinedSoundingView(View):
+    """Combined view showing RAOB stations and ACARS profiles."""
+
+    def __init__(
+        self,
+        raob_stations: list,
+        acars_profiles: list,
+        time_args: tuple | None,
+        dark_mode: bool,
+        original_user: discord.User,
+    ):
+        super().__init__(timeout=180)
+        self.raob_stations = raob_stations
+        self.acars_profiles = acars_profiles
+        self.time_args = time_args
+        self.dark_mode = dark_mode
+        self.original_user = original_user
+        self._build_buttons()
+
+    def _build_buttons(self):
+        self.clear_items()
+        row = 0
+
+        # RAOB station buttons
+        for i, station in enumerate(self.raob_stations[:3]):
+            sid = station.get("icao") or station.get("wmo")
+            label = f"📡 {station['name']} ({sid})"
+            btn = Button(label=label[:80], style=ButtonStyle.blurple, row=row)
+
+            async def raob_cb(interaction, s=station):
+                if self.time_args:
+                    loading_embed = discord.Embed(
+                        title="⏳ Fetching Sounding Data...",
+                        description="Contacting archive...",
+                        color=discord.Color.blurple(),
+                    )
+                    await interaction.response.edit_message(embed=loading_embed, view=None)
+                    status_msg = await interaction.original_response()
+                    year, month, day, hour = self.time_args
+                    sid = s.get("icao") or s.get("wmo")
+                    clean_data = await fetch_sounding(
+                        sid, year, month, day, hour,
+                        station_name=s["name"],
+                        lat=s["lat"], lon=s["lon"],
+                    )
+                    if clean_data:
+                        await _post_from_clean_data(interaction, clean_data, s["name"], sid,
+                                                     year, month, day, hour,
+                                                     self.dark_mode, status_msg)
+                    else:
+                        await status_msg.edit(embed=discord.Embed(
+                            title="❌ No Data",
+                            description=f"No sounding data found for {sid} at that time.",
+                            color=discord.Color.red(),
+                        ))
+                else:
+                    # Show time picker with all available times from IEM
+                    loading_embed = discord.Embed(
+                        title="⏳ Loading Available Times...",
+                        color=discord.Color.blurple(),
+                    )
+                    await interaction.response.edit_message(embed=loading_embed, view=None)
+                    status_msg = await interaction.original_response()
+
+                    sid = s.get("icao") or s.get("wmo")
+                    avail = await get_available_sounding_times_iem(sid, hours_back=36)
+                    if not avail:
+                        await status_msg.edit(embed=discord.Embed(
+                            title="❌ No Times Available",
+                            description=f"No recent sounding data found for {sid}.",
+                            color=discord.Color.red(),
+                        ))
+                        return
+
+                    view = IEMTimeSelectionView(s, avail[:8], self.dark_mode,
+                                                self.original_user, [status_msg])
+                    embed = discord.Embed(
+                        title=f"Select Time — {s['name']} ({sid})",
+                        description="\n".join([f"`{t[3]}z` {t[1]}-{t[2]}-{t[0]}" for t in avail[:8]]),
+                        color=discord.Color.blurple(),
+                    )
+                    await status_msg.edit(embed=embed, view=view)
+
+            btn.callback = raob_cb
+            self.add_item(btn)
+            row = min(row + 1, 2)
+
+        # ACARS profile buttons
+        for i, profile in enumerate(self.acars_profiles[:2]):
+            label = f"✈️ {profile['airport']} ({profile['time_label']})"
+            btn = Button(label=label[:80], style=ButtonStyle.green, row=row)
+
+            async def acars_cb(interaction, p=profile):
+                loading_embed = discord.Embed(
+                    title="⏳ Fetching Aircraft Profile...",
+                    description=f"Retrieving ACARS data for {p['airport']}...",
+                    color=discord.Color.blurple(),
+                )
+                await interaction.response.edit_message(embed=loading_embed, view=None)
+                status_msg = await interaction.original_response()
+
+                clean_data = await fetch_acars_sounding(
+                    p["profile_id"], p["year"], p["month"], p["day"], p["acars_hour"]
+                )
+                if not clean_data:
+                    await status_msg.edit(embed=discord.Embed(
+                        title="❌ ACARS Data Unavailable",
+                        description=f"Could not fetch profile for {p['airport']}.",
+                        color=discord.Color.red(),
+                    ))
+                    return
+
+                output_path = os.path.join(
+                    CACHE_DIR,
+                    f"acars_{p['airport']}_{p['year']}{p['month']}{p['day']}_{p['acars_hour']}z"
+                )
+                success = await generate_plot(clean_data, output_path, self.dark_mode)
+                png_path = output_path + ".png"
+                if not success or not os.path.exists(png_path):
+                    await status_msg.edit(embed=discord.Embed(
+                        title="❌ Plot Failed",
+                        description="Could not generate ACARS sounding plot.",
+                        color=discord.Color.red(),
+                    ))
+                    return
+
+                await status_msg.delete()
+                mode_label = "\U0001f319 Dark" if self.dark_mode else "\u2600\ufe0f Light"
+                caption = (
+                    f"**ACARS Aircraft Profile \u2014 {p['airport']}**\n"
+                    f"Valid: {p['time_label']} | {mode_label} mode"
+                )
+                await interaction.channel.send(caption, files=[discord.File(png_path)])
+
+            btn.callback = acars_cb
+            self.add_item(btn)
+            row = min(row + 1, 4)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user != self.original_user:
+            await interaction.response.send_message(
+                "This interaction is not yours.", ephemeral=True
+            )
+            return False
+        return True
+
+
+class IEMTimeSelectionView(View):
+    """Time selection view using IEM-discovered available times."""
+
+    def __init__(self, station: dict, times: list, dark_mode: bool,
+                 original_user: discord.User, messages_to_delete: list = None):
+        super().__init__(timeout=120)
+        self.station = station
+        self.times = times
+        self.dark_mode = dark_mode
+        self.original_user = original_user
+        self.messages_to_delete = messages_to_delete or []
+        self._build_buttons()
+
+    def _build_buttons(self):
+        self.clear_items()
+        for i, (year, month, day, hour) in enumerate(self.times[:8]):
+            label = f"{month}-{day}-{year} {hour}z"
+            row = i // 4
+            btn = Button(label=label, style=ButtonStyle.green, row=row)
+
+            async def cb(interaction, y=year, mo=month, d=day, h=hour):
+                loading_embed = discord.Embed(
+                    title="⏳ Fetching Sounding Data...",
+                    description="Contacting archive...",
+                    color=discord.Color.blurple(),
+                )
+                await interaction.response.edit_message(embed=loading_embed, view=None)
+                status_msg = await interaction.original_response()
+
+                sid = self.station.get("icao") or self.station.get("wmo")
+                clean_data = await fetch_sounding(
+                    sid, y, mo, d, h,
+                    station_name=self.station["name"],
+                    lat=self.station["lat"], lon=self.station["lon"],
+                )
+                if clean_data:
+                    await _post_from_clean_data(
+                        interaction, clean_data, self.station["name"], sid,
+                        y, mo, d, h, self.dark_mode, status_msg,
+                        messages_to_delete=self.messages_to_delete,
+                    )
+                else:
+                    await status_msg.edit(embed=discord.Embed(
+                        title="❌ No Data",
+                        description=f"No sounding data for {sid} at {h}z.",
+                        color=discord.Color.red(),
+                    ))
+
+            btn.callback = cb
+            self.add_item(btn)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user != self.original_user:
+            await interaction.response.send_message(
+                "This interaction is not yours.", ephemeral=True
+            )
+            return False
+        return True
+
+
+async def _post_from_clean_data(
+    interaction, clean_data, station_name, station_id,
+    year, month, day, hour, dark_mode, status_msg,
+    messages_to_delete=None,
+):
+    """Generate and post a sounding plot from clean_data."""
+    plotting_embed = discord.Embed(
+        title="⏳ Generating Sounding Plot...",
+        description=f"Plotting **{station_name} ({station_id})** at **{month}-{day}-{year} {hour}z**.",
+        color=discord.Color.blurple(),
+    )
+    await status_msg.edit(embed=plotting_embed)
+
+    output_path = os.path.join(
+        CACHE_DIR, f"sounding_{station_id}_{year}{month}{day}_{hour}z"
+    )
+    success = await generate_plot(clean_data, output_path, dark_mode)
+    png_path = output_path + ".png"
+
+    if not success or not os.path.exists(png_path):
+        await status_msg.edit(embed=discord.Embed(
+            title="❌ Plot Failed",
+            description="Could not generate sounding plot.",
+            color=discord.Color.red(),
+        ))
+        return
+
+    mode_label = "\U0001f319 Dark" if dark_mode else "\u2600\ufe0f Light"
+    caption = (
+        f"**RAOB Sounding \u2014 {station_name} ({station_id})**\n"
+        f"Valid: {month}-{day}-{year} {hour}z | {mode_label} mode"
+    )
+    try:
+        await status_msg.delete()
+        if messages_to_delete:
+            for msg in messages_to_delete:
+                try:
+                    await msg.delete()
+                except Exception:
+                    pass
+        await interaction.channel.send(caption, files=[discord.File(png_path)])
+    except Exception as e:
+        import logging
+        logging.getLogger("spc_bot").error(f"[SOUNDING] Failed to post: {e}")
