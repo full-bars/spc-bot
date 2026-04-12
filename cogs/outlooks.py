@@ -248,7 +248,10 @@ class OutlooksCog(commands.Cog):
         if self.aggressive_check_spc.is_being_cancelled():
             return
         task = self.aggressive_check_spc.get_task()
-        exc = task.exception() if task else None
+        try:
+            exc = task.exception() if task and task.done() else None
+        except Exception:
+            exc = None
         if exc:
             logger.error(
                 f"[TASK] aggressive_check_spc stopped: "
