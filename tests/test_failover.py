@@ -3,7 +3,7 @@ import json
 import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
-from cogs.failover import FailoverCog
+from cogs.failover import Failover
 
 class MockBot:
     def __init__(self):
@@ -29,8 +29,8 @@ async def test_rank_2_promotes_on_missing_lock():
         bot.loop = asyncio.get_running_loop()
         
         # Patch the heartbeat loop so it doesn't run forever
-        with patch.object(FailoverCog, 'heartbeat_loop', return_value=None):
-            cog = FailoverCog(bot)
+        with patch.object(Failover, 'heartbeat_loop', return_value=None):
+            cog = Failover(bot)
 
         # Mock responses for lock check and state hydration
         mock_lock_resp = AsyncMock()
