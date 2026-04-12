@@ -19,6 +19,9 @@ import aiohttp
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+# Lock to serialize matplotlib plot generation (plt is not thread-safe)
+_PLOT_LOCK = asyncio.Lock()
 import pandas as pd
 import io
 import sys
@@ -427,7 +430,7 @@ async def get_available_sounding_times_iem(
     if not skip_cache and cache_key in _AVAILABILITY_CACHE:
         cached_time, cached_result = _AVAILABILITY_CACHE[cache_key]
         if (now - cached_time).total_seconds() < AVAILABILITY_CACHE_TTL:
-            logger.debug(f"[IEM] Cache hit for {station_id} availability")
+            logger.info(f"[IEM] Cache hit for {station_id} availability — skipping IEM check")
             return cached_result
 
     async def check_hour(dt: datetime) -> Optional[tuple]:
@@ -640,7 +643,8 @@ async def generate_plot(
     """Generate sounding plot headlessly. Returns True on success."""
     loop = asyncio.get_running_loop()
     try:
-        await loop.run_in_executor(
+        async with _PLOT_LOCK:
+          await loop.run_in_executor(
             None,
             lambda: _plot_sync(clean_data, output_path, dark_mode)
         )
