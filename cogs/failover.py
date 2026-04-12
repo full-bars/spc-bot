@@ -33,7 +33,7 @@ UPSTASH_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
 FAILOVER_TOKEN = os.getenv("FAILOVER_TOKEN", "changeme")
 STATE_PORT = int(os.getenv("STATE_PORT", "8765"))
 HEARTBEAT_TTL = 420  # 7 minutes
-SYNC_INTERVAL = 5    # minutes
+SYNC_INTERVAL = 30   # seconds
 
 UPSTASH_HEADERS = {"Authorization": f"Bearer {UPSTASH_TOKEN}"}
 
@@ -50,6 +50,8 @@ class FailoverCog(commands.Cog):
         self._http_runner = None
         self._tunnel_proc = None
         self._tunnel_url = None
+        self._primary_failures = 0
+        self._max_failures = 3
 
     async def cog_load(self):
         if self.bot.state.is_primary:
@@ -150,7 +152,7 @@ class FailoverCog(commands.Cog):
 
     # ── Sync loop ─────────────────────────────────────────────────────────
 
-    @tasks.loop(minutes=SYNC_INTERVAL)
+    @tasks.loop(seconds=SYNC_INTERVAL)
     async def sync_loop(self):
         await self.bot.wait_until_ready()
         try:
@@ -164,11 +166,13 @@ class FailoverCog(commands.Cog):
     async def _standby_cycle(self):
         primary_url = await self._get_primary_url()
         if not primary_url:
-            logger.warning("[FAILOVER] Primary URL missing from Upstash — promoting to PRIMARY")
-            await self._promote()
+            self._primary_failures += 1
+            logger.warning(f"[FAILOVER] Primary URL missing from Upstash (failure {self._primary_failures}/{self._max_failures})")
+            if self._primary_failures >= self._max_failures:
+                await self._promote()
             return
 
-        # Hydrate from primary
+        # Try to reach primary
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
@@ -179,13 +183,18 @@ class FailoverCog(commands.Cog):
                     if resp.status == 200:
                         data = await resp.json()
                         self._hydrate(data)
-                        logger.info("[FAILOVER] Hydrated state from primary")
+                        self._primary_failures = 0
+                        logger.debug("[FAILOVER] Hydrated state from primary")
                     else:
-                        logger.warning(f"[FAILOVER] Primary /state returned {resp.status} — promoting")
-                        await self._promote()
+                        self._primary_failures += 1
+                        logger.warning(f"[FAILOVER] Primary /state returned {resp.status} (failure {self._primary_failures}/{self._max_failures})")
+                        if self._primary_failures >= self._max_failures:
+                            await self._promote()
         except Exception as e:
-            logger.warning(f"[FAILOVER] Cannot reach primary: {e} — promoting")
-            await self._promote()
+            self._primary_failures += 1
+            logger.warning(f"[FAILOVER] Cannot reach primary: {e} (failure {self._primary_failures}/{self._max_failures})")
+            if self._primary_failures >= self._max_failures:
+                await self._promote()
 
     async def _get_primary_url(self) -> str | None:
         try:
@@ -205,10 +214,17 @@ class FailoverCog(commands.Cog):
         return None
 
     def _hydrate(self, data: dict):
+        from datetime import datetime, timezone
         self.bot.state.posted_mds.update(data.get("posted_mds", []))
         self.bot.state.posted_watches.update(data.get("posted_watches", []))
         self.bot.state.auto_cache.update(data.get("auto_cache", {}))
         self.bot.state.last_posted_urls.update(data.get("last_posted_urls", {}))
+        for k, v in data.get("last_post_times", {}).items():
+            if v and k in self.bot.state.last_post_times:
+                try:
+                    self.bot.state.last_post_times[k] = datetime.fromisoformat(v)
+                except Exception:
+                    pass
 
     async def _promote(self):
         logger.warning("[FAILOVER] !!! PROMOTING TO PRIMARY !!!")
@@ -221,6 +237,11 @@ class FailoverCog(commands.Cog):
                 logger.info(f"[FAILOVER] Loaded {ext}")
             except Exception as e:
                 logger.error(f"[FAILOVER] Failed to load {ext}: {e}")
+        try:
+            synced = await self.bot.tree.sync()
+            logger.info(f"[FAILOVER] Synced {len(synced)} slash commands")
+        except Exception as e:
+            logger.error(f"[FAILOVER] Failed to sync commands: {e}")
 
     async def _demote(self, primary_url: str):
         """Push accumulated state to primary then demote."""
