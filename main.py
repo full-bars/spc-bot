@@ -104,36 +104,31 @@ async def on_ready():
     from utils.db import get_all_hashes, get_posted_urls, get_posted_mds, get_posted_watches
     db_auto = await get_all_hashes("auto")
     if db_auto:
-        bot.state.bot.state.auto_cache.update(db_auto)
+        bot.state.auto_cache.update(db_auto)
         logger.info(f"[DB] Loaded {len(db_auto)} auto hashes into cache")
 
     db_manual = await get_all_hashes("manual")
     if db_manual:
-        bot.state.bot.state.manual_cache.update(db_manual)
+        bot.state.manual_cache.update(db_manual)
         logger.info(f"[DB] Loaded {len(db_manual)} manual hashes into cache")
 
     db_mds = await get_posted_mds()
     if db_mds:
-        bot.state.bot.state.posted_mds.update(db_mds)
+        bot.state.posted_mds.update(db_mds)
         logger.info(f"[DB] Loaded {len(db_mds)} posted MDs into cache")
 
     db_watches = await get_posted_watches()
     if db_watches:
-        bot.state.bot.state.posted_watches.update(db_watches)
+        bot.state.posted_watches.update(db_watches)
         logger.info(f"[DB] Loaded {len(db_watches)} posted watches into cache")
     for day_key in ["day1", "day2", "day3"]:
         urls = await get_posted_urls(day_key)
         if urls:
-            bot.state.bot.state.last_posted_urls[day_key] = urls
+            bot.state.last_posted_urls[day_key] = urls
             logger.info(f"[DB] Restored posted URLs for {day_key}")
     logger.info("[DB] Database ready")
 
-    # Mirror DB-loaded state into bot.state
-    bot.state.bot.state.bot.state.auto_cache.update(bot.state.bot.state.auto_cache)
-    bot.state.bot.state.bot.state.manual_cache.update(bot.state.bot.state.manual_cache)
-    bot.state.bot.state.bot.state.posted_mds.update(bot.state.bot.state.posted_mds)
-    bot.state.bot.state.bot.state.posted_watches.update(bot.state.bot.state.posted_watches)
-    bot.state.bot.state.bot.state.last_posted_urls.update(bot.state.bot.state.last_posted_urls)
+
 
 
 
