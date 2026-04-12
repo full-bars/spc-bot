@@ -125,15 +125,15 @@ async def post_sounding(
         await interaction.channel.send(caption, files=[discord.File(png_path)])
         logger.info(f"[SOUNDING] Posted {station_id} {used_year}/{used_month}/{used_day} {used_hour}z")
 
-        # Clean up ephemeral messages on success
+        # Edit status msg to show success but keep selection available
         if status_msg:
             try:
-                await status_msg.delete()
-            except Exception:
-                pass
-        for msg in messages_to_delete:
-            try:
-                await msg.delete()
+                done_embed = discord.Embed(
+                    title=f"✅ Posted — {station_id} {used_year}/{used_month}/{used_day} {used_hour}z",
+                    description="Select another station or time above to post more.",
+                    color=discord.Color.green(),
+                )
+                await status_msg.edit(embed=done_embed, view=None)
             except Exception:
                 pass
 
@@ -428,7 +428,7 @@ class IEMTimeSelectionView(View):
 
     def __init__(self, station: dict, times: list, dark_mode: bool,
                  original_user: discord.User, messages_to_delete: list = None):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self.station = station
         self.times = times
         self.dark_mode = dark_mode

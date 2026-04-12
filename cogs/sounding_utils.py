@@ -295,6 +295,10 @@ async def get_watch_area_centroid(affected_zones: list) -> tuple[float, float] |
 
 IEM_RAOB_URL = "https://mesonet.agron.iastate.edu/json/raob.py"
 
+# Cache for station availability results (station_id -> (timestamp, times_list))
+_AVAILABILITY_CACHE: dict = {}
+AVAILABILITY_CACHE_TTL = 900  # 15 minutes
+
 
 def _iem_to_clean_data(profile: dict, station_id: str, station_name: str,
                         lat: float, lon: float, elev: float, valid: str) -> dict:
@@ -411,10 +415,18 @@ async def get_available_sounding_times_iem(
     """
     Check IEM for all available sounding times for a station
     in the last N hours. Returns list of (year, month, day, hour) tuples.
-    Checks all hours concurrently for speed.
+    Checks all hours concurrently for speed. Results are cached for 30 minutes.
     """
     from datetime import timedelta
     now = datetime.now(timezone.utc)
+
+    # Check cache
+    cache_key = f"{station_id}:{hours_back}"
+    if cache_key in _AVAILABILITY_CACHE:
+        cached_time, cached_result = _AVAILABILITY_CACHE[cache_key]
+        if (now - cached_time).total_seconds() < AVAILABILITY_CACHE_TTL:
+            logger.debug(f"[IEM] Cache hit for {station_id} availability")
+            return cached_result
 
     async def check_hour(dt: datetime) -> Optional[tuple]:
         ts = dt.strftime("%Y-%m-%dT%H:00:00Z")
@@ -451,6 +463,8 @@ async def get_available_sounding_times_iem(
     found = [r for r in results if r is not None]
     # Sort most recent first
     found.sort(key=lambda x: (x[0], x[1], x[2], x[3]), reverse=True)
+    # Store in cache
+    _AVAILABILITY_CACHE[cache_key] = (now, found)
     return found
 
 
@@ -589,30 +603,32 @@ async def fetch_sounding(
 ) -> Optional[dict]:
     """
     Fetch sounding data. Returns clean_data dict or None on failure.
-    Tries IEM first (supports all hours), falls back to Wyoming via SounderPy.
+
+    Strategy:
+    - 00z/12z: Try Wyoming first (better hodograph data quality),
+                fall back to IEM if Wyoming fails.
+    - Other hours: IEM only (Wyoming doesn't have special soundings).
     """
-    # Try IEM first
+    loop = asyncio.get_running_loop()
+
+    if hour in ("00", "12"):
+        # Try Wyoming first for standard times — better data quality
+        try:
+            clean_data = await loop.run_in_executor(
+                None,
+                lambda: spy.get_obs_data(station_id, year, month, day, hour)
+            )
+            if clean_data:
+                return clean_data
+        except Exception as e:
+            logger.debug(f"[SOUNDING] Wyoming failed for {station_id} {hour}z, trying IEM: {e}")
+
+    # IEM for special soundings or Wyoming fallback
     iem_data = await fetch_iem_sounding(
         station_id, year, month, day, hour,
         station_name=station_name, lat=lat, lon=lon, elev=elev
     )
-    if iem_data:
-        return iem_data
-
-    # Fall back to Wyoming via SounderPy only for standard 00z/12z times
-    # (Wyoming only has standard launch times, not special soundings)
-    if hour not in ("00", "12"):
-        return None
-    loop = asyncio.get_running_loop()
-    try:
-        clean_data = await loop.run_in_executor(
-            None,
-            lambda: spy.get_obs_data(station_id, year, month, day, hour)
-        )
-        return clean_data
-    except Exception as e:
-        logger.debug(f"[SOUNDING] Wyoming fallback failed for {station_id} {year}/{month}/{day} {hour}z: {e}")
-        return None
+    return iem_data
 
 async def generate_plot(
     clean_data: dict,
