@@ -41,6 +41,15 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot.state = BotState()
 
+IS_PRIMARY = os.getenv("IS_PRIMARY", "true").lower() == "true"
+bot.state.is_primary = IS_PRIMARY
+
+ALL_EXTENSIONS = [
+    "cogs.scp", "cogs.outlooks", "cogs.mesoscale", "cogs.watches",
+    "cogs.status", "cogs.radar", "cogs.csu_mlp", "cogs.ncar",
+    "cogs.sounding", "cogs.hodograph",
+]
+
 # Watchdog state
 _task_fail_counts = {}
 _task_alerted = set()
@@ -304,16 +313,12 @@ async def main():
         except Exception as e:
             logger.warning(f"Could not set up signal handlers: {e}")
 
-        await bot.load_extension("cogs.scp")
-        await bot.load_extension("cogs.outlooks")
-        await bot.load_extension("cogs.mesoscale")
-        await bot.load_extension("cogs.watches")
-        await bot.load_extension("cogs.status")
-        await bot.load_extension("cogs.radar")
-        await bot.load_extension("cogs.csu_mlp")
-        await bot.load_extension("cogs.ncar")
-        await bot.load_extension("cogs.sounding")
-        await bot.load_extension("cogs.hodograph")
+        await bot.load_extension("cogs.failover")
+        if IS_PRIMARY:
+            for ext in ALL_EXTENSIONS:
+                await bot.load_extension(ext)
+        else:
+            logger.info("[FAILOVER] Running as STANDBY — cogs suppressed until promoted")
 
         # Register cog tasks with watchdog after loading
         outlooks_cog = bot.cogs.get("OutlooksCog")
