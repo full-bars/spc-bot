@@ -1,57 +1,72 @@
-import discord
-from discord.ext import commands, tasks
 import os
+import json
+import asyncio
 import logging
 import aiohttp
-import json
+from discord.ext import commands
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("cogs.failover")
 
 class FailoverCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.rank = bot.state.rank
         self.url = os.getenv("UPSTASH_REDIS_REST_URL")
         self.token = os.getenv("UPSTASH_REDIS_REST_TOKEN")
         self.headers = {"Authorization": f"Bearer {self.token}"}
         self.lock_key = "spcbot:leader:lock"
         self.state_key = "spcbot:state:sync"
+        self.heartbeat_task = self.bot.loop.create_task(self.heartbeat_loop())
 
     @commands.Cog.listener()
     async def on_ready(self):
-        if not self.heartbeat_loop.is_running():
-            self.heartbeat_loop.start()
-        logger.info(f"[Failover] Rank {self.bot.state.rank} online. Primary: {self.bot.state.is_primary}")
+        """Logged only once the bot is fully connected to Discord."""
+        status = "PRIMARY" if self.bot.state.is_primary else "STANDBY"
+        logger.info("--- [Failover System Online] ---")
+        logger.info(f"Rank: {self.rank} | Mode: {status}")
+        logger.info(f"Target: {self.url.split('//')[-1]}")
+        logger.info("-------------------------------")
 
-    @tasks.loop(seconds=20)
     async def heartbeat_loop(self):
-        async with aiohttp.ClientSession() as session:
-            if self.bot.state.rank == 1:
-                # Primary heartbeat: Set lock with 30s TTL
-                url = f"{self.url}/set/{self.lock_key}/1/EX/30"
-                async with session.get(url, headers=self.headers) as resp:
-                    if resp.status == 200:
-                        state_json = json.dumps(self.bot.state.to_dict())
-                        await session.post(f"{self.url}/set/{self.state_key}", headers=self.headers, data=state_json)
-            else:
-                # Standby: Check if leader lock exists
-                async with session.get(f"{self.url}/get/{self.lock_key}", headers=self.headers) as resp:
-                    data = await resp.json()
-                    if data.get("result") is None:
-                        # Lock gone! Take over and hydrate state
-                        if not self.bot.state.is_primary:
-                            await self.hydrate_and_promote(session)
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            try:
+                async with aiohttp.ClientSession(headers=self.headers) as session:
+                    if self.bot.state.is_primary:
+                        # Rank 1: Acquire/Renew lock and upload state
+                        await session.get(f"{self.url}/set/{self.lock_key}/{self.rank}/EX/60")
+                        state_data = json.dumps(self.bot.state.to_dict())
+                        async with session.post(f"{self.url}/set/{self.state_key}", data=state_data) as resp:
+                            if resp.status != 200:
+                                logger.error(f"[Failover] State sync failed: {resp.status}")
                     else:
-                        if self.bot.state.is_primary:
-                            self.bot.state.is_primary = False
-                            logger.info("[Failover] Higher rank detected. Demoting to STANDBY.")
+                        # Rank 2+: Check if primary lock exists
+                        async with session.get(f"{self.url}/get/{self.lock_key}") as resp:
+                            data = await resp.json()
+                            current_lock = data.get("result")
+                            
+                            if current_lock is None:
+                                logger.warning("[Failover] Primary lost. Promoting standby.")
+                                self.bot.state.is_primary = True
+                                # Hydrate state from Redis
+                                async with session.get(f"{self.url}/get/{self.state_key}") as s_resp:
+                                    s_data = await s_resp.json()
+                                    if s_data.get("result"):
+                                        self.bot.state.from_dict(json.loads(s_data["result"]))
+                                        logger.info("[Failover] State hydrated from Upstash.")
+                            else:
+                                # Primary is healthy, update local state silently
+                                async with session.get(f"{self.url}/get/{self.state_key}") as s_resp:
+                                    s_data = await s_resp.json()
+                                    if s_data.get("result"):
+                                        self.bot.state.from_dict(json.loads(s_data["result"]))
 
-    async def hydrate_and_promote(self, session):
-        async with session.get(f"{self.url}/get/{self.state_key}", headers=self.headers) as resp:
-            data = await resp.json()
-            if data.get("result"):
-                self.bot.state.from_dict(json.loads(data["result"]))
-        self.bot.state.is_primary = True
-        logger.warning("[Failover] Primary lost. Promoting standby.")
+            except Exception as e:
+                logger.error(f"[Failover] Loop error: {e}")
+            
+            await asyncio.sleep(20)
 
 async def setup(bot):
+    logger.info("--- [Failover Extension Loading] ---"
     await bot.add_cog(FailoverCog(bot))
+    logger.info("--- [Failover Extension Loaded] ---"
