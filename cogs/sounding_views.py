@@ -332,15 +332,15 @@ class CombinedSoundingView(View):
                             color=discord.Color.red(),
                         ))
                 else:
-                    # Show time picker with all available times from IEM
-                    loading_embed = discord.Embed(
-                        title="⏳ Loading Available Times...",
-                        color=discord.Color.blurple(),
-                    )
-                    await interaction.response.edit_message(embed=loading_embed, view=None)
-                    status_msg = await interaction.original_response()
-
+                    # Show time picker — defer+followup keeps station picker visible
+                    await interaction.response.defer(ephemeral=True)
                     sid = s.get("icao") or s.get("wmo")
+                    status_msg = await interaction.followup.send(
+                        embed=discord.Embed(
+                            title="⏳ Loading Available Times...",
+                            color=discord.Color.blurple(),
+                        ), ephemeral=True, wait=True
+                    )
                     avail = await get_available_sounding_times_iem(sid, hours_back=36)
                     if not avail:
                         await status_msg.edit(embed=discord.Embed(
@@ -349,9 +349,8 @@ class CombinedSoundingView(View):
                             color=discord.Color.red(),
                         ))
                         return
-
                     view = IEMTimeSelectionView(s, avail[:8], self.dark_mode,
-                                                self.original_user, [status_msg])
+                                               self.original_user, [])
                     embed = discord.Embed(
                         title=f"Select Time — {s['name']} ({sid})",
                         description="\n".join([f"`{t[3]}z` {t[1]}-{t[2]}-{t[0]}" for t in avail[:8]]),
