@@ -20,7 +20,6 @@ class FailoverCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        """Logged only once the bot is fully connected to Discord."""
         status = "PRIMARY" if self.bot.state.is_primary else "STANDBY"
         logger.info("--- [Failover System Online] ---")
         logger.info(f"Rank: {self.rank} | Mode: {status}")
@@ -33,40 +32,32 @@ class FailoverCog(commands.Cog):
             try:
                 async with aiohttp.ClientSession(headers=self.headers) as session:
                     if self.bot.state.is_primary:
-                        # Rank 1: Acquire/Renew lock and upload state
                         await session.get(f"{self.url}/set/{self.lock_key}/{self.rank}/EX/60")
                         state_data = json.dumps(self.bot.state.to_dict())
                         async with session.post(f"{self.url}/set/{self.state_key}", data=state_data) as resp:
                             if resp.status != 200:
                                 logger.error(f"[Failover] State sync failed: {resp.status}")
                     else:
-                        # Rank 2+: Check if primary lock exists
                         async with session.get(f"{self.url}/get/{self.lock_key}") as resp:
                             data = await resp.json()
-                            current_lock = data.get("result")
-                            
-                            if current_lock is None:
+                            if data.get("result") is None:
                                 logger.warning("[Failover] Primary lost. Promoting standby.")
                                 self.bot.state.is_primary = True
-                                # Hydrate state from Redis
                                 async with session.get(f"{self.url}/get/{self.state_key}") as s_resp:
                                     s_data = await s_resp.json()
                                     if s_data.get("result"):
                                         self.bot.state.from_dict(json.loads(s_data["result"]))
-                                        logger.info("[Failover] State hydrated from Upstash.")
                             else:
-                                # Primary is healthy, update local state silently
                                 async with session.get(f"{self.url}/get/{self.state_key}") as s_resp:
                                     s_data = await s_resp.json()
                                     if s_data.get("result"):
                                         self.bot.state.from_dict(json.loads(s_data["result"]))
-
             except Exception as e:
                 logger.error(f"[Failover] Loop error: {e}")
-            
             await asyncio.sleep(20)
 
 async def setup(bot):
-    logger.info("--- [Failover Extension Loading] ---"
+    # This fires immediately during bot.load_extension()
+    print("--- [Failover Extension Loading] ---") 
     await bot.add_cog(FailoverCog(bot))
-    logger.info("--- [Failover Extension Loaded] ---"
+    print("--- [Failover Extension Loaded] ---")
