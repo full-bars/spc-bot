@@ -105,14 +105,18 @@ async def fetch_latest_watch_numbers() -> List[Tuple[str, str]]:
     results = []
     seen = set()
     for m in re.finditer(
-        r'href="ww(\d+)\.html"[^>]*alt="([^"]*)"', html, re.IGNORECASE
+        r'href="[^"]*ww(\d+)\.html"', html, re.IGNORECASE
     ):
         num = m.group(1).zfill(4)
         if num in seen:
             continue
         seen.add(num)
-        alt = m.group(2).lower()
-        wtype = "TORNADO" if "tornado" in alt else "SVR"
+        watch_html = await http_get_text(
+            f"https://www.spc.noaa.gov/products/watch/ww{num}.html"
+        )
+        wtype = "SVR"
+        if watch_html and re.search(r"Tornado Watch", watch_html, re.IGNORECASE):
+            wtype = "TORNADO"
         results.append((num, wtype))
     return results
 
