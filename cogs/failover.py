@@ -12,14 +12,20 @@ class Failover(commands.Cog):
 
     async def cog_load(self):
         """Triggered when the cog is loaded."""
+        # Create a background task so we don't block the bot loading
+        asyncio.create_task(self.initialize_sync())
+
+    async def initialize_sync(self):
+        """Wait for the bot to be ready before starting sync logic."""
+        await self.bot.wait_until_ready()
+        
         if not self.sync_loop.is_running():
             self.sync_loop.start()
         
-        # Immediate background sync/pull
         if self.bot.state.is_primary:
-            asyncio.create_task(self.push_state_to_redis())
+            await self.push_state_to_redis()
         else:
-            asyncio.create_task(self.hydrate_local_state())
+            await self.hydrate_local_state()
 
     @tasks.loop(minutes=5)
     async def sync_loop(self):
@@ -30,6 +36,11 @@ class Failover(commands.Cog):
     async def push_state_to_redis(self):
         """Primary pushes last 25 records to Upstash."""
         try:
+            # Check if DB is attached to bot
+            if not hasattr(self.bot, 'db'):
+                logger.warning("[SYNC] DB not yet available.")
+                return
+
             data = {}
             async with self.bot.db.execute("SELECT md_number FROM posted_mds ORDER BY id DESC LIMIT 25") as cursor:
                 data['mds'] = [row[0] for row in await cursor.fetchall()]
@@ -49,11 +60,11 @@ class Failover(commands.Cog):
             logger.error(f"[SYNC] Push Error: {e}")
 
     async def hydrate_local_state(self):
-        """Standby pulls state from Upstash and populates local SQLite."""
-        url = f"{self.bot.config.UPSTASH_REDIS_REST_URL}/get/spcbot:state:posted_records"
-        headers = {"Authorization": f"Bearer {self.bot.config.UPSTASH_REDIS_REST_TOKEN}"}
-        
+        """Standby pulls state from Upstash."""
         try:
+            url = f"{self.bot.config.UPSTASH_REDIS_REST_URL}/get/spcbot:state:posted_records"
+            headers = {"Authorization": f"Bearer {self.bot.config.UPSTASH_REDIS_REST_TOKEN}"}
+            
             async with self.bot.session.get(url, headers=headers) as resp:
                 if resp.status == 200:
                     res_json = await resp.json()
