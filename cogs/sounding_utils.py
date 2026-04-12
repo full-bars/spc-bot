@@ -500,8 +500,10 @@ async def get_acars_profiles_near(
             airport_latlon = _ACARS_STATION_COORDS.get(airport_code)
             if airport_latlon is None:
                 try:
+                    # ACARS uses 3-letter codes; get_latlon needs K prefix for US airports
+                    metar_code = airport_code if len(airport_code) == 4 else "K" + airport_code
                     latlon = await loop.run_in_executor(
-                        None, lambda code=airport_code: spy.get_latlon("metar", code)
+                        None, lambda code=metar_code: spy.get_latlon("metar", code)
                     )
                     airport_latlon = (float(latlon[0]), float(latlon[1]))
                     _ACARS_STATION_COORDS[airport_code] = airport_latlon
