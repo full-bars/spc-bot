@@ -21,6 +21,7 @@ class FailoverCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
+        await asyncio.sleep(1.5)
         status = "PRIMARY" if self.bot.state.is_primary else "STANDBY"
         logger.info("--- [Failover System Online] ---")
         logger.info(f"Rank: {self.rank} | Mode: {status}")
