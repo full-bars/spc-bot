@@ -128,6 +128,8 @@ class MesoscaleCog(commands.Cog):
 
     @tasks.loop(seconds=30)
     async def auto_post_md(self):
+        if not self.bot.state.is_primary: return
+        if not self.bot.state.is_primary: return
         await self.bot.wait_until_ready()
         channel = self.bot.get_channel(SPC_CHANNEL_ID)
         if not channel:

@@ -151,6 +151,7 @@ class OutlooksCog(commands.Cog):
 
     @tasks.loop(seconds=30)
     async def auto_post_spc(self):
+        if not self.bot.state.is_primary: return
         await self.bot.wait_until_ready()
         if self._spc_backoff.should_skip():
             return
@@ -192,6 +193,7 @@ class OutlooksCog(commands.Cog):
 
     @tasks.loop(minutes=30)
     async def auto_post_spc48(self):
+        if not self.bot.state.is_primary: return
         await self.bot.wait_until_ready()
         channel = self.bot.get_channel(SPC_CHANNEL_ID)
         if not channel:

@@ -40,6 +40,7 @@ class SCPCog(commands.Cog):
 
     @tasks.loop(minutes=1)
     async def auto_post_scp(self):
+        if not self.bot.state.is_primary: return
         """
         Check every minute if it's time to post SCP graphics.
         Posts at 6am and 6pm Pacific if the images have changed.

@@ -21,6 +21,7 @@ class FailoverCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
+        await self.hydrate_local_state()
         await asyncio.sleep(1.5)
         status = "PRIMARY" if self.bot.state.is_primary else "STANDBY"
         logger.info("--- [Failover System Online] ---")
@@ -63,3 +64,19 @@ async def setup(bot):
     print("--- [Failover Extension Loading] ---") 
     await bot.add_cog(FailoverCog(bot))
     print("--- [Failover Extension Loaded] ---")
+
+    async def hydrate_local_state(self):
+        """Pull remote posted records from Redis to prevent duplicate alerts on boot."""
+        try:
+            # Fetch the list from Upstash
+            remote_data = await self.redis.get("spcbot:state:posted_records")
+            if remote_data:
+                # Insert into local SQLite
+                async with self.bot.db.execute_batch() as batch:
+                    await batch.executemany(
+                        "INSERT OR IGNORE INTO posted_records (id) VALUES (?)",
+                        [(r,) for r in remote_data]
+                    )
+                self.bot.logger.info(f"Hydrated {len(remote_data)} records from Redis.")
+        except Exception as e:
+            self.bot.logger.error(f"Failed to hydrate state: {e}")

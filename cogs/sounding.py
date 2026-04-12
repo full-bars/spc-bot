@@ -44,6 +44,7 @@ class SoundingCog(commands.Cog):
 
     @tasks.loop(minutes=30)
     async def auto_sounding_watches(self):
+        if not self.bot.state.is_primary: return
         """Post soundings for RAOB stations near active watches at 00z/12z."""
         await self.bot.wait_until_ready()
         from config import SPC_CHANNEL_ID

@@ -496,6 +496,7 @@ class WatchesCog(commands.Cog):
 
     @tasks.loop(minutes=2)
     async def auto_post_watches(self):
+        if not self.bot.state.is_primary: return
         await self.bot.wait_until_ready()
         if self._watches_backoff.should_skip():
             return

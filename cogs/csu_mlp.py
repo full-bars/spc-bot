@@ -236,6 +236,7 @@ class CSUMLPCog(commands.Cog):
 
     @tasks.loop(minutes=10)
     async def csu_mlp_daily_poll(self):
+        if not self.bot.state.is_primary: return
         await self.bot.wait_until_ready()
         global _posted_today
         if not _posted_today:
@@ -332,6 +333,7 @@ class CSUMLPCog(commands.Cog):
 
     @csu_mlp_daily_poll.after_loop
     async def after_csu_mlp_poll(self):
+        if not self.bot.state.is_primary: return
         if self.csu_mlp_daily_poll.is_being_cancelled():
             return
         task = self.csu_mlp_daily_poll.get_task()

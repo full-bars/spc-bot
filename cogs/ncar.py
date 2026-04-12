@@ -126,6 +126,8 @@ class NCARCog(commands.Cog):
 
     @tasks.loop(minutes=10)
     async def wxnext_daily_poll(self):
+        if not self.bot.state.is_primary: return
+        if not self.bot.state.is_primary: return
         await self.bot.wait_until_ready()
         global _posted_state, _timing_logged
         if not _posted_state:
@@ -195,6 +197,7 @@ class NCARCog(commands.Cog):
 
     @wxnext_daily_poll.after_loop
     async def after_wxnext_poll(self):
+        if not self.bot.state.is_primary: return
         if self.wxnext_daily_poll.is_being_cancelled():
             return
         task = self.wxnext_daily_poll.get_task()
