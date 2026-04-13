@@ -30,7 +30,6 @@ from utils.db import add_posted_watch, prune_posted_watches
 
 logger = logging.getLogger("spc_bot")
 
-IEM_WATCH_TEXT_URL = "https://mesonet.agron.iastate.edu/api/1/nwstext.json"
 
 
 async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
@@ -124,66 +123,63 @@ async def fetch_latest_watch_numbers() -> List[Tuple[str, str]]:
 
 
 
-async def fetch_watch_details_iem(watch_number: str, prefetched_raw: Optional[bytes] = None) -> Tuple[Optional[str], Optional[str]]:
+async def fetch_watch_details_iem(watch_number: str) -> Tuple[Optional[str], Optional[str]]:
     """
-    Fallback: fetch watch text and image from IEM when SPC is unreachable.
+    Fallback: fetch watch details from IEM watches API when SPC is unreachable.
+    Uses mesonet.agron.iastate.edu/json/watches.py which has structured data
+    including states, probabilities, hail size, and wind gusts.
     Returns (text_summary, image_url).
     """
-    padded = watch_number.zfill(4)
+    import json as _json_iem
+    from datetime import datetime, timezone
     num_int = int(watch_number)
+    year = datetime.now(timezone.utc).year
 
-    # IEM mirrors SPC watch overview PNGs
-    iem_img_url = f"https://mesonet.agron.iastate.edu/pickup/ww{padded}_overview.png"
-    img_bytes, img_status = await http_get_bytes(iem_img_url, retries=2, timeout=10)
-    iem_image_url = iem_img_url if (img_bytes and img_status == 200 and len(img_bytes) > 2048) else None
-
-    # IEM nwstext API for SEL (watch issuance) text
     text_summary = None
     try:
-        content = prefetched_raw
-        if content is None:
-            content, status = await http_get_bytes(
-                f"{IEM_WATCH_TEXT_URL}?product=SEL&limit=20", retries=2, timeout=15
-            )
-            content = content if (content and status == 200) else None
-        if content:
-            import json as _json_iem
+        url = f"https://mesonet.agron.iastate.edu/json/watches.py?year={year}"
+        content, status = await http_get_bytes(url, retries=2, timeout=15)
+        if content and status == 200:
             data = _json_iem.loads(content)
-            for entry in data.get("data", []):
-                text = entry.get("data", "")
-                if (
-                    f"WATCH NUMBER   {num_int}" in text.upper()
-                    or f"WATCH NUMBER {num_int}" in text.upper()
-                ):
-                    lines = [l.strip() for l in text.splitlines() if l.strip()]
-                    parts = []
-                    for i, line in enumerate(lines):
-                        if re.search(r"WATCH FOR PORTIONS OF", line, re.IGNORECASE):
-                            area_lines = []
-                            for ll in lines[i+1:i+5]:
-                                if re.search(r"EFFECTIVE|UNTIL|PRIMARY", ll, re.IGNORECASE):
-                                    break
-                                area_lines.append(ll)
-                            if area_lines:
-                                parts.append("**Areas:** " + " / ".join(area_lines))
-                        if re.search(r"EFFECTIVE THIS", line, re.IGNORECASE):
-                            combined = " ".join(lines[i:i+3])
-                            parts.append("**Time:** " + re.sub(r"\s+", " ", combined).strip())
-                        if re.search(r"PRIMARY THREATS", line, re.IGNORECASE):
-                            threats = []
-                            for ll in lines[i+1:i+6]:
-                                if re.search(r"SUMMARY|PRECAUTIONARY|ATTN", ll, re.IGNORECASE):
-                                    break
-                                threats.append(ll)
-                            if threats:
-                                parts.append("**Threats:**\n" + "\n".join(f"• {t}" for t in threats))
-                    if parts:
-                        text_summary = "\n".join(parts)
+            for event in data.get("events", []):
+                if event.get("num") == num_int:
+                    states = event.get("states", "")
+                    state_list = ", ".join(states.split(",")) if states else "Unknown"
+                    is_pds = event.get("is_pds", False)
+
+                    parts = [f"**Areas:** {state_list}"]
+                    if is_pds:
+                        parts.append("⚠️ **Particularly Dangerous Situation (PDS)**")
+
+                    # Build probabilities from IEM structured fields
+                    prob_lines = []
+                    tor_pct = event.get("tornadoes_1m_strong", 0)
+                    hail_pct = event.get("hail_1m_2inch", 0)
+                    max_hail = event.get("max_hail_size", 0)
+                    max_wind = event.get("max_wind_gust_knots", 0)
+                    max_wind_mph = round(max_wind * 1.15078) if max_wind else 0
+
+                    if tor_pct:
+                        prob_lines.append(f"🔴 **Tornado**")
+                        prob_lines.append(f"🔴 Sig. tornado (EF2+): **{tor_pct}%**")
+                    if hail_pct:
+                        prob_lines.append(f"🟢 **Hail**")
+                        prob_lines.append(f'🟢 2"+  hail: **{hail_pct}%** | Max: **{max_hail}"**')
+                    if max_wind_mph:
+                        prob_lines.append(f"🔵 **Wind**")
+                        prob_lines.append(f"🔵 Max gusts: **{max_wind_mph} mph ({int(max_wind)} kt)**")
+
+                    if prob_lines:
+                        parts.append("**Probabilities (IEM)**\n" + "\n".join(prob_lines))
+
+                    text_summary = "\n".join(parts)
+                    logger.info(f"[WATCH] Got details from IEM watches API for #{watch_number}")
                     break
     except Exception as e:
-        logger.warning(f"[WATCH] IEM text fallback failed for #{watch_number}: {e}")
+        logger.warning(f"[WATCH] IEM watches API failed for #{watch_number}: {e}")
 
-    return text_summary, iem_image_url
+    # No image available from IEM — SPC image will be retried separately
+    return text_summary, None
 
 async def fetch_watch_details(
     watch_number: str,
@@ -192,62 +188,8 @@ async def fetch_watch_details(
     Races SPC and IEM page fetches simultaneously — whichever returns first wins.
     """
     page_url = f"https://www.spc.noaa.gov/products/watch/ww{watch_number}.html"
-    iem_text_url = f"{IEM_WATCH_TEXT_URL}?product=SEL&limit=20"
 
-    async def _fetch_spc():
-        import cogs.watches as _self
-        return await _self.http_get_text(page_url)
-
-    async def _fetch_iem_early():
-        import cogs.watches as _self
-        try:
-            content, status = await _self.http_get_bytes(iem_text_url, retries=2, timeout=15)
-            return content if (content and status == 200) else None
-        except Exception:
-            return None
-
-    spc_task = asyncio.create_task(_fetch_spc())
-    iem_task = asyncio.create_task(_fetch_iem_early())
-
-    # Wait for SPC first with a short timeout — if it wins, use it as before
-    done, pending = await asyncio.wait(
-        [spc_task, iem_task],
-        return_when=asyncio.FIRST_COMPLETED,
-    )
-
-    html = None
-    iem_raw = None
-
-    first = done.pop()
-    if first is spc_task:
-        html = first.result()
-        if html:
-            logger.debug(f"[WATCH] SPC won race for #{watch_number}")
-            # Cancel IEM task — we don't need it
-            for t in pending:
-                t.cancel()
-        else:
-            # SPC lost — wait for IEM
-            logger.warning(f"[WATCH] SPC page failed for #{watch_number} — waiting for IEM")
-            if pending:
-                iem_done = pending.pop()
-                try:
-                    iem_raw = await iem_done
-                except Exception:
-                    pass
-    else:
-        # IEM finished first
-        iem_raw = first.result()
-        # Still wait briefly for SPC
-        if pending:
-            try:
-                html = await asyncio.wait_for(asyncio.shield(spc_task), timeout=5.0)
-                if html:
-                    logger.debug(f"[WATCH] SPC caught up for #{watch_number}")
-                    iem_raw = None  # prefer SPC html path
-            except asyncio.TimeoutError:
-                logger.warning(f"[WATCH] SPC timed out for #{watch_number} — using IEM")
-                spc_task.cancel()
+    html = await http_get_text(page_url)
 
     image_url = None
     if html:
@@ -420,10 +362,10 @@ async def fetch_watch_details(
                 f"[WATCH] No prob pairs parsed for #{watch_number}"
             )
 
-    # IEM fallback: use pre-fetched IEM raw or fetch fresh if needed
+    # IEM fallback: if SPC page was unreachable, try IEM watches API
     if not html:
         logger.warning(f"[WATCH] SPC unreachable for #{watch_number} — using IEM data")
-        iem_summary, iem_img = await fetch_watch_details_iem(watch_number, prefetched_raw=iem_raw)
+        iem_summary, iem_img = await fetch_watch_details_iem(watch_number)
         if iem_summary and not text_summary:
             text_summary = iem_summary
             logger.info(f"[WATCH] Got text from IEM for #{watch_number}")
