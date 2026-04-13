@@ -30,6 +30,8 @@ from utils.db import add_posted_watch, prune_posted_watches
 
 logger = logging.getLogger("spc_bot")
 
+IEM_WATCH_TEXT_URL = "https://mesonet.agron.iastate.edu/api/1/nwstext.json"
+
 
 async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
     """
@@ -120,6 +122,65 @@ async def fetch_latest_watch_numbers() -> List[Tuple[str, str]]:
         results.append((num, wtype))
     return results
 
+
+
+async def fetch_watch_details_iem(watch_number: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Fallback: fetch watch text and image from IEM when SPC is unreachable.
+    Returns (text_summary, image_url).
+    """
+    padded = watch_number.zfill(4)
+    num_int = int(watch_number)
+
+    # IEM mirrors SPC watch overview PNGs
+    iem_img_url = f"https://mesonet.agron.iastate.edu/pickup/ww{padded}_overview.png"
+    img_bytes, img_status = await http_get_bytes(iem_img_url, retries=2, timeout=10)
+    iem_image_url = iem_img_url if (img_bytes and img_status == 200 and len(img_bytes) > 2048) else None
+
+    # IEM nwstext API for SEL (watch issuance) text
+    text_summary = None
+    try:
+        content, status = await http_get_bytes(
+            f"{IEM_WATCH_TEXT_URL}?product=SEL&limit=20", retries=2, timeout=15
+        )
+        if content and status == 200:
+            import json as _json_iem
+            data = _json_iem.loads(content)
+            for entry in data.get("data", []):
+                text = entry.get("data", "")
+                if (
+                    f"WATCH NUMBER   {num_int}" in text.upper()
+                    or f"WATCH NUMBER {num_int}" in text.upper()
+                ):
+                    lines = [l.strip() for l in text.splitlines() if l.strip()]
+                    parts = []
+                    for i, line in enumerate(lines):
+                        if re.search(r"WATCH FOR PORTIONS OF", line, re.IGNORECASE):
+                            area_lines = []
+                            for ll in lines[i+1:i+5]:
+                                if re.search(r"EFFECTIVE|UNTIL|PRIMARY", ll, re.IGNORECASE):
+                                    break
+                                area_lines.append(ll)
+                            if area_lines:
+                                parts.append("**Areas:** " + " / ".join(area_lines))
+                        if re.search(r"EFFECTIVE THIS", line, re.IGNORECASE):
+                            combined = " ".join(lines[i:i+3])
+                            parts.append("**Time:** " + re.sub(r"\s+", " ", combined).strip())
+                        if re.search(r"PRIMARY THREATS", line, re.IGNORECASE):
+                            threats = []
+                            for ll in lines[i+1:i+6]:
+                                if re.search(r"SUMMARY|PRECAUTIONARY|ATTN", ll, re.IGNORECASE):
+                                    break
+                                threats.append(ll)
+                            if threats:
+                                parts.append("**Threats:**\n" + "\n".join(f"• {t}" for t in threats))
+                    if parts:
+                        text_summary = "\n".join(parts)
+                    break
+    except Exception as e:
+        logger.warning(f"[WATCH] IEM text fallback failed for #{watch_number}: {e}")
+
+    return text_summary, iem_image_url
 
 async def fetch_watch_details(
     watch_number: str,
@@ -298,6 +359,17 @@ async def fetch_watch_details(
             logger.warning(
                 f"[WATCH] No prob pairs parsed for #{watch_number}"
             )
+
+    # IEM fallback: if SPC page was unreachable, try IEM for missing pieces
+    if not html:
+        logger.warning(f"[WATCH] SPC unreachable for #{watch_number} details — trying IEM fallback")
+        iem_summary, iem_img = await fetch_watch_details_iem(watch_number)
+        if iem_summary and not text_summary:
+            text_summary = iem_summary
+            logger.info(f"[WATCH] Got text from IEM for #{watch_number}")
+        if iem_img and not image_url:
+            image_url = iem_img
+            logger.info(f"[WATCH] Got image from IEM for #{watch_number}")
 
     return image_url, text_summary, probs
 
