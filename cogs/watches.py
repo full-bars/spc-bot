@@ -124,7 +124,7 @@ async def fetch_latest_watch_numbers() -> List[Tuple[str, str]]:
 
 
 
-async def fetch_watch_details_iem(watch_number: str) -> Tuple[Optional[str], Optional[str]]:
+async def fetch_watch_details_iem(watch_number: str, prefetched_raw: Optional[bytes] = None) -> Tuple[Optional[str], Optional[str]]:
     """
     Fallback: fetch watch text and image from IEM when SPC is unreachable.
     Returns (text_summary, image_url).
@@ -140,10 +140,13 @@ async def fetch_watch_details_iem(watch_number: str) -> Tuple[Optional[str], Opt
     # IEM nwstext API for SEL (watch issuance) text
     text_summary = None
     try:
-        content, status = await http_get_bytes(
-            f"{IEM_WATCH_TEXT_URL}?product=SEL&limit=20", retries=2, timeout=15
-        )
-        if content and status == 200:
+        content = prefetched_raw
+        if content is None:
+            content, status = await http_get_bytes(
+                f"{IEM_WATCH_TEXT_URL}?product=SEL&limit=20", retries=2, timeout=15
+            )
+            content = content if (content and status == 200) else None
+        if content:
             import json as _json_iem
             data = _json_iem.loads(content)
             for entry in data.get("data", []):
@@ -185,9 +188,66 @@ async def fetch_watch_details_iem(watch_number: str) -> Tuple[Optional[str], Opt
 async def fetch_watch_details(
     watch_number: str,
 ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    """Fetch an individual watch page and return (image_url, text_summary, probs)."""
+    """Fetch an individual watch page and return (image_url, text_summary, probs).
+    Races SPC and IEM page fetches simultaneously — whichever returns first wins.
+    """
     page_url = f"https://www.spc.noaa.gov/products/watch/ww{watch_number}.html"
-    html = await http_get_text(page_url)
+    iem_text_url = f"{IEM_WATCH_TEXT_URL}?product=SEL&limit=20"
+
+    async def _fetch_spc():
+        import cogs.watches as _self
+        return await _self.http_get_text(page_url)
+
+    async def _fetch_iem_early():
+        import cogs.watches as _self
+        try:
+            content, status = await _self.http_get_bytes(iem_text_url, retries=2, timeout=15)
+            return content if (content and status == 200) else None
+        except Exception:
+            return None
+
+    spc_task = asyncio.create_task(_fetch_spc())
+    iem_task = asyncio.create_task(_fetch_iem_early())
+
+    # Wait for SPC first with a short timeout — if it wins, use it as before
+    done, pending = await asyncio.wait(
+        [spc_task, iem_task],
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+
+    html = None
+    iem_raw = None
+
+    first = done.pop()
+    if first is spc_task:
+        html = first.result()
+        if html:
+            logger.debug(f"[WATCH] SPC won race for #{watch_number}")
+            # Cancel IEM task — we don't need it
+            for t in pending:
+                t.cancel()
+        else:
+            # SPC lost — wait for IEM
+            logger.warning(f"[WATCH] SPC page failed for #{watch_number} — waiting for IEM")
+            if pending:
+                iem_done = pending.pop()
+                try:
+                    iem_raw = await iem_done
+                except Exception:
+                    pass
+    else:
+        # IEM finished first
+        iem_raw = first.result()
+        # Still wait briefly for SPC
+        if pending:
+            try:
+                html = await asyncio.wait_for(asyncio.shield(spc_task), timeout=5.0)
+                if html:
+                    logger.debug(f"[WATCH] SPC caught up for #{watch_number}")
+                    iem_raw = None  # prefer SPC html path
+            except asyncio.TimeoutError:
+                logger.warning(f"[WATCH] SPC timed out for #{watch_number} — using IEM")
+                spc_task.cancel()
 
     image_url = None
     if html:
@@ -203,11 +263,11 @@ async def fetch_watch_details(
                     f"https://www.spc.noaa.gov/products/watch/{fname}"
                 )
                 break
-    if not image_url:
-        image_url = (
-            f"https://www.spc.noaa.gov/products/watch/"
-            f"ww{watch_number}_overview.gif"
-        )
+        if not image_url:
+            image_url = (
+                f"https://www.spc.noaa.gov/products/watch/"
+                f"ww{watch_number}_overview.gif"
+            )
 
     text_summary = None
     if html:
@@ -360,10 +420,10 @@ async def fetch_watch_details(
                 f"[WATCH] No prob pairs parsed for #{watch_number}"
             )
 
-    # IEM fallback: if SPC page was unreachable, try IEM for missing pieces
+    # IEM fallback: use pre-fetched IEM raw or fetch fresh if needed
     if not html:
-        logger.warning(f"[WATCH] SPC unreachable for #{watch_number} details — trying IEM fallback")
-        iem_summary, iem_img = await fetch_watch_details_iem(watch_number)
+        logger.warning(f"[WATCH] SPC unreachable for #{watch_number} — using IEM data")
+        iem_summary, iem_img = await fetch_watch_details_iem(watch_number, prefetched_raw=iem_raw)
         if iem_summary and not text_summary:
             text_summary = iem_summary
             logger.info(f"[WATCH] Got text from IEM for #{watch_number}")
@@ -713,6 +773,11 @@ class WatchesCog(commands.Cog):
                     asyncio.create_task(prune_posted_watches())
                     self.bot.state.last_post_times["watch"] = datetime.now(timezone.utc)
                     logger.info(f"[WATCH] Posted watch #{watch_num}")
+                    sounding_cog = self.bot.cogs.get("SoundingCog")
+                    if sounding_cog:
+                        asyncio.create_task(
+                            sounding_cog.post_soundings_for_watch(watch_num, nws_info, channel)
+                        )
                 except discord.HTTPException as e:
                     logger.error(
                         f"[WATCH] Discord send failed for #{watch_num}: {e}"

@@ -617,18 +617,58 @@ async def fetch_sounding(
     loop = asyncio.get_running_loop()
 
     if hour in ("00", "12"):
-        # Try Wyoming first for standard times — better data quality
-        try:
-            clean_data = await loop.run_in_executor(
-                None,
-                lambda: spy.get_obs_data(station_id, year, month, day, hour)
-            )
-            if clean_data:
-                return clean_data
-        except Exception as e:
-            logger.debug(f"[SOUNDING] Wyoming failed for {station_id} {hour}z, trying IEM: {e}")
+        # Race Wyoming and IEM simultaneously — whichever returns valid data first wins.
+        # Wyoming has quality preference: if both succeed, Wyoming result is used.
+        async def _try_wyoming():
+            try:
+                data = await loop.run_in_executor(
+                    None,
+                    lambda: spy.get_obs_data(station_id, year, month, day, hour)
+                )
+                return data
+            except Exception as e:
+                logger.debug(f"[SOUNDING] Wyoming failed for {station_id} {hour}z: {e}")
+                return None
 
-    # IEM for special soundings or Wyoming fallback
+        async def _try_iem():
+            return await fetch_iem_sounding(
+                station_id, year, month, day, hour,
+                station_name=station_name, lat=lat, lon=lon, elev=elev
+            )
+
+        wyoming_task = asyncio.create_task(_try_wyoming())
+        iem_task = asyncio.create_task(_try_iem())
+
+        done, pending = await asyncio.wait(
+            [wyoming_task, iem_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        # Check first result
+        first = done.pop()
+        result = first.result()
+        if result:
+            # Cancel the slower one and return
+            for t in pending:
+                t.cancel()
+            source = "Wyoming" if first is wyoming_task else "IEM"
+            logger.debug(f"[SOUNDING] {source} won race for {station_id} {hour}z")
+            return result
+
+        # First result was None — wait for the second
+        if pending:
+            second = pending.pop()
+            try:
+                result = await second
+                if result:
+                    source = "Wyoming" if second is wyoming_task else "IEM"
+                    logger.debug(f"[SOUNDING] {source} fallback for {station_id} {hour}z")
+                    return result
+            except Exception:
+                pass
+        return None
+
+    # Non-standard hours: IEM only (Wyoming doesn't carry special soundings)
     iem_data = await fetch_iem_sounding(
         station_id, year, month, day, hour,
         station_name=station_name, lat=lat, lon=lon, elev=elev

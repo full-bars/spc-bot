@@ -114,25 +114,66 @@ async def fetch_md_details(
 ) -> Tuple[Optional[str], Optional[str], bool]:
     """
     Fetch an individual MD page and return (image_url, summary_text, from_cache).
-    Falls back to cached image if SPC is unreachable.
+    Races SPC and IEM simultaneously — whichever returns first wins.
+    Falls back to cache if both fail.
     """
     page_url = f"https://www.spc.noaa.gov/products/md/md{md_number}.html"
-    html = await http_get_text(page_url)
+
+    async def _fetch_spc():
+        return await http_get_text(page_url)
+
+    async def _fetch_iem_early():
+        import cogs.mesoscale as _self
+        iem_img, iem_summary = await _self.fetch_md_details_iem(md_number)
+        return (iem_img, iem_summary)
+
+    spc_task = asyncio.create_task(_fetch_spc())
+    iem_task = asyncio.create_task(_fetch_iem_early())
+
+    done, pending = await asyncio.wait(
+        [spc_task, iem_task],
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+
+    html = None
+    iem_result = None
+
+    first = done.pop()
+    if first is spc_task:
+        html = first.result()
+        if html:
+            logger.debug(f"[MD] SPC won race for #{md_number}")
+            for t in pending:
+                t.cancel()
+        else:
+            logger.warning(f"[MD] SPC page failed for #{md_number} — waiting for IEM")
+            if pending:
+                try:
+                    iem_result = await pending.pop()
+                except Exception:
+                    pass
+    else:
+        iem_result = first.result()
+        try:
+            html = await asyncio.wait_for(asyncio.shield(spc_task), timeout=5.0)
+            if html:
+                logger.debug(f"[MD] SPC caught up for #{md_number}")
+                iem_result = None
+        except asyncio.TimeoutError:
+            logger.warning(f"[MD] SPC timed out for #{md_number} — using IEM")
+            spc_task.cancel()
 
     if not html:
         fallback_url = f"https://www.spc.noaa.gov/products/md/mcd{md_number}.png"
         cached_path = get_cache_path_for_url(fallback_url)
         if os.path.exists(cached_path):
-            logger.info(
-                f"[MD] SPC unreachable for #{md_number}, serving from cache"
-            )
+            logger.info(f"[MD] SPC unreachable for #{md_number}, serving from cache")
             return fallback_url, None, True
-        # Try IEM before giving up entirely
-        logger.warning(f"[MD] SPC unreachable for #{md_number} — trying IEM fallback")
-        iem_img, iem_summary = await fetch_md_details_iem(md_number)
-        if iem_img:
-            logger.info(f"[MD] Got MD #{md_number} image from IEM")
-            return iem_img, iem_summary, True
+        if iem_result:
+            iem_img, iem_summary = iem_result
+            if iem_img:
+                logger.info(f"[MD] Got MD #{md_number} from IEM")
+                return iem_img, iem_summary, True
         logger.warning(f"[MD] SPC unreachable for #{md_number} and no cache or IEM available")
         return None, None, False
 
