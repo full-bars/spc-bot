@@ -173,16 +173,21 @@ async def on_ready():
                 f"Could not remove guild commands cleanly: {e}"
             )
 
-        logger.info("Syncing command tree globally...")
-        synced = await bot.tree.sync()
-        logger.info(
-            f"Successfully synced {len(synced)} global slash command(s)"
-        )
+        if IS_PRIMARY:
+            try:
+                logger.info("Syncing command tree globally...")
+                synced = await bot.tree.sync()
+                logger.info(
+                    f"Successfully synced {len(synced)} global slash command(s)"
+                )
+            except Exception as e:
+                logger.error(f"Failed to sync command tree: {e}")
+        else:
+            logger.info("[FAILOVER] Standby — skipping command sync to preserve primary commands")
+        logger.info("All tasks started. Bot is ready.")
+        periodic_sync.start()
     except Exception as e:
-        logger.error(f"Failed to sync command tree: {e}")
-
-    logger.info("All tasks started. Bot is ready.")
-    periodic_sync.start()
+        logger.error(f"[on_ready] Unhandled error: {e}")
 
 @tasks.loop(hours=24)
 async def periodic_sync():
