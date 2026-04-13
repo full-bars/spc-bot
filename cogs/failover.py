@@ -161,7 +161,7 @@ class FailoverCog(commands.Cog):
                     json=["SET", "spcbot:primary_url", url, "EX", str(HEARTBEAT_TTL)],
                 ) as resp:
                     if resp.status == 200:
-                        logger.info(f"[FAILOVER] Wrote primary URL to Upstash (TTL {HEARTBEAT_TTL}s)")
+                        logger.debug(f"[FAILOVER] Wrote primary URL to Upstash (TTL {HEARTBEAT_TTL}s)")
                     else:
                         logger.error(f"[FAILOVER] Upstash write failed: {resp.status}")
         except Exception as e:
