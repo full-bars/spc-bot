@@ -268,18 +268,18 @@ class FailoverCog(commands.Cog):
         """Persist hydrated in-memory state to local SQLite so restarts load fresh data."""
         try:
             from utils.db import (
-                save_posted_md, save_posted_watch,
-                save_auto_hash, save_last_posted_urls
+                add_posted_md, add_posted_watch,
+                set_hashes_batch, set_posted_urls
             )
             db = self.bot.state
             for md_id in db.posted_mds:
-                await save_posted_md(md_id)
+                await add_posted_md(md_id)
             for watch_id in db.posted_watches:
-                await save_posted_watch(watch_id)
-            for url, hash_val in db.auto_cache.items():
-                await save_auto_hash(url, hash_val)
+                await add_posted_watch(watch_id)
+            if db.auto_cache:
+                await set_hashes_batch(db.auto_cache, cache_type="auto")
             for day_key, urls in db.last_posted_urls.items():
-                await save_last_posted_urls(day_key, urls)
+                await set_posted_urls(day_key, urls)
             logger.debug("[FAILOVER] Persisted hydrated state to local DB")
         except Exception as e:
             logger.error(f"[FAILOVER] Failed to persist hydrated state: {e}")
