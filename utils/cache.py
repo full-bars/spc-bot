@@ -38,17 +38,7 @@ from utils.persistence import (
 
 logger = logging.getLogger("spc_bot")
 
-# Re-export for backward compatibility
 __all__ = [
-    "auto_cache",
-    "manual_cache",
-    "partial_update_state",
-    "posted_mds",
-    "posted_watches",
-    "active_mds",
-    "active_watches",
-    "last_post_times",
-    "last_posted_urls",
     "save_set",
     "atomic_json_dump",
     "get_cache_path_for_url",
@@ -62,37 +52,14 @@ __all__ = [
     "format_timedelta",
     "MD_CACHE_FILE",
     "WATCH_CACHE_FILE",
+    "MAX_TRACKED_MDS",
+    "MAX_TRACKED_WATCHES",
+    "prune_tracked_set",
 ]
 
-# ── In-memory state ──────────────────────────────────────────────────────────
-manual_cache: Dict[str, str] = {}
-auto_cache: Dict[str, str] = {}
-partial_update_state: Dict[str, Dict] = {}
-
+# ── Cache file paths ─────────────────────────────────────────────────────────
 MD_CACHE_FILE = os.path.join(CACHE_DIR, "posted_mds.json")
 WATCH_CACHE_FILE = os.path.join(CACHE_DIR, "posted_watches.json")
-
-posted_mds: Set[str] = set()
-posted_watches: Set[str] = set()
-active_mds: Set[str] = set()
-active_watches: Dict[str, dict] = {}
-
-last_post_times: Dict[str, Optional[datetime]] = {
-    "day1": None,
-    "day2": None,
-    "day3": None,
-    "day48": None,
-    "scp": None,
-    "md": None,
-    "watch": None,
-    "csu_day1": None, "csu_day2": None, "csu_day3": None,
-    "csu_day4": None, "csu_day5": None, "csu_day6": None,
-    "csu_day7": None, "csu_day8": None,
-    "csu_panel12": None, "csu_panel38": None,
-    "wxnext": None,
-    "sounding": None,
-}
-last_posted_urls: Dict[str, List[str]] = {}
 
 # Max tracked items before pruning
 MAX_TRACKED_MDS = 200
@@ -343,6 +310,4 @@ def prune_tracked_set(s: Set[str], max_size: int, cache_file: str):
     save_set(s, cache_file)
 
 
-# ── Legacy module-level globals (deprecated — use bot.state instead) ─────────
-# Kept for backward compatibility with any remaining direct imports.
-# New code should access state via bot.state (BotState instance).
+
