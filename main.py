@@ -192,6 +192,8 @@ async def on_ready():
 @tasks.loop(hours=24)
 async def periodic_sync():
     await bot.wait_until_ready()
+    if not IS_PRIMARY:
+        return
     try:
         synced = await bot.tree.sync()
         logger.info(f"[SYNC] Periodic command sync: {len(synced)} commands")
