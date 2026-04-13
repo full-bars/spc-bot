@@ -42,6 +42,113 @@ class SoundingCog(commands.Cog):
     def cog_unload(self):
         self.auto_sounding_watches.cancel()
 
+    async def post_soundings_for_watch(self, watch_num: str, nws_info: dict, channel):
+        """
+        Triggered immediately when a new watch is posted.
+        Finds nearest RAOB stations using the most recent IEM-available sounding
+        time (any hour, not locked to 00z/12z), posts up to 3 RAOB + 2 ACARS.
+        """
+        from config import CACHE_DIR
+        affected_zones = nws_info.get("affected_zones", []) if isinstance(nws_info, dict) else []
+        if not affected_zones:
+            logger.warning(f"[SOUNDING-AUTO] No affected zones for watch #{watch_num} — skipping")
+            return
+
+        wtype = nws_info.get("type", "SVR") if isinstance(nws_info, dict) else "SVR"
+        watch_label = "Tornado Watch" if wtype == "TORNADO" else "SVR Watch"
+
+        centroid = await get_watch_area_centroid(affected_zones)
+        if not centroid:
+            logger.warning(f"[SOUNDING-AUTO] Could not get centroid for watch #{watch_num}")
+            return
+        lat, lon = centroid
+
+        try:
+            stations_df = await get_raob_stations()
+        except Exception as e:
+            logger.error(f"[SOUNDING-AUTO] Failed to load station list: {e}")
+            return
+
+        candidates = find_nearest_stations(lat, lon, stations_df, n=6)
+        candidates = [s for s in candidates if s.get("icao") or s.get("wmo")]
+        verified = await filter_stations_with_data(candidates)
+
+        for station in verified[:3]:
+            station_id = station.get("icao") or station.get("wmo")
+
+            avail = await get_available_sounding_times_iem(station_id, hours_back=24, skip_cache=True)
+            if not avail:
+                logger.info(f"[SOUNDING-AUTO] No IEM times for {station_id} near watch #{watch_num}")
+                continue
+            year, month, day, hour = avail[0]
+            time_key = f"{year}-{month}-{day}_{hour}z"
+            post_key = f"{watch_num}:{station_id}:{time_key}"
+            if post_key in self._posted_watch_soundings:
+                continue
+
+            logger.info(f"[SOUNDING-AUTO] Posting {station_id} {hour}z near {watch_label} #{watch_num}")
+            self._posted_watch_soundings.add(post_key)
+
+            clean_data = await fetch_sounding(
+                station_id, year, month, day, hour,
+                station_name=station["name"],
+                lat=station["lat"], lon=station["lon"],
+            )
+            if not clean_data:
+                logger.warning(f"[SOUNDING-AUTO] No data for {station_id} at {time_key}")
+                continue
+
+            output_path = os.path.join(CACHE_DIR, f"sounding_{station_id}_{year}{month}{day}_{hour}z")
+            success = await generate_plot(clean_data, output_path)
+            png_path = output_path + ".png"
+            if not success or not os.path.exists(png_path):
+                continue
+
+            caption = (
+                f"**Auto Sounding — {station['name']} ({station_id})**\n"
+                f"Valid: {month}-{day}-{year} {hour}z | Near active {watch_label} #{watch_num}"
+            )
+            try:
+                await channel.send(caption, files=[discord.File(png_path)])
+                logger.info(f"[SOUNDING-AUTO] Posted {station_id} for watch #{watch_num}")
+            except Exception as e:
+                logger.error(f"[SOUNDING-AUTO] Failed to post {station_id}: {e}")
+
+        acars_profiles = await get_acars_profiles_near(lat, lon, max_dist_km=300, hours_back=1)
+        for profile in acars_profiles[:2]:
+            post_key = f"acars:{watch_num}:{profile['airport']}:{profile['year']}{profile['month']}{profile['day']}_{profile['acars_hour']}z"
+            if post_key in self._posted_watch_soundings:
+                continue
+
+            logger.info(f"[SOUNDING-AUTO] Posting ACARS {profile['airport']} near {watch_label} #{watch_num}")
+            self._posted_watch_soundings.add(post_key)
+
+            clean_data = await fetch_acars_sounding(
+                profile["profile_id"], profile["year"], profile["month"],
+                profile["day"], profile["acars_hour"]
+            )
+            if not clean_data:
+                continue
+
+            output_path = os.path.join(
+                CACHE_DIR,
+                f"acars_{profile['airport']}_{profile['year']}{profile['month']}{profile['day']}_{profile['acars_hour']}z"
+            )
+            success = await generate_plot(clean_data, output_path)
+            png_path = output_path + ".png"
+            if not success or not os.path.exists(png_path):
+                continue
+
+            caption = (
+                f"**Auto ACARS — {profile['airport']}**\n"
+                f"Valid: {profile['time_label']} | Near active {watch_label} #{watch_num}"
+            )
+            try:
+                await channel.send(caption, files=[discord.File(png_path)])
+                logger.info(f"[SOUNDING-AUTO] Posted ACARS {profile['airport']} for watch #{watch_num}")
+            except Exception as e:
+                logger.error(f"[SOUNDING-AUTO] Failed to post ACARS: {e}")
+
     @tasks.loop(minutes=30)
     async def auto_sounding_watches(self):
         """Post soundings for RAOB stations near active watches at 00z/12z."""
@@ -50,7 +157,6 @@ class SoundingCog(commands.Cog):
 
         now = datetime.now(timezone.utc)
         hour = now.hour
-        minute = now.minute
 
         # Only run within 30 minutes after 00z or 12z
         if not ((0 <= hour < 1) or (12 <= hour < 13)):
@@ -136,40 +242,40 @@ class SoundingCog(commands.Cog):
                     logger.error(f"[SOUNDING-AUTO] Failed to post: {e}")
 
         # ── ACARS auto-posting ────────────────────────────────────────────
-        acars_profiles = await get_acars_profiles_near(lat, lon, max_dist_km=300, hours_back=1)
-        for profile in acars_profiles[:2]:
-            post_key = f"acars:{watch_num}:{profile['airport']}:{time_key}"
-            if post_key in self._posted_watch_soundings:
-                continue
+            acars_profiles = await get_acars_profiles_near(lat, lon, max_dist_km=300, hours_back=1)
+            for profile in acars_profiles[:2]:
+                post_key = f"acars:{watch_num}:{profile['airport']}:{time_key}"
+                if post_key in self._posted_watch_soundings:
+                    continue
 
-            logger.info(f"[SOUNDING-AUTO] Posting ACARS {profile['airport']} near {watch_label} #{watch_num}")
-            self._posted_watch_soundings.add(post_key)
+                logger.info(f"[SOUNDING-AUTO] Posting ACARS {profile['airport']} near {watch_label} #{watch_num}")
+                self._posted_watch_soundings.add(post_key)
 
-            clean_data = await fetch_acars_sounding(
-                profile["profile_id"], profile["year"], profile["month"],
-                profile["day"], profile["acars_hour"]
-            )
-            if not clean_data:
-                continue
+                clean_data = await fetch_acars_sounding(
+                    profile["profile_id"], profile["year"], profile["month"],
+                    profile["day"], profile["acars_hour"]
+                )
+                if not clean_data:
+                    continue
 
-            output_path = __import__("os").path.join(
-                __import__("config").CACHE_DIR,
-                f"acars_{profile['airport']}_{profile['year']}{profile['month']}{profile['day']}_{profile['acars_hour']}z"
-            )
-            success = await generate_plot(clean_data, output_path)
-            png_path = output_path + ".png"
-            if not success or not __import__("os").path.exists(png_path):
-                continue
+                output_path = os.path.join(
+                    __import__("config").CACHE_DIR,
+                    f"acars_{profile['airport']}_{profile['year']}{profile['month']}{profile['day']}_{profile['acars_hour']}z"
+                )
+                success = await generate_plot(clean_data, output_path)
+                png_path = output_path + ".png"
+                if not success or not os.path.exists(png_path):
+                    continue
 
-            caption = (
-                f"**Auto ACARS \u2014 {profile['airport']}**\n"
-                f"Valid: {profile['time_label']} | Near active {watch_label} #{watch_num}"
-            )
-            try:
-                await channel.send(caption, files=[discord.File(png_path)])
-                logger.info(f"[SOUNDING-AUTO] Posted ACARS {profile['airport']} for watch #{watch_num}")
-            except Exception as e:
-                logger.error(f"[SOUNDING-AUTO] Failed to post ACARS: {e}")
+                caption = (
+                    f"**Auto ACARS \u2014 {profile['airport']}**\n"
+                    f"Valid: {profile['time_label']} | Near active {watch_label} #{watch_num}"
+                )
+                try:
+                    await channel.send(caption, files=[discord.File(png_path)])
+                    logger.info(f"[SOUNDING-AUTO] Posted ACARS {profile['airport']} for watch #{watch_num}")
+                except Exception as e:
+                    logger.error(f"[SOUNDING-AUTO] Failed to post ACARS: {e}")
 
     @discord.app_commands.command(
         name="sounding",
