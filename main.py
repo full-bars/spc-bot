@@ -182,6 +182,16 @@ async def on_ready():
         logger.error(f"Failed to sync command tree: {e}")
 
     logger.info("All tasks started. Bot is ready.")
+    periodic_sync.start()
+
+@tasks.loop(hours=24)
+async def periodic_sync():
+    await bot.wait_until_ready()
+    try:
+        synced = await bot.tree.sync()
+        logger.info(f"[SYNC] Periodic command sync: {len(synced)} commands")
+    except Exception as e:
+        logger.error(f"[SYNC] Periodic command sync failed: {e}")
 
 
 @bot.event
