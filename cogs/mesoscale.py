@@ -18,7 +18,7 @@ from utils.cache import (
     prune_tracked_set,
 )
 from utils.change_detection import get_cache_path_for_url
-from utils.http import http_get_text, http_head_meta
+from utils.http import http_get_bytes, http_get_text, http_head_meta
 from utils.db import add_posted_md, prune_posted_mds
 
 logger = logging.getLogger("spc_bot")
@@ -66,6 +66,49 @@ async def fetch_latest_md_numbers() -> List[str]:
     return result
 
 
+
+async def fetch_md_details_iem(md_number: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Fallback: fetch MD image and summary from IEM when SPC is unreachable.
+    IEM mirrors SPC MCD images at a predictable URL.
+    Returns (image_url, summary_text).
+    """
+    import json as _json_iem
+    padded = md_number.zfill(4)
+    num_int = int(md_number)
+
+    # IEM mirrors SPC MCD PNGs
+    iem_img_url = f"https://mesonet.agron.iastate.edu/pickup/mcd/mcd{padded}.png"
+    img_bytes, img_status = await http_get_bytes(iem_img_url, retries=2, timeout=15)
+    iem_image_url = iem_img_url if (img_bytes and img_status == 200 and len(img_bytes) > 2048) else None
+
+    # IEM nwstext API for MCD text
+    summary = None
+    try:
+        content, status = await http_get_bytes(
+            "https://mesonet.agron.iastate.edu/api/1/nwstext.json?product=MCD&limit=20",
+            retries=2, timeout=15
+        )
+        if content and status == 200:
+            data = _json_iem.loads(content)
+            for entry in data.get("data", []):
+                text = entry.get("data", "")
+                if (
+                    f"MESOSCALE DISCUSSION {num_int}" in text.upper()
+                    or f"MESOSCALE DISCUSSION {padded}" in text
+                ):
+                    concerning = re.search(r"(CONCERNING[^\n<]{10,120})", text, re.IGNORECASE)
+                    if concerning:
+                        summary = concerning.group(1).strip()
+                    else:
+                        lines = [l.strip() for l in text.splitlines() if l.strip()]
+                        summary = " ".join(lines[:3])[:200]
+                    break
+    except Exception as e:
+        logger.warning(f"[MD] IEM text fallback failed for #{md_number}: {e}")
+
+    return iem_image_url, summary
+
 async def fetch_md_details(
     md_number: str,
 ) -> Tuple[Optional[str], Optional[str], bool]:
@@ -84,9 +127,13 @@ async def fetch_md_details(
                 f"[MD] SPC unreachable for #{md_number}, serving from cache"
             )
             return fallback_url, None, True
-        logger.warning(
-            f"[MD] SPC unreachable for #{md_number} and no cache available"
-        )
+        # Try IEM before giving up entirely
+        logger.warning(f"[MD] SPC unreachable for #{md_number} — trying IEM fallback")
+        iem_img, iem_summary = await fetch_md_details_iem(md_number)
+        if iem_img:
+            logger.info(f"[MD] Got MD #{md_number} image from IEM")
+            return iem_img, iem_summary, True
+        logger.warning(f"[MD] SPC unreachable for #{md_number} and no cache or IEM available")
         return None, None, False
 
     img_match = re.search(
