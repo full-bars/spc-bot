@@ -7,10 +7,7 @@ from discord.ext import commands, tasks
 
 from config import AUTO_CACHE_FILE, MANUAL_CACHE_FILE, PACIFIC, MODELS_CHANNEL_ID, SCP_IMAGE_URLS
 from utils.cache import (
-    auto_cache,
     download_images_parallel,
-    last_post_times,
-    manual_cache,
 )
 
 logger = logging.getLogger("spc_bot")
@@ -67,7 +64,6 @@ class SCPCog(commands.Cog):
             files = await download_images_parallel(
                 SCP_IMAGE_URLS,
                 MANUAL_CACHE_FILE,
-                manual_cache,
                 use_cached=False,
             )
             if files:
@@ -76,7 +72,7 @@ class SCPCog(commands.Cog):
                     "Supercell Composite Parameter — NIU/Gensini CFSv2",
                     files=[discord.File(fp) for fp in files],
                 )
-                last_post_times["scp"] = datetime.now(timezone.utc)
+                self.bot.state.last_post_times["scp"] = datetime.now(timezone.utc)
                 logger.info(f"[SCP_DAILY] Posted {len(files)} SCP images")
             else:
                 logger.info("[SCP_DAILY] No SCP images could be downloaded")

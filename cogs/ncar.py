@@ -11,8 +11,6 @@ from config import MANUAL_CACHE_FILE, MODELS_CHANNEL_ID
 from utils.cache import (
     calculate_hash_bytes,
     download_single_image,
-    last_post_times,
-    manual_cache,
 )
 from utils.db import delete_state, get_state, set_state
 from utils.http import ensure_session
@@ -109,7 +107,7 @@ class NCARCog(commands.Cog):
             )
             return
         cache_path, _, _ = await download_single_image(
-            url, MANUAL_CACHE_FILE, manual_cache
+            url, MANUAL_CACHE_FILE
         )
         if not cache_path:
             await interaction.followup.send(
@@ -175,7 +173,7 @@ class NCARCog(commands.Cog):
             return
 
         cache_path, _, _ = await download_single_image(
-            url, MANUAL_CACHE_FILE, manual_cache
+            url, MANUAL_CACHE_FILE
         )
         if not cache_path:
             logger.warning("[NCAR] Download failed for WxNext2")
@@ -188,7 +186,7 @@ class NCARCog(commands.Cog):
             )
             _posted_state = {"date": today_str, "hash": h}
             await _save_state(today_str, h)
-            last_post_times["wxnext"] = now_utc
+            self.bot.state.last_post_times["wxnext"] = now_utc
             logger.info("[NCAR] Auto-posted WxNext2")
         except Exception as e:
             logger.error(f"[NCAR] Failed to post WxNext2: {e}", exc_info=True)
