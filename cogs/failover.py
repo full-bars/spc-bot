@@ -205,6 +205,7 @@ class FailoverCog(commands.Cog):
                         self._hydrate(data)
                         self._primary_failures = 0
                         logger.debug("[FAILOVER] Hydrated state from primary")
+                        await self._persist_hydrated_state()
                     else:
                         self._primary_failures += 1
                         logger.warning(f"[FAILOVER] Primary /state returned {resp.status} (failure {self._primary_failures}/{self._max_failures})")
@@ -262,6 +263,26 @@ class FailoverCog(commands.Cog):
             logger.info(f"[FAILOVER] Synced {len(synced)} slash commands")
         except Exception as e:
             logger.error(f"[FAILOVER] Failed to sync commands: {e}")
+
+    async def _persist_hydrated_state(self):
+        """Persist hydrated in-memory state to local SQLite so restarts load fresh data."""
+        try:
+            from utils.db import (
+                save_posted_md, save_posted_watch,
+                save_auto_hash, save_last_posted_urls
+            )
+            db = self.bot.state
+            for md_id in db.posted_mds:
+                await save_posted_md(md_id)
+            for watch_id in db.posted_watches:
+                await save_posted_watch(watch_id)
+            for url, hash_val in db.auto_cache.items():
+                await save_auto_hash(url, hash_val)
+            for day_key, urls in db.last_posted_urls.items():
+                await save_last_posted_urls(day_key, urls)
+            logger.debug("[FAILOVER] Persisted hydrated state to local DB")
+        except Exception as e:
+            logger.error(f"[FAILOVER] Failed to persist hydrated state: {e}")
 
     async def _check_for_demotion(self):
         """If we are acting primary but another server wrote a newer URL, demote."""
