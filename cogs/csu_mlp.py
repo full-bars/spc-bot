@@ -13,8 +13,6 @@ from discord.ext import commands, tasks
 from config import MANUAL_CACHE_FILE, MODELS_CHANNEL_ID
 from utils.cache import (
     download_single_image,
-    last_post_times,
-    manual_cache,
 )
 
 logger = logging.getLogger("spc_bot")
@@ -162,7 +160,7 @@ class CSUMLPCog(commands.Cog):
             return
 
         cache_path, _, _ = await download_single_image(
-            url, MANUAL_CACHE_FILE, manual_cache
+            url, MANUAL_CACHE_FILE
         )
         if not cache_path:
             msg = f"Failed to download CSU-MLP Day {day} image."
@@ -208,7 +206,7 @@ class CSUMLPCog(commands.Cog):
             if not url:
                 await interaction.followup.send("CSU-MLP Days 1-2 6-panel isn't available yet. Try after ~11am MT.")
                 return
-            cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE, manual_cache)
+            cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE)
             if not cache_path:
                 await interaction.followup.send("Failed to download CSU-MLP Days 1-2 6-panel.")
                 return
@@ -221,7 +219,7 @@ class CSUMLPCog(commands.Cog):
             if not url:
                 await interaction.followup.send("CSU-MLP Days 3-8 6-panel isn't available yet. Try after ~11am MT.")
                 return
-            cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE, manual_cache)
+            cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE)
             if not cache_path:
                 await interaction.followup.send("Failed to download CSU-MLP Days 3-8 6-panel.")
                 return
@@ -278,7 +276,7 @@ class CSUMLPCog(commands.Cog):
                 )
 
             cache_path, _, _ = await download_single_image(
-                url, MANUAL_CACHE_FILE, manual_cache
+                url, MANUAL_CACHE_FILE
             )
             if not cache_path:
                 logger.warning(f"[CSU-MLP] Download failed for Day {day}")
@@ -293,7 +291,7 @@ class CSUMLPCog(commands.Cog):
                 )
                 _posted_today.add(day)
                 await _save_posted_today(_posted_today)
-                last_post_times[f"csu_day{day}"] = now_utc
+                self.bot.state.last_post_times[f"csu_day{day}"] = now_utc
                 logger.info(f"[CSU-MLP] Auto-posted Day {day} ({label})")
             except Exception as e:
                 logger.error(
@@ -314,7 +312,7 @@ class CSUMLPCog(commands.Cog):
                 first_seen = now_utc.strftime("%Y-%m-%d %H:%MZ")
                 _availability_log[state_key] = first_seen
                 logger.info(f"[CSU-MLP] 📊 TIMING LOG — {label_name} first available at {first_seen} ({label})")
-            cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE, manual_cache)
+            cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE)
             if not cache_path:
                 logger.warning(f"[CSU-MLP] Download failed for {label_name}")
                 continue
@@ -325,7 +323,7 @@ class CSUMLPCog(commands.Cog):
                 )
                 _posted_today.add(state_key)
                 await _save_posted_today(_posted_today)
-                last_post_times[f"csu_{state_key}"] = now_utc
+                self.bot.state.last_post_times[f"csu_{state_key}"] = now_utc
                 logger.info(f"[CSU-MLP] Auto-posted {label_name} ({label})")
             except Exception as e:
                 logger.error(f"[CSU-MLP] Failed to post {label_name}: {e}", exc_info=True)
