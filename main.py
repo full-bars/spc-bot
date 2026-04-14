@@ -44,7 +44,7 @@ bot.state = BotState()
 async def setup_hook():
     """Hydrate state from DB before any cogs are loaded."""
     from utils.db import (
-        check_integrity, get_db, migrate_from_json,
+        check_integrity, get_db,
         get_all_hashes, get_posted_urls, get_posted_mds, get_posted_watches,
         get_state
     )
@@ -58,7 +58,6 @@ async def setup_hook():
         if os.path.exists(db_path):
             os.rename(db_path, db_path + ".corrupted")
         await get_db()
-    await migrate_from_json()
 
     # Restore in-memory caches from DB
     db_auto = await get_all_hashes("auto")
