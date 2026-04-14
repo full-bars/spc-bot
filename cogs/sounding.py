@@ -79,7 +79,11 @@ class SoundingCog(commands.Cog):
         Finds nearest RAOB stations using the most recent IEM-available sounding
         time (any hour, not locked to 00z/12z), posts up to 3 RAOB + 2 ACARS.
         """
-        from config import CACHE_DIR
+        from config import CACHE_DIR, SOUNDING_CHANNEL_ID
+        
+        # Use SOUNDING_CHANNEL_ID if configured, fallback to passed channel
+        target_channel = self.bot.get_channel(SOUNDING_CHANNEL_ID) or channel
+        
         affected_zones = nws_info.get("affected_zones", []) if isinstance(nws_info, dict) else []
         if not affected_zones:
             logger.warning(f"[SOUNDING-AUTO] No affected zones for watch #{watch_num} — skipping")
@@ -140,7 +144,7 @@ class SoundingCog(commands.Cog):
                 f"Valid: {month}-{day}-{year} {hour}z | Near active {watch_label} #{watch_num}"
             )
             try:
-                await channel.send(caption, files=[discord.File(png_path)])
+                await target_channel.send(caption, files=[discord.File(png_path)])
                 logger.info(f"[SOUNDING-AUTO] Posted {station_id} for watch #{watch_num}")
             except Exception as e:
                 logger.error(f"[SOUNDING-AUTO] Failed to post {station_id}: {e}")
@@ -184,7 +188,7 @@ class SoundingCog(commands.Cog):
     async def auto_sounding_watches(self):
         """Post soundings for RAOB stations near active watches at 00z/12z."""
         await self.bot.wait_until_ready()
-        from config import SPC_CHANNEL_ID
+        from config import SOUNDING_CHANNEL_ID
 
         now = datetime.now(timezone.utc)
         hour = now.hour
@@ -200,7 +204,7 @@ class SoundingCog(commands.Cog):
         if not self.bot.state.active_watches:
             return
 
-        channel = self.bot.get_channel(SPC_CHANNEL_ID)
+        channel = self.bot.get_channel(SOUNDING_CHANNEL_ID)
         if not channel:
             return
 
