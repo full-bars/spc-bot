@@ -1,10 +1,13 @@
 # config.py
 import os
-
+import json
+import logging
+import pytz
 from dotenv import load_dotenv
 
 load_dotenv()
 
+logger = logging.getLogger("spc_bot")
 
 def _require_int(name: str) -> int:
     """Require an integer environment variable — fail fast if missing."""
@@ -40,67 +43,39 @@ CACHE_DIR = CONFIG["cache_file_dir"]
 
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-# Timezones
-import pytz
+# ── Load Product Logic ────────────────────────────────────────────────────────
+_products_file = os.path.join(os.path.dirname(__file__), "config", "products.json")
+try:
+    with open(_products_file, "r") as f:
+        _P = json.load(f)
+except Exception as e:
+    logger.error(f"Failed to load product config from {_products_file}: {e}")
+    # Minimal hardcoded fallback to prevent complete failure
+    _P = {
+        "spc_schedule": {"1": [1, 6, 13, 20], "2": [2, 13], "3": [3, 15]},
+        "spc_urls_fallback": {},
+        "scp_image_urls": [],
+        "wpc_image_urls": [],
+        "spc_md_index_url": "https://www.spc.noaa.gov/products/md/",
+        "spc_watch_index_url": "https://www.spc.noaa.gov/products/watch/",
+        "spc_valid_watches_url": "https://www.spc.noaa.gov/products/watch/validww.png",
+        "nws_alerts_url": "https://api.weather.gov/alerts/active"
+    }
 
+# Exported constants used by cogs
+# Convert string keys from JSON to integers for schedule
+SPC_SCHEDULE = {int(k): v for k, v in _P["spc_schedule"].items()}
+SPC_OUTLOOK_BASE = _P.get("spc_outlook_base", "https://www.spc.noaa.gov/products/outlook")
+# Convert string keys from JSON to integers for fallback URLs
+SPC_URLS_FALLBACK = {int(k) if k.isdigit() else k: v for k, v in _P["spc_urls_fallback"].items()}
+SPC_URLS = SPC_URLS_FALLBACK
+SCP_IMAGE_URLS = _P["scp_image_urls"]
+WPC_IMAGE_URLS = _P["wpc_image_urls"]
+SPC_MD_INDEX_URL = _P["spc_md_index_url"]
+SPC_WATCH_INDEX_URL = _P["spc_watch_index_url"]
+SPC_VALID_WATCHES_URL = _P["spc_valid_watches_url"]
+NWS_ALERTS_URL = _P["nws_alerts_url"]
+
+# Timezones
 CENTRAL = pytz.timezone("America/Chicago")
 PACIFIC = pytz.timezone("US/Pacific")
-
-# SPC update schedule (Central hours)
-SPC_SCHEDULE = {
-    1: [1, 6, 13, 20],
-    2: [2, 13],
-    3: [3, 15],
-}
-
-# SPC URLs
-SPC_OUTLOOK_BASE = "https://www.spc.noaa.gov/products/outlook"
-
-SPC_URLS_FALLBACK = {
-    1: [
-        "https://www.spc.noaa.gov/products/outlook/day1otlk.gif",
-        "https://www.spc.noaa.gov/products/outlook/day1probotlk_torn.gif",
-        "https://www.spc.noaa.gov/products/outlook/day1probotlk_wind.gif",
-        "https://www.spc.noaa.gov/products/outlook/day1probotlk_hail.gif",
-    ],
-    2: [
-        "https://www.spc.noaa.gov/products/outlook/day2otlk.gif",
-        "https://www.spc.noaa.gov/products/outlook/day2probotlk_torn.gif",
-        "https://www.spc.noaa.gov/products/outlook/day2probotlk_wind.gif",
-        "https://www.spc.noaa.gov/products/outlook/day2probotlk_hail.gif",
-    ],
-    3: [
-        "https://www.spc.noaa.gov/products/outlook/day3otlk.gif",
-        "https://www.spc.noaa.gov/products/outlook/day3prob.gif",
-    ],
-    "48": ["https://www.spc.noaa.gov/products/exper/day4-8/day48prob.gif"],
-}
-
-SPC_URLS = SPC_URLS_FALLBACK
-
-# SCP (Supercell Composite Parameter) — NIU/Gensini
-SCP_IMAGE_URLS = [
-    "https://atlas.niu.edu/forecast/scp/cfs_week1.png",
-    "https://atlas.niu.edu/forecast/scp/cfs_week2.png",
-    "https://atlas.niu.edu/forecast/scp/cfs_week3.png",
-    "https://atlas.niu.edu/forecast/scp/gefs_week1__CTRL.png",
-    "https://atlas.niu.edu/forecast/scp/gefs_week2__CTRL.png",
-]
-
-# WPC
-WPC_IMAGE_URLS = [
-    "https://www.wpc.ncep.noaa.gov/qpf/94ewbg.gif",
-    "https://www.wpc.ncep.noaa.gov/qpf/98ewbg.gif",
-    "https://www.wpc.ncep.noaa.gov/qpf/99ewbg.gif",
-]
-
-# SPC product index URLs
-SPC_MD_INDEX_URL = "https://www.spc.noaa.gov/products/md/"
-SPC_WATCH_INDEX_URL = "https://www.spc.noaa.gov/products/watch/"
-SPC_VALID_WATCHES_URL = "https://www.spc.noaa.gov/products/watch/validww.png"
-
-# NWS alerts API
-NWS_ALERTS_URL = (
-    "https://api.weather.gov/alerts/active"
-    "?event=Severe%20Thunderstorm%20Watch,Tornado%20Watch&status=actual"
-)

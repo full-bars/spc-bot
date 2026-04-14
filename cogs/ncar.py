@@ -86,6 +86,8 @@ _timing_logged: bool = False
 
 
 class NCARCog(commands.Cog):
+    MANAGED_TASK_NAMES = [("wxnext_daily_poll", "wxnext_daily_poll")]
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.wxnext_daily_poll.start()

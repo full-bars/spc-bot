@@ -12,10 +12,8 @@ from utils.backoff import TaskBackoff
 
 from config import AUTO_CACHE_FILE, SPC_CHANNEL_ID, SPC_MD_INDEX_URL
 from utils.cache import (
-    MD_CACHE_FILE,
     MAX_TRACKED_MDS,
     download_single_image,
-    prune_tracked_set,
 )
 from utils.change_detection import get_cache_path_for_url
 from utils.http import http_get_bytes, http_get_text, http_head_meta
@@ -216,6 +214,8 @@ async def fetch_md_details(
 
 
 class MesoscaleCog(commands.Cog):
+    MANAGED_TASK_NAMES = [("auto_post_md", "auto_post_md")]
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._md_backoff = TaskBackoff("auto_post_md")
@@ -281,8 +281,8 @@ class MesoscaleCog(commands.Cog):
             else:
                 await channel.send(header)
             self.bot.state.posted_mds.add(md_num)
-            asyncio.create_task(add_posted_md(str(md_num)))
-            asyncio.create_task(prune_posted_mds())
+            await add_posted_md(str(md_num))
+            await prune_posted_mds()
             self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
             logger.info(f"[MD] iembot-triggered: posted MD #{md_num}")
         except discord.HTTPException as e:
@@ -368,17 +368,14 @@ class MesoscaleCog(commands.Cog):
                     else:
                         await channel.send(header)
                     self.bot.state.posted_mds.add(md_num)
-                    asyncio.create_task(add_posted_md(str(md_num)))
-                    asyncio.create_task(prune_posted_mds())
+                    await add_posted_md(str(md_num))
+                    await prune_posted_mds()
                     self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
                     logger.info(f"[MD] Posted MD #{md_num}")
                 except discord.HTTPException as e:
                     logger.error(
                         f"[MD] Discord send failed for MD #{md_num}: {e}"
                     )
-
-            # Prune tracked MDs
-            prune_tracked_set(self.bot.state.posted_mds, MAX_TRACKED_MDS, MD_CACHE_FILE)
 
         except Exception as e:
             logger.error(

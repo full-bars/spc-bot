@@ -154,7 +154,7 @@ class IEMBotCog(commands.Cog):
 
             if new_seqnum > self._last_seqnum:
                 self._last_seqnum = new_seqnum
-                asyncio.create_task(set_state("iembot_last_seqnum", str(new_seqnum)))
+                await set_state("iembot_last_seqnum", str(new_seqnum))
 
         except Exception as e:
             logger.warning(f"[IEMBOT] Poll error: {e}")

@@ -343,44 +343,13 @@ async def main():
             logger.info("[FAILOVER] Running as STANDBY — cogs suppressed until promoted")
 
         # Register cog tasks with watchdog after loading
-        outlooks_cog = bot.cogs.get("OutlooksCog")
-        mesoscale_cog = bot.cogs.get("MesoscaleCog")
-        watches_cog = bot.cogs.get("WatchesCog")
-        scp_cog = bot.cogs.get("SCPCog")
-        csu_mlp_cog = bot.cogs.get("CSUMLPCog")
-        ncar_cog = bot.cogs.get("NCARCog")
-
-        if outlooks_cog:
-            MANAGED_TASKS.extend(
-                [
-                    (outlooks_cog.auto_post_spc, "auto_post_spc"),
-                    (
-                        outlooks_cog.aggressive_check_spc,
-                        "aggressive_check_spc",
-                    ),
-                    (outlooks_cog.auto_post_spc48, "auto_post_spc48"),
-                ]
-            )
-        if mesoscale_cog:
-            MANAGED_TASKS.append(
-                (mesoscale_cog.auto_post_md, "auto_post_md")
-            )
-        if watches_cog:
-            MANAGED_TASKS.append(
-                (watches_cog.auto_post_watches, "auto_post_watches")
-            )
-        if scp_cog:
-            MANAGED_TASKS.append(
-                (scp_cog.auto_post_scp, "auto_post_scp_daily")
-            )
-        if csu_mlp_cog:
-            MANAGED_TASKS.append(
-                (csu_mlp_cog.csu_mlp_daily_poll, "csu_mlp_daily_poll")
-            )
-        if ncar_cog:
-            MANAGED_TASKS.append(
-                (ncar_cog.wxnext_daily_poll, "wxnext_daily_poll")
-            )
+        for cog in bot.cogs.values():
+            if hasattr(cog, "MANAGED_TASK_NAMES"):
+                for task_attr, display_name in cog.MANAGED_TASK_NAMES:
+                    task = getattr(cog, task_attr, None)
+                    if task and isinstance(task, tasks.Loop):
+                        MANAGED_TASKS.append((task, display_name))
+                        logger.debug(f"[WATCHDOG] Registered task '{display_name}' from {type(cog).__name__}")
 
         watchdog_task.start()
 
