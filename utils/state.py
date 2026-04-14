@@ -24,6 +24,7 @@ class BotState:
         # ── SPC watch/MD tracking ─────────────────────────────────────────
         self.posted_mds: Set[str] = set()
         self.posted_watches: Set[str] = set()
+        self.csu_posted: Set[str] = set()  # Tracked daily
         self.active_mds: Set[str] = set()
         self.active_watches: Dict[str, dict] = {}
 
@@ -46,6 +47,7 @@ class BotState:
             "manual_cache": self.manual_cache,
             "posted_mds": list(self.posted_mds),
             "posted_watches": list(self.posted_watches),
+            "csu_posted": list(self.csu_posted),
             "active_watches": {
                 k: {
                     "type": v.get("type"),

@@ -236,14 +236,26 @@ class FailoverCog(commands.Cog):
 
     def _hydrate(self, data: dict):
         from datetime import datetime, timezone
-        self.bot.state.posted_mds.update(data.get("posted_mds", []))
-        self.bot.state.posted_watches.update(data.get("posted_watches", []))
-        self.bot.state.auto_cache.update(data.get("auto_cache", {}))
-        self.bot.state.last_posted_urls.update(data.get("last_posted_urls", {}))
+        if "posted_mds" in data:
+            self.bot.state.posted_mds.update(str(m) for m in data["posted_mds"])
+        if "posted_watches" in data:
+            self.bot.state.posted_watches.update(str(w) for w in data["posted_watches"])
+        if "csu_posted" in data:
+            self.bot.state.csu_posted.update(str(d) for d in data["csu_posted"])
+        if "auto_cache" in data:
+            self.bot.state.auto_cache.update(data["auto_cache"])
+        if "last_posted_urls" in data:
+            self.bot.state.last_posted_urls.update(data["last_posted_urls"])
+        
+        # Hydrate post times
         for k, v in data.get("last_post_times", {}).items():
             if v and k in self.bot.state.last_post_times:
                 try:
-                    self.bot.state.last_post_times[k] = datetime.fromisoformat(v)
+                    dt = datetime.fromisoformat(v)
+                    # Only update if the incoming state is newer
+                    current = self.bot.state.last_post_times[k]
+                    if not current or dt > current:
+                        self.bot.state.last_post_times[k] = dt
                 except Exception:
                     pass
 
@@ -269,8 +281,10 @@ class FailoverCog(commands.Cog):
         try:
             from utils.db import (
                 add_posted_md, add_posted_watch,
-                set_hashes_batch, set_posted_urls
+                set_hashes_batch, set_posted_urls,
+                set_state
             )
+            import json as _json
             db = self.bot.state
             for md_id in db.posted_mds:
                 await add_posted_md(md_id)
@@ -280,6 +294,13 @@ class FailoverCog(commands.Cog):
                 await set_hashes_batch(db.auto_cache, cache_type="auto")
             for day_key, urls in db.last_posted_urls.items():
                 await set_posted_urls(day_key, urls)
+            
+            # Persist CSU state if present
+            if db.csu_posted:
+                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                csu_val = _json.dumps({"date": today, "days": sorted(list(db.csu_posted), key=str)})
+                await set_state("csu_mlp_posted", csu_val)
+
             logger.debug("[FAILOVER] Persisted hydrated state to local DB")
         except Exception as e:
             logger.error(f"[FAILOVER] Failed to persist hydrated state: {e}")

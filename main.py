@@ -127,6 +127,19 @@ async def on_ready():
     if db_watches:
         bot.state.posted_watches.update(db_watches)
         logger.info(f"[DB] Loaded {len(db_watches)} posted watches into cache")
+
+    # CSU state
+    csu_raw = await get_state("csu_mlp_posted")
+    if csu_raw:
+        try:
+            csu_data = json.loads(csu_raw)
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            if csu_data.get("date") == today:
+                bot.state.csu_posted.update(str(d) for d in csu_data.get("days", []))
+                logger.info(f"[DB] Restored {len(bot.state.csu_posted)} CSU posted days")
+        except Exception:
+            pass
+
     for day_key in ["day1", "day2", "day3"]:
         urls = await get_posted_urls(day_key)
         if urls:
