@@ -58,7 +58,7 @@ or inline where invoked, not into the configured channels.
 ### Status
 | Command | Description |
 |---|---|
-| `/status` | Show bot health: task states, last auto-post times, partial update state, tracked MD/watch counts. Ephemeral. |
+| `/status` | Show bot health: node role (Primary/Standby), task states, last auto-post times, partial update state, tracked MD/watch counts. Ephemeral. |
 
 ---
 
@@ -116,7 +116,7 @@ scraping the SPC watch index HTML directly.
 
 ### IEMBot Real-Time Feed
 
-`IEMBotCog` polls `weather.im/iembot-json/room/spcchat` every 15 seconds. When a new SEL (watch) or SWOMCD (MD) product appears, the full text is fetched from `mesonet.agron.iastate.edu/api/1/nwstext/{product_id}` and cached in memory for 10 minutes. `fetch_watch_details` and `fetch_md_details` check this cache first, ensuring embeds are populated within seconds of issuance. The last-seen seqnum is persisted to SQLite. The cache is ephemeral and not synced between failover instances.
+`IEMBotCog` polls `weather.im/iembot-json/room/spcchat` every 15 seconds. When a new SEL (watch) or SWOMCD (MD) product appears, the full text is fetched from `mesonet.agron.iastate.edu/api/1/nwstext/{product_id}` and cached in the SQLite database (`product_text_cache`) with a 10-minute TTL. `fetch_watch_details` and `fetch_md_details` check this persistent cache first, ensuring embeds are populated within seconds of issuance even across bot restarts or failovers. The last-seen seqnum is also persisted to SQLite.
 
 ### SCP Graphics
 
@@ -125,7 +125,7 @@ changed (hash-based detection). Uses `MODELS_CHANNEL_ID`.
 
 ### Sounding Plots
 
-The `/sounding` command geocodes the location, finds nearby RAOB stations that have verified data in the Wyoming archive, and presents an interactive station and time picker. Plots are generated headlessly via SounderPy and posted to the channel where the command was used. Per-user dark mode preference is persisted to the local SQLite database. Auto-posting of soundings is active in two modes: (1) immediately on watch issuance, using the most recent IEM-available sounding time (any hour); (2) at 00z/12z for all active watches. Up to 3 RAOB stations and 2 ACARS profiles per watch. At 00z/12z, Wyoming and IEM are raced simultaneously — whichever returns data first wins.
+The `/sounding` command geocodes the location, finds nearby RAOB stations that have verified data in the Wyoming archive, and presents an interactive station and time picker. Plots are generated headlessly via SounderPy and posted to the channel where the command was used. Per-user dark mode preference is persisted to the local SQLite database. Auto-posting of soundings is active in three modes: (1) **proactive pre-warming** when the MD cog detects a mesoscale discussion with ≥80% watch issuance probability; (2) **immediately on watch issuance**, using the most recent IEM-available sounding time (any hour); (3) **at 00z/12z** for all active watches. Up to 3 RAOB stations and 2 ACARS profiles per watch. At 00z/12z, Wyoming and IEM are raced simultaneously — whichever returns data first wins.
 
 ### CSU-MLP and NCAR WxNext2
 
@@ -162,6 +162,7 @@ All persistent state lives in a single SQLite database at `CACHE_DIR/bot_state.d
 | `posted_mds` | Set of posted MD numbers (pruned to last 200) |
 | `posted_watches` | Set of posted watch numbers (pruned to last 200) |
 | `bot_state` | Key/value store for CSU-MLP, NCAR, and sounding preferences |
+| `product_text_cache` | Fast-path text products (watch/MD) with TTL for cross-instance sync |
 
 On first startup, existing JSON files are automatically migrated into the database. The in-memory dicts (`auto_cache`, `manual_cache`, `posted_mds`, `posted_watches`) are kept as a fast lookup layer — the database is the persistence layer only.
 

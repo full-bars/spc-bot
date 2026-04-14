@@ -18,7 +18,10 @@ from typing import Optional, Dict, Tuple
 
 from discord.ext import commands, tasks
 
-from utils.db import get_state, set_state
+from utils.db import (
+    get_state, set_state, 
+    get_product_cache, set_product_cache
+)
 from utils.http import http_get_bytes
 
 logger = logging.getLogger("spc_bot")
@@ -27,27 +30,15 @@ IEMBOT_FEED_URL = "https://weather.im/iembot-json/room/spcchat"
 IEM_NWSTEXT_URL = "https://mesonet.agron.iastate.edu/api/1/nwstext/{product_id}"
 CACHE_TTL = 600  # 10 minutes
 
-# Module-level caches: padded_num -> (text, monotonic_timestamp)
-_watch_text_cache: Dict[str, Tuple[str, float]] = {}
-_md_text_cache: Dict[str, Tuple[str, float]] = {}
 
-
-def get_cached_watch_text(watch_number: str) -> Optional[str]:
+async def get_cached_watch_text(watch_number: str) -> Optional[str]:
     """Return cached watch text if available and not expired."""
-    padded = watch_number.zfill(4)
-    entry = _watch_text_cache.get(padded)
-    if entry and (time.monotonic() - entry[1]) < CACHE_TTL:
-        return entry[0]
-    return None
+    return await get_product_cache(f"watch_{watch_number.zfill(4)}")
 
 
-def get_cached_md_text(md_number: str) -> Optional[str]:
+async def get_cached_md_text(md_number: str) -> Optional[str]:
     """Return cached MD text if available and not expired."""
-    padded = md_number.zfill(4)
-    entry = _md_text_cache.get(padded)
-    if entry and (time.monotonic() - entry[1]) < CACHE_TTL:
-        return entry[0]
-    return None
+    return await get_product_cache(f"md_{md_number.zfill(4)}")
 
 
 def _parse_watch_text(raw: str) -> Optional[str]:
@@ -176,7 +167,7 @@ class IEMBotCog(commands.Cog):
         watch_num = m.group(1).zfill(4)
         text = _parse_watch_text(raw)
         if text:
-            _watch_text_cache[watch_num] = (text, time.monotonic())
+            await set_product_cache(f"watch_{watch_num}", text, ttl=CACHE_TTL)
             logger.info(f"[IEMBOT] Cached watch text for #{watch_num}")
 
         # Determine watch type from raw text
@@ -199,7 +190,7 @@ class IEMBotCog(commands.Cog):
         md_num = m.group(1).zfill(4)
         text = _parse_md_text(raw)
         if text:
-            _md_text_cache[md_num] = (text, time.monotonic())
+            await set_product_cache(f"md_{md_num}", text, ttl=CACHE_TTL)
             logger.info(f"[IEMBOT] Cached MD text for #{md_num}")
 
         # Signal MesoscaleCog to post immediately

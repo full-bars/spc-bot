@@ -67,11 +67,11 @@ async def fetch_latest_md_numbers() -> List[str]:
 
 
 
-async def fetch_md_details_iem(md_number: str) -> Tuple[Optional[str], Optional[str]]:
+async def fetch_md_details_iem(md_number: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
     Fallback: fetch MD image and summary from IEM when SPC is unreachable.
     IEM mirrors SPC MCD images at a predictable URL.
-    Returns (image_url, summary_text).
+    Returns (image_url, summary_text, raw_text).
     """
     import json as _json_iem
     padded = md_number.zfill(4)
@@ -84,6 +84,7 @@ async def fetch_md_details_iem(md_number: str) -> Tuple[Optional[str], Optional[
 
     # IEM nwstext API for MCD text
     summary = None
+    raw_text = None
     try:
         content, status = await http_get_bytes(
             "https://mesonet.agron.iastate.edu/api/1/nwstext.json?product=MCD&limit=20",
@@ -97,6 +98,7 @@ async def fetch_md_details_iem(md_number: str) -> Tuple[Optional[str], Optional[
                     f"MESOSCALE DISCUSSION {num_int}" in text.upper()
                     or f"MESOSCALE DISCUSSION {padded}" in text
                 ):
+                    raw_text = text
                     concerning = re.search(r"(CONCERNING[^\n<]{10,120})", text, re.IGNORECASE)
                     if concerning:
                         summary = concerning.group(1).strip()
@@ -107,13 +109,13 @@ async def fetch_md_details_iem(md_number: str) -> Tuple[Optional[str], Optional[
     except Exception as e:
         logger.warning(f"[MD] IEM text fallback failed for #{md_number}: {e}")
 
-    return iem_image_url, summary
+    return iem_image_url, summary, raw_text
 
 async def fetch_md_details(
     md_number: str,
-) -> Tuple[Optional[str], Optional[str], bool]:
+) -> Tuple[Optional[str], Optional[str], bool, Optional[str]]:
     """
-    Fetch an individual MD page and return (image_url, summary_text, from_cache).
+    Fetch an individual MD page and return (image_url, summary_text, from_cache, raw_text).
     Races SPC and IEM simultaneously — whichever returns first wins.
     Falls back to cache if both fail.
     """
@@ -124,8 +126,8 @@ async def fetch_md_details(
 
     async def _fetch_iem_early():
         import cogs.mesoscale as _self
-        iem_img, iem_summary = await _self.fetch_md_details_iem(md_number)
-        return (iem_img, iem_summary)
+        iem_img, iem_summary, iem_raw = await _self.fetch_md_details_iem(md_number)
+        return (iem_img, iem_summary, iem_raw)
 
     spc_task = asyncio.create_task(_fetch_spc())
     iem_task = asyncio.create_task(_fetch_iem_early())
@@ -168,14 +170,14 @@ async def fetch_md_details(
         cached_path = get_cache_path_for_url(fallback_url)
         if os.path.exists(cached_path):
             logger.info(f"[MD] SPC unreachable for #{md_number}, serving from cache")
-            return fallback_url, None, True
+            return fallback_url, None, True, None
         if iem_result:
-            iem_img, iem_summary = iem_result
+            iem_img, iem_summary, iem_raw = iem_result
             if iem_img:
                 logger.info(f"[MD] Got MD #{md_number} from IEM")
-                return iem_img, iem_summary, True
+                return iem_img, iem_summary, True, iem_raw
         logger.warning(f"[MD] SPC unreachable for #{md_number} and no cache or IEM available")
-        return None, None, False
+        return None, None, False, None
 
     img_match = re.search(
         rf'src="(mcd{md_number}(?:_full)?\.(?:png|gif))"', html, re.IGNORECASE
@@ -191,7 +193,7 @@ async def fetch_md_details(
 
     # Check iembot real-time cache first (populated within seconds of issuance)
     from cogs.iembot import get_cached_md_text
-    summary = get_cached_md_text(md_number)
+    summary = await get_cached_md_text(md_number)
     if summary:
         logger.info(f"[MD] Got summary from iembot cache for #{md_number}")
 
@@ -210,7 +212,7 @@ async def fetch_md_details(
                     summary = " ".join(lines[:3])[:200]
                     break
 
-    return image_url, summary, False
+    return image_url, summary, False, html
 
 
 class MesoscaleCog(commands.Cog):
@@ -221,6 +223,26 @@ class MesoscaleCog(commands.Cog):
 
     def cog_unload(self):
         self.auto_post_md.cancel()
+
+    async def _check_prewarm(self, md_num: str, raw_text: str):
+        """Parse probability of watch issuance and signal SoundingCog if high."""
+        if not raw_text:
+            return
+        
+        # Look for "PROBABILITY OF WATCH ISSUANCE...80 PERCENT" etc.
+        m = re.search(r"PROBABILITY OF WATCH ISSUANCE\s*\.\.\.\s*(\d+)\s*PERCENT", raw_text, re.IGNORECASE)
+        if not m:
+            return
+        
+        try:
+            prob = int(m.group(1))
+            if prob >= 80:
+                logger.info(f"[MD] High watch probability ({prob}%) for MD #{md_num} — triggering sounding pre-warm")
+                sounding_cog = self.bot.cogs.get("SoundingCog")
+                if sounding_cog:
+                    asyncio.create_task(sounding_cog.prewarm_soundings_for_md(md_num, raw_text))
+        except Exception as e:
+            logger.debug(f"[MD] Could not parse probability for MD #{md_num}: {e}")
 
     async def post_md_now(self, md_num: str):
         """
@@ -236,10 +258,13 @@ class MesoscaleCog(commands.Cog):
 
         self.bot.state.active_mds.add(md_num)
         logger.info(f"[MD] iembot-triggered post for #{md_num}")
-        image_url, summary, from_cache = await fetch_md_details(md_num)
+        image_url, summary, from_cache, raw_text = await fetch_md_details(md_num)
         if not image_url:
             logger.warning(f"[MD] iembot trigger: could not resolve image for #{md_num}")
             return
+
+        if raw_text:
+            asyncio.create_task(self._check_prewarm(md_num, raw_text))
 
         cache_path, _, _ = await download_single_image(
             image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
@@ -312,13 +337,16 @@ class MesoscaleCog(commands.Cog):
                     continue
 
                 logger.info(f"[MD] New MD detected: #{md_num}")
-                image_url, summary, from_cache = await fetch_md_details(md_num)
+                image_url, summary, from_cache, raw_text = await fetch_md_details(md_num)
 
                 if not image_url:
                     logger.warning(
                         f"[MD] Could not resolve image URL for MD #{md_num}"
                     )
                     continue
+
+                if raw_text:
+                    asyncio.create_task(self._check_prewarm(md_num, raw_text))
 
                 cache_path, img_content, h = await download_single_image(
                     image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
