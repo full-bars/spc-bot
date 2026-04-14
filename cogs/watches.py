@@ -575,6 +575,75 @@ class WatchesCog(commands.Cog):
     def cog_unload(self):
         self.auto_post_watches.cancel()
 
+    async def post_watch_now(self, watch_num: str, nws_info: dict):
+        """
+        Immediately post a specific watch if it hasn't been posted yet.
+        Called by IEMBotCog when it detects a new watch from the real-time feed.
+        """
+        watch_num = watch_num.zfill(4)
+        if watch_num in self.bot.state.posted_watches:
+            return
+        channel = self.bot.get_channel(SPC_CHANNEL_ID)
+        if not channel:
+            return
+
+        wtype = nws_info.get("type", "SVR") if isinstance(nws_info, dict) else "SVR"
+        expires = nws_info.get("expires") if isinstance(nws_info, dict) else None
+        is_tornado = wtype == "TORNADO"
+        watch_label = "Tornado Watch" if is_tornado else "Severe Thunderstorm Watch"
+        color = discord.Color.red() if is_tornado else discord.Color.orange()
+        now_utc = datetime.now(timezone.utc)
+
+        logger.info(f"[WATCH] iembot-triggered post for #{watch_num} ({wtype})")
+        image_url, text_summary, probs = await fetch_watch_details(watch_num)
+        cache_path = None
+        if image_url:
+            cache_path, _, _ = await download_single_image(
+                image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
+            )
+
+        embed = discord.Embed(
+            title=(
+                f"{'🌪️' if is_tornado else '⛈️'}  "
+                f"{watch_label} #{int(watch_num)}"
+            ),
+            color=color,
+            timestamp=now_utc,
+        )
+        if expires:
+            embed.add_field(
+                name="Expires",
+                value=f"<t:{int(expires.timestamp())}:R>",
+                inline=True,
+            )
+        if text_summary:
+            embed.add_field(name="Details", value=text_summary[:1024], inline=False)
+        if probs:
+            embed.add_field(name="Probabilities", value=probs[:1024], inline=False)
+        embed.set_footer(text="SPC Watch Monitor")
+        if cache_path:
+            embed.set_image(url=f"attachment://watch_{watch_num}.gif")
+
+        try:
+            files = (
+                [discord.File(cache_path, filename=f"watch_{watch_num}.gif")]
+                if cache_path else []
+            )
+            await channel.send(embed=embed, files=files)
+            self.bot.state.active_watches[watch_num] = nws_info
+            self.bot.state.posted_watches.add(watch_num)
+            asyncio.create_task(add_posted_watch(str(watch_num)))
+            asyncio.create_task(prune_posted_watches())
+            self.bot.state.last_post_times["watch"] = now_utc
+            logger.info(f"[WATCH] iembot-triggered: posted watch #{watch_num}")
+            sounding_cog = self.bot.cogs.get("SoundingCog")
+            if sounding_cog and isinstance(nws_info, dict) and nws_info.get("affected_zones"):
+                asyncio.create_task(
+                    sounding_cog.post_soundings_for_watch(watch_num, nws_info, channel)
+                )
+        except discord.HTTPException as e:
+            logger.error(f"[WATCH] iembot-triggered send failed for #{watch_num}: {e}")
+
     @tasks.loop(minutes=2)
     async def auto_post_watches(self):
         await self.bot.wait_until_ready()
