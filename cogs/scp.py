@@ -14,6 +14,8 @@ logger = logging.getLogger("spc_bot")
 
 
 class SCPCog(commands.Cog):
+    MANAGED_TASK_NAMES = [("auto_post_scp", "auto_post_scp_daily")]
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._next_post_time: datetime | None = None
