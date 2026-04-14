@@ -222,6 +222,47 @@ class MesoscaleCog(commands.Cog):
     def cog_unload(self):
         self.auto_post_md.cancel()
 
+    async def post_md_now(self, md_num: str):
+        """
+        Immediately post a specific MD if it hasn't been posted yet.
+        Called by IEMBotCog when it detects a new MD from the real-time feed.
+        """
+        md_num = md_num.zfill(4)
+        if md_num in self.bot.state.posted_mds:
+            return
+        channel = self.bot.get_channel(SPC_CHANNEL_ID)
+        if not channel:
+            return
+
+        self.bot.state.active_mds.add(md_num)
+        logger.info(f"[MD] iembot-triggered post for #{md_num}")
+        image_url, summary, from_cache = await fetch_md_details(md_num)
+        if not image_url:
+            logger.warning(f"[MD] iembot trigger: could not resolve image for #{md_num}")
+            return
+
+        cache_path, _, _ = await download_single_image(
+            image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
+        )
+        md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
+        header = f"**🌩️ SPC Mesoscale Discussion #{md_num}**"
+        if summary:
+            header += f"\n{summary}"
+        header += f"\n<{md_page_url}>"
+
+        try:
+            if cache_path:
+                await channel.send(header, files=[discord.File(cache_path)])
+            else:
+                await channel.send(header)
+            self.bot.state.posted_mds.add(md_num)
+            asyncio.create_task(add_posted_md(str(md_num)))
+            asyncio.create_task(prune_posted_mds())
+            self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
+            logger.info(f"[MD] iembot-triggered: posted MD #{md_num}")
+        except discord.HTTPException as e:
+            logger.error(f"[MD] iembot-triggered send failed for #{md_num}: {e}")
+
     @tasks.loop(seconds=30)
     async def auto_post_md(self):
         await self.bot.wait_until_ready()
