@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 *.log*
 *.json
+!config/*.json
 cached_*
 cache/
 GEMINI.md

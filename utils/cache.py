@@ -20,9 +20,10 @@ from utils.db import set_hash, set_hashes_batch
 from utils.change_detection import (
     calculate_hash_bytes,
     get_cache_path_for_url,
+    head_changed,
     is_placeholder_image,
 )
-from utils.http import ensure_session, http_get_bytes, http_head_ok
+from utils.http import ensure_session, http_get_bytes, http_head_meta, http_head_ok
 
 logger = logging.getLogger("spc_bot")
 
@@ -173,36 +174,48 @@ async def download_images_parallel(
 
 async def check_partial_updates_parallel(
     urls: List[str], cache: Dict[str, str]
-) -> Tuple[int, int, Dict[str, Tuple[bytes, str]]]:
+) -> Tuple[int, int, Dict[str, Tuple[bytes, Optional[str]]]]:
     """
     For each URL, do a HEAD check then conditionally fetch.
     Returns (updated_count, total_count, downloaded_data).
     """
-    from utils.http import http_head_meta
     await ensure_session()
-    
     total_count = len(urls)
-    updated_count = 0
     downloaded_data = {}
-    
-    async def _check(url):
-        nonlocal updated_count
-        meta = await http_head_meta(url)
-        if not meta:
-            return
-        
-        # If hash changed or we don't have it, fetch full bytes
-        # (This is a simplified version of the logic)
-        current_hash = cache.get(url)
-        # We don't have the hash yet, so just download
-        content, status = await http_get_bytes(url)
-        if content and status == 200:
-            h = calculate_hash_bytes(content)
-            if h != current_hash:
-                downloaded_data[url] = (content, h)
-                updated_count += 1
+    updated_count = 0
+    head_fetched = 0
 
-    await asyncio.gather(*[(_check(u)) for u in urls])
+    async def _check_one(url: str):
+        nonlocal updated_count, head_fetched
+        meta = await http_head_meta(url)
+        if meta is None:
+            return
+
+        # Use efficient HEAD check first
+        if not head_changed(url, meta):
+            return
+
+        # If meta changed or unknown, fetch full bytes
+        head_fetched += 1
+        content, status = await http_get_bytes(url)
+        if content is None or status != 200:
+            return
+
+        if is_placeholder_image(content):
+            return
+
+        h = calculate_hash_bytes(content)
+        # Verify content hash actually differs from DB
+        if url not in cache or cache.get(url) != h:
+            downloaded_data[url] = (content, h)
+            updated_count += 1
+
+    await asyncio.gather(*[_check_one(u) for u in urls])
+
+    logger.info(
+        f"[CACHE] Partial check complete: {updated_count}/{total_count} updated "
+        f"({head_fetched}/{total_count} warranted full fetch)"
+    )
     return updated_count, total_count, downloaded_data
 
 

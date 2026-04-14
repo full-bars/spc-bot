@@ -1,0 +1,45 @@
+{
+  "spc_schedule": {
+    "1": [1, 6, 13, 20],
+    "2": [2, 13],
+    "3": [3, 15]
+  },
+  "spc_outlook_base": "https://www.spc.noaa.gov/products/outlook",
+  "spc_urls_fallback": {
+    "1": [
+      "https://www.spc.noaa.gov/products/outlook/day1otlk.gif",
+      "https://www.spc.noaa.gov/products/outlook/day1probotlk_torn.gif",
+      "https://www.spc.noaa.gov/products/outlook/day1probotlk_wind.gif",
+      "https://www.spc.noaa.gov/products/outlook/day1probotlk_hail.gif"
+    ],
+    "2": [
+      "https://www.spc.noaa.gov/products/outlook/day2otlk.gif",
+      "https://www.spc.noaa.gov/products/outlook/day2probotlk_torn.gif",
+      "https://www.spc.noaa.gov/products/outlook/day2probotlk_wind.gif",
+      "https://www.spc.noaa.gov/products/outlook/day2probotlk_hail.gif"
+    ],
+    "3": [
+      "https://www.spc.noaa.gov/products/outlook/day3otlk.gif",
+      "https://www.spc.noaa.gov/products/outlook/day3prob.gif"
+    ],
+    "48": [
+      "https://www.spc.noaa.gov/products/exper/day4-8/day48prob.gif"
+    ]
+  },
+  "scp_image_urls": [
+    "https://atlas.niu.edu/forecast/scp/cfs_week1.png",
+    "https://atlas.niu.edu/forecast/scp/cfs_week2.png",
+    "https://atlas.niu.edu/forecast/scp/cfs_week3.png",
+    "https://atlas.niu.edu/forecast/scp/gefs_week1__CTRL.png",
+    "https://atlas.niu.edu/forecast/scp/gefs_week2__CTRL.png"
+  ],
+  "wpc_image_urls": [
+    "https://www.wpc.ncep.noaa.gov/qpf/94ewbg.gif",
+    "https://www.wpc.ncep.noaa.gov/qpf/98ewbg.gif",
+    "https://www.wpc.ncep.noaa.gov/qpf/99ewbg.gif"
+  ],
+  "spc_md_index_url": "https://www.spc.noaa.gov/products/md/",
+  "spc_watch_index_url": "https://www.spc.noaa.gov/products/watch/",
+  "spc_valid_watches_url": "https://www.spc.noaa.gov/products/watch/validww.png",
+  "nws_alerts_url": "https://api.weather.gov/alerts/active?event=Severe%20Thunderstorm%20Watch,Tornado%20Watch&status=actual"
+}
