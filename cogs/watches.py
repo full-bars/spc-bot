@@ -20,9 +20,7 @@ from config import (
 )
 from utils.cache import (
     MAX_TRACKED_WATCHES,
-    WATCH_CACHE_FILE,
     download_single_image,
-    prune_tracked_set,
 )
 from utils.change_detection import get_cache_path_for_url, is_placeholder_image
 from utils.http import http_get_bytes, http_get_text
@@ -602,6 +600,8 @@ async def _execute_watches(interaction: discord.Interaction, bot: commands.Bot):
 
 
 class WatchesCog(commands.Cog):
+    MANAGED_TASK_NAMES = [("auto_post_watches", "auto_post_watches")]
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._watches_backoff = TaskBackoff("auto_post_watches")
@@ -724,8 +724,8 @@ class WatchesCog(commands.Cog):
             # Adding partial nws_info now causes false cancellations when
             # the NWS API hasn't indexed the watch yet.
             self.bot.state.posted_watches.add(watch_num)
-            asyncio.create_task(add_posted_watch(str(watch_num)))
-            asyncio.create_task(prune_posted_watches())
+            await add_posted_watch(str(watch_num))
+            await prune_posted_watches()
             self.bot.state.last_post_times["watch"] = now_utc
             logger.info(f"[WATCH] iembot-triggered: posted watch #{watch_num}")
             sounding_cog = self.bot.cogs.get("SoundingCog")
@@ -885,8 +885,8 @@ class WatchesCog(commands.Cog):
                     )
                     await channel.send(embed=embed, files=files)
                     self.bot.state.posted_watches.add(watch_num)
-                    asyncio.create_task(add_posted_watch(str(watch_num)))
-                    asyncio.create_task(prune_posted_watches())
+                    await add_posted_watch(str(watch_num))
+                    await prune_posted_watches()
                     self.bot.state.last_post_times["watch"] = datetime.now(timezone.utc)
                     logger.info(f"[WATCH] Posted watch #{watch_num}")
                     sounding_cog = self.bot.cogs.get("SoundingCog")
@@ -898,11 +898,6 @@ class WatchesCog(commands.Cog):
                     logger.error(
                         f"[WATCH] Discord send failed for #{watch_num}: {e}"
                     )
-
-            # Prune tracked watches
-            prune_tracked_set(
-                self.bot.state.posted_watches, MAX_TRACKED_WATCHES, WATCH_CACHE_FILE
-            )
 
             self._watches_backoff.success()
         except Exception as e:

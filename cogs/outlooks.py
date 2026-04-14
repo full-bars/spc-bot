@@ -130,13 +130,19 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
             )
             state.last_post_times[day_key] = datetime.now(timezone.utc)
             state.last_posted_urls[day_key] = urls
-            asyncio.create_task(set_posted_urls(day_key, urls))
+            await set_posted_urls(day_key, urls)
             logger.info(f"[Day {day}] Posted {len(files)} images. URLs: {urls}")
         except Exception as e:
             logger.error(f"Failed to send post for Day {day}: {e}")
 
 
 class OutlooksCog(commands.Cog):
+    MANAGED_TASK_NAMES = [
+        ("auto_post_spc", "auto_post_spc"),
+        ("aggressive_check_spc", "aggressive_check_spc"),
+        ("auto_post_spc48", "auto_post_spc48"),
+    ]
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._spc_backoff = TaskBackoff("auto_post_spc")

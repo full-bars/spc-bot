@@ -136,6 +136,8 @@ _availability_log: dict[int, str] = {}  # day -> first-seen time string
 
 
 class CSUMLPCog(commands.Cog):
+    MANAGED_TASK_NAMES = [("csu_mlp_daily_poll", "csu_mlp_daily_poll")]
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.csu_mlp_daily_poll.start()
