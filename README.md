@@ -5,8 +5,8 @@ A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks
 ## Features
 
 * SPC convective outlooks (Day 1, 2, 3, Day 4-8) with dynamic URL resolution
-* SPC mesoscale discussions with cancellation tracking
-* Tornado and severe thunderstorm watch alerts via NWS API with IEM iembot real-time feed for sub-second text pre-caching
+* SPC mesoscale discussions with cancellation tracking and **high-probability watch detection for proactive sounding pre-warming**
+* Tornado and severe thunderstorm watch alerts via NWS API with IEM iembot real-time feed for sub-second text **delivery via persistent database-backed pre-caching**
 * NIU/Gensini CFSv2/GEFS supercell composite parameter (SCP) graphics, twice daily
 * CSU-MLP machine learning severe weather forecasts (Days 1-8 + 6-panel summaries), auto-posted daily with `/csu1`-`/csu8`, `/csupanel12`, and `/csupanel38` slash commands
 * NCAR WxNext2 Mean AI convective hazard forecast (Days 1-8), auto-posted daily with `/wxnext` slash command
@@ -16,6 +16,7 @@ A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks
 * NEXRAD Level 2 radar downloader from NOAA AWS S3
   * Single or multi-site downloads with per-site ZIP packaging
   * Z-to-Z range, start+duration, explicit datetime, or N most recent files
+* **Enhanced Observability**: Detailed `/status` dashboard showing node roles (Primary/Standby), real-time task health, and feed synchronization state
 
 ## Prerequisites
 
@@ -105,11 +106,11 @@ spc-bot/
 │   ├── state.py             # BotState class — single source of truth for in-memory state
 │   ├── spc_urls.py          # SPC outlook URL resolution
 │   ├── backoff.py           # Exponential backoff tracker for task loops
-│   └── db.py                # Async SQLite state manager (aiosqlite), WAL mode
+│   └── db.py                # Async SQLite state manager (aiosqlite) with persistent product text caching
 ├── cogs/
 │   ├── outlooks.py          # SPC Day 1-3 and Day 4-8 auto-posting
-│   ├── mesoscale.py         # SPC Mesoscale Discussion monitoring
-│   ├── iembot.py            # IEM iembot feed poller — real-time watch/MD text pre-cache
+│   ├── mesoscale.py         # SPC MD monitoring with watch probability detection
+│   ├── iembot.py            # IEM iembot feed poller with persistent DB-backed text cache
 │   ├── watches.py           # SPC watch monitoring via NWS API (stores affected_zones)
 │   ├── scp.py               # NIU/Gensini SCP graphics, twice daily
 │   ├── csu_mlp.py           # CSU-MLP consolidated /csu command with Choice dropdown

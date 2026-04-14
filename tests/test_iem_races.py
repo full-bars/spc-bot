@@ -67,9 +67,9 @@ class TestFetchMdDetailsRace:
         with patch("cogs.mesoscale.http_get_text", new_callable=AsyncMock) as mt, \
              patch("cogs.mesoscale.fetch_md_details_iem", new_callable=AsyncMock) as mi:
             mt.return_value = fake_html
-            mi.return_value = (None, None)
+            mi.return_value = (None, None, None)
             from cogs.mesoscale import fetch_md_details
-            image_url, summary, from_cache = await fetch_md_details("0398")
+            image_url, summary, from_cache, raw_text = await fetch_md_details("0398")
         assert "mcd0398" in image_url
         assert from_cache is False
 
@@ -81,26 +81,26 @@ class TestFetchMdDetailsRace:
              patch("cogs.mesoscale.os.path.exists", return_value=False), \
              patch("cogs.mesoscale.asyncio.create_task") as mct, \
              patch("cogs.mesoscale.asyncio.wait", new_callable=AsyncMock) as mw:
-            
+
             mt.return_value = None
-            mi.return_value = ("http://iem.example/mcd0398.png", "IEM summary")
-            
+            mi.return_value = ("http://iem.example/mcd0398.png", "IEM summary", "IEM raw")
+
             # Use real Futures for task mocks
             loop = asyncio.get_running_loop()
             spc_task = loop.create_future()
             iem_task = loop.create_future()
             mct.side_effect = [spc_task, iem_task]
-            
+
             # IEM wins immediately
             iem_task.set_result(mi.return_value)
             mw.return_value = ({iem_task}, {spc_task})
-            
+
             # SPC eventually returns None
             spc_task.set_result(None)
-            
+
             from cogs.mesoscale import fetch_md_details
-            image_url, summary, from_cache = await fetch_md_details("0398")
-            
+            image_url, summary, from_cache, raw_text = await fetch_md_details("0398")
+
         assert image_url == "http://iem.example/mcd0398.png"
         assert from_cache is True
 
@@ -111,12 +111,11 @@ class TestFetchMdDetailsRace:
              patch("cogs.mesoscale.fetch_md_details_iem", new_callable=AsyncMock) as mi, \
              patch("cogs.mesoscale.os.path.exists", return_value=True):
             mt.return_value = None
-            mi.return_value = (None, None)
+            mi.return_value = (None, None, None)
             from cogs.mesoscale import fetch_md_details
-            image_url, summary, from_cache = await fetch_md_details("0398")
+            image_url, summary, from_cache, raw_text = await fetch_md_details("0398")
         assert from_cache is True
         assert image_url is not None
-
 
 # ── post_soundings_for_watch ─────────────────────────────────────────────────
 

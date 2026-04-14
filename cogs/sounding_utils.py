@@ -294,6 +294,48 @@ async def get_watch_area_centroid(affected_zones: list) -> tuple[float, float] |
     return sum(all_lats) / len(all_lats), sum(all_lons) / len(all_lons)
 
 
+async def get_md_area_centroid(raw_text: str) -> tuple[float, float] | None:
+    """
+    Parse the LAT...LON block from SPC MD text and return the centroid.
+    Format is 8-digit pairs: DDMMDDMM...
+    """
+    m = re.search(r"LAT\.\.\.LON\s+((?:\d{8}\s*)+)", raw_text, re.MULTILINE)
+    if not m:
+        return None
+
+    coords_str = re.sub(r"\s+", "", m.group(1))
+    lats = []
+    lons = []
+
+    for i in range(0, len(coords_str), 8):
+        part = coords_str[i:i+8]
+        if len(part) < 8:
+            continue
+        try:
+            # Format: DDMMDDMM (LatDDMM LonDDMM)
+            # SPC lons are often 3 digits if > 100, but in this block 
+            # they are usually 4 digits (e.g. 9845 means -98.45)
+            lat_raw = int(part[:4])
+            lon_raw = int(part[4:])
+
+            lat = lat_raw / 100.0
+            lon = lon_raw / 100.0
+
+            # Central/Western US lons are negative
+            if lon > 0:
+                lon = -lon
+
+            lats.append(lat)
+            lons.append(lon)
+        except Exception:
+            continue
+
+    if not lats:
+        return None
+
+    return sum(lats) / len(lats), sum(lons) / len(lons)
+
+
 # ── IEM sounding functions ────────────────────────────────────────────────────
 
 IEM_RAOB_URL = "https://mesonet.agron.iastate.edu/json/raob.py"

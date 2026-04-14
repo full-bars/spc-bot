@@ -396,7 +396,7 @@ async def fetch_watch_details(
 
     # Check iembot real-time cache first (populated within seconds of issuance)
     from cogs.iembot import get_cached_watch_text
-    cached_text = get_cached_watch_text(watch_number)
+    cached_text = await get_cached_watch_text(watch_number)
     if cached_text and not text_summary:
         text_summary = cached_text
         logger.info(f"[WATCH] Got text from iembot cache for #{watch_number}")
