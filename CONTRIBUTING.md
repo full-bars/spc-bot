@@ -114,6 +114,10 @@ source. The return value has three distinct states:
 If the NWS API returns `None`, the `/watches` slash command falls back to
 scraping the SPC watch index HTML directly.
 
+### IEMBot Real-Time Feed
+
+`IEMBotCog` polls `weather.im/iembot-json/room/spcchat` every 15 seconds. When a new SEL (watch) or SWOMCD (MD) product appears, the full text is fetched from `mesonet.agron.iastate.edu/api/1/nwstext/{product_id}` and cached in memory for 10 minutes. `fetch_watch_details` and `fetch_md_details` check this cache first, ensuring embeds are populated within seconds of issuance. The last-seen seqnum is persisted to SQLite. The cache is ephemeral and not synced between failover instances.
+
 ### SCP Graphics
 
 Posted at 6am and 6pm Pacific daily, but only if the images have actually
@@ -121,7 +125,7 @@ changed (hash-based detection). Uses `MODELS_CHANNEL_ID`.
 
 ### Sounding Plots
 
-The `/sounding` command geocodes the location, finds nearby RAOB stations that have verified data in the Wyoming archive, and presents an interactive station and time picker. Plots are generated headlessly via SounderPy and posted to the channel where the command was used. Per-user dark mode preference is persisted to the local SQLite database. Auto-posting of soundings is active — when a new 00z or 12z sounding cycle becomes available, the bot checks for active SPC watches and posts soundings for up to 3 nearby RAOB stations per watch to `SPC_CHANNEL_ID`.
+The `/sounding` command geocodes the location, finds nearby RAOB stations that have verified data in the Wyoming archive, and presents an interactive station and time picker. Plots are generated headlessly via SounderPy and posted to the channel where the command was used. Per-user dark mode preference is persisted to the local SQLite database. Auto-posting of soundings is active in two modes: (1) immediately on watch issuance, using the most recent IEM-available sounding time (any hour); (2) at 00z/12z for all active watches. Up to 3 RAOB stations and 2 ACARS profiles per watch. At 00z/12z, Wyoming and IEM are raced simultaneously — whichever returns data first wins.
 
 ### CSU-MLP and NCAR WxNext2
 

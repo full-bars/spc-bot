@@ -45,7 +45,7 @@ IS_PRIMARY = os.getenv("IS_PRIMARY", "true").lower() == "true"
 bot.state.is_primary = IS_PRIMARY
 
 ALL_EXTENSIONS = [
-    "cogs.scp", "cogs.outlooks", "cogs.mesoscale", "cogs.watches",
+    "cogs.iembot", "cogs.scp", "cogs.outlooks", "cogs.mesoscale", "cogs.watches",
     "cogs.status", "cogs.radar", "cogs.csu_mlp", "cogs.ncar",
     "cogs.sounding", "cogs.hodograph",
 ]
