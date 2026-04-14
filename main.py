@@ -217,6 +217,11 @@ import aiohttp
 async def watchdog_task():
     await bot.wait_until_ready()
 
+    # If we are in STANDBY, do not monitor or restart tasks as they
+    # are suppressed by the failover mechanism.
+    if not bot.state.is_primary:
+        return
+
     from utils.http import http_session
 
     session_healthy = False
