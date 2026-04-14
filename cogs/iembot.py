@@ -212,7 +212,10 @@ class IEMBotCog(commands.Cog):
         if self.poll_iembot_feed.is_being_cancelled():
             return
         task = self.poll_iembot_feed.get_task()
-        exc = task.exception() if task else None
+        try:
+            exc = task.exception() if task else None
+        except Exception:
+            exc = None
         if exc:
             logger.error(
                 f"[TASK] poll_iembot_feed stopped: {type(exc).__name__}: {exc}",
