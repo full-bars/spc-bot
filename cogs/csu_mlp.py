@@ -333,7 +333,10 @@ class CSUMLPCog(commands.Cog):
         if self.csu_mlp_daily_poll.is_being_cancelled():
             return
         task = self.csu_mlp_daily_poll.get_task()
-        exc = task.exception() if task else None
+        try:
+            exc = task.exception() if task else None
+        except Exception:
+            exc = None
         if exc:
             logger.error(
                 f"[TASK] csu_mlp_daily_poll stopped: "
