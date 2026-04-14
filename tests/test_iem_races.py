@@ -23,7 +23,7 @@ class TestFetchWatchDetailsRace:
              patch("cogs.watches.fetch_watch_details_iem", new_callable=AsyncMock) as mi:
             mt.return_value = None
             mb.return_value = (None, 404)
-            mi.return_value = (None, None)
+            mi.return_value = (None, None, None)
             from cogs.watches import fetch_watch_details
             result = await fetch_watch_details("0102")
         assert isinstance(result, tuple)
@@ -37,7 +37,7 @@ class TestFetchWatchDetailsRace:
              patch("cogs.watches.fetch_watch_details_iem", new_callable=AsyncMock) as mi:
             mt.return_value = None
             mb.return_value = (None, 404)
-            mi.return_value = ("IEM summary", "http://iem.example/img.png")
+            mi.return_value = ("IEM summary", "http://iem.example/img.png", None)
             from cogs.watches import fetch_watch_details
             image_url, text_summary, probs = await fetch_watch_details("0102")
         assert text_summary == "IEM summary"
@@ -50,7 +50,7 @@ class TestFetchWatchDetailsRace:
              patch("cogs.watches.fetch_watch_details_iem", new_callable=AsyncMock) as mi:
             mt.return_value = None
             mb.return_value = (None, 404)
-            mi.return_value = (None, None)
+            mi.return_value = (None, None, None)
             from cogs.watches import fetch_watch_details
             result = await fetch_watch_details("0102")
         assert result == (None, None, None)
