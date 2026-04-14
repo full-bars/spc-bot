@@ -188,19 +188,27 @@ async def fetch_md_details(
         image_url = f"https://www.spc.noaa.gov/products/md/mcd{md_number}.png"
 
     summary = None
-    concerning = re.search(r"(CONCERNING[^\n<]{10,120})", html, re.IGNORECASE)
-    if concerning:
-        summary = concerning.group(1).strip()
-    else:
-        text_blocks = re.findall(
-            r"<pre[^>]*>(.*?)</pre>", html, re.DOTALL | re.IGNORECASE
-        )
-        for block in text_blocks:
-            clean = re.sub(r"<[^>]+>", "", block).strip()
-            lines = [line.strip() for line in clean.splitlines() if line.strip()]
-            if lines:
-                summary = " ".join(lines[:3])[:200]
-                break
+
+    # Check iembot real-time cache first (populated within seconds of issuance)
+    from cogs.iembot import get_cached_md_text
+    summary = get_cached_md_text(md_number)
+    if summary:
+        logger.info(f"[MD] Got summary from iembot cache for #{md_number}")
+
+    if not summary:
+        concerning = re.search(r"(CONCERNING[^\n<]{10,120})", html, re.IGNORECASE)
+        if concerning:
+            summary = concerning.group(1).strip()
+        else:
+            text_blocks = re.findall(
+                r"<pre[^>]*>(.*?)</pre>", html, re.DOTALL | re.IGNORECASE
+            )
+            for block in text_blocks:
+                clean = re.sub(r"<[^>]+>", "", block).strip()
+                lines = [line.strip() for line in clean.splitlines() if line.strip()]
+                if lines:
+                    summary = " ".join(lines[:3])[:200]
+                    break
 
     return image_url, summary, False
 

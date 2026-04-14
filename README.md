@@ -6,12 +6,12 @@ A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks
 
 * SPC convective outlooks (Day 1, 2, 3, Day 4-8) with dynamic URL resolution
 * SPC mesoscale discussions with cancellation tracking
-* Tornado and severe thunderstorm watch alerts via NWS API
+* Tornado and severe thunderstorm watch alerts via NWS API with IEM iembot real-time feed for sub-second text pre-caching
 * NIU/Gensini CFSv2/GEFS supercell composite parameter (SCP) graphics, twice daily
 * CSU-MLP machine learning severe weather forecasts (Days 1-8 + 6-panel summaries), auto-posted daily with `/csu1`-`/csu8`, `/csupanel12`, and `/csupanel38` slash commands
 * NCAR WxNext2 Mean AI convective hazard forecast (Days 1-8), auto-posted daily with `/wxnext` slash command
 * Observed RAOB sounding plots via SounderPy with `/sounding` — supports city names, radar site codes, and station IDs with interactive station and time selection
-* Auto-posts soundings for RAOB stations near active SPC watches at 00z/12z sounding cycles
+* Auto-posts soundings for RAOB stations near active SPC watches — immediately on watch issuance (any hour via IEM) and at 00z/12z synoptic cycles
 * VWP hodograph generation for any NEXRAD or TDWR site (200 sites) via `/hodograph`, with auto ASOS surface wind and storm parameter table
 * NEXRAD Level 2 radar downloader from NOAA AWS S3
   * Single or multi-site downloads with per-site ZIP packaging
@@ -109,6 +109,7 @@ spc-bot/
 ├── cogs/
 │   ├── outlooks.py          # SPC Day 1-3 and Day 4-8 auto-posting
 │   ├── mesoscale.py         # SPC Mesoscale Discussion monitoring
+│   ├── iembot.py            # IEM iembot feed poller — real-time watch/MD text pre-cache
 │   ├── watches.py           # SPC watch monitoring via NWS API (stores affected_zones)
 │   ├── scp.py               # NIU/Gensini SCP graphics, twice daily
 │   ├── csu_mlp.py           # CSU-MLP consolidated /csu command with Choice dropdown
@@ -138,7 +139,8 @@ spc-bot/
     ├── test_utils.py        # Unit tests for utilities and sounding parsing
     ├── test_watches.py      # Unit tests for watch VTEC parsing
     ├── test_integration.py  # Integration tests: BotState, cog instantiation, function signatures
-    └── test_hodograph.py    # Unit tests for hodograph cog
+    ├── test_hodograph.py    # Unit tests for hodograph cog
+    └── test_iem_races.py    # Tests for IEM/SPC race logic and watch-triggered soundings
 ```
 
 ## Status
