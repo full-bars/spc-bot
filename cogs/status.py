@@ -291,6 +291,7 @@ class StatusCog(commands.Cog):
             "```",
             "═══ SPC/SPC Bot Status ═══",
             f"Host           : {hostname} ({host_ip})",
+            f"Node Role      : {'PRIMARY' if self.bot.state.is_primary else 'STANDBY'}",
             "",
         ]
 
@@ -320,7 +321,10 @@ class StatusCog(commands.Cog):
             "csu_mlp_daily_poll":   "CSU-MLP forecasts",
             "wxnext_daily_poll":    "NCAR WxNext2",
             "watchdog_task":        "watchdog",
-            "periodic_cleanup":      "periodic cache cleanup",
+            "periodic_cleanup":     "periodic cache cleanup",
+            "poll_iembot_feed":     "IEMBot real-time feed",
+            "sync_loop":            "Failover standby sync",
+            "auto_sounding_watches": "Sounding monitor",
         }
         for cog_name, cog in self.bot.cogs.items():
             for task_name in dir(cog):
