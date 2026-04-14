@@ -78,11 +78,29 @@ class TestFetchMdDetailsRace:
         """When SPC fails and no cache, IEM image URL is returned."""
         with patch("cogs.mesoscale.http_get_text", new_callable=AsyncMock) as mt, \
              patch("cogs.mesoscale.fetch_md_details_iem", new_callable=AsyncMock) as mi, \
-             patch("cogs.mesoscale.os.path.exists", return_value=False):
+             patch("cogs.mesoscale.os.path.exists", return_value=False), \
+             patch("cogs.mesoscale.asyncio.create_task") as mct, \
+             patch("cogs.mesoscale.asyncio.wait", new_callable=AsyncMock) as mw:
+            
             mt.return_value = None
             mi.return_value = ("http://iem.example/mcd0398.png", "IEM summary")
+            
+            # Use real Futures for task mocks
+            loop = asyncio.get_running_loop()
+            spc_task = loop.create_future()
+            iem_task = loop.create_future()
+            mct.side_effect = [spc_task, iem_task]
+            
+            # IEM wins immediately
+            iem_task.set_result(mi.return_value)
+            mw.return_value = ({iem_task}, {spc_task})
+            
+            # SPC eventually returns None
+            spc_task.set_result(None)
+            
             from cogs.mesoscale import fetch_md_details
             image_url, summary, from_cache = await fetch_md_details("0398")
+            
         assert image_url == "http://iem.example/mcd0398.png"
         assert from_cache is True
 

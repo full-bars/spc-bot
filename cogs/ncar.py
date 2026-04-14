@@ -107,7 +107,7 @@ class NCARCog(commands.Cog):
             )
             return
         cache_path, _, _ = await download_single_image(
-            url, MANUAL_CACHE_FILE
+            url, MANUAL_CACHE_FILE, self.bot.state.manual_cache
         )
         if not cache_path:
             await interaction.followup.send(
@@ -173,7 +173,7 @@ class NCARCog(commands.Cog):
             return
 
         cache_path, _, _ = await download_single_image(
-            url, MANUAL_CACHE_FILE
+            url, MANUAL_CACHE_FILE, self.bot.state.manual_cache
         )
         if not cache_path:
             logger.warning("[NCAR] Download failed for WxNext2")
@@ -196,7 +196,11 @@ class NCARCog(commands.Cog):
         if self.wxnext_daily_poll.is_being_cancelled():
             return
         task = self.wxnext_daily_poll.get_task()
-        exc = task.exception() if task else None
+        try:
+            exc = task.exception() if task else None
+        except Exception:
+            exc = None
+
         if exc:
             logger.error(
                 f"[TASK] wxnext_daily_poll stopped: {type(exc).__name__}: {exc}",
