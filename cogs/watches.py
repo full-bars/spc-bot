@@ -745,6 +745,10 @@ class WatchesCog(commands.Cog):
     @tasks.loop(minutes=2)
     async def auto_post_watches(self):
         await self.bot.wait_until_ready()
+
+        if not self.bot.state.is_primary:
+            return
+
         if self._watches_backoff.should_skip():
             return
         channel = self.bot.get_channel(SPC_CHANNEL_ID)

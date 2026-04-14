@@ -125,6 +125,8 @@ class TestPostSoundingsForWatch:
         bot = MagicMock()
         bot.state = MagicMock()
         bot.state.active_watches = {}
+        # Use a real dict for cogs so .get() works normally
+        bot.cogs = {}
         return bot
 
     @pytest.mark.asyncio
@@ -167,13 +169,13 @@ class TestPostSoundingsForWatch:
         from cogs.watches import WatchesCog
 
         bot = self._make_bot()
+        bot.state.is_primary = True # MUST be primary to run task
         bot.wait_until_ready = AsyncMock()
         bot.get_channel = MagicMock(return_value=AsyncMock())
 
         mock_sounding_cog = MagicMock()
         mock_sounding_cog.post_soundings_for_watch = AsyncMock()
-        bot.cogs = {"SoundingCog": mock_sounding_cog}
-
+        bot.cogs["SoundingCog"] = mock_sounding_cog
         nws_result = {
             "0102": {
                 "type": "SVR",
@@ -192,7 +194,8 @@ class TestPostSoundingsForWatch:
             cog.auto_post_watches.cancel()
             await cog.auto_post_watches()
 
-        await asyncio.sleep(0)
-        mock_sounding_cog.post_soundings_for_watch.assert_called_once()
+            await asyncio.sleep(0.1)
+            mock_sounding_cog.post_soundings_for_watch.assert_called_once()
+
         call_args = mock_sounding_cog.post_soundings_for_watch.call_args[0]
         assert call_args[0] == "0102"
