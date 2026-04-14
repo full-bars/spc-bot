@@ -39,10 +39,41 @@ class SoundingCog(commands.Cog):
         self._posted_watch_soundings: set = set()  # "watch_num:station:time"
         self.auto_sounding_watches.start()
 
-    def cog_unload(self):
+    async def cog_unload(self):
         self.auto_sounding_watches.cancel()
 
+    async def prewarm_soundings_for_md(self, md_num: str, raw_text: str):
+        """
+        Background task to 'warm' the cache for soundings near an MD.
+        Triggered when MesoscaleCog detects a high probability of watch issuance.
+        """
+        from cogs.sounding_utils import get_md_area_centroid
+        centroid = await get_md_area_centroid(raw_text)
+        if not centroid:
+            logger.debug(f"[SOUNDING-PREWARM] No centroid for MD #{md_num}")
+            return
+
+        lat, lon = centroid
+        logger.info(f"[SOUNDING-PREWARM] Warming cache for MD #{md_num} at {lat:.2f}, {lon:.2f}")
+
+        try:
+            stations_df = await get_raob_stations()
+        except Exception as e:
+            logger.error(f"[SOUNDING-PREWARM] Failed to load station list: {e}")
+            return
+
+        candidates = find_nearest_stations(lat, lon, stations_df, n=4)
+        candidates = [s for s in candidates if s.get("icao") or s.get("wmo")]
+
+        # We don't post, just fetch to fill the internal/disk caches
+        for station in candidates:
+            station_id = station.get("icao") or station.get("wmo")
+            logger.debug(f"[SOUNDING-PREWARM] Pre-fetching IEM availability for {station_id}")
+            # This fills the get_available_sounding_times_iem internal cache
+            await get_available_sounding_times_iem(station_id, hours_back=24, skip_cache=False)
+
     async def post_soundings_for_watch(self, watch_num: str, nws_info: dict, channel):
+
         """
         Triggered immediately when a new watch is posted.
         Finds nearest RAOB stations using the most recent IEM-available sounding

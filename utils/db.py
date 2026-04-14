@@ -86,6 +86,12 @@ async def _create_tables(db: aiosqlite.Connection):
             day_key TEXT PRIMARY KEY,
             urls    TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS product_text_cache (
+            product_id  TEXT PRIMARY KEY,
+            text        TEXT NOT NULL,
+            expires_at  REAL NOT NULL
+        );
     """)
 
 
@@ -430,3 +436,46 @@ async def set_posted_urls(day_key: str, urls: list):
             await db.commit()
     except Exception as e:
         logger.warning(f"[DB] set_posted_urls failed for {day_key}: {e}")
+
+
+# ── Product text cache (IEMBot fast-path) ───────────────────────────────────
+
+async def get_product_cache(product_id: str) -> Optional[str]:
+    """Get cached product text if not expired."""
+    import time
+    try:
+        db = await get_db()
+        now = time.time()
+        # Delete expired entries while we're here
+        async with _LOCK:
+            await db.execute("DELETE FROM product_text_cache WHERE expires_at < ?", (now,))
+            await db.commit()
+
+        async with db.execute(
+            "SELECT text FROM product_text_cache WHERE product_id = ?", (product_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row["text"] if row else None
+    except Exception as e:
+        logger.warning(f"[DB] get_product_cache failed for {product_id}: {e}")
+        return None
+
+
+async def set_product_cache(product_id: str, text: str, ttl: int = 600):
+    """Store product text with a TTL (seconds)."""
+    import time
+    try:
+        expires_at = time.time() + ttl
+        async with _LOCK:
+            db = await get_db()
+            await db.execute(
+                """INSERT INTO product_text_cache (product_id, text, expires_at)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(product_id) DO UPDATE SET 
+                     text=excluded.text, 
+                     expires_at=excluded.expires_at""",
+                (product_id, text, expires_at),
+            )
+            await db.commit()
+    except Exception as e:
+        logger.warning(f"[DB] set_product_cache failed for {product_id}: {e}")
