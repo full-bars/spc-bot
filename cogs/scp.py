@@ -89,7 +89,10 @@ class SCPCog(commands.Cog):
         if self.auto_post_scp.is_being_cancelled():
             return
         task = self.auto_post_scp.get_task()
-        exc = task.exception() if task else None
+        try:
+            exc = task.exception() if task else None
+        except Exception:
+            exc = None
         if exc:
             logger.error(
                 f"[TASK] auto_post_scp stopped: {type(exc).__name__}: {exc}",

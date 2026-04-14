@@ -224,7 +224,10 @@ class OutlooksCog(commands.Cog):
         if self.auto_post_spc.is_being_cancelled():
             return
         task = self.auto_post_spc.get_task()
-        exc = task.exception() if task else None
+        try:
+            exc = task.exception() if task else None
+        except Exception:
+            exc = None
         if exc:
             logger.error(
                 f"[TASK] auto_post_spc stopped: {type(exc).__name__}: {exc}",
@@ -236,7 +239,10 @@ class OutlooksCog(commands.Cog):
         if self.auto_post_spc48.is_being_cancelled():
             return
         task = self.auto_post_spc48.get_task()
-        exc = task.exception() if task else None
+        try:
+            exc = task.exception() if task else None
+        except Exception:
+            exc = None
         if exc:
             logger.error(
                 f"[TASK] auto_post_spc48 stopped: {type(exc).__name__}: {exc}",

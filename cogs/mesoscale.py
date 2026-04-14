@@ -362,7 +362,10 @@ class MesoscaleCog(commands.Cog):
         if self.auto_post_md.is_being_cancelled():
             return
         task = self.auto_post_md.get_task()
-        exc = task.exception() if task else None
+        try:
+            exc = task.exception() if task else None
+        except Exception:
+            exc = None
         if exc:
             logger.error(
                 f"[TASK] auto_post_md stopped due to exception: "
