@@ -54,3 +54,23 @@ class TestFailoverCog:
             assert cog._check_token(request) is True
             request.headers = {"Authorization": "Bearer wrongtoken"}
             assert cog._check_token(request) is False
+
+    @pytest.mark.asyncio
+    async def test_persist_hydrated_state_runs(self):
+        from cogs.failover import FailoverCog
+        bot = make_mock_bot()
+        cog = FailoverCog(bot)
+        bot.state.posted_mds = ["123"]
+        bot.state.csu_posted = ["day1"]
+        # Mocking db functions that are imported inside _persist_hydrated_state
+        with patch("utils.db.add_posted_md", new_callable=AsyncMock) as mock_add_md, \
+             patch("utils.db.add_posted_watch", new_callable=AsyncMock) as mock_add_watch, \
+             patch("utils.db.set_hashes_batch", new_callable=AsyncMock) as mock_set_hashes, \
+             patch("utils.db.set_posted_urls", new_callable=AsyncMock) as mock_set_urls, \
+             patch("utils.db.set_state", new_callable=AsyncMock) as mock_set_state:
+            
+            # This should no longer raise NameError: name 'datetime' is not defined
+            await cog._persist_hydrated_state()
+            
+            assert mock_add_md.called
+            assert mock_set_state.called
