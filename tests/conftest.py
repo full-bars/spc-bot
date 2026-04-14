@@ -28,13 +28,13 @@ async def cleanup_resources():
         from utils.db import close_db
         from utils.http import close_session
         
+        # Give short time for background tasks to start so they can be handled by loop closure
+        await asyncio.sleep(0.01)
+        
         await close_db()
         await close_session()
     except Exception:
         pass
-    
-    # Let any pending callbacks run
-    await asyncio.sleep(0.01)
 
 @pytest.fixture(autouse=True)
 def patch_task_backoff(monkeypatch):

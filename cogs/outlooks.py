@@ -178,6 +178,8 @@ class OutlooksCog(commands.Cog):
     @tasks.loop(seconds=20)
     async def aggressive_check_spc(self):
         await self.bot.wait_until_ready()
+        if not self.bot.state.is_primary:
+            return
         if not self.bot.state.partial_update_state:
             return
         channel = self.bot.get_channel(SPC_CHANNEL_ID)

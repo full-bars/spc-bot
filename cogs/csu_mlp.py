@@ -237,19 +237,22 @@ class CSUMLPCog(commands.Cog):
     @tasks.loop(minutes=10)
     async def csu_mlp_daily_poll(self):
         await self.bot.wait_until_ready()
-        global _posted_today
-        if not _posted_today:
-            _posted_today = await _load_posted_today()
+        
+        # Hydrate from DB if memory is empty
+        if not self.bot.state.csu_posted:
+            db_posted = await _load_posted_today()
+            if db_posted:
+                self.bot.state.csu_posted.update(str(d) for d in db_posted)
 
         now_utc = datetime.now(timezone.utc)
 
         # Reset at 15 UTC daily before products start appearing
         if now_utc.hour == 15 and now_utc.minute < 10:
-            if _posted_today:
+            if self.bot.state.csu_posted:
                 logger.info("[CSU-MLP] Resetting daily posted state")
-                _posted_today.clear()
+                self.bot.state.csu_posted.clear()
                 _availability_log.clear()
-                await _save_posted_today(_posted_today)
+                await _save_posted_today(self.bot.state.csu_posted)
 
         # Only poll 16-23 UTC
         if not (15 <= now_utc.hour < 22):
@@ -261,7 +264,7 @@ class CSUMLPCog(commands.Cog):
             return
 
         for day in range(1, 9):
-            if day in _posted_today:
+            if str(day) in self.bot.state.csu_posted or day in self.bot.state.csu_posted:
                 continue
 
             url, label = await _resolve_best_url(day)
@@ -291,8 +294,8 @@ class CSUMLPCog(commands.Cog):
                     f" (init: {label})",
                     files=[discord.File(cache_path)],
                 )
-                _posted_today.add(day)
-                await _save_posted_today(_posted_today)
+                self.bot.state.csu_posted.add(str(day))
+                await _save_posted_today(self.bot.state.csu_posted)
                 self.bot.state.last_post_times[f"csu_day{day}"] = now_utc
                 logger.info(f"[CSU-MLP] Auto-posted Day {day} ({label})")
             except Exception as e:
@@ -305,7 +308,7 @@ class CSUMLPCog(commands.Cog):
             ("hazards_fcst_6panel", "Days 1-2 Hazard 6-Panel", "panel12"),
             ("severe_fcst_6panel", "Days 3-8 Severe 6-Panel", "panel38"),
         ]:
-            if state_key in _posted_today:
+            if state_key in self.bot.state.csu_posted:
                 continue
             url, label = await _resolve_panel_url(product)
             if not url:
@@ -323,8 +326,8 @@ class CSUMLPCog(commands.Cog):
                     f"**CSU-MLP {label_name}** (init: {label})",
                     files=[discord.File(cache_path)]
                 )
-                _posted_today.add(state_key)
-                await _save_posted_today(_posted_today)
+                self.bot.state.csu_posted.add(state_key)
+                await _save_posted_today(self.bot.state.csu_posted)
                 self.bot.state.last_post_times[f"csu_{state_key}"] = now_utc
                 logger.info(f"[CSU-MLP] Auto-posted {label_name} ({label})")
             except Exception as e:

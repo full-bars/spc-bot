@@ -30,6 +30,13 @@ def make_mock_interaction(bot):
     return interaction
 
 
+@pytest.fixture(autouse=True)
+def global_create_task_patch():
+    """Aggressively patch create_task to prevent any background tasks from hanging integration tests."""
+    with patch("asyncio.create_task", return_value=MagicMock()):
+        yield
+
+
 # ── BotState ─────────────────────────────────────────────────────────────────
 
 class TestBotStateInit:
@@ -78,6 +85,7 @@ class TestWatchesCogIntegration:
         """
         from cogs.watches import WatchesCog
         bot = make_mock_bot()
+        bot.state.is_primary = True
         bot.get_channel = MagicMock(return_value=AsyncMock())
 
         nws_result = {
@@ -91,11 +99,9 @@ class TestWatchesCogIntegration:
         with patch("cogs.watches.fetch_active_watches_nws", new=AsyncMock(return_value=nws_result)), \
              patch("cogs.watches.fetch_watch_details", new=AsyncMock(return_value=(None, None, None))), \
              patch("cogs.watches.download_single_image", new=AsyncMock(return_value=(None, False, None))), \
-             patch("cogs.watches.add_posted_watch", new=AsyncMock()), \
-             patch("cogs.sounding.SoundingCog.post_soundings_for_watch", new=AsyncMock()):
+             patch("cogs.watches.add_posted_watch", new=AsyncMock()):
 
             cog = WatchesCog(bot)
-            bot.cogs["SoundingCog"] = MagicMock() # Ensure it's 'found'
             cog.auto_post_watches.cancel()
             await cog.auto_post_watches()
 
@@ -144,6 +150,7 @@ class TestWatchesCogIntegration:
         """
         from cogs.watches import WatchesCog
         bot = make_mock_bot()
+        bot.state.is_primary = True
         bot.get_channel = MagicMock(return_value=AsyncMock())
         bot.state.posted_watches.add("0100")
 
@@ -156,11 +163,9 @@ class TestWatchesCogIntegration:
         }
 
         with patch("cogs.watches.fetch_active_watches_nws", new=AsyncMock(return_value=nws_result)), \
-             patch("cogs.watches.fetch_watch_details", new=AsyncMock()) as mock_details, \
-             patch("cogs.sounding.SoundingCog.post_soundings_for_watch", new=AsyncMock()):
+             patch("cogs.watches.fetch_watch_details", new=AsyncMock()) as mock_details:
 
             cog = WatchesCog(bot)
-            bot.cogs["SoundingCog"] = MagicMock()
             cog.auto_post_watches.cancel()
             await cog.auto_post_watches()
             mock_details.assert_not_called()
