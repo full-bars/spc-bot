@@ -362,6 +362,13 @@ async def fetch_watch_details(
                 f"[WATCH] No prob pairs parsed for #{watch_number}"
             )
 
+    # Check iembot real-time cache first (populated within seconds of issuance)
+    from cogs.iembot import get_cached_watch_text
+    cached_text = get_cached_watch_text(watch_number)
+    if cached_text and not text_summary:
+        text_summary = cached_text
+        logger.info(f"[WATCH] Got text from iembot cache for #{watch_number}")
+
     # IEM fallback: if SPC page was unreachable, try IEM watches API
     if not html:
         logger.warning(f"[WATCH] SPC unreachable for #{watch_number} — using IEM data")
