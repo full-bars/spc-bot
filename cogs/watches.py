@@ -123,7 +123,7 @@ async def fetch_latest_watch_numbers() -> List[Tuple[str, str]]:
 
 
 
-async def fetch_watch_details_iem(watch_number: str) -> Tuple[Optional[str], Optional[str]]:
+async def fetch_watch_details_iem(watch_number: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
     Fallback: fetch watch details from IEM watches API when SPC is unreachable.
     Uses mesonet.agron.iastate.edu/json/watches.py which has structured data
@@ -178,8 +178,40 @@ async def fetch_watch_details_iem(watch_number: str) -> Tuple[Optional[str], Opt
     except Exception as e:
         logger.warning(f"[WATCH] IEM watches API failed for #{watch_number}: {e}")
 
+    # Build preliminary probs from IEM watches JSON
+    probs = None
+    try:
+        import json as _json_iem2
+        from datetime import datetime, timezone
+        year = datetime.now(timezone.utc).year
+        content2, status2 = await http_get_bytes(
+            f"https://mesonet.agron.iastate.edu/json/watches.py?year={year}",
+            retries=2, timeout=15
+        )
+        if content2 and status2 == 200:
+            data2 = _json_iem2.loads(content2)
+            for event in data2.get("events", []):
+                if event.get("num") == int(watch_number):
+                    prob_lines = ["**Probabilities (preliminary — will update)**"]
+                    tor = event.get("tornadoes_1m_strong", 0)
+                    hail_pct = event.get("hail_1m_2inch", 0)
+                    max_hail = event.get("max_hail_size", 0)
+                    max_wind = event.get("max_wind_gust_knots", 0)
+                    max_wind_mph = round(max_wind * 1.15078) if max_wind else 0
+                    if tor:
+                        prob_lines.append(f"🔴 Sig. tornado (EF2+): **{tor}%**")
+                    if hail_pct:
+                        prob_lines.append(f"🟢 2\"+ hail: **{hail_pct}%** | Max: **{max_hail}\"**")
+                    if max_wind_mph:
+                        prob_lines.append(f"🔵 Max gusts: **{max_wind_mph} mph ({int(max_wind)} kt)**")
+                    if len(prob_lines) > 1:
+                        probs = "\n".join(prob_lines)
+                    break
+    except Exception as e:
+        logger.warning(f"[WATCH] IEM probs fetch failed for #{watch_number}: {e}")
+
     # No image available from IEM — SPC image will be retried separately
-    return text_summary, None
+    return text_summary, None, probs
 
 async def fetch_watch_details(
     watch_number: str,
@@ -372,13 +404,16 @@ async def fetch_watch_details(
     # IEM fallback: if SPC page was unreachable, try IEM watches API
     if not html:
         logger.warning(f"[WATCH] SPC unreachable for #{watch_number} — using IEM data")
-        iem_summary, iem_img = await fetch_watch_details_iem(watch_number)
+        iem_summary, iem_img, iem_probs = await fetch_watch_details_iem(watch_number)
         if iem_summary and not text_summary:
             text_summary = iem_summary
             logger.info(f"[WATCH] Got text from IEM for #{watch_number}")
         if iem_img and not image_url:
             image_url = iem_img
             logger.info(f"[WATCH] Got image from IEM for #{watch_number}")
+        if iem_probs and not probs:
+            probs = iem_probs
+            logger.info(f"[WATCH] Got preliminary probs from IEM for #{watch_number}")
 
     return image_url, text_summary, probs
 
@@ -575,6 +610,60 @@ class WatchesCog(commands.Cog):
     def cog_unload(self):
         self.auto_post_watches.cancel()
 
+    async def _upgrade_watch_embed(self, watch_num: str, message: discord.Message,
+                                    is_tornado: bool, watch_label: str,
+                                    color: discord.Color, expires):
+        """
+        Polls for full SPC watch details (probs + image) and edits the original
+        message once available. Retries every 30s for up to 5 minutes.
+        """
+        for attempt in range(10):
+            await asyncio.sleep(30)
+            try:
+                image_url, text_summary, probs = await fetch_watch_details(watch_num)
+                has_real_probs = probs and "preliminary" not in probs
+                if not has_real_probs and image_url is None:
+                    continue
+
+                cache_path = None
+                if image_url:
+                    cache_path, _, _ = await download_single_image(
+                        image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
+                    )
+
+                embed = discord.Embed(
+                    title=(
+                        f"{'🌪️' if is_tornado else '⛈️'}  "
+                        f"{watch_label} #{int(watch_num)}"
+                    ),
+                    color=color,
+                    timestamp=datetime.now(timezone.utc),
+                )
+                if expires:
+                    embed.add_field(
+                        name="Expires",
+                        value=f"<t:{int(expires.timestamp())}:R>",
+                        inline=True,
+                    )
+                if text_summary:
+                    embed.add_field(name="Details", value=text_summary[:1024], inline=False)
+                if probs:
+                    embed.add_field(name="Probabilities", value=probs[:1024], inline=False)
+                embed.set_footer(text="SPC Watch Monitor")
+                if cache_path:
+                    embed.set_image(url=f"attachment://watch_{watch_num}.gif")
+
+                files = (
+                    [discord.File(cache_path, filename=f"watch_{watch_num}.gif")]
+                    if cache_path else []
+                )
+                await message.edit(embed=embed, attachments=files)
+                logger.info(f"[WATCH] Upgraded embed for #{watch_num} with full SPC data")
+                return
+            except Exception as e:
+                logger.warning(f"[WATCH] Upgrade attempt {attempt+1} failed for #{watch_num}: {e}")
+        logger.info(f"[WATCH] Gave up upgrading embed for #{watch_num} after 5 minutes")
+
     async def post_watch_now(self, watch_num: str, nws_info: dict):
         """
         Immediately post a specific watch if it hasn't been posted yet.
@@ -629,8 +718,11 @@ class WatchesCog(commands.Cog):
                 [discord.File(cache_path, filename=f"watch_{watch_num}.gif")]
                 if cache_path else []
             )
-            await channel.send(embed=embed, files=files)
-            self.bot.state.active_watches[watch_num] = nws_info
+            message = await channel.send(embed=embed, files=files)
+            # Do NOT add to active_watches here — let the NWS API poll
+            # populate it with real expiry/zone data on the next cycle.
+            # Adding partial nws_info now causes false cancellations when
+            # the NWS API hasn't indexed the watch yet.
             self.bot.state.posted_watches.add(watch_num)
             asyncio.create_task(add_posted_watch(str(watch_num)))
             asyncio.create_task(prune_posted_watches())
@@ -640,6 +732,12 @@ class WatchesCog(commands.Cog):
             if sounding_cog and isinstance(nws_info, dict) and nws_info.get("affected_zones"):
                 asyncio.create_task(
                     sounding_cog.post_soundings_for_watch(watch_num, nws_info, channel)
+                )
+            # Schedule upgrade edit once SPC data is available
+            has_prelim = probs and "preliminary" in probs
+            if not cache_path or has_prelim:
+                asyncio.create_task(
+                    self._upgrade_watch_embed(watch_num, message, is_tornado, watch_label, color, expires)
                 )
         except discord.HTTPException as e:
             logger.error(f"[WATCH] iembot-triggered send failed for #{watch_num}: {e}")
