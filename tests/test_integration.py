@@ -17,6 +17,7 @@ def make_mock_bot():
     bot.latency = 0.05
     bot.guilds = []
     bot.wait_until_ready = AsyncMock()
+    bot.cogs = {}
     return bot
 
 
@@ -70,7 +71,6 @@ class TestBotStateInit:
 # ── Watches cog ───────────────────────────────────────────────────────────────
 
 class TestWatchesCogIntegration:
-    @pytest.mark.asyncio
     async def test_auto_post_watches_no_nameerror_on_new_watch(self):
         """
         Simulate a new watch being detected. Ensures the full auto_post_watches
@@ -91,13 +91,14 @@ class TestWatchesCogIntegration:
         with patch("cogs.watches.fetch_active_watches_nws", new=AsyncMock(return_value=nws_result)), \
              patch("cogs.watches.fetch_watch_details", new=AsyncMock(return_value=(None, None, None))), \
              patch("cogs.watches.download_single_image", new=AsyncMock(return_value=(None, False, None))), \
-             patch("cogs.watches.add_posted_watch", new=AsyncMock()):
+             patch("cogs.watches.add_posted_watch", new=AsyncMock()), \
+             patch("cogs.sounding.SoundingCog.post_soundings_for_watch", new=AsyncMock()):
 
             cog = WatchesCog(bot)
+            bot.cogs["SoundingCog"] = MagicMock() # Ensure it's 'found'
             cog.auto_post_watches.cancel()
             await cog.auto_post_watches()
 
-    @pytest.mark.asyncio
     async def test_execute_watches_no_nameerror_on_slash_command(self):
         """
         Simulate /watches being invoked. Ensures _execute_watches executes
@@ -122,7 +123,6 @@ class TestWatchesCogIntegration:
 
             await _execute_watches(interaction, bot)
 
-    @pytest.mark.asyncio
     async def test_execute_watches_no_active_watches(self):
         """
         When NWS API and SPC scrape both return empty, /watches should
@@ -138,7 +138,6 @@ class TestWatchesCogIntegration:
             await _execute_watches(interaction, bot)
             interaction.followup.send.assert_called_once_with("No active watches found.")
 
-    @pytest.mark.asyncio
     async def test_auto_post_watches_skips_already_posted(self):
         """
         If a watch is already in posted_watches, it should not be posted again.
@@ -157,9 +156,11 @@ class TestWatchesCogIntegration:
         }
 
         with patch("cogs.watches.fetch_active_watches_nws", new=AsyncMock(return_value=nws_result)), \
-             patch("cogs.watches.fetch_watch_details", new=AsyncMock()) as mock_details:
+             patch("cogs.watches.fetch_watch_details", new=AsyncMock()) as mock_details, \
+             patch("cogs.sounding.SoundingCog.post_soundings_for_watch", new=AsyncMock()):
 
             cog = WatchesCog(bot)
+            bot.cogs["SoundingCog"] = MagicMock()
             cog.auto_post_watches.cancel()
             await cog.auto_post_watches()
             mock_details.assert_not_called()
@@ -168,7 +169,6 @@ class TestWatchesCogIntegration:
 # ── Outlooks cog ──────────────────────────────────────────────────────────────
 
 class TestOutlooksCogIntegration:
-    @pytest.mark.asyncio
     async def test_check_and_post_day_no_urls_returned(self):
         """
         If get_spc_urls returns empty, check_and_post_day should return
@@ -181,7 +181,6 @@ class TestOutlooksCogIntegration:
         with patch("cogs.outlooks.get_spc_urls", new=AsyncMock(return_value=[])):
             await check_and_post_day(channel, 1, bot.state)
 
-    @pytest.mark.asyncio
     async def test_outlooks_cog_instantiates(self):
         from cogs.outlooks import OutlooksCog
         bot = make_mock_bot()
@@ -189,12 +188,12 @@ class TestOutlooksCogIntegration:
         assert cog.bot.state is not None
         cog.auto_post_spc.cancel()
         cog.aggressive_check_spc.cancel()
+        cog.auto_post_spc48.cancel()
 
 
 # ── Mesoscale cog ─────────────────────────────────────────────────────────────
 
 class TestMesoscaleCogIntegration:
-    @pytest.mark.asyncio
     async def test_mesoscale_cog_instantiates(self):
         from cogs.mesoscale import MesoscaleCog
         bot = make_mock_bot()
