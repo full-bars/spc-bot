@@ -111,6 +111,9 @@ class IEMBotCog(commands.Cog):
     async def poll_iembot_feed(self):
         await self.bot.wait_until_ready()
 
+        if not self.bot.state.is_primary:
+            return
+
         if not self._seqnum_loaded:
             try:
                 val = await get_state("iembot_last_seqnum")
