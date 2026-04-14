@@ -44,29 +44,63 @@ CACHE_DIR = CONFIG["cache_file_dir"]
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 # ── Load Product Logic ────────────────────────────────────────────────────────
-_products_file = os.path.join(os.path.dirname(__file__), "config", "products.json")
-try:
-    with open(_products_file, "r") as f:
-        _P = json.load(f)
-except Exception as e:
-    logger.error(f"Failed to load product config from {_products_file}: {e}")
-    # Minimal hardcoded fallback to prevent complete failure
-    _P = {
-        "spc_schedule": {"1": [1, 6, 13, 20], "2": [2, 13], "3": [3, 15]},
-        "spc_urls_fallback": {},
-        "scp_image_urls": [],
-        "wpc_image_urls": [],
-        "spc_md_index_url": "https://www.spc.noaa.gov/products/md/",
-        "spc_watch_index_url": "https://www.spc.noaa.gov/products/watch/",
-        "spc_valid_watches_url": "https://www.spc.noaa.gov/products/watch/validww.png",
-        "nws_alerts_url": "https://api.weather.gov/alerts/active"
-    }
+# Use absolute path to the root directory
+_base_dir = os.path.dirname(os.path.abspath(__file__))
+_products_file = os.path.join(_base_dir, "config", "products.json")
+
+# Default values if JSON load fails
+_P = {
+    "spc_schedule": {"1": [1, 6, 13, 20], "2": [2, 13], "3": [3, 15]},
+    "spc_outlook_base": "https://www.spc.noaa.gov/products/outlook",
+    "spc_urls_fallback": {
+        "1": [
+            "https://www.spc.noaa.gov/products/outlook/day1otlk.gif",
+            "https://www.spc.noaa.gov/products/outlook/day1probotlk_torn.gif",
+            "https://www.spc.noaa.gov/products/outlook/day1probotlk_wind.gif",
+            "https://www.spc.noaa.gov/products/outlook/day1probotlk_hail.gif"
+        ],
+        "2": [
+            "https://www.spc.noaa.gov/products/outlook/day2otlk.gif",
+            "https://www.spc.noaa.gov/products/outlook/day2probotlk_torn.gif",
+            "https://www.spc.noaa.gov/products/outlook/day2probotlk_wind.gif",
+            "https://www.spc.noaa.gov/products/outlook/day2probotlk_hail.gif"
+        ],
+        "3": [
+            "https://www.spc.noaa.gov/products/outlook/day3otlk.gif",
+            "https://www.spc.noaa.gov/products/outlook/day3prob.gif"
+        ],
+        "48": ["https://www.spc.noaa.gov/products/exper/day4-8/day48prob.gif"]
+    },
+    "scp_image_urls": [
+        "https://atlas.niu.edu/forecast/scp/cfs_week1.png",
+        "https://atlas.niu.edu/forecast/scp/cfs_week2.png",
+        "https://atlas.niu.edu/forecast/scp/cfs_week3.png",
+        "https://atlas.niu.edu/forecast/scp/gefs_week1__CTRL.png",
+        "https://atlas.niu.edu/forecast/scp/gefs_week2__CTRL.png"
+    ],
+    "wpc_image_urls": [
+        "https://www.wpc.ncep.noaa.gov/qpf/94ewbg.gif",
+        "https://www.wpc.ncep.noaa.gov/qpf/98ewbg.gif",
+        "https://www.wpc.ncep.noaa.gov/qpf/99ewbg.gif"
+    ],
+    "spc_md_index_url": "https://www.spc.noaa.gov/products/md/",
+    "spc_watch_index_url": "https://www.spc.noaa.gov/products/watch/",
+    "spc_valid_watches_url": "https://www.spc.noaa.gov/products/watch/validww.png",
+    "nws_alerts_url": "https://api.weather.gov/alerts/active?event=Severe%20Thunderstorm%20Watch,Tornado%20Watch&status=actual"
+}
+
+if os.path.exists(_products_file):
+    try:
+        with open(_products_file, "r") as f:
+            _P.update(json.load(f))
+    except Exception as e:
+        logger.error(f"Failed to load product config from {_products_file}: {e}")
+else:
+    logger.warning(f"Product config file NOT FOUND at {_products_file} — using hardcoded defaults")
 
 # Exported constants used by cogs
-# Convert string keys from JSON to integers for schedule
 SPC_SCHEDULE = {int(k): v for k, v in _P["spc_schedule"].items()}
-SPC_OUTLOOK_BASE = _P.get("spc_outlook_base", "https://www.spc.noaa.gov/products/outlook")
-# Convert string keys from JSON to integers for fallback URLs
+SPC_OUTLOOK_BASE = _P.get("spc_outlook_base")
 SPC_URLS_FALLBACK = {int(k) if k.isdigit() else k: v for k, v in _P["spc_urls_fallback"].items()}
 SPC_URLS = SPC_URLS_FALLBACK
 SCP_IMAGE_URLS = _P["scp_image_urls"]
