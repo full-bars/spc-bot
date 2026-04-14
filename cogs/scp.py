@@ -66,6 +66,7 @@ class SCPCog(commands.Cog):
             files = await download_images_parallel(
                 SCP_IMAGE_URLS,
                 MANUAL_CACHE_FILE,
+                self.bot.state.manual_cache,
                 use_cached=False,
             )
             if files:

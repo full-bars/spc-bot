@@ -162,7 +162,7 @@ class CSUMLPCog(commands.Cog):
             return
 
         cache_path, _, _ = await download_single_image(
-            url, MANUAL_CACHE_FILE
+            url, MANUAL_CACHE_FILE, self.bot.state.manual_cache
         )
         if not cache_path:
             msg = f"Failed to download CSU-MLP Day {day} image."
@@ -208,7 +208,7 @@ class CSUMLPCog(commands.Cog):
             if not url:
                 await interaction.followup.send("CSU-MLP Days 1-2 6-panel isn't available yet. Try after ~11am MT.")
                 return
-            cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE)
+            cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE, self.bot.state.manual_cache)
             if not cache_path:
                 await interaction.followup.send("Failed to download CSU-MLP Days 1-2 6-panel.")
                 return
@@ -221,7 +221,7 @@ class CSUMLPCog(commands.Cog):
             if not url:
                 await interaction.followup.send("CSU-MLP Days 3-8 6-panel isn't available yet. Try after ~11am MT.")
                 return
-            cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE)
+            cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE, self.bot.state.manual_cache)
             if not cache_path:
                 await interaction.followup.send("Failed to download CSU-MLP Days 3-8 6-panel.")
                 return
@@ -278,7 +278,7 @@ class CSUMLPCog(commands.Cog):
                 )
 
             cache_path, _, _ = await download_single_image(
-                url, MANUAL_CACHE_FILE
+                url, MANUAL_CACHE_FILE, self.bot.state.manual_cache
             )
             if not cache_path:
                 logger.warning(f"[CSU-MLP] Download failed for Day {day}")
@@ -314,7 +314,7 @@ class CSUMLPCog(commands.Cog):
                 first_seen = now_utc.strftime("%Y-%m-%d %H:%MZ")
                 _availability_log[state_key] = first_seen
                 logger.info(f"[CSU-MLP] 📊 TIMING LOG — {label_name} first available at {first_seen} ({label})")
-            cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE)
+            cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE, self.bot.state.manual_cache)
             if not cache_path:
                 logger.warning(f"[CSU-MLP] Download failed for {label_name}")
                 continue
