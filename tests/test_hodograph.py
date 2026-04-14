@@ -49,7 +49,6 @@ class TestRadarValidation:
 
 
 class TestGenerateHodograph:
-    @pytest.mark.asyncio
     async def test_timeout_sends_ephemeral_message(self):
         from cogs.hodograph import generate_hodograph
 
@@ -74,7 +73,6 @@ class TestGenerateHodograph:
         assert call_kwargs.kwargs["ephemeral"] is True
         assert "Timed out" in call_kwargs.args[0]
 
-    @pytest.mark.asyncio
     async def test_nonzero_returncode_sends_error(self):
         from cogs.hodograph import generate_hodograph
 
@@ -95,7 +93,6 @@ class TestGenerateHodograph:
         assert call_kwargs.kwargs.get("ephemeral") is True
         assert "Could not generate" in call_kwargs.args[0]
 
-    @pytest.mark.asyncio
     async def test_missing_output_file_sends_error(self):
         from cogs.hodograph import generate_hodograph
 
