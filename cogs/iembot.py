@@ -179,6 +179,15 @@ class IEMBotCog(commands.Cog):
             _watch_text_cache[watch_num] = (text, time.monotonic())
             logger.info(f"[IEMBOT] Cached watch text for #{watch_num}")
 
+        # Determine watch type from raw text
+        wtype = "TORNADO" if re.search(r"Tornado Watch", raw, re.IGNORECASE) else "SVR"
+        nws_info = {"type": wtype, "expires": None, "affected_zones": []}
+
+        # Signal WatchesCog to post immediately
+        watches_cog = self.bot.cogs.get("WatchesCog")
+        if watches_cog:
+            asyncio.create_task(watches_cog.post_watch_now(watch_num, nws_info))
+
     async def _handle_md(self, product_id: str):
         raw = await _fetch_product_text(product_id)
         if not raw:
@@ -192,6 +201,11 @@ class IEMBotCog(commands.Cog):
         if text:
             _md_text_cache[md_num] = (text, time.monotonic())
             logger.info(f"[IEMBOT] Cached MD text for #{md_num}")
+
+        # Signal MesoscaleCog to post immediately
+        mesoscale_cog = self.bot.cogs.get("MesoscaleCog")
+        if mesoscale_cog:
+            asyncio.create_task(mesoscale_cog.post_md_now(md_num))
 
     @poll_iembot_feed.after_loop
     async def after_poll_loop(self):
