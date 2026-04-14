@@ -12,7 +12,7 @@ from discord.ext import commands, tasks
 
 from config import CACHE_DIR, GUILD_ID, TOKEN, CONFIG
 from utils.http import close_session, ensure_session
-from utils.db import check_integrity, close_db, get_db, migrate_from_json
+from utils.db import check_integrity, close_db, get_db
 from utils.state import BotState
 
 # ── Logging setup ────────────────────────────────────────────────────────────
@@ -299,16 +299,35 @@ async def watchdog_task():
 # ── Graceful shutdown ────────────────────────────────────────────────────────
 async def _shutdown():
     logger.info("Shutting down bot gracefully...")
+    
+    # 1. Cancel all managed and background tasks immediately
+    for task, name in MANAGED_TASKS:
+        task.cancel()
+    watchdog_task.cancel()
+    
+    # Also cancel any other pending tasks in the loop
+    all_tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+    for t in all_tasks:
+        t.cancel()
+        
+    if all_tasks:
+        # Wait a very short time for tasks to acknowledges cancellation
+        await asyncio.wait(all_tasks, timeout=2.0)
+
+    # 2. Close connections in parallel
     try:
-        for task, name in MANAGED_TASKS:
-            task.cancel()
-        watchdog_task.cancel()
-    except Exception:
-        pass
-    await close_session()
-    await close_db()
+        await asyncio.wait_for(
+            asyncio.gather(close_session(), close_db(), return_exceptions=True),
+            timeout=3.0
+        )
+    except asyncio.TimeoutError:
+        logger.warning("Shutdown timed out while closing connections")
+    except Exception as e:
+        logger.warning(f"Error during resource cleanup: {e}")
+
+    # 3. Close the bot
     try:
-        await bot.close()
+        await asyncio.wait_for(bot.close(), timeout=2.0)
     except Exception as e:
         logger.warning(f"Error while closing bot: {e}")
 
