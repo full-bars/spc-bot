@@ -101,7 +101,7 @@ else:
 # Exported constants used by cogs
 SPC_SCHEDULE = {int(k): v for k, v in _P["spc_schedule"].items()}
 SPC_OUTLOOK_BASE = _P.get("spc_outlook_base")
-SPC_URLS_FALLBACK = {int(k) if k.isdigit() else k: v for k, v in _P["spc_urls_fallback"].items()}
+SPC_URLS_FALLBACK = {str(k): v for k, v in _P["spc_urls_fallback"].items()}
 SPC_URLS = SPC_URLS_FALLBACK
 SCP_IMAGE_URLS = _P["scp_image_urls"]
 WPC_IMAGE_URLS = _P["wpc_image_urls"]

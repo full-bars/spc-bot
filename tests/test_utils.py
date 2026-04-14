@@ -134,7 +134,6 @@ class TestRadarS3:
 # ── spc_urls tests ───────────────────────────────────────────────────────────
 
 class TestSpcUrls:
-    @pytest.mark.asyncio
     async def test_get_spc_urls_day1_with_tabs(self):
         """Test URL resolution when SPC page has the expected tab structure."""
         from utils.spc_urls import get_spc_urls
@@ -160,7 +159,6 @@ class TestSpcUrls:
         assert "probotlk_1200_wind" in urls[2]
         assert "probotlk_1200_hail" in urls[3]
 
-    @pytest.mark.asyncio
     async def test_get_spc_urls_day3_with_tabs(self):
         from utils.spc_urls import get_spc_urls
 
@@ -181,7 +179,6 @@ class TestSpcUrls:
         assert "day3otlk_0730.png" in urls[0]
         assert "day3prob_0730.png" in urls[1]
 
-    @pytest.mark.asyncio
     async def test_get_spc_urls_fetch_failure(self):
         from utils.spc_urls import get_spc_urls
 
@@ -194,7 +191,6 @@ class TestSpcUrls:
 
         assert urls == []
 
-    @pytest.mark.asyncio
     async def test_get_spc_urls_no_tabs_found(self):
         from utils.spc_urls import get_spc_urls
 
@@ -313,25 +309,23 @@ class TestCSUMLPUrls:
         url = _build_panel_url("severe_fcst_6panel", date)
         assert "severe_fcst_6panel_040812.png" in url
 
-    def test_load_posted_today_missing_file(self):
+    async def test_load_posted_today_missing_file(self):
         from unittest.mock import AsyncMock, patch
         with patch("cogs.csu_mlp.get_state", new=AsyncMock(return_value=None)):
             from cogs.csu_mlp import _load_posted_today
-            import asyncio
-            result = asyncio.run(_load_posted_today())
+            result = await _load_posted_today()
         assert result == set()
 
-    def test_load_posted_today_stale_date(self):
+    async def test_load_posted_today_stale_date(self):
         import json
         from unittest.mock import AsyncMock, patch
         value = json.dumps({"date": "2020-01-01", "days": [1, 2, 3]})
         with patch("cogs.csu_mlp.get_state", new=AsyncMock(return_value=value)):
             from cogs.csu_mlp import _load_posted_today
-            import asyncio
-            result = asyncio.run(_load_posted_today())
+            result = await _load_posted_today()
         assert result == set()
 
-    def test_load_posted_today_current_date(self):
+    async def test_load_posted_today_current_date(self):
         import json
         from datetime import datetime, timezone
         from unittest.mock import AsyncMock, patch
@@ -339,8 +333,7 @@ class TestCSUMLPUrls:
         value = json.dumps({"date": today, "days": [1, 2, "panel12"]})
         with patch("cogs.csu_mlp.get_state", new=AsyncMock(return_value=value)):
             from cogs.csu_mlp import _load_posted_today
-            import asyncio
-            result = asyncio.run(_load_posted_today())
+            result = await _load_posted_today()
         assert 1 in result
         assert 2 in result
         assert "panel12" in result
@@ -367,39 +360,35 @@ class TestNCARWxNext:
         url = _wxnext_url(date)
         assert "2026010100.png" in url
 
-    def test_load_state_missing_file(self):
+    async def test_load_state_missing_file(self):
         from unittest.mock import AsyncMock, patch
         with patch("cogs.ncar.get_state", new=AsyncMock(return_value=None)):
             from cogs.ncar import _load_state
-            import asyncio
-            result = asyncio.run(_load_state())
+            result = await _load_state()
         assert result == {}
 
-    def test_load_state_valid(self):
+    async def test_load_state_valid(self):
         import json
         from unittest.mock import AsyncMock, patch
         value = json.dumps({"date": "2026-04-08", "hash": "abc123"})
         with patch("cogs.ncar.get_state", new=AsyncMock(return_value=value)):
             from cogs.ncar import _load_state
-            import asyncio
-            result = asyncio.run(_load_state())
+            result = await _load_state()
         assert result["date"] == "2026-04-08"
         assert result["hash"] == "abc123"
 
-    def test_load_state_corrupt(self):
+    async def test_load_state_corrupt(self):
         from unittest.mock import AsyncMock, patch
         with patch("cogs.ncar.get_state", new=AsyncMock(return_value="not json {{{")):
             from cogs.ncar import _load_state
-            import asyncio
-            result = asyncio.run(_load_state())
+            result = await _load_state()
         assert result == {}
 
-    def test_save_state(self):
+    async def test_save_state(self):
         from unittest.mock import AsyncMock, patch
         with patch("cogs.ncar.set_state", new=AsyncMock()):
             from cogs.ncar import _save_state
-            import asyncio
-            asyncio.run(_save_state("2026-04-08", "hashvalue123"))
+            await _save_state("2026-04-08", "hashvalue123")
         assert True
 
 # ── sounding_utils tests ──────────────────────────────────────────────────────
@@ -467,21 +456,18 @@ class TestSoundingUtils:
             assert len(month) == 2
             assert len(day) == 2
 
-    def test_user_dark_mode_prefs(self):
+    async def test_user_dark_mode_prefs(self):
         from unittest.mock import AsyncMock, patch
         from cogs.sounding_utils import get_user_dark_mode
         # Default (no entry) should be False
         with patch("cogs.sounding_utils.get_state", new=AsyncMock(return_value=None)):
-            import asyncio
-            assert asyncio.run(get_user_dark_mode(12345)) is False
+            assert await get_user_dark_mode(12345) is False
         # Entry "1" should be True
         with patch("cogs.sounding_utils.get_state", new=AsyncMock(return_value="1")):
-            import asyncio
-            assert asyncio.run(get_user_dark_mode(12345)) is True
+            assert await get_user_dark_mode(12345) is True
         # Entry "0" should be False
         with patch("cogs.sounding_utils.get_state", new=AsyncMock(return_value="0")):
-            import asyncio
-            assert asyncio.run(get_user_dark_mode(12345)) is False
+            assert await get_user_dark_mode(12345) is False
 
     def test_plot_path_format(self):
         from cogs.sounding_views import _plot_path
