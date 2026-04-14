@@ -41,6 +41,86 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot.state = BotState()
 
+async def setup_hook():
+    """Hydrate state from DB before any cogs are loaded."""
+    from utils.db import (
+        check_integrity, get_db, migrate_from_json,
+        get_all_hashes, get_posted_urls, get_posted_mds, get_posted_watches,
+        get_state
+    )
+    import json as _json
+
+    # Initialize database
+    db_ok = await check_integrity()
+    if not db_ok:
+        logger.warning("[DB] Database integrity check failed — recreating")
+        db_path = os.path.join(CACHE_DIR, "bot_state.db")
+        if os.path.exists(db_path):
+            os.rename(db_path, db_path + ".corrupted")
+        await get_db()
+    await migrate_from_json()
+
+    # Restore in-memory caches from DB
+    db_auto = await get_all_hashes("auto")
+    if db_auto:
+        bot.state.auto_cache.update(db_auto)
+        logger.info(f"[DB] Loaded {len(db_auto)} auto hashes into cache")
+
+    db_manual = await get_all_hashes("manual")
+    if db_manual:
+        bot.state.manual_cache.update(db_manual)
+        logger.info(f"[DB] Loaded {len(db_manual)} manual hashes into cache")
+
+    db_mds = await get_posted_mds()
+    if db_mds:
+        bot.state.posted_mds.update(db_mds)
+        logger.info(f"[DB] Loaded {len(db_mds)} posted MDs into cache")
+
+    db_watches = await get_posted_watches()
+    if db_watches:
+        bot.state.posted_watches.update(db_watches)
+        logger.info(f"[DB] Loaded {len(db_watches)} posted watches into cache")
+
+    # CSU state
+    csu_raw = await get_state("csu_mlp_posted")
+    if csu_raw:
+        try:
+            csu_data = _json.loads(csu_raw)
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            if csu_data.get("date") == today:
+                bot.state.csu_posted.update(str(d) for d in csu_data.get("days", []))
+                logger.info(f"[DB] Restored {len(bot.state.csu_posted)} CSU posted days")
+        except Exception:
+            pass
+
+    for day_key in ["day1", "day2", "day3"]:
+        urls = await get_posted_urls(day_key)
+        if urls:
+            bot.state.last_posted_urls[day_key] = urls
+            logger.info(f"[DB] Restored posted URLs for {day_key}")
+    logger.info("[DB] Database ready")
+
+    # Load failover cog first
+    await bot.load_extension("cogs.failover")
+    if IS_PRIMARY:
+        for ext in ALL_EXTENSIONS:
+            await bot.load_extension(ext)
+    else:
+        logger.info("[FAILOVER] Running as STANDBY — cogs suppressed until promoted")
+
+    # Register cog tasks with watchdog after loading
+    for cog in bot.cogs.values():
+        if hasattr(cog, "MANAGED_TASK_NAMES"):
+            for task_attr, display_name in cog.MANAGED_TASK_NAMES:
+                task = getattr(cog, task_attr, None)
+                if task and isinstance(task, tasks.Loop):
+                    MANAGED_TASKS.append((task, display_name))
+                    logger.debug(f"[WATCHDOG] Registered task '{display_name}' from {type(cog).__name__}")
+
+    watchdog_task.start()
+
+bot.setup_hook = setup_hook
+
 IS_PRIMARY = os.getenv("IS_PRIMARY", "true").lower() == "true"
 bot.state.is_primary = IS_PRIMARY
 
@@ -94,99 +174,9 @@ async def on_ready():
 
     await ensure_session()
 
-    # Initialize database
-    db_ok = await check_integrity()
-    if not db_ok:
-        logger.warning("[DB] Database integrity check failed — recreating")
-        import os
-        from config import CACHE_DIR
-        db_path = os.path.join(CACHE_DIR, "bot_state.db")
-        if os.path.exists(db_path):
-            os.rename(db_path, db_path + ".corrupted")
-        await get_db()
-    await migrate_from_json()
-
-    # Restore in-memory caches from DB
-    from utils.db import get_all_hashes, get_posted_urls, get_posted_mds, get_posted_watches
-    db_auto = await get_all_hashes("auto")
-    if db_auto:
-        bot.state.auto_cache.update(db_auto)
-        logger.info(f"[DB] Loaded {len(db_auto)} auto hashes into cache")
-
-    db_manual = await get_all_hashes("manual")
-    if db_manual:
-        bot.state.manual_cache.update(db_manual)
-        logger.info(f"[DB] Loaded {len(db_manual)} manual hashes into cache")
-
-    db_mds = await get_posted_mds()
-    if db_mds:
-        bot.state.posted_mds.update(db_mds)
-        logger.info(f"[DB] Loaded {len(db_mds)} posted MDs into cache")
-
-    db_watches = await get_posted_watches()
-    if db_watches:
-        bot.state.posted_watches.update(db_watches)
-        logger.info(f"[DB] Loaded {len(db_watches)} posted watches into cache")
-
-    # CSU state
-    csu_raw = await get_state("csu_mlp_posted")
-    if csu_raw:
-        try:
-            csu_data = json.loads(csu_raw)
-            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            if csu_data.get("date") == today:
-                bot.state.csu_posted.update(str(d) for d in csu_data.get("days", []))
-                logger.info(f"[DB] Restored {len(bot.state.csu_posted)} CSU posted days")
-        except Exception:
-            pass
-
-    for day_key in ["day1", "day2", "day3"]:
-        urls = await get_posted_urls(day_key)
-        if urls:
-            bot.state.last_posted_urls[day_key] = urls
-            logger.info(f"[DB] Restored posted URLs for {day_key}")
-    logger.info("[DB] Database ready")
-
-
-
-
-
     # Slash command sync
     try:
-        logger.info(
-            f"Checking for old guild-specific commands "
-            f"in guild {GUILD_ID}..."
-        )
-        try:
-            guild_obj = discord.Object(id=GUILD_ID)
-            guild_commands = await bot.tree.fetch_commands(guild=guild_obj)
-            if guild_commands:
-                logger.info(
-                    f"Found {len(guild_commands)} old guild command(s), "
-                    f"removing them..."
-                )
-                for cmd in guild_commands:
-                    try:
-                        await bot.http.delete_guild_command(
-                            bot.application_id, GUILD_ID, cmd.id
-                        )
-                        logger.info(
-                            f"Deleted old guild command: /{cmd.name}"
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            f"Could not delete guild command "
-                            f"/{cmd.name}: {e}"
-                        )
-                await bot.tree.sync(guild=guild_obj)
-            else:
-                logger.info("No old guild commands found")
-        except Exception as e:
-            logger.warning(
-                f"Could not remove guild commands cleanly: {e}"
-            )
-
-        if IS_PRIMARY:
+        if bot.state.is_primary:
             try:
                 logger.info("Syncing command tree globally...")
                 synced = await bot.tree.sync()
@@ -347,24 +337,6 @@ async def main():
             _setup_signal_handlers(asyncio.get_running_loop())
         except Exception as e:
             logger.warning(f"Could not set up signal handlers: {e}")
-
-        await bot.load_extension("cogs.failover")
-        if IS_PRIMARY:
-            for ext in ALL_EXTENSIONS:
-                await bot.load_extension(ext)
-        else:
-            logger.info("[FAILOVER] Running as STANDBY — cogs suppressed until promoted")
-
-        # Register cog tasks with watchdog after loading
-        for cog in bot.cogs.values():
-            if hasattr(cog, "MANAGED_TASK_NAMES"):
-                for task_attr, display_name in cog.MANAGED_TASK_NAMES:
-                    task = getattr(cog, task_attr, None)
-                    if task and isinstance(task, tasks.Loop):
-                        MANAGED_TASKS.append((task, display_name))
-                        logger.debug(f"[WATCHDOG] Registered task '{display_name}' from {type(cog).__name__}")
-
-        watchdog_task.start()
 
         await bot.start(TOKEN)
 
