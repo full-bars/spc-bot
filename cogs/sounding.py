@@ -34,6 +34,8 @@ logger = logging.getLogger("spc_bot")
 
 
 class SoundingCog(commands.Cog):
+    MANAGED_TASK_NAMES = [("auto_sounding_watches", "auto_sounding_watches")]
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._posted_watch_soundings: set = set()  # "watch_num:station:time"

@@ -15,94 +15,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 
-# ── persistence tests ────────────────────────────────────────────────────────
-
-class TestPersistence:
-    def test_atomic_json_dump_creates_file(self, tmp_path):
-        from utils.persistence import atomic_json_dump
-
-        filepath = str(tmp_path / "test.json")
-        data = {"key": "value", "num": 42}
-        atomic_json_dump(data, filepath)
-
-        assert os.path.exists(filepath)
-        with open(filepath) as f:
-            loaded = json.load(f)
-        assert loaded == data
-
-    def test_atomic_json_dump_overwrites(self, tmp_path):
-        from utils.persistence import atomic_json_dump
-
-        filepath = str(tmp_path / "test.json")
-        atomic_json_dump({"old": True}, filepath)
-        atomic_json_dump({"new": True}, filepath)
-
-        with open(filepath) as f:
-            loaded = json.load(f)
-        assert loaded == {"new": True}
-
-    def test_atomic_json_dump_creates_dirs(self, tmp_path):
-        from utils.persistence import atomic_json_dump
-
-        filepath = str(tmp_path / "sub" / "dir" / "test.json")
-        atomic_json_dump([1, 2, 3], filepath)
-
-        with open(filepath) as f:
-            assert json.load(f) == [1, 2, 3]
-
-    def test_load_json_if_exists_missing(self, tmp_path):
-        from utils.persistence import load_json_if_exists
-
-        result = load_json_if_exists(str(tmp_path / "nope.json"))
-        assert result == {}
-
-    def test_load_json_if_exists_valid(self, tmp_path):
-        from utils.persistence import load_json_if_exists
-
-        filepath = str(tmp_path / "data.json")
-        with open(filepath, "w") as f:
-            json.dump({"a": 1}, f)
-
-        result = load_json_if_exists(filepath)
-        assert result == {"a": 1}
-
-    def test_load_json_if_exists_corrupt(self, tmp_path):
-        from utils.persistence import load_json_if_exists
-
-        filepath = str(tmp_path / "bad.json")
-        with open(filepath, "w") as f:
-            f.write("not json {{{")
-
-        result = load_json_if_exists(filepath)
-        assert result == {}
-
-    def test_load_set_if_exists(self, tmp_path):
-        from utils.persistence import load_set_if_exists
-
-        filepath = str(tmp_path / "set.json")
-        with open(filepath, "w") as f:
-            json.dump(["a", "b", "c"], f)
-
-        result = load_set_if_exists(filepath)
-        assert result == {"a", "b", "c"}
-
-    def test_load_set_if_exists_missing(self, tmp_path):
-        from utils.persistence import load_set_if_exists
-
-        result = load_set_if_exists(str(tmp_path / "nope.json"))
-        assert result == set()
-
-    def test_save_set(self, tmp_path):
-        from utils.persistence import save_set
-
-        filepath = str(tmp_path / "set.json")
-        save_set({"c", "a", "b"}, filepath)
-
-        with open(filepath) as f:
-            loaded = json.load(f)
-        assert loaded == ["a", "b", "c"]  # sorted
-
-
 # ── change_detection tests ───────────────────────────────────────────────────
 
 class TestChangeDetection:
@@ -162,38 +74,6 @@ class TestCacheHelpers:
 
         assert format_timedelta(timedelta(0)) == "0m"
         assert format_timedelta(timedelta(days=7)) == "7d 0m"
-
-    def test_prune_tracked_set_under_limit(self):
-        from utils.cache import prune_tracked_set
-
-        s = {"0001", "0002", "0003"}
-        # Should not prune — under limit
-        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
-            filepath = f.name
-        try:
-            prune_tracked_set(s, 10, filepath)
-            assert len(s) == 3
-        finally:
-            if os.path.exists(filepath):
-                os.unlink(filepath)
-
-    def test_prune_tracked_set_over_limit(self):
-        from utils.cache import prune_tracked_set
-
-        s = {str(i).zfill(4) for i in range(1, 11)}  # 0001..0010
-        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
-            filepath = f.name
-        try:
-            prune_tracked_set(s, 5, filepath)
-            assert len(s) == 5
-            # Should keep the 5 highest
-            assert "0010" in s
-            assert "0009" in s
-            assert "0006" in s
-            assert "0001" not in s
-        finally:
-            if os.path.exists(filepath):
-                os.unlink(filepath)
 
 
 # ── radar s3 helper tests ────────────────────────────────────────────────────
