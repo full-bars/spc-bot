@@ -322,11 +322,18 @@ class StatusCog(commands.Cog):
             "wxnext_daily_poll":    "NCAR WxNext2",
             "watchdog_task":        "watchdog",
             "periodic_cleanup":     "periodic cache cleanup",
-            "poll_iembot_feed":     "IEMBot real-time feed",
+            "listen_to_iembot":     "IEMBot SSE feed",
             "sync_loop":            "Failover standby sync",
             "auto_sounding_watches": "Sounding monitor",
         }
         for cog_name, cog in self.bot.cogs.items():
+            # Special check for IEMBot SSE listener which isn't a tasks.Loop
+            if cog_name == "IEMBotCog":
+                listener = getattr(cog, "_listener_task", None)
+                status = "running" if listener and not listener.done() else "STOPPED"
+                lines.append(f"  {'IEMBot SSE feed':<35} {status}")
+                continue
+
             for task_name in dir(cog):
                 task = getattr(cog, task_name, None)
                 if isinstance(task, tasks.Loop):

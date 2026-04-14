@@ -18,6 +18,7 @@ CONFIG = {
     "token": os.getenv("DISCORD_TOKEN"),
     "models_channel_id": _require_int("MODELS_CHANNEL_ID"),
     "spc_channel_id": _require_int("SPC_CHANNEL_ID"),
+    "sounding_channel_id": int(os.getenv("SOUNDING_CHANNEL_ID") or os.getenv("SPC_CHANNEL_ID")),
     "manual_cache_file": os.getenv("MANUAL_CACHE_FILE", "posted_records.json"),
     "auto_cache_file": os.getenv("AUTO_CACHE_FILE", "auto_posted_records.json"),
     "guild_id": _require_int("GUILD_ID"),
@@ -31,6 +32,7 @@ if not CONFIG["token"]:
 TOKEN = CONFIG["token"]
 MODELS_CHANNEL_ID = CONFIG["models_channel_id"]
 SPC_CHANNEL_ID = CONFIG["spc_channel_id"]
+SOUNDING_CHANNEL_ID = CONFIG["sounding_channel_id"]
 MANUAL_CACHE_FILE = os.path.join(CONFIG["cache_file_dir"], CONFIG["manual_cache_file"])
 AUTO_CACHE_FILE = os.path.join(CONFIG["cache_file_dir"], CONFIG["auto_cache_file"])
 GUILD_ID = CONFIG["guild_id"]

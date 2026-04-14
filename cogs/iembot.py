@@ -1,7 +1,7 @@
 # cogs/iembot.py
 """
 IEMBot feed poller — fetches SPC watch and MD text products in real-time
-from the IEM iembot JSON feed (weather.im/iembot-json/room/spcchat).
+from the IEM iembot SSE feed (weather.im/iembot-sse/room/spcchat).
 
 Provides a fast-path data source delivering watch/MD text within seconds
 of issuance, before SPC website or NWS API have caught up.
@@ -26,7 +26,7 @@ from utils.http import http_get_bytes
 
 logger = logging.getLogger("spc_bot")
 
-IEMBOT_FEED_URL = "https://weather.im/iembot-json/room/spcchat"
+IEMBOT_SSE_URL = "https://weather.im/iembot-sse/room/spcchat"
 IEM_NWSTEXT_URL = "https://mesonet.agron.iastate.edu/api/1/nwstext/{product_id}"
 CACHE_TTL = 600  # 10 minutes
 
@@ -102,13 +102,19 @@ class IEMBotCog(commands.Cog):
         self.bot = bot
         self._last_seqnum: int = 0
         self._seqnum_loaded = False
-        self.poll_iembot_feed.start()
+        self._listener_task: Optional[asyncio.Task] = None
+        self._running = True
 
-    def cog_unload(self):
-        self.poll_iembot_feed.cancel()
+    async def cog_load(self):
+        self._listener_task = asyncio.create_task(self.listen_to_iembot())
 
-    @tasks.loop(seconds=15)
-    async def poll_iembot_feed(self):
+    async def cog_unload(self):
+        self._running = False
+        if self._listener_task:
+            self._listener_task.cancel()
+
+    async def listen_to_iembot(self):
+        """Persistent SSE listener for IEM iembot feed."""
         await self.bot.wait_until_ready()
 
         if not self._seqnum_loaded:
@@ -121,40 +127,69 @@ class IEMBotCog(commands.Cog):
                 logger.warning(f"[IEMBOT] Could not load seqnum: {e}")
             self._seqnum_loaded = True
 
-        try:
-            import json as _json
-            url = f"{IEMBOT_FEED_URL}?seqnum={self._last_seqnum}"
-            content, status = await http_get_bytes(url, retries=2, timeout=10)
-            if not content or status != 200:
-                return
+        import json as _json
+        import aiohttp
 
-            data = _json.loads(content)
-            messages = data.get("messages", [])
-            if not messages:
-                return
+        backoff = 5
+        while self._running:
+            try:
+                url = f"{IEMBOT_SSE_URL}?seqnum={self._last_seqnum}"
+                logger.info(f"[IEMBOT] Connecting to SSE: {url}")
 
-            new_seqnum = self._last_seqnum
-            for msg in messages:
-                seqnum = msg.get("seqnum", 0)
-                if seqnum <= self._last_seqnum:
-                    continue
-                new_seqnum = max(new_seqnum, seqnum)
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=None, sock_read=300)) as session:
+                    async with session.get(url) as response:
+                        if response.status != 200:
+                            logger.warning(f"[IEMBOT] SSE connection failed: {response.status}")
+                            await asyncio.sleep(backoff)
+                            backoff = min(backoff * 2, 60)
+                            continue
 
-                product_id = msg.get("product_id", "")
-                if not product_id:
-                    continue
+                        backoff = 5  # Reset backoff on success
+                        async for line in response.content:
+                            if not self._running:
+                                break
 
-                if "WWUS20-SEL" in product_id or "WWUS40-SEL" in product_id:
-                    asyncio.create_task(self._handle_watch(product_id))
-                elif "ACUS11-SWOMCD" in product_id:
-                    asyncio.create_task(self._handle_md(product_id))
+                            line_str = line.decode("utf-8").strip()
+                            if not line_str.startswith("data:"):
+                                continue
 
-            if new_seqnum > self._last_seqnum:
-                self._last_seqnum = new_seqnum
-                asyncio.create_task(set_state("iembot_last_seqnum", str(new_seqnum)))
+                            try:
+                                data = _json.loads(line_str[5:].strip())
+                                # IEM SSE sometimes returns messages in a list or single object
+                                messages = data if isinstance(data, list) else [data]
 
-        except Exception as e:
-            logger.warning(f"[IEMBOT] Poll error: {e}")
+                                for msg in messages:
+                                    seqnum = msg.get("seqnum", 0)
+                                    if seqnum <= self._last_seqnum:
+                                        continue
+                                    self._last_seqnum = max(self._last_seqnum, seqnum)
+
+                                    product_id = msg.get("product_id", "")
+                                    if not product_id:
+                                        continue
+
+                                    if "WWUS20-SEL" in product_id or "WWUS40-SEL" in product_id:
+                                        asyncio.create_task(self._handle_watch(product_id))
+                                    elif "ACUS11-SWOMCD" in product_id:
+                                        asyncio.create_task(self._handle_md(product_id))
+
+                                # Persist seqnum after each valid batch
+                                asyncio.create_task(set_state("iembot_last_seqnum", str(self._last_seqnum)))
+
+                            except _json.JSONDecodeError:
+                                continue
+                            except Exception as e:
+                                logger.error(f"[IEMBOT] Error processing SSE line: {e}")
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                if self._running:
+                    logger.warning(f"[IEMBOT] SSE loop error: {e}. Reconnecting in {backoff}s...")
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, 60)
+
+        logger.info("[IEMBOT] SSE listener stopped")
 
     async def _handle_watch(self, product_id: str):
         raw = await _fetch_product_text(product_id)
@@ -197,21 +232,6 @@ class IEMBotCog(commands.Cog):
         mesoscale_cog = self.bot.cogs.get("MesoscaleCog")
         if mesoscale_cog:
             asyncio.create_task(mesoscale_cog.post_md_now(md_num))
-
-    @poll_iembot_feed.after_loop
-    async def after_poll_loop(self):
-        if self.poll_iembot_feed.is_being_cancelled():
-            return
-        task = self.poll_iembot_feed.get_task()
-        try:
-            exc = task.exception() if task else None
-        except Exception:
-            exc = None
-        if exc:
-            logger.error(
-                f"[TASK] poll_iembot_feed stopped: {type(exc).__name__}: {exc}",
-                exc_info=exc,
-            )
 
 
 async def setup(bot: commands.Bot):
