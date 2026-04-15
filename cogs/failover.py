@@ -125,7 +125,6 @@ class FailoverCog(commands.Cog):
     # ── Cloudflare tunnel ─────────────────────────────────────────────────
 
     async def _start_tunnel(self):
-        loop = asyncio.get_event_loop()
         try:
             self._tunnel_proc = await asyncio.create_subprocess_exec(
                 "cloudflared", "tunnel", "--url", f"http://localhost:{STATE_PORT}",
