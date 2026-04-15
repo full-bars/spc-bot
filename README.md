@@ -94,13 +94,12 @@ spc-bot/
 ├── main.py                  # Bot entrypoint, watchdog, signal handling
 ├── deploy.sh                # One-command deployment script
 ├── install-hooks.sh         # Installs pre-push git hooks (syntax + test checks)
-├── config.py                # Configuration from environment variables
+├── config.py                # Configuration and centralized URL constants
 ├── requirements.txt         # Python dependencies
 ├── .env.example             # Template for required environment variables
 ├── CREDITS.md               # Third-party attributions
 ├── utils/
-│   ├── http.py              # Async HTTP session management
-│   ├── persistence.py       # Atomic JSON load/save helpers
+│   ├── http.py              # Async HTTP session management (centralized pooling)
 │   ├── change_detection.py  # HEAD-based change detection, hashing
 │   ├── cache.py             # Download orchestration, legacy globals (deprecated)
 │   ├── state.py             # BotState class — single source of truth for in-memory state
