@@ -133,20 +133,24 @@ class FailoverCog(commands.Cog):
             )
             # Read stderr to find the tunnel URL (cloudflared logs to stderr)
             async def _read_url():
-                while True:
-                    line = await self._tunnel_proc.stderr.readline()
-                    if not line:
-                        break
-                    text = line.decode()
-                    if "https://" in text and "trycloudflare.com" in text:
-                        for word in text.split():
-                            if word.startswith("https://") and "trycloudflare.com" in word:
-                                url = word.strip().rstrip("|").strip()
-                                self._tunnel_url = url
-                                self._ready = True
-                                logger.info(f"[FAILOVER] Tunnel URL: {self._tunnel_url}")
-                                await self._write_url_to_upstash(self._tunnel_url)
-                                return
+                try:
+                    while True:
+                        line = await self._tunnel_proc.stderr.readline()
+                        if not line:
+                            break
+                        text = line.decode()
+                        if "https://" in text and "trycloudflare.com" in text:
+                            for word in text.split():
+                                if word.startswith("https://") and "trycloudflare.com" in word:
+                                    url = word.strip().rstrip("|").strip()
+                                    self._tunnel_url = url
+                                    self._ready = True
+                                    logger.info(f"[FAILOVER] Tunnel URL: {self._tunnel_url}")
+                                    await self._write_url_to_upstash(self._tunnel_url)
+                                    return
+                except Exception as e:
+                    logger.error(f"[FAILOVER] Tunnel log reader error: {e}")
+
             asyncio.create_task(_read_url())
         except FileNotFoundError:
             logger.error("[FAILOVER] cloudflared not found — tunnel disabled")
@@ -235,7 +239,6 @@ class FailoverCog(commands.Cog):
         return None
 
     def _hydrate(self, data: dict):
-        from datetime import datetime, timezone
         if "posted_mds" in data:
             self.bot.state.posted_mds.update(str(m) for m in data["posted_mds"])
         if "posted_watches" in data:
@@ -316,13 +319,14 @@ class FailoverCog(commands.Cog):
         """Push accumulated state to primary then demote."""
         logger.info("[FAILOVER] Primary back online — syncing state and demoting")
         try:
-            async with aiohttp.ClientSession() as session:
-                await session.post(
-                    f"{primary_url}/sync",
-                    headers={"Authorization": f"Bearer {FAILOVER_TOKEN}"},
-                    json=self.bot.state.to_dict(),
-                    timeout=aiohttp.ClientTimeout(total=10),
-                )
+            from utils.http import ensure_session
+            session = await ensure_session()
+            await session.post(
+                f"{primary_url}/sync",
+                headers={"Authorization": f"Bearer {FAILOVER_TOKEN}"},
+                json=self.bot.state.to_dict(),
+                timeout=aiohttp.ClientTimeout(total=10),
+            )
             logger.info("[FAILOVER] Pushed state to primary successfully")
         except Exception as e:
             logger.error(f"[FAILOVER] Failed to push state to primary: {e}")
