@@ -134,6 +134,7 @@ async def fetch_watch_details_iem(watch_number: str) -> Tuple[Optional[str], Opt
     year = datetime.now(timezone.utc).year
 
     text_summary = None
+    probs = None
     try:
         url = f"https://mesonet.agron.iastate.edu/json/watches.py?year={year}"
         content, status = await http_get_bytes(url, retries=2, timeout=15)
@@ -145,18 +146,17 @@ async def fetch_watch_details_iem(watch_number: str) -> Tuple[Optional[str], Opt
                     state_list = ", ".join(states.split(",")) if states else "Unknown"
                     is_pds = event.get("is_pds", False)
 
-                    parts = [f"**Areas:** {state_list}"]
-                    if is_pds:
-                        parts.append("⚠️ **Particularly Dangerous Situation (PDS)**")
-
-                    # Build probabilities from IEM structured fields
-                    prob_lines = []
                     tor_pct = event.get("tornadoes_1m_strong", 0)
                     hail_pct = event.get("hail_1m_2inch", 0)
                     max_hail = event.get("max_hail_size", 0)
                     max_wind = event.get("max_wind_gust_knots", 0)
                     max_wind_mph = round(max_wind * 1.15078) if max_wind else 0
 
+                    parts = [f"**Areas:** {state_list}"]
+                    if is_pds:
+                        parts.append("⚠️ **Particularly Dangerous Situation (PDS)**")
+
+                    prob_lines = []
                     if tor_pct:
                         prob_lines.append(f"🔴 **Tornado**")
                         prob_lines.append(f"🔴 Sig. tornado (EF2+): **{tor_pct}%**")
@@ -171,42 +171,22 @@ async def fetch_watch_details_iem(watch_number: str) -> Tuple[Optional[str], Opt
                         parts.append("**Probabilities (IEM)**\n" + "\n".join(prob_lines))
 
                     text_summary = "\n".join(parts)
+
+                    # Build preliminary probs from same event data
+                    prelim_lines = ["**Probabilities (preliminary — will update)**"]
+                    if tor_pct:
+                        prelim_lines.append(f"🔴 Sig. tornado (EF2+): **{tor_pct}%**")
+                    if hail_pct:
+                        prelim_lines.append(f"🟢 2\"+ hail: **{hail_pct}%** | Max: **{max_hail}\"**")
+                    if max_wind_mph:
+                        prelim_lines.append(f"🔵 Max gusts: **{max_wind_mph} mph ({int(max_wind)} kt)**")
+                    if len(prelim_lines) > 1:
+                        probs = "\n".join(prelim_lines)
+
                     logger.info(f"[WATCH] Got details from IEM watches API for #{watch_number}")
                     break
     except Exception as e:
         logger.warning(f"[WATCH] IEM watches API failed for #{watch_number}: {e}")
-
-    # Build preliminary probs from IEM watches JSON
-    probs = None
-    try:
-        import json as _json_iem2
-        from datetime import datetime, timezone
-        year = datetime.now(timezone.utc).year
-        content2, status2 = await http_get_bytes(
-            f"https://mesonet.agron.iastate.edu/json/watches.py?year={year}",
-            retries=2, timeout=15
-        )
-        if content2 and status2 == 200:
-            data2 = _json_iem2.loads(content2)
-            for event in data2.get("events", []):
-                if event.get("num") == int(watch_number):
-                    prob_lines = ["**Probabilities (preliminary — will update)**"]
-                    tor = event.get("tornadoes_1m_strong", 0)
-                    hail_pct = event.get("hail_1m_2inch", 0)
-                    max_hail = event.get("max_hail_size", 0)
-                    max_wind = event.get("max_wind_gust_knots", 0)
-                    max_wind_mph = round(max_wind * 1.15078) if max_wind else 0
-                    if tor:
-                        prob_lines.append(f"🔴 Sig. tornado (EF2+): **{tor}%**")
-                    if hail_pct:
-                        prob_lines.append(f"🟢 2\"+ hail: **{hail_pct}%** | Max: **{max_hail}\"**")
-                    if max_wind_mph:
-                        prob_lines.append(f"🔵 Max gusts: **{max_wind_mph} mph ({int(max_wind)} kt)**")
-                    if len(prob_lines) > 1:
-                        probs = "\n".join(prob_lines)
-                    break
-    except Exception as e:
-        logger.warning(f"[WATCH] IEM probs fetch failed for #{watch_number}: {e}")
 
     # No image available from IEM — SPC image will be retried separately
     return text_summary, None, probs
