@@ -308,40 +308,30 @@ async def watchdog_task():
 async def _shutdown():
     logger.info("Shutting down bot gracefully...")
 
-    # 1. Stop managed task loops (cog loops, watchdog, periodic sync)
+    # 1. Cancel managed and background tasks
     for task, name in MANAGED_TASKS:
         task.cancel()
     watchdog_task.cancel()
     if periodic_sync.is_running():
         periodic_sync.cancel()
 
-    # 2. Close the bot — lets Discord.py send the WebSocket close frame
-    #    using its own internal tasks (which are still alive at this point)
-    try:
-        await asyncio.wait_for(bot.close(), timeout=5.0)
-    except asyncio.TimeoutError:
-        logger.warning("bot.close() timed out after 5s")
-    except Exception as e:
-        logger.warning(f"Error while closing bot: {e}")
-
-    # 3. Cancel any remaining background tasks (e.g. _upgrade_watch_embed sleeps)
-    remaining = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-    for t in remaining:
-        t.cancel()
-    if remaining:
-        await asyncio.wait(remaining, timeout=1.0)
-
-    # 4. Close DB and HTTP session
+    # 2. Close DB and HTTP session
     try:
         await asyncio.wait_for(
             asyncio.gather(close_session(), close_db(), return_exceptions=True),
-            timeout=3.0
+            timeout=3.0,
         )
     except asyncio.TimeoutError:
         logger.warning("Shutdown timed out while closing connections")
     except Exception as e:
         logger.warning(f"Error during resource cleanup: {e}")
 
+    # 3. Close the bot — discord.py cancels its internal tasks and closes the
+    #    WebSocket, which causes bot.start() in main() to return naturally.
+    #    Do NOT wrap in asyncio.wait_for: a timeout leaves _closing_task
+    #    dangling in the event loop, which blocks asyncio.run() cleanup for
+    #    the full systemd TimeoutStopSec (90 s) before SIGKILL.
+    await bot.close()
 
 def _setup_signal_handlers(loop: asyncio.AbstractEventLoop):
     """Register signal handlers using the running event loop."""
