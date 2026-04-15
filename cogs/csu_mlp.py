@@ -264,7 +264,7 @@ class CSUMLPCog(commands.Cog):
             return
 
         for day in range(1, 9):
-            if str(day) in self.bot.state.csu_posted or day in self.bot.state.csu_posted:
+            if str(day) in self.bot.state.csu_posted:
                 continue
 
             url, label = await _resolve_best_url(day)

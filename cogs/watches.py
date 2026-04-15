@@ -156,23 +156,11 @@ async def fetch_watch_details_iem(watch_number: str) -> Tuple[Optional[str], Opt
                     if is_pds:
                         parts.append("⚠️ **Particularly Dangerous Situation (PDS)**")
 
-                    prob_lines = []
-                    if tor_pct:
-                        prob_lines.append(f"🔴 **Tornado**")
-                        prob_lines.append(f"🔴 Sig. tornado (EF2+): **{tor_pct}%**")
-                    if hail_pct:
-                        prob_lines.append(f"🟢 **Hail**")
-                        prob_lines.append(f'🟢 2"+  hail: **{hail_pct}%** | Max: **{max_hail}"**')
-                    if max_wind_mph:
-                        prob_lines.append(f"🔵 **Wind**")
-                        prob_lines.append(f"🔵 Max gusts: **{max_wind_mph} mph ({int(max_wind)} kt)**")
-
-                    if prob_lines:
-                        parts.append("**Probabilities (IEM)**\n" + "\n".join(prob_lines))
-
                     text_summary = "\n".join(parts)
 
-                    # Build preliminary probs from same event data
+                    # Probabilities go only in the probs field (rendered as a
+                    # separate embed field) — not in text_summary — to avoid
+                    # the same numbers appearing twice in the embed.
                     prelim_lines = ["**Probabilities (preliminary — will update)**"]
                     if tor_pct:
                         prelim_lines.append(f"🔴 Sig. tornado (EF2+): **{tor_pct}%**")
