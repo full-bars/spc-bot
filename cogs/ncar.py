@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import discord
 from discord.ext import commands, tasks
 
-from config import MANUAL_CACHE_FILE, MODELS_CHANNEL_ID
+from config import MANUAL_CACHE_FILE, MODELS_CHANNEL_ID, WXNEXT_BASE, WXNEXT_PAGE
 from utils.cache import (
     calculate_hash_bytes,
     download_single_image,
@@ -18,9 +18,6 @@ from utils.http import ensure_session
 import aiohttp
 
 logger = logging.getLogger("spc_bot")
-
-WXNEXT_BASE = "https://www2.mmm.ucar.edu/projects/ncar_ensemble/ainwp/img"
-WXNEXT_PAGE = "https://www2.mmm.ucar.edu/projects/ncar_ensemble/ainwp/"
 
 
 def _wxnext_url(date: datetime) -> str:

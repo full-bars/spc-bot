@@ -18,6 +18,7 @@ from typing import Optional, Dict, Tuple
 
 from discord.ext import commands, tasks
 
+from config import IEMBOT_FEED_URL, IEM_NWSTEXT_URL
 from utils.db import (
     get_state, set_state, 
     get_product_cache, set_product_cache
@@ -26,8 +27,6 @@ from utils.http import http_get_bytes
 
 logger = logging.getLogger("spc_bot")
 
-IEMBOT_FEED_URL = "https://weather.im/iembot-json/room/spcchat"
-IEM_NWSTEXT_URL = "https://mesonet.agron.iastate.edu/api/1/nwstext/{product_id}"
 CACHE_TTL = 600  # 10 minutes
 
 
