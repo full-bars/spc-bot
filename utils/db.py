@@ -141,8 +141,8 @@ async def get_hash(url: str) -> Optional[str]:
 async def set_hash(url: str, hash_val: str, cache_type: str = "auto"):
     """Store or update hash for a URL."""
     try:
+        db = await get_db()
         async with _LOCK:
-            db = await get_db()
             await db.execute(
                 """INSERT INTO image_hashes (url, hash, cache_type)
                    VALUES (?, ?, ?)
@@ -180,8 +180,8 @@ async def set_hashes_batch(hashes: dict, cache_type: str = "auto"):
     if not hashes:
         return
     try:
+        db = await get_db()
         async with _LOCK:
-            db = await get_db()
             await db.executemany(
                 """INSERT INTO image_hashes (url, hash, cache_type)
                    VALUES (?, ?, ?)
@@ -210,8 +210,8 @@ async def get_posted_mds() -> set:
 async def add_posted_md(md_number: str):
     """Mark an MD as posted."""
     try:
+        db = await get_db()
         async with _LOCK:
-            db = await get_db()
             await db.execute(
                 "INSERT OR IGNORE INTO posted_mds (md_number) VALUES (?)",
                 (md_number,),
@@ -224,8 +224,8 @@ async def add_posted_md(md_number: str):
 async def prune_posted_mds(max_size: int = 200):
     """Keep only the most recent MD numbers."""
     try:
+        db = await get_db()
         async with _LOCK:
-            db = await get_db()
             await db.execute("""
                 DELETE FROM posted_mds
                 WHERE md_number NOT IN (
@@ -258,8 +258,8 @@ async def get_posted_watches() -> set:
 async def add_posted_watch(watch_number: str):
     """Mark a watch as posted."""
     try:
+        db = await get_db()
         async with _LOCK:
-            db = await get_db()
             await db.execute(
                 "INSERT OR IGNORE INTO posted_watches (watch_number) VALUES (?)",
                 (watch_number,),
@@ -272,8 +272,8 @@ async def add_posted_watch(watch_number: str):
 async def prune_posted_watches(max_size: int = 200):
     """Keep only the most recent watch numbers."""
     try:
+        db = await get_db()
         async with _LOCK:
-            db = await get_db()
             await db.execute("""
                 DELETE FROM posted_watches
                 WHERE watch_number NOT IN (
@@ -306,8 +306,8 @@ async def get_state(key: str) -> Optional[str]:
 async def set_state(key: str, value: str):
     """Set a value in the key/value store."""
     try:
+        db = await get_db()
         async with _LOCK:
-            db = await get_db()
             await db.execute(
                 """INSERT INTO bot_state (key, value)
                    VALUES (?, ?)
@@ -322,8 +322,8 @@ async def set_state(key: str, value: str):
 async def delete_state(key: str):
     """Delete a key from the key/value store."""
     try:
+        db = await get_db()
         async with _LOCK:
-            db = await get_db()
             await db.execute(
                 "DELETE FROM bot_state WHERE key = ?", (key,)
             )
@@ -354,8 +354,8 @@ async def set_posted_urls(day_key: str, urls: list):
     """Store last posted URLs for a day key."""
     import json
     try:
+        db = await get_db()
         async with _LOCK:
-            db = await get_db()
             await db.execute(
                 """INSERT INTO posted_urls (day_key, urls)
                    VALUES (?, ?)
@@ -395,8 +395,8 @@ async def set_product_cache(product_id: str, text: str, ttl: int = 600):
     import time
     try:
         expires_at = time.time() + ttl
+        db = await get_db()
         async with _LOCK:
-            db = await get_db()
             await db.execute(
                 """INSERT INTO product_text_cache (product_id, text, expires_at)
                    VALUES (?, ?, ?)
