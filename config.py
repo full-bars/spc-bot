@@ -86,7 +86,11 @@ _P = {
     "spc_md_index_url": "https://www.spc.noaa.gov/products/md/",
     "spc_watch_index_url": "https://www.spc.noaa.gov/products/watch/",
     "spc_valid_watches_url": "https://www.spc.noaa.gov/products/watch/validww.png",
-    "nws_alerts_url": "https://api.weather.gov/alerts/active?event=Severe%20Thunderstorm%20Watch,Tornado%20Watch&status=actual"
+    "nws_alerts_url": "https://api.weather.gov/alerts/active?event=Severe%20Thunderstorm%20Watch,Tornado%20Watch&status=actual",
+    "iembot_feed_url": "https://weather.im/iembot-json/room/spcchat",
+    "iem_nwstext_url": "https://mesonet.agron.iastate.edu/api/1/nwstext/{product_id}",
+    "wxnext_base_url": "https://www2.mmm.ucar.edu/projects/ncar_ensemble/ainwp/img",
+    "wxnext_page_url": "https://www2.mmm.ucar.edu/projects/ncar_ensemble/ainwp/"
 }
 
 if os.path.exists(_products_file):
@@ -109,6 +113,10 @@ SPC_MD_INDEX_URL = _P["spc_md_index_url"]
 SPC_WATCH_INDEX_URL = _P["spc_watch_index_url"]
 SPC_VALID_WATCHES_URL = _P["spc_valid_watches_url"]
 NWS_ALERTS_URL = _P["nws_alerts_url"]
+IEMBOT_FEED_URL = _P["iembot_feed_url"]
+IEM_NWSTEXT_URL = _P["iem_nwstext_url"]
+WXNEXT_BASE = _P["wxnext_base_url"]
+WXNEXT_PAGE = _P["wxnext_page_url"]
 
 # Timezones
 CENTRAL = pytz.timezone("America/Chicago")
