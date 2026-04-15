@@ -299,37 +299,31 @@ async def watchdog_task():
 # ── Graceful shutdown ────────────────────────────────────────────────────────
 async def _shutdown():
     logger.info("Shutting down bot gracefully...")
-    
-    # 1. Cancel all managed and background tasks immediately
+
+    # 1. Cancel managed and background tasks
     for task, name in MANAGED_TASKS:
         task.cancel()
     watchdog_task.cancel()
-    
-    # Also cancel any other pending tasks in the loop
-    all_tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-    for t in all_tasks:
-        t.cancel()
-        
-    if all_tasks:
-        # Wait a very short time for tasks to acknowledges cancellation
-        await asyncio.wait(all_tasks, timeout=2.0)
+    if periodic_sync.is_running():
+        periodic_sync.cancel()
 
     # 2. Close connections in parallel
     try:
         await asyncio.wait_for(
             asyncio.gather(close_session(), close_db(), return_exceptions=True),
-            timeout=3.0
+            timeout=3.0,
         )
     except asyncio.TimeoutError:
         logger.warning("Shutdown timed out while closing connections")
     except Exception as e:
         logger.warning(f"Error during resource cleanup: {e}")
 
-    # 3. Close the bot
-    try:
-        await asyncio.wait_for(bot.close(), timeout=2.0)
-    except Exception as e:
-        logger.warning(f"Error while closing bot: {e}")
+    # 3. Close the bot — discord.py cancels its internal tasks and closes the
+    #    WebSocket, which causes bot.start() in main() to return naturally.
+    #    Do NOT wrap in asyncio.wait_for: a timeout leaves _closing_task
+    #    dangling in the event loop, which blocks asyncio.run() cleanup for
+    #    the full systemd TimeoutStopSec (90 s) before SIGKILL.
+    await bot.close()
 
 
 def _setup_signal_handlers(loop: asyncio.AbstractEventLoop):
