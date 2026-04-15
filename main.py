@@ -299,22 +299,31 @@ async def watchdog_task():
 # ── Graceful shutdown ────────────────────────────────────────────────────────
 async def _shutdown():
     logger.info("Shutting down bot gracefully...")
-    
-    # 1. Cancel all managed and background tasks immediately
+
+    # 1. Stop managed task loops (cog loops, watchdog, periodic sync)
     for task, name in MANAGED_TASKS:
         task.cancel()
     watchdog_task.cancel()
-    
-    # Also cancel any other pending tasks in the loop
-    all_tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-    for t in all_tasks:
-        t.cancel()
-        
-    if all_tasks:
-        # Wait a very short time for tasks to acknowledges cancellation
-        await asyncio.wait(all_tasks, timeout=2.0)
+    if periodic_sync.is_running():
+        periodic_sync.cancel()
 
-    # 2. Close connections in parallel
+    # 2. Close the bot — lets Discord.py send the WebSocket close frame
+    #    using its own internal tasks (which are still alive at this point)
+    try:
+        await asyncio.wait_for(bot.close(), timeout=5.0)
+    except asyncio.TimeoutError:
+        logger.warning("bot.close() timed out after 5s")
+    except Exception as e:
+        logger.warning(f"Error while closing bot: {e}")
+
+    # 3. Cancel any remaining background tasks (e.g. _upgrade_watch_embed sleeps)
+    remaining = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+    for t in remaining:
+        t.cancel()
+    if remaining:
+        await asyncio.wait(remaining, timeout=1.0)
+
+    # 4. Close DB and HTTP session
     try:
         await asyncio.wait_for(
             asyncio.gather(close_session(), close_db(), return_exceptions=True),
@@ -324,12 +333,6 @@ async def _shutdown():
         logger.warning("Shutdown timed out while closing connections")
     except Exception as e:
         logger.warning(f"Error during resource cleanup: {e}")
-
-    # 3. Close the bot
-    try:
-        await asyncio.wait_for(bot.close(), timeout=2.0)
-    except Exception as e:
-        logger.warning(f"Error while closing bot: {e}")
 
 
 def _setup_signal_handlers(loop: asyncio.AbstractEventLoop):
