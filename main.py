@@ -60,29 +60,38 @@ async def setup_hook():
         await get_db()
 
     # Restore in-memory caches from DB
-    db_auto = await get_all_hashes("auto")
-    if db_auto:
+    results = await asyncio.gather(
+        get_all_hashes("auto"),
+        get_all_hashes("manual"),
+        get_posted_mds(),
+        get_posted_watches(),
+        get_state("csu_mlp_posted"),
+        get_posted_urls("day1"),
+        get_posted_urls("day2"),
+        get_posted_urls("day3"),
+        return_exceptions=True
+    )
+    
+    db_auto, db_manual, db_mds, db_watches, csu_raw, d1_urls, d2_urls, d3_urls = results
+
+    if isinstance(db_auto, dict):
         bot.state.auto_cache.update(db_auto)
         logger.info(f"[DB] Loaded {len(db_auto)} auto hashes into cache")
 
-    db_manual = await get_all_hashes("manual")
-    if db_manual:
+    if isinstance(db_manual, dict):
         bot.state.manual_cache.update(db_manual)
         logger.info(f"[DB] Loaded {len(db_manual)} manual hashes into cache")
 
-    db_mds = await get_posted_mds()
-    if db_mds:
+    if isinstance(db_mds, (set, list)):
         bot.state.posted_mds.update(db_mds)
         logger.info(f"[DB] Loaded {len(db_mds)} posted MDs into cache")
 
-    db_watches = await get_posted_watches()
-    if db_watches:
+    if isinstance(db_watches, (set, list)):
         bot.state.posted_watches.update(db_watches)
         logger.info(f"[DB] Loaded {len(db_watches)} posted watches into cache")
 
     # CSU state
-    csu_raw = await get_state("csu_mlp_posted")
-    if csu_raw:
+    if isinstance(csu_raw, str):
         try:
             csu_data = _json.loads(csu_raw)
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -92,9 +101,8 @@ async def setup_hook():
         except Exception:
             pass
 
-    for day_key in ["day1", "day2", "day3"]:
-        urls = await get_posted_urls(day_key)
-        if urls:
+    for day_key, urls in zip(["day1", "day2", "day3"], [d1_urls, d2_urls, d3_urls]):
+        if isinstance(urls, list) and urls:
             bot.state.last_posted_urls[day_key] = urls
             logger.info(f"[DB] Restored posted URLs for {day_key}")
     logger.info("[DB] Database ready")
