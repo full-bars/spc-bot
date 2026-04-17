@@ -28,7 +28,7 @@ async def fetch_latest_md_numbers() -> List[str]:
     """
     Scrape the SPC MD index page and return a list of current MD number strings.
     Uses a HEAD check first — if the index page hasn't changed since last poll,
-    skips the full HTML fetch entirely.
+    skips the full HTML fetch entirely. Falls back to IEM if SPC is unreachable.
     """
     meta = await http_head_meta(SPC_MD_INDEX_URL)
     if meta is not None and _md_index_head:
@@ -49,7 +49,28 @@ async def fetch_latest_md_numbers() -> List[str]:
         _md_index_head.update(meta)
 
     html = await http_get_text(SPC_MD_INDEX_URL)
+    
+    # If SPC is unreachable, try to scrape from IEM's nwstext API
     if not html:
+        logger.warning("[MD] SPC index unreachable — falling back to IEM for active MD list")
+        import json as _json_fallback
+        try:
+            content, status = await http_get_bytes(
+                "https://mesonet.agron.iastate.edu/api/1/nwstext.json?product=MCD&limit=40",
+                retries=2, timeout=15
+            )
+            if content and status == 200:
+                data = _json_fallback.loads(content)
+                md_nums = set()
+                for entry in data.get("data", []):
+                    m = re.search(r"MESOSCALE DISCUSSION\s+(\d+)", entry.get("data", ""), re.IGNORECASE)
+                    if m:
+                        md_nums.add(m.group(1).zfill(4))
+                # Only return MDs from today/recent hours if possible, 
+                # but for simplicity we'll just return the unique ones in the feed.
+                return sorted(list(md_nums), reverse=True)
+        except Exception as e:
+            logger.error(f"[MD] IEM fallback for index failed: {e}")
         return []
 
     numbers = re.findall(
