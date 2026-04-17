@@ -69,10 +69,15 @@ async def setup_hook():
         get_posted_urls("day1"),
         get_posted_urls("day2"),
         get_posted_urls("day3"),
+        get_state("iembot_last_seqnum"),
         return_exceptions=True
     )
     
-    db_auto, db_manual, db_mds, db_watches, csu_raw, d1_urls, d2_urls, d3_urls = results
+    db_auto, db_manual, db_mds, db_watches, csu_raw, d1_urls, d2_urls, d3_urls, last_seq = results
+
+    if isinstance(last_seq, str):
+        bot.state.iembot_last_seqnum = int(last_seq)
+        logger.info(f"[DB] Restored last seqnum {last_seq}")
 
     if isinstance(db_auto, dict):
         bot.state.auto_cache.update(db_auto)
