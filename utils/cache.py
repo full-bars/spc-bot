@@ -212,7 +212,8 @@ async def check_partial_updates_parallel(
 
     await asyncio.gather(*[_check_one(u) for u in urls])
 
-    logger.info(
+    log = logger.info if updated_count > 0 else logger.debug
+    log(
         f"[CACHE] Partial check complete: {updated_count}/{total_count} updated "
         f"({head_fetched}/{total_count} warranted full fetch)"
     )

@@ -1,5 +1,6 @@
 # cogs/status.py
 import logging
+import resource
 import socket
 from datetime import datetime, timezone
 from typing import Optional
@@ -300,6 +301,9 @@ class StatusCog(commands.Cog):
             lines.append(f"Uptime         : {format_timedelta(uptime)}")
         else:
             lines.append("Uptime         : unknown")
+
+        rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        lines.append(f"RSS Memory     : {rss_kb / 1024:.1f} MB")
 
         session_ok = (
             _http.http_session is not None
