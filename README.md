@@ -16,7 +16,7 @@ A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks
 * NEXRAD Level 2 radar downloader from NOAA AWS S3
   * Single or multi-site downloads with per-site ZIP packaging
   * Z-to-Z range, start+duration, explicit datetime, or N most recent files
-* **Enhanced Observability**: Detailed `/status` dashboard showing node roles (Primary/Standby), real-time task health, and feed synchronization state
+* **Enhanced Observability**: Detailed `/status` dashboard showing node roles (Primary/Standby), real-time task health, RSS memory usage, and feed synchronization state
 
 ## Prerequisites
 
