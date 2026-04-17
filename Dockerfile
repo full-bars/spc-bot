@@ -25,6 +25,10 @@ RUN apk add --no-cache \
 # Set working directory
 WORKDIR /build
 
+# Set environment variables for build
+ENV HDF5_DIR=/usr \
+    NETCDF4_DIR=/usr
+
 # Upgrade pip and install build-time requirements
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel Cython
 
