@@ -16,6 +16,7 @@ class BotState:
 
     def __init__(self):
         self.is_primary: bool = True  # overridden by IS_PRIMARY env var in main.py
+        self.iembot_last_seqnum: int = 0
         # ── Image hash caches ─────────────────────────────────────────────
         self.auto_cache: Dict[str, str] = {}
         self.manual_cache: Dict[str, str] = {}
@@ -43,6 +44,7 @@ class BotState:
     def to_dict(self) -> dict:
         """Serialize state to a JSON-safe dict (for failover endpoint)."""
         return {
+            "iembot_last_seqnum": self.iembot_last_seqnum,
             "auto_cache": self.auto_cache,
             "manual_cache": self.manual_cache,
             "posted_mds": list(self.posted_mds),

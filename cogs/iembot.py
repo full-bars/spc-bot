@@ -99,7 +99,6 @@ async def _fetch_product_text(product_id: str) -> Optional[str]:
 class IEMBotCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self._last_seqnum: int = 0
         self._seqnum_loaded = False
         self.poll_iembot_feed.start()
 
@@ -115,17 +114,27 @@ class IEMBotCog(commands.Cog):
 
         if not self._seqnum_loaded:
             try:
+                # 1. Try local SQLite first (fastest)
                 val = await get_state("iembot_last_seqnum")
                 if val:
-                    self._last_seqnum = int(val)
-                    logger.info(f"[IEMBOT] Resuming from seqnum {self._last_seqnum}")
+                    self.bot.state.iembot_last_seqnum = int(val)
+                    logger.info(f"[IEMBOT] Resuming from local seqnum {self.bot.state.iembot_last_seqnum}")
+
+                # 2. Try Upstash (global source of truth for failover)
+                failover_cog = self.bot.get_cog("FailoverCog")
+                if failover_cog:
+                    upstash_seq = await failover_cog.get_upstash_seqnum()
+                    if upstash_seq and upstash_seq > self.bot.state.iembot_last_seqnum:
+                        self.bot.state.iembot_last_seqnum = upstash_seq
+                        logger.info(f"[IEMBOT] Resuming from UPSTASH seqnum {upstash_seq}")
+
             except Exception as e:
                 logger.warning(f"[IEMBOT] Could not load seqnum: {e}")
             self._seqnum_loaded = True
 
         try:
             import json as _json
-            url = f"{IEMBOT_FEED_URL}?seqnum={self._last_seqnum}"
+            url = f"{IEMBOT_FEED_URL}?seqnum={self.bot.state.iembot_last_seqnum}"
             content, status = await http_get_bytes(url, retries=2, timeout=10)
             if not content or status != 200:
                 return
@@ -135,10 +144,10 @@ class IEMBotCog(commands.Cog):
             if not messages:
                 return
 
-            new_seqnum = self._last_seqnum
+            new_seqnum = self.bot.state.iembot_last_seqnum
             for msg in messages:
                 seqnum = msg.get("seqnum", 0)
-                if seqnum <= self._last_seqnum:
+                if seqnum <= self.bot.state.iembot_last_seqnum:
                     continue
                 new_seqnum = max(new_seqnum, seqnum)
 
@@ -151,9 +160,14 @@ class IEMBotCog(commands.Cog):
                 elif "ACUS11-SWOMCD" in product_id:
                     asyncio.create_task(self._handle_md(product_id))
 
-            if new_seqnum > self._last_seqnum:
-                self._last_seqnum = new_seqnum
+            if new_seqnum > self.bot.state.iembot_last_seqnum:
+                self.bot.state.iembot_last_seqnum = new_seqnum
                 await set_state("iembot_last_seqnum", str(new_seqnum))
+                
+                # Push to Upstash for failover resilience
+                failover_cog = self.bot.get_cog("FailoverCog")
+                if failover_cog:
+                    asyncio.create_task(failover_cog.write_upstash_seqnum(new_seqnum))
 
         except Exception as e:
             logger.warning(f"[IEMBOT] Poll error: {e}")
