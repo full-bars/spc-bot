@@ -138,6 +138,7 @@ class TestPostSoundingsForWatch:
         cog = SoundingCog.__new__(SoundingCog)
         cog.bot = bot
         cog._posted_watch_soundings = set()
+        cog._handled_watches = set()
 
         channel = AsyncMock()
         nws_info = {"type": "SVR", "expires": None, "affected_zones": []}
@@ -154,6 +155,7 @@ class TestPostSoundingsForWatch:
         cog = SoundingCog.__new__(SoundingCog)
         cog.bot = bot
         cog._posted_watch_soundings = set()
+        cog._handled_watches = set()
 
         channel = AsyncMock()
         nws_info = {"type": "SVR", "expires": None, "affected_zones": ["https://api.weather.gov/zones/county/IAC001"]}

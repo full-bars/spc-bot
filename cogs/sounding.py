@@ -40,6 +40,7 @@ class SoundingCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._posted_watch_soundings: set = set()  # "watch_num:station:time"
+        self._handled_watches: set = set()  # "watch_num"
         self.auto_sounding_watches.start()
 
     async def cog_unload(self):
@@ -82,6 +83,9 @@ class SoundingCog(commands.Cog):
         Finds nearest RAOB stations using the most recent IEM-available sounding
         time (any hour, not locked to 00z/12z), posts up to 3 RAOB + 2 ACARS.
         """
+        if watch_num in self._handled_watches:
+            return
+
         from config import CACHE_DIR, SOUNDING_CHANNEL_ID
         
         # Use SOUNDING_CHANNEL_ID if configured, fallback to passed channel
@@ -92,6 +96,7 @@ class SoundingCog(commands.Cog):
             logger.warning(f"[SOUNDING-AUTO] No affected zones for watch #{watch_num} — skipping")
             return
 
+        self._handled_watches.add(watch_num)
         wtype = nws_info.get("type", "SVR") if isinstance(nws_info, dict) else "SVR"
         watch_label = "Tornado Watch" if wtype == "TORNADO" else "SVR Watch"
 
