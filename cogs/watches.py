@@ -784,6 +784,12 @@ class WatchesCog(commands.Cog):
             for watch_num, nws_info in nws_watches.items():
                 self.bot.state.active_watches[watch_num] = nws_info
                 if watch_num in self.bot.state.posted_watches:
+                    # Still notify SoundingCog in case we missed it earlier due to missing affected_zones
+                    sounding_cog = self.bot.cogs.get("SoundingCog")
+                    if sounding_cog and isinstance(nws_info, dict) and nws_info.get("affected_zones"):
+                        asyncio.create_task(
+                            sounding_cog.post_soundings_for_watch(watch_num, nws_info, channel)
+                        )
                     continue
 
                 wtype = nws_info.get("type", "SVR")
