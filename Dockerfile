@@ -52,7 +52,6 @@ RUN apk add --no-cache \
     zlib \
     openblas \
     liblapack \
-    lapack \
     libstdc++ \
     libgfortran \
     ca-certificates \
