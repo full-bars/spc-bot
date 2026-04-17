@@ -56,7 +56,9 @@ RUN apk add --no-cache \
     libgfortran \
     ca-certificates \
     curl \
-    libc6-compat
+    libc6-compat \
+    hdf5 \
+    netcdf
 
 # Install cloudflared for failover
 RUN curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared \
@@ -84,3 +86,4 @@ RUN mkdir -p /app/cache
 
 # Define the command to run the bot
 CMD ["python", "main.py"]
+in.py"]
