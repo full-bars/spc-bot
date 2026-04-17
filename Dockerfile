@@ -86,4 +86,3 @@ RUN mkdir -p /app/cache
 
 # Define the command to run the bot
 CMD ["python", "main.py"]
-in.py"]
