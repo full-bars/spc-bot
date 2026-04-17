@@ -8,7 +8,7 @@ A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks
 * SPC mesoscale discussions with cancellation tracking and **high-probability watch detection for proactive sounding pre-warming**
 * Tornado and severe thunderstorm watch alerts via NWS API with IEM iembot real-time feed for sub-second text **delivery via persistent database-backed pre-caching**
 * NIU/Gensini CFSv2/GEFS supercell composite parameter (SCP) graphics, twice daily
-* CSU-MLP machine learning severe weather forecasts (Days 1-8 + 6-panel summaries), auto-posted daily with `/csu1`-`/csu8`, `/csupanel12`, and `/csupanel38` slash commands
+* CSU-MLP machine learning severe weather forecasts (Days 1-8 + 6-panel summaries), auto-posted daily with `/csu` slash command (interactive dropdown)
 * NCAR WxNext2 Mean AI convective hazard forecast (Days 1-8), auto-posted daily with `/wxnext` slash command
 * Observed RAOB sounding plots via SounderPy with `/sounding` — supports city names, radar site codes, and station IDs with interactive station and time selection
 * Auto-posts soundings for RAOB stations near active SPC watches — immediately on watch issuance (any hour via IEM) and at 00z/12z synoptic cycles
@@ -22,7 +22,7 @@ A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks
 
 * Python 3.10+
 * A Discord bot token and application ([Discord Developer Portal](https://discord.com/developers/applications))
-* Channel IDs for where the bot should post
+* Channel IDs and Guild ID for where the bot should post
 
 ## Setup
 
@@ -36,7 +36,7 @@ cd spc-bot
 sudo ./deploy.sh
 ```
 
-The script will prompt you for your Discord bot token and channel IDs, then handle everything else.
+The script will prompt you for your Discord bot token, channel IDs, and guild ID, then handle everything else.
 
 The bot is installed to `/opt/spc-bot` and runs as a dedicated non-root `spcbot` user. The following aliases are added automatically:
 
@@ -47,6 +47,7 @@ spcrestart   # restart the bot
 spcstatus    # show status
 spclog       # follow live logs
 spclog50     # show last 50 log lines
+spcupdate    # pull latest code and restart
 ```
 
 
@@ -151,10 +152,12 @@ Work in progress. Actively developed in my free time, expect some bugs.
 
 * [discord.py](https://github.com/Rapptz/discord.py)
 * [aiohttp](https://github.com/aio-libs/aiohttp)
-* [boto3](https://github.com/boto/boto3)
+* [aioboto3](https://github.com/aio-libs/aioboto3)
+* [aiosqlite](https://github.com/omnilib/aiosqlite)
 * [sounderpy](https://github.com/kylejgillett/sounderpy)
 * [MetPy](https://github.com/Unidata/MetPy)
 * [numpy](https://numpy.org)
 * [matplotlib](https://matplotlib.org)
 * [requests](https://requests.readthedocs.io)
+* [pytz](https://github.com/stub42/pytz)
 * [vad-plotter](https://github.com/tsupinie/vad-plotter) by Tim Supinie
