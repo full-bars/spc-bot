@@ -1,69 +1,60 @@
 # Build stage
-FROM python:3.12-alpine AS builder
+FROM python:3.12-slim-bookworm AS builder
 
 # Install build dependencies
-RUN apk add --no-cache \
-    gcc \
-    g++ \
-    musl-dev \
-    make \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     cmake \
-    python3-dev \
-    geos-dev \
-    proj-dev \
-    proj-util \
-    gdal-dev \
-    freetype-dev \
+    libgeos-dev \
+    libproj-dev \
+    proj-bin \
+    libgdal-dev \
+    libfreetype6-dev \
     libpng-dev \
-    jpeg-dev \
-    zlib-dev \
-    openblas-dev \
-    liblapack \
-    lapack-dev \
-    libffi-dev
+    libjpeg-dev \
+    zlib1g-dev \
+    libopenblas-dev \
+    liblapack-dev \
+    libffi-dev \
+    libhdf5-dev \
+    libnetcdf-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /build
 
-# Set environment variables for build
-ENV HDF5_DIR=/usr \
-    NETCDF4_DIR=/usr \
-    C_INCLUDE_PATH=/usr/include/hdf5 \
-    CPATH=/usr/include/hdf5
-
 # Upgrade pip and install build-time requirements
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel Cython
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # Copy requirements file
 COPY requirements.txt .
 
 # Install dependencies
-# We use --no-binary for cartopy as it lacks musllinux wheels
-RUN pip install --no-cache-dir -r requirements.txt \
-    --no-binary cartopy,shapely
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Runtime stage
-FROM python:3.12-alpine
+FROM python:3.12-slim-bookworm
 
 # Install runtime dependencies
-RUN apk add --no-cache \
-    geos \
-    proj \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgeos-c1v5 \
+    libproj25 \
     proj-data \
-    gdal \
-    freetype \
-    libpng \
-    jpeg \
-    zlib \
-    openblas \
-    liblapack \
-    libstdc++ \
-    libgfortran \
+    libgdal32 \
+    libfreetype6 \
+    libpng16-16 \
+    libjpeg62-turbo \
+    zlib1g \
+    libopenblas0 \
+    liblapack3 \
+    libstdc++6 \
+    libgfortran5 \
     ca-certificates \
     curl \
-    libc6-compat \
-    hdf5 \
-    netcdf
+    libhdf5-103-1 \
+    libnetcdf19 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install cloudflared for failover
 RUN curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared \
@@ -72,7 +63,6 @@ RUN curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/c
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PROJ_DIR=/usr \
     CACHE_DIR=/app/cache \
     LOG_FILE=/app/cache/spc_bot.log
 
