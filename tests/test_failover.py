@@ -32,12 +32,14 @@ class TestFailoverCog:
         bot = make_mock_bot(is_primary=False)
         cog = FailoverCog(bot)
         data = {
+            "iembot_last_seqnum": 12345,
             "posted_mds": ["0001", "0002"],
             "posted_watches": ["0042"],
             "auto_cache": {"http://example.com": "abc123"},
             "last_posted_urls": {"day1": ["http://example.com/day1.png"]},
         }
         cog._hydrate(data)
+        assert cog.bot.state.iembot_last_seqnum == 12345
         assert "0001" in cog.bot.state.posted_mds
         assert "0042" in cog.bot.state.posted_watches
         assert "http://example.com" in cog.bot.state.auto_cache

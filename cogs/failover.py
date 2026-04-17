@@ -113,6 +113,14 @@ class FailoverCog(commands.Cog):
             self.bot.state.posted_mds.update(data.get("posted_mds", []))
             self.bot.state.posted_watches.update(data.get("posted_watches", []))
             self.bot.state.auto_cache.update(data.get("auto_cache", {}))
+            
+            # Sync seqnum (take highest)
+            new_seq = data.get("iembot_last_seqnum", 0)
+            if new_seq > self.bot.state.iembot_last_seqnum:
+                self.bot.state.iembot_last_seqnum = new_seq
+                from utils.db import set_state
+                await set_state("iembot_last_seqnum", str(new_seq))
+
             for day_key, urls in data.get("last_posted_urls", {}).items():
                 if day_key not in self.bot.state.last_posted_urls:
                     self.bot.state.last_posted_urls[day_key] = urls
@@ -239,6 +247,8 @@ class FailoverCog(commands.Cog):
         return None
 
     def _hydrate(self, data: dict):
+        if "iembot_last_seqnum" in data:
+            self.bot.state.iembot_last_seqnum = max(self.bot.state.iembot_last_seqnum, data["iembot_last_seqnum"])
         if "posted_mds" in data:
             self.bot.state.posted_mds.update(str(m) for m in data["posted_mds"])
         if "posted_watches" in data:
@@ -261,6 +271,42 @@ class FailoverCog(commands.Cog):
                         self.bot.state.last_post_times[k] = dt
                 except Exception:
                     pass
+
+    async def get_upstash_seqnum(self) -> int | None:
+        """Fetch the last-seen seqnum from Upstash (global fallback)."""
+        try:
+            headers = {**UPSTASH_HEADERS, "Content-Type": "application/json"}
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    UPSTASH_URL,
+                    headers=headers,
+                    json=["GET", "spcbot:last_seqnum"],
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        val = data.get("result")
+                        return int(val) if val else None
+        except Exception as e:
+            logger.error(f"[FAILOVER] Upstash seqnum read error: {e}")
+        return None
+
+    async def write_upstash_seqnum(self, seqnum: int):
+        """Write current seqnum to Upstash (global heartbeat)."""
+        try:
+            headers = {**UPSTASH_HEADERS, "Content-Type": "application/json"}
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    UPSTASH_URL,
+                    headers=headers,
+                    # No expiry on seqnum (permanent state)
+                    json=["SET", "spcbot:last_seqnum", str(seqnum)],
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as resp:
+                    if resp.status != 200:
+                        logger.error(f"[FAILOVER] Upstash seqnum write failed: {resp.status}")
+        except Exception as e:
+            logger.error(f"[FAILOVER] Upstash seqnum write error: {e}")
 
     async def _promote(self):
         logger.warning("[FAILOVER] !!! PROMOTING TO PRIMARY !!!")
@@ -297,6 +343,9 @@ class FailoverCog(commands.Cog):
                 await set_hashes_batch(db.auto_cache, cache_type="auto")
             for day_key, urls in db.last_posted_urls.items():
                 await set_posted_urls(day_key, urls)
+            
+            if db.iembot_last_seqnum > 0:
+                await set_state("iembot_last_seqnum", str(db.iembot_last_seqnum))
             
             # Persist CSU state if present
             if db.csu_posted:
