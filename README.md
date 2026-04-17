@@ -51,7 +51,24 @@ spcupdate    # pull latest code and restart
 ```
 
 
-### Manual
+### Docker (Pre-built Image)
+
+The easiest way to run the bot is using the pre-built image from GitHub Container Registry:
+
+1. Create a directory for the bot and download the `docker-compose.yml` and `.env.example`:
+   ```bash
+   mkdir spc-bot && cd spc-bot
+   curl -O https://raw.githubusercontent.com/full-bars/spc-bot/main/docker-compose.yml
+   curl -O https://raw.githubusercontent.com/full-bars/spc-bot/main/.env.example
+   cp .env.example .env
+   ```
+2. Edit `.env` with your Discord token and channel IDs.
+3. Start the bot:
+   ```bash
+   docker compose up -d
+   ```
+
+### Docker (Build from Source)
 
 
 
