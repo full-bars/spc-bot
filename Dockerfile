@@ -18,6 +18,7 @@ RUN apk add --no-cache \
     jpeg-dev \
     zlib-dev \
     openblas-dev \
+    liblapack \
     lapack-dev \
     libffi-dev
 
@@ -50,6 +51,7 @@ RUN apk add --no-cache \
     jpeg \
     zlib \
     openblas \
+    liblapack \
     lapack \
     libstdc++ \
     libgfortran \
