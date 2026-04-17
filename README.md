@@ -70,15 +70,18 @@ The easiest way to run the bot is using the pre-built image from GitHub Containe
 
 ### Docker (Build from Source)
 
-
-
 1. Clone the repository:
-   ```
+   ```bash
    git clone https://github.com/full-bars/spc-bot.git
    cd spc-bot
    ```
+2. Edit `.env` with your Discord token and channel IDs.
+3. Build and run:
+   ```bash
+   docker compose up -d --build
+   ```
 
-2. Create and activate a virtual environment:
+### Manual Installation (No Docker)
    ```
    python3 -m venv venv
    source venv/bin/activate
