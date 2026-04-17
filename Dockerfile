@@ -27,7 +27,9 @@ WORKDIR /build
 
 # Set environment variables for build
 ENV HDF5_DIR=/usr \
-    NETCDF4_DIR=/usr
+    NETCDF4_DIR=/usr \
+    C_INCLUDE_PATH=/usr/include/hdf5 \
+    CPATH=/usr/include/hdf5
 
 # Upgrade pip and install build-time requirements
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel Cython
@@ -36,8 +38,9 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel Cython
 COPY requirements.txt .
 
 # Install dependencies
-# Scientific packages should pick up musllinux wheels if available
-RUN pip install --no-cache-dir -r requirements.txt
+# We use --no-binary for cartopy as it lacks musllinux wheels
+RUN pip install --no-cache-dir -r requirements.txt \
+    --no-binary cartopy,shapely
 
 # Runtime stage
 FROM python:3.12-alpine
