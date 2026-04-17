@@ -36,10 +36,8 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel Cython
 COPY requirements.txt .
 
 # Install dependencies
-# We use --no-binary for cartopy as it lacks musllinux wheels
-# Others should pick up musllinux wheels if available
-RUN pip install --no-cache-dir -r requirements.txt \
-    --no-binary cartopy,shapely
+# Scientific packages should pick up musllinux wheels if available
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Runtime stage
 FROM python:3.12-alpine
