@@ -7,12 +7,14 @@ channel configuration, and operational behavior for contributors and operators.
 
 ## Channel Configuration
 
-Two channel IDs are required in `.env`:
+The following variables are required or optional in `.env`:
 
 | Variable | Purpose |
 |---|---|
+| `GUILD_ID` | The Discord Server (Guild) ID where the bot should register its commands. |
 | `SPC_CHANNEL_ID` | Receives all severe weather alerts — SPC outlooks (Days 1–3), Day 4–8 outlooks, mesoscale discussions, watch alerts and cancellations, and bot health alerts from the watchdog |
 | `MODELS_CHANNEL_ID` | Receives model/forecast graphics — SCP twice-daily posts, CSU-MLP daily forecasts, and NCAR WxNext2 daily forecasts |
+| `SOUNDING_CHANNEL_ID` | (Optional) Receives auto-posted sounding plots near active watches. Defaults to `SPC_CHANNEL_ID` if not set. |
 
 Slash commands can be used from any channel — they always respond ephemerally
 or inline where invoked, not into the configured channels.
