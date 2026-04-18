@@ -356,9 +356,13 @@ def _iem_to_clean_data(profile: dict, station_id: str, station_name: str,
     import numpy as np
     from metpy.units import units
 
+    # Filter for levels that have both thermodynamic and wind data
+    # Missing winds (None) are the primary cause of jagged/broken hodographs
     levels = [lv for lv in profile if lv.get("pres") is not None
               and lv.get("tmpc") is not None
-              and lv.get("dwpc") is not None]
+              and lv.get("dwpc") is not None
+              and lv.get("sknt") is not None
+              and lv.get("drct") is not None]
 
     if not levels:
         return None
@@ -369,20 +373,24 @@ def _iem_to_clean_data(profile: dict, station_id: str, station_name: str,
     dwpc = np.array([lv["dwpc"] for lv in levels], dtype=float)
 
     # Convert wind direction/speed to u/v components
-    drct = np.array([lv.get("drct") or 0 for lv in levels], dtype=float)
-    sknt = np.array([lv.get("sknt") or 0 for lv in levels], dtype=float)
+    drct = np.array([lv["drct"] for lv in levels], dtype=float)
+    sknt = np.array([lv["sknt"] for lv in levels], dtype=float)
     u = -sknt * np.sin(np.deg2rad(drct))
     v = -sknt * np.cos(np.deg2rad(drct))
 
     # Parse valid time
     try:
         from datetime import datetime, timezone
-        dt = datetime.fromisoformat(valid.replace("Z", "+00:00"))
-        time_str = dt.strftime("%Hz %d %b %Y").upper()
+        if "Z" in valid:
+            dt = datetime.fromisoformat(valid.replace("Z", "+00:00"))
+        else:
+            # Handle possible alternate formats from IEM
+            dt = datetime.strptime(valid, "%Y-%m-%dT%H:%M:%S")
+            dt = dt.replace(tzinfo=timezone.utc)
+            
         run_time = [str(dt.year), str(dt.month).zfill(2),
                     str(dt.day).zfill(2), f"{dt.hour:02d}:{dt.minute:02d}"]
     except Exception:
-        time_str = valid
         run_time = ["none", "none", "none", "none"]
 
     return {
@@ -643,6 +651,36 @@ async def filter_stations_with_data(stations: list[dict], n_times: int = 1) -> l
     results = await asyncio.gather(*[has_data(s) for s in stations])
     return [s for s, ok in results if ok]
 
+def validate_sounding_data(data: Optional[dict], min_levels: int = 5) -> bool:
+    """Check if sounding data dict is valid and has enough levels for plotting."""
+    if not data or not isinstance(data, dict):
+        return False
+    
+    # Check for required SounderPy keys
+    for key in ("p", "z", "T", "Td", "u", "v"):
+        if key not in data or data[key] is None:
+            return False
+            
+    # Check level count
+    try:
+        if len(data["p"]) < min_levels:
+            return False
+    except (TypeError, KeyError):
+        return False
+        
+    # Check if we have at least SOME non-zero wind data (prevent jagged hodographs)
+    try:
+        import numpy as np
+        # Convert to numpy and check if all u/v are effectively zero or nan
+        u_vals = np.array(data["u"])
+        v_vals = np.array(data["v"])
+        if np.all(np.isnan(u_vals) | (u_vals == 0)) and np.all(np.isnan(v_vals) | (v_vals == 0)):
+            return False
+    except Exception:
+        pass
+
+    return True
+
 async def fetch_sounding(
     station_id: str,
     year: str, month: str, day: str, hour: str,
@@ -653,70 +691,48 @@ async def fetch_sounding(
     Fetch sounding data. Returns clean_data dict or None on failure.
 
     Strategy:
-    - 00z/12z: Try Wyoming first (better hodograph data quality),
-                fall back to IEM if Wyoming fails.
+    - 00z/12z: Try Wyoming first (cleanest data), fall back to IEM only if 
+                Wyoming is unavailable or invalid.
     - Other hours: IEM only (Wyoming doesn't have special soundings).
     """
     loop = asyncio.get_running_loop()
 
     if hour in ("00", "12"):
-        # Race Wyoming and IEM simultaneously — whichever returns valid data
-        # first wins. Wyoming has quality preference: if both succeed, the
-        # Wyoming result is used. Racing avoids blocking on Wyoming's full
-        # timeout when it is slow or unavailable.
-        async def _try_wyoming():
-            try:
-                data = await loop.run_in_executor(
-                    None,
-                    lambda: spy.get_obs_data(station_id, year, month, day, hour)
-                )
-                return data
-            except Exception as e:
-                logger.debug(f"[SOUNDING] Wyoming failed for {station_id} {hour}z: {e}")
-                return None
-
-        async def _try_iem():
-            return await fetch_iem_sounding(
-                station_id, year, month, day, hour,
-                station_name=station_name, lat=lat, lon=lon, elev=elev
+        # Preferred source: Wyoming
+        logger.debug(f"[SOUNDING] Fetching Wyoming for {station_id} {hour}z")
+        try:
+            wyo_data = await loop.run_in_executor(
+                None,
+                lambda: spy.get_obs_data(station_id, year, month, day, hour)
             )
+            if validate_sounding_data(wyo_data):
+                logger.debug(f"[SOUNDING] Wyoming success for {station_id} {hour}z")
+                return wyo_data
+            else:
+                logger.debug(f"[SOUNDING] Wyoming data invalid for {station_id} {hour}z")
+        except Exception as e:
+            logger.debug(f"[SOUNDING] Wyoming failed for {station_id} {hour}z: {e}")
 
-        wyoming_task = asyncio.create_task(_try_wyoming())
-        iem_task = asyncio.create_task(_try_iem())
-
-        done, pending = await asyncio.wait(
-            [wyoming_task, iem_task],
-            return_when=asyncio.FIRST_COMPLETED,
+        # Fallback source: IEM
+        logger.debug(f"[SOUNDING] Falling back to IEM for {station_id} {hour}z")
+        iem_data = await fetch_iem_sounding(
+            station_id, year, month, day, hour,
+            station_name=station_name, lat=lat, lon=lon, elev=elev
         )
-
-        first = done.pop()
-        result = first.result()
-        if result:
-            for t in pending:
-                t.cancel()
-            source = "Wyoming" if first is wyoming_task else "IEM"
-            logger.debug(f"[SOUNDING] {source} won race for {station_id} {hour}z")
-            return result
-
-        # First result was None — wait for the second
-        if pending:
-            second = pending.pop()
-            try:
-                result = await second
-                if result:
-                    source = "Wyoming" if second is wyoming_task else "IEM"
-                    logger.debug(f"[SOUNDING] {source} fallback for {station_id} {hour}z")
-                    return result
-            except Exception:
-                pass
+        if validate_sounding_data(iem_data):
+            return iem_data
+        
         return None
 
-    # Non-standard hours: IEM only (Wyoming doesn't carry special soundings)
+    # Non-standard hours: IEM only
     iem_data = await fetch_iem_sounding(
         station_id, year, month, day, hour,
         station_name=station_name, lat=lat, lon=lon, elev=elev
     )
-    return iem_data
+    if validate_sounding_data(iem_data):
+        return iem_data
+        
+    return None
 
 async def generate_plot(
     clean_data: dict,
