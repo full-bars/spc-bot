@@ -617,7 +617,10 @@ async def fetch_acars_sounding(
         clean_data = await loop.run_in_executor(
             None, lambda: acars.get_profile(profile_id)
         )
-        return clean_data
+        if validate_sounding_data(clean_data, min_levels=8): # ACARS needs a bit more depth
+            return clean_data
+        logger.warning(f"[ACARS] Profile {profile_id} failed validation (shallow or empty)")
+        return None
     except Exception as e:
         logger.warning(f"[ACARS] Fetch failed for {profile_id}: {e}")
         return None
@@ -661,20 +664,30 @@ def validate_sounding_data(data: Optional[dict], min_levels: int = 5) -> bool:
         if key not in data or data[key] is None:
             return False
             
-    # Check level count
+    # Check level count and array consistency
     try:
-        if len(data["p"]) < min_levels:
+        p_len = len(data["p"])
+        if p_len < min_levels:
             return False
+            
+        for key in ("z", "T", "Td", "u", "v"):
+            if len(data[key]) != p_len:
+                return False
     except (TypeError, KeyError):
         return False
         
-    # Check if we have at least SOME non-zero wind data (prevent jagged hodographs)
+    # Check for sufficient valid data (prevent crashes in SounderPy/ecape-parcel)
     try:
         import numpy as np
-        # Convert to numpy and check if all u/v are effectively zero or nan
+        # Check if we have at least SOME non-zero wind data (prevent jagged hodographs)
         u_vals = np.array(data["u"])
         v_vals = np.array(data["v"])
         if np.all(np.isnan(u_vals) | (u_vals == 0)) and np.all(np.isnan(v_vals) | (v_vals == 0)):
+            return False
+            
+        # Check temperature validity (prevent fmin/fmax errors on empty/NaN arrays)
+        t_vals = np.array(data["T"])
+        if np.all(np.isnan(t_vals)):
             return False
     except Exception:
         pass
