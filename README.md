@@ -26,9 +26,23 @@ A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks
 
 ## Setup
 
-### Automatic (recommended)
+### 🐳 Docker (Recommended for most users)
 
-A deploy script is included that creates a virtual environment, configures your `.env` interactively, and installs a systemd service that starts automatically on boot. The bot runs as your current user for easy management.
+The bot is now available as a pre-built image on GitHub Container Registry. This is the easiest way to run the bot with all scientific dependencies (MetPy, SounderPy) pre-configured.
+
+1.  **Download configuration:**
+    ```bash
+    mkdir spc-bot && cd spc-bot
+    curl -O https://raw.githubusercontent.com/full-bars/spc-bot/main/docker-compose.yml
+    curl -O https://raw.githubusercontent.com/full-bars/spc-bot/main/.env.example
+    cp .env.example .env
+    ```
+2.  **Configure:** Edit `.env` with your Discord token and channel IDs.
+3.  **Launch:** `docker compose up -d`
+
+### ⚡ Automatic Install (Linux / Ubuntu)
+
+A portable deploy script is included that creates a virtual environment, configures your `.env` interactively, and installs a systemd service. The bot runs as your current user for seamless code and log management.
 
 ```bash
 git clone https://github.com/full-bars/spc-bot.git
@@ -36,84 +50,26 @@ cd spc-bot
 sudo ./deploy.sh
 ```
 
-The script will prompt you for your Discord bot token, channel IDs, and guild ID, then handle everything else.
-
-The bot is installed to wherever you cloned it (e.g., `~/spc-bot`) and runs as your current user. The following aliases are added automatically:
+The script will prompt you for your Discord bot token and setup the following aliases in your `.bashrc`:
 
 ```bash
 spcon        # start the bot
 spcoff       # stop the bot
 spcrestart   # restart the bot
-spcstatus    # show status
+spcstatus    # show status dashboard
 spclog       # follow live logs
 spclog50     # show last 50 log lines
 spcupdate    # pull latest code and restart
-```
-
-
-### Docker (Pre-built Image)
-
-The easiest way to run the bot is using the pre-built image from GitHub Container Registry:
-
-1. Create a directory for the bot and download the `docker-compose.yml` and `.env.example`:
-   ```bash
-   mkdir spc-bot && cd spc-bot
-   curl -O https://raw.githubusercontent.com/full-bars/spc-bot/main/docker-compose.yml
-   curl -O https://raw.githubusercontent.com/full-bars/spc-bot/main/.env.example
-   cp .env.example .env
-   ```
-2. Edit `.env` with your Discord token and channel IDs.
-3. Start the bot:
-   ```bash
-   docker compose up -d
-   ```
-
-### Docker (Build from Source)
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/full-bars/spc-bot.git
-   cd spc-bot
-   ```
-2. Edit `.env` with your Discord token and channel IDs.
-3. Build and run:
-   ```bash
-   docker compose up -d --build
-   ```
-
-### Manual Installation (No Docker)
-   ```
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
-3. Install dependencies:
-   ```
-   pip install -r requirements.txt
-   ```
-
-4. Copy `.env.example` to `.env` and fill in your values:
-   ```
-   cp .env.example .env
-   ```
-
-5. Run the bot:
-   ```
-   python main.py
-   ```
-
-## Running Tests
-
-```
-pip install pytest pytest-asyncio
-python -m pytest tests/ -v
 ```
 
 ## Project Structure
 
 ```
 spc-bot/
-├── main.py                  # Bot entrypoint, watchdog, signal handling
-├── deploy.sh                # One-command deployment script
+├── main.py                  # Bot entrypoint, watchdog, and signal handling
+├── deploy.sh                # Portable one-command deployment script
+├── Dockerfile               # Debian-based scientific stack image
+├── docker-compose.yml       # Docker orchestration
 ├── install-hooks.sh         # Installs pre-push git hooks (syntax + test checks)
 ├── config.py                # Configuration and centralized URL constants
 ├── requirements.txt         # Python dependencies
@@ -129,7 +85,7 @@ spc-bot/
 │   └── db.py                # Async SQLite state manager (aiosqlite) with persistent product text caching
 ├── cogs/
 │   ├── outlooks.py          # SPC Day 1-3 and Day 4-8 auto-posting
-│   ├── mesoscale.py         # SPC MD monitoring with watch probability detection
+│   ├── mesoscale.py         # SPC MD monitoring with watch probability detection and IEM fallbacks
 │   ├── iembot.py            # IEM iembot feed poller with persistent DB-backed text cache
 │   ├── watches.py           # SPC watch monitoring via NWS API (stores affected_zones)
 │   ├── scp.py               # NIU/Gensini SCP graphics, twice daily
