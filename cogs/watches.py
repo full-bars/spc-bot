@@ -73,7 +73,7 @@ async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
                     )
                 except Exception:
                     pass
-            logger.info(
+            logger.debug(
                 f"[WATCH] NWS API: #{watch_num} ({wtype}) expires {expires_dt}"
             )
             affected_zones = props.get("affectedZones", [])
