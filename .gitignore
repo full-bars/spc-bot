@@ -8,3 +8,7 @@ __pycache__/
 cached_*
 cache/
 GEMINI.md
+.claude/
+claude.md
+.pytest_cache/
+.coverage

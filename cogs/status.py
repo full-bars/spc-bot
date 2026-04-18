@@ -180,8 +180,8 @@ class StatusCog(commands.Cog):
         embed.add_field(
             name="⚠️ Watches",
             value=(
-                "`/watches` - Show all currently active SPC watches\n"
-                "`/ww` - Show the SPC Valid Watches (WW) status graphic"
+                "`/watches`, `/ww` - Show all active SPC watches with overview map\n"
+                "`/md` - Show active Mesoscale Discussions"
             ),
             inline=False,
         )
@@ -191,7 +191,7 @@ class StatusCog(commands.Cog):
             name="📊 Analysis Tools",
             value=(
                 "`/sounding` <loc> [time] - Plot observed RAOB/ACARS soundings\n"
-                "`/hodograph` <loc> [time] - Plot observed RAOB/ACARS hodographs"
+                "`/hodograph` <site> - Plot NEXRAD/TDWR VWP radar hodograph"
             ),
             inline=False,
         )
@@ -213,13 +213,13 @@ class StatusCog(commands.Cog):
             name="⚙️ System & Radar",
             value=(
                 "`/status` - Detailed bot health and task status\n"
-                "`/download` <site> - Fetch latest raw radar data (L2/L3)\n"
+                "`/download` <site> - Fetch latest raw NEXRAD Level 2 radar data\n"
                 "`/help` - Show this help menu"
             ),
             inline=False,
         )
 
-        embed.set_footer(text=f"WXModelBot v4.11.5 | Host: {socket.gethostname()}")
+        embed.set_footer(text=f"WXModelBot v4.11.6 | Host: {socket.gethostname()}")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @discord.app_commands.command(
