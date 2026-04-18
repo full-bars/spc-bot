@@ -1,13 +1,16 @@
 #!/bin/bash
 # deploy.sh — WxAlert/SPCBot deployment script
-# Installs to /opt/spc-bot, runs as dedicated non-root spcbot user.
-# Safe to run multiple times (idempotent).
+# Portable version: Installs to current directory by default, runs as current user.
 
 set -e
 
-INSTALL_DIR="/opt/spc-bot"
+# Detect environment
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SERVICE_USER="spcbot"
+CURRENT_USER=$(whoami)
+
+# Default to current directory if not specified
+INSTALL_DIR="${INSTALL_DIR:-$SOURCE_DIR}"
+SERVICE_USER="$CURRENT_USER"
 SERVICE_NAME="spcbot"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 VENV_DIR="${INSTALL_DIR}/venv"
@@ -24,11 +27,6 @@ info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
-# ── Must run as root ──────────────────────────────────────────────────────────
-if [ "$EUID" -ne 0 ]; then
-    error "Please run with sudo: sudo ./deploy.sh"
-fi
-
 # ── Check Python version ──────────────────────────────────────────────────────
 info "Checking Python version..."
 PYTHON=$(command -v python3 || true)
@@ -42,15 +40,7 @@ if [ "$PY_MAJOR" -lt "$PYTHON_MIN_MAJOR" ] ||    { [ "$PY_MAJOR" -eq "$PYTHON_MI
 fi
 info "Python $PY_MAJOR.$PY_MINOR found."
 
-# ── Create service user ───────────────────────────────────────────────────────
-if ! id "$SERVICE_USER" &>/dev/null; then
-    info "Creating system user '$SERVICE_USER'..."
-    useradd --system --no-create-home --shell /usr/sbin/nologin "$SERVICE_USER"
-else
-    info "User '$SERVICE_USER' already exists."
-fi
-
-# ── Copy files to install directory ──────────────────────────────────────────
+# ── Setup Install Directory ──────────────────────────────────────────────────
 info "Installing to ${INSTALL_DIR}..."
 mkdir -p "$INSTALL_DIR"
 
@@ -59,14 +49,21 @@ REAL_INSTALL="$(realpath "$INSTALL_DIR")"
 
 if [ "$REAL_SOURCE" != "$REAL_INSTALL" ]; then
     info "Copying files from ${SOURCE_DIR} to ${INSTALL_DIR}..."
-    rsync -a         --exclude='venv/'         --exclude='cache/'         --exclude='*.log'         --exclude='*.log.*'         --exclude='.env'         --exclude='__pycache__/'         --exclude='*.pyc'         "${SOURCE_DIR}/" "${INSTALL_DIR}/"
+    rsync -a \
+        --exclude='venv/' \
+        --exclude='cache/' \
+        --exclude='*.log' \
+        --exclude='*.log.*' \
+        --exclude='.env' \
+        --exclude='__pycache__/' \
+        --exclude='*.pyc' \
+        "${SOURCE_DIR}/" "${INSTALL_DIR}/"
     info "Files copied."
 else
-    info "Already installed at ${INSTALL_DIR} — skipping file copy."
+    info "Running deployment in-place at ${INSTALL_DIR}."
 fi
 
 # ── Virtual environment ───────────────────────────────────────────────────────
-# Detect and remove incompatible venv (wrong arch or broken)
 if [ -d "$VENV_DIR" ]; then
     if ! "${VENV_DIR}/bin/python" -c "import sys" &>/dev/null 2>&1; then
         warn "Existing venv is incompatible or broken — recreating..."
@@ -86,31 +83,10 @@ info "Installing/updating dependencies..."
 "${VENV_DIR}/bin/pip" install -r "${INSTALL_DIR}/requirements.txt" --quiet
 info "Dependencies installed."
 
-# ── Install cloudflared (for failover tunnel) ───────────────────────────────
-if ! command -v cloudflared &>/dev/null; then
-    info "Installing cloudflared..."
-    ARCH=$(uname -m)
-    case "$ARCH" in
-        x86_64)  CF_ARCH="amd64" ;;
-        aarch64) CF_ARCH="arm64" ;;
-        armv7l)  CF_ARCH="arm" ;;
-        *)       warn "Unknown arch $ARCH — skipping cloudflared install" ; CF_ARCH="" ;;
-    esac
-    if [ -n "$CF_ARCH" ]; then
-        curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH}" -o /tmp/cloudflared
-        chmod +x /tmp/cloudflared
-        mv /tmp/cloudflared /usr/local/bin/cloudflared
-        info "cloudflared installed ($CF_ARCH)."
-    fi
-else
-    info "cloudflared already installed."
-fi
-
 # ── Interactive .env setup ────────────────────────────────────────────────────
 ENV_FILE="${INSTALL_DIR}/.env"
 if [ -f "$ENV_FILE" ]; then
     warn ".env already exists — skipping interactive setup."
-    warn "Edit ${ENV_FILE} manually if you need to change values."
 else
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -127,51 +103,32 @@ else
     cat > "$ENV_FILE" << EOF
 # Required
 DISCORD_TOKEN=${DISCORD_TOKEN}
-# Required — no defaults, bot will not start without these
 SPC_CHANNEL_ID=${SPC_CHANNEL_ID}
 MODELS_CHANNEL_ID=${MODELS_CHANNEL_ID}
 GUILD_ID=${GUILD_ID}
-# Optional — these have sensible defaults
-# CACHE_DIR=cache
-# LOG_FILE=spc_bot.log
-# MANUAL_CACHE_FILE=posted_records.json
-# AUTO_CACHE_FILE=auto_posted_records.json
 EOF
     info ".env created."
 fi
 
 # ── Permissions ───────────────────────────────────────────────────────────────
-# Root owns the code so any admin can git pull/push
-# spcbot only owns what it needs to write at runtime
-info "Setting permissions..."
+info "Fixing runtime permissions for $SERVICE_USER..."
 CACHE_DIR="${INSTALL_DIR}/cache"
 mkdir -p "$CACHE_DIR"
-
-chown root:root "$INSTALL_DIR"
-chown -R root:root "${INSTALL_DIR}"
-chown -R "$SERVICE_USER":"$SERVICE_USER" "$CACHE_DIR"
-chown "$SERVICE_USER":"$SERVICE_USER" "$ENV_FILE"
-chmod 600 "$ENV_FILE"
-chmod -R a+rX "$INSTALL_DIR"
-# venv needs to be executable by spcbot
-chown -R "$SERVICE_USER":"$SERVICE_USER" "$VENV_DIR"
-
-# Create and fix permissions for runtime files
-touch "${INSTALL_DIR}/spc_bot.log"
-chown "$SERVICE_USER":"$SERVICE_USER" "${INSTALL_DIR}/spc_bot.log"
-    chown "$SERVICE_USER":"$SERVICE_USER" "${INSTALL_DIR}/radar_data"
-    chmod 775 "${INSTALL_DIR}"
-    chown root:"$SERVICE_USER" "${INSTALL_DIR}"
+mkdir -p "${INSTALL_DIR}/radar_data"
 mkdir -p "${CACHE_DIR}/matplotlib"
-chown -R "$SERVICE_USER":"$SERVICE_USER" "${CACHE_DIR}/matplotlib"
 
-# ── Git safe directory for root ───────────────────────────────────────────────
-git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
-info "Git safe directory configured."
+# Ensure log file exists and is writable
+touch "${INSTALL_DIR}/spc_bot.log"
+
+# We only sudo for systemd and cloudflared; code ownership stays with CURRENT_USER
+if [ "$EUID" -eq 0 ]; then
+    chown -R "$SERVICE_USER":"$SERVICE_USER" "$INSTALL_DIR"
+    chmod 600 "$ENV_FILE"
+fi
 
 # ── Systemd service ───────────────────────────────────────────────────────────
-info "Installing systemd service..."
-cat > "$SERVICE_FILE" << EOF
+info "Configuring systemd service..."
+sudo bash -c "cat > $SERVICE_FILE" << EOF
 [Unit]
 Description=WxAlert SPCBot Discord Bot
 After=network-online.target
@@ -187,24 +144,23 @@ RestartSec=10
 StandardOutput=journal
 StandardError=journal
 EnvironmentFile=${ENV_FILE}
-Environment=MPLCONFIGDIR=/opt/spc-bot/cache/matplotlib
+Environment=MPLCONFIGDIR=${CACHE_DIR}/matplotlib
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-systemctl daemon-reload
-systemctl enable "$SERVICE_NAME"
-systemctl restart "$SERVICE_NAME"
-info "Service installed and started."
+sudo systemctl daemon-reload
+sudo systemctl enable "$SERVICE_NAME"
+sudo systemctl restart "$SERVICE_NAME"
+info "Service installed and started as user '$SERVICE_USER'."
 
-# ── Shell aliases (system-wide, works for all shells) ─────────────────────────
-info "Installing shell aliases..."
-cat > /etc/bash.bashrc.d/spcbot 2>/dev/null || {
-    # Fallback: append to /etc/bash.bashrc if .d directory doesn't exist
-    ALIASES_MARKER="# spcbot-aliases"
-    if ! grep -q "$ALIASES_MARKER" /etc/bash.bashrc; then
-        cat >> /etc/bash.bashrc << 'ALIASES'
+# ── Shell aliases ─────────────────────────────────────────────────────────────
+ALIASES_FILE="$HOME/.bashrc"
+if ! grep -q "# spcbot-aliases" "$ALIASES_FILE"; then
+    info "Adding aliases to $ALIASES_FILE..."
+    cat >> "$ALIASES_FILE" << 'ALIASES'
+
 # spcbot-aliases
 alias spcon='sudo systemctl start spcbot'
 alias spcoff='sudo systemctl stop spcbot'
@@ -212,27 +168,12 @@ alias spcrestart='sudo systemctl restart spcbot'
 alias spcstatus='systemctl status spcbot'
 alias spclog='journalctl -u spcbot -f'
 alias spclog50='journalctl -u spcbot -n 50'
-alias spcupdate='sudo git -C /opt/spc-bot pull && sudo systemctl restart spcbot && echo "Bot updated and restarted."'
+alias spcupdate='git pull && ./deploy.sh'
 ALIASES
-    fi
-}
-
-info "Aliases added to /etc/bash.bashrc — open a new shell or run: source /etc/bash.bashrc"
+fi
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-info "Deployment complete! Bot installed to ${INSTALL_DIR}"
-echo ""
-echo "  NOTE: You may need to log out and back in for aliases to take effect."
-echo "  Or run: source /etc/bash.bashrc"
-echo ""
-echo "  Then use:"
-echo "  spcon        — start the bot"
-echo "  spcoff       — stop the bot"
-echo "  spcrestart   — restart the bot"
-echo "  spcstatus    — show bot status"
-echo "  spclog       — follow live logs"
-echo "  spclog50     — show last 50 log lines"
-echo "  spcupdate    — pull latest code and restart"
+info "Deployment complete! Bot running from ${INSTALL_DIR}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
