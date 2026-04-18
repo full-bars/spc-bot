@@ -149,6 +149,80 @@ class StatusCog(commands.Cog):
     # ── Slash commands ───────────────────────────────────────────────────
 
     @discord.app_commands.command(
+        name="help",
+        description="Show all available weather and bot commands",
+    )
+    async def help_slash(self, interaction: discord.Interaction):
+        """Display a comprehensive list of bot commands."""
+        embed = discord.Embed(
+            title="🛰️ WXModelBot Command Help",
+            description=(
+                "I monitor SPC, WPC, and experimental models to provide real-time "
+                "weather updates and analysis tools."
+            ),
+            color=discord.Color.blue(),
+        )
+
+        # Outlooks & SPC
+        embed.add_field(
+            name="📅 SPC Outlooks",
+            value=(
+                "`/spc1` [fresh] - Day 1 Convective Outlook\n"
+                "`/spc2` [fresh] - Day 2 Convective Outlook\n"
+                "`/spc3` [fresh] - Day 3 Convective Outlook\n"
+                "`/spc48` - Day 4-8 Probability Outlook\n"
+                "`/md` - Show active Mesoscale Discussions"
+            ),
+            inline=False,
+        )
+
+        # Watches
+        embed.add_field(
+            name="⚠️ Watches",
+            value=(
+                "`/watches` - Show all currently active SPC watches\n"
+                "`/ww` - Show the SPC Valid Watches (WW) status graphic"
+            ),
+            inline=False,
+        )
+
+        # Analysis & Soundings
+        embed.add_field(
+            name="📊 Analysis Tools",
+            value=(
+                "`/sounding` <loc> [time] - Plot observed RAOB/ACARS soundings\n"
+                "`/hodograph` <loc> [time] - Plot observed RAOB/ACARS hodographs"
+            ),
+            inline=False,
+        )
+
+        # Experimental & Models
+        embed.add_field(
+            name="🧪 Experimental & Models",
+            value=(
+                "`/csu` <product> - CSU-MLP Machine Learning forecasts\n"
+                "`/wxnext` - NCAR WxNext2 Mean AI severe forecasts\n"
+                "`/scp` [fresh] - Supercell Composite (NIU/Gensini CFSv2)\n"
+                "`/wpc` - WPC Excessive Rainfall (Flash Flood) Outlooks"
+            ),
+            inline=False,
+        )
+
+        # Radar & System
+        embed.add_field(
+            name="⚙️ System & Radar",
+            value=(
+                "`/status` - Detailed bot health and task status\n"
+                "`/download` <site> - Fetch latest raw radar data (L2/L3)\n"
+                "`/help` - Show this help menu"
+            ),
+            inline=False,
+        )
+
+        embed.set_footer(text=f"WXModelBot v4.11.5 | Host: {socket.gethostname()}")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @discord.app_commands.command(
         name="scp", description="Get latest SCP Forecast Graphics"
     )
     @discord.app_commands.describe(fresh="Bypass cache and fetch the latest images directly")
