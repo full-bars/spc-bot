@@ -55,8 +55,8 @@ class RadarCog(commands.Cog):
         description="Download NEXRAD Level 2 radar data from AWS S3",
     )
     @discord.app_commands.describe(
-        sites="Radar site code(s) e.g. KICT or KICT KUEX KOAX (space or comma separated)",
-        time="Quick time preset — skips interactive flow",
+        sites="Site code(s) e.g. KICT or KICT KUEX (leave blank for interactive list)",
+        time="Time preset — Choose 'Custom/Other' or leave blank for custom Z-to-Z range",
         count="Number of most recent files to download (overrides time)",
     )
     @discord.app_commands.choices(time=[
@@ -64,6 +64,7 @@ class RadarCog(commands.Cog):
         Choice(name="Last 2 hours", value="2h"),
         Choice(name="Last 3 hours", value="3h"),
         Choice(name="Last 4 hours", value="4h"),
+        Choice(name="Custom / Other (Z-to-Z, explicit, etc.)", value="custom"),
     ])
     async def download_slash(
         self,
@@ -100,8 +101,8 @@ class RadarCog(commands.Cog):
             )
             return
 
-        # Sites only — show time preset buttons
-        if not time:
+        # Sites only (or 'custom' selected) — show time preset buttons
+        if not time or time.value == "custom":
             from cogs.radar.views import TimeRangeView
             await interaction.response.defer()
             view = TimeRangeView(
