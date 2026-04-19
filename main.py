@@ -112,22 +112,13 @@ async def setup_hook():
             logger.info(f"[DB] Restored posted URLs for {day_key}")
     logger.info("[DB] Database ready")
 
-    # Load failover cog first
+    # Register failover cog
     await bot.load_extension("cogs.failover")
     if IS_PRIMARY:
         for ext in ALL_EXTENSIONS:
             await bot.load_extension(ext)
     else:
         logger.info("[FAILOVER] Running as STANDBY — cogs suppressed until promoted")
-
-    # Register cog tasks with watchdog after loading
-    for cog in bot.cogs.values():
-        if hasattr(cog, "MANAGED_TASK_NAMES"):
-            for task_attr, display_name in cog.MANAGED_TASK_NAMES:
-                task = getattr(cog, task_attr, None)
-                if task and isinstance(task, tasks.Loop):
-                    MANAGED_TASKS.append((task, display_name))
-                    logger.debug(f"[WATCHDOG] Registered task '{display_name}' from {type(cog).__name__}")
 
     watchdog_task.start()
 
@@ -145,20 +136,19 @@ ALL_EXTENSIONS = [
 # Watchdog state
 _task_fail_counts = {}
 _task_alerted = set()
-MANAGED_TASKS: List[Tuple] = []
 
 
 async def send_bot_alert(
     title: str, description: str, critical: bool = False
 ):
-    """Post a health alert embed to the SPC channel."""
-    from config import SPC_CHANNEL_ID
+    """Post a health alert embed to the health/SPC channel."""
+    from config import HEALTH_CHANNEL_ID
 
     try:
-        channel = bot.get_channel(SPC_CHANNEL_ID)
+        channel = bot.get_channel(HEALTH_CHANNEL_ID)
         if not channel:
             logger.error(
-                f"[ALERT] Could not find SPC channel to send alert: {title}"
+                f"[ALERT] Could not find health channel to send alert: {title}"
             )
             return
         color = discord.Color.red() if critical else discord.Color.orange()
@@ -258,7 +248,16 @@ async def watchdog_task():
         await close_session()
         await ensure_session()
 
-    for task, name in MANAGED_TASKS:
+    # Dynamically discover tasks from currently loaded cogs
+    current_managed_tasks = []
+    for cog in bot.cogs.values():
+        if hasattr(cog, "MANAGED_TASK_NAMES"):
+            for task_attr, display_name in cog.MANAGED_TASK_NAMES:
+                task = getattr(cog, task_attr, None)
+                if task and isinstance(task, tasks.Loop):
+                    current_managed_tasks.append((task, display_name))
+
+    for task, name in current_managed_tasks:
         if task.is_running():
             if name in _task_alerted:
                 _task_alerted.discard(name)
@@ -272,9 +271,21 @@ async def watchdog_task():
 
         _task_fail_counts[name] = _task_fail_counts.get(name, 0) + 1
         fail_count = _task_fail_counts[name]
+        
+        # Try to extract the error that stopped the task
+        error_detail = ""
+        inner_task = task.get_task()
+        if inner_task and inner_task.done():
+            try:
+                exc = inner_task.exception()
+                if exc:
+                    error_detail = f"\n**Last Error:** `{type(exc).__name__}: {exc}`"
+            except Exception:
+                pass
+
         logger.warning(
             f"[WATCHDOG] Task '{name}' has stopped "
-            f"(attempt #{fail_count}) — restarting"
+            f"(attempt #{fail_count}) — restarting. Error: {error_detail or 'None'}"
         )
 
         try:
@@ -296,7 +307,8 @@ async def watchdog_task():
             await send_bot_alert(
                 f"{name} is down",
                 f"The `{name}` task has stopped and the watchdog is "
-                f"attempting to restart it (attempt #{fail_count}).\n\n"
+                f"attempting to restart it (attempt #{fail_count})."
+                f"{error_detail}\n\n"
                 + (
                     f"**Watch and MD alerts may be delayed — check "
                     f"[SPC directly](https://www.spc.noaa.gov) "
@@ -314,8 +326,13 @@ async def _shutdown():
     logger.info("Shutting down bot gracefully...")
 
     # 1. Cancel managed and background tasks
-    for task, name in MANAGED_TASKS:
-        task.cancel()
+    # We rediscover here too just to be safe
+    for cog in bot.cogs.values():
+        if hasattr(cog, "MANAGED_TASK_NAMES"):
+            for task_attr, _ in cog.MANAGED_TASK_NAMES:
+                task = getattr(cog, task_attr, None)
+                if task:
+                    task.cancel()
     watchdog_task.cancel()
     if periodic_sync.is_running():
         periodic_sync.cancel()
