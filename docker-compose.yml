@@ -3,9 +3,9 @@ version: '3.8'
 services:
   bot:
     image: ghcr.io/full-bars/spc-bot:latest
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: spc-bot
     restart: unless-stopped
     env_file:
