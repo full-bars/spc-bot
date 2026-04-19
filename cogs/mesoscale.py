@@ -311,13 +311,19 @@ class MesoscaleCog(commands.Cog):
 
     @tasks.loop(seconds=30)
     async def auto_post_md(self):
-        await self.bot.wait_until_ready()
-        channel = self.bot.get_channel(SPC_CHANNEL_ID)
-        if not channel:
-            logger.warning("SPC channel not found for auto_post_md")
-            return
-
         try:
+            await self.bot.wait_until_ready()
+            if not self.bot.state.is_primary:
+                return
+
+            if self._md_backoff.should_skip():
+                return
+
+            channel = self.bot.get_channel(SPC_CHANNEL_ID)
+            if not channel:
+                logger.warning("SPC channel not found for auto_post_md")
+                return
+
             md_numbers = await fetch_latest_md_numbers()
             current_mds = set(md_numbers)
 
@@ -397,11 +403,14 @@ class MesoscaleCog(commands.Cog):
                     logger.error(
                         f"[MD] Discord send failed for MD #{md_num}: {e}"
                     )
+            
+            self._md_backoff.success()
 
         except Exception as e:
             logger.error(
                 f"[MD] Unexpected error in auto_post_md: {e}", exc_info=True
             )
+            await self._md_backoff.failure(self.bot)
 
     @auto_post_md.after_loop
     async def after_md_loop(self):
