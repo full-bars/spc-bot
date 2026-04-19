@@ -12,8 +12,13 @@ from discord.ext import commands, tasks
 
 from config import CACHE_DIR, GUILD_ID, TOKEN, CONFIG
 from utils.http import close_session, ensure_session
-from utils.db import check_integrity, close_db, get_db
+from utils.db import (
+    check_integrity, close_db, get_db,
+    get_all_hashes, get_posted_urls, get_posted_mds, get_posted_watches,
+    get_state,
+)
 from utils.state import BotState
+from cogs import ALL_EXTENSIONS
 
 # ── Logging setup ────────────────────────────────────────────────────────────
 logger = logging.getLogger("spc_bot")
@@ -43,11 +48,6 @@ bot.state = BotState()
 
 async def setup_hook():
     """Hydrate state from DB before any cogs are loaded."""
-    from utils.db import (
-        check_integrity, get_db,
-        get_all_hashes, get_posted_urls, get_posted_mds, get_posted_watches,
-        get_state
-    )
     import json as _json
 
     # Initialize database
@@ -126,12 +126,6 @@ bot.setup_hook = setup_hook
 
 IS_PRIMARY = os.getenv("IS_PRIMARY", "true").lower() == "true"
 bot.state.is_primary = IS_PRIMARY
-
-ALL_EXTENSIONS = [
-    "cogs.iembot", "cogs.scp", "cogs.outlooks", "cogs.mesoscale", "cogs.watches",
-    "cogs.status", "cogs.radar", "cogs.csu_mlp", "cogs.ncar",
-    "cogs.sounding", "cogs.hodograph",
-]
 
 # Watchdog state
 _task_fail_counts = {}

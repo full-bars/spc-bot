@@ -50,59 +50,15 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 _base_dir = os.path.dirname(os.path.abspath(__file__))
 _products_file = os.path.join(_base_dir, "config", "products.json")
 
-# Default values if JSON load fails
-_P = {
-    "spc_schedule": {"1": [1, 6, 13, 20], "2": [2, 13], "3": [3, 15]},
-    "spc_outlook_base": "https://www.spc.noaa.gov/products/outlook",
-    "spc_urls_fallback": {
-        "1": [
-            "https://www.spc.noaa.gov/products/outlook/day1otlk.gif",
-            "https://www.spc.noaa.gov/products/outlook/day1probotlk_torn.gif",
-            "https://www.spc.noaa.gov/products/outlook/day1probotlk_wind.gif",
-            "https://www.spc.noaa.gov/products/outlook/day1probotlk_hail.gif"
-        ],
-        "2": [
-            "https://www.spc.noaa.gov/products/outlook/day2otlk.gif",
-            "https://www.spc.noaa.gov/products/outlook/day2probotlk_torn.gif",
-            "https://www.spc.noaa.gov/products/outlook/day2probotlk_wind.gif",
-            "https://www.spc.noaa.gov/products/outlook/day2probotlk_hail.gif"
-        ],
-        "3": [
-            "https://www.spc.noaa.gov/products/outlook/day3otlk.gif",
-            "https://www.spc.noaa.gov/products/outlook/day3prob.gif"
-        ],
-        "48": ["https://www.spc.noaa.gov/products/exper/day4-8/day48prob.gif"]
-    },
-    "scp_image_urls": [
-        "https://atlas.niu.edu/forecast/scp/cfs_week1.png",
-        "https://atlas.niu.edu/forecast/scp/cfs_week2.png",
-        "https://atlas.niu.edu/forecast/scp/cfs_week3.png",
-        "https://atlas.niu.edu/forecast/scp/gefs_week1__CTRL.png",
-        "https://atlas.niu.edu/forecast/scp/gefs_week2__CTRL.png"
-    ],
-    "wpc_image_urls": [
-        "https://www.wpc.ncep.noaa.gov/qpf/94ewbg.gif",
-        "https://www.wpc.ncep.noaa.gov/qpf/98ewbg.gif",
-        "https://www.wpc.ncep.noaa.gov/qpf/99ewbg.gif"
-    ],
-    "spc_md_index_url": "https://www.spc.noaa.gov/products/md/",
-    "spc_watch_index_url": "https://www.spc.noaa.gov/products/watch/",
-    "spc_valid_watches_url": "https://www.spc.noaa.gov/products/watch/validww.png",
-    "nws_alerts_url": "https://api.weather.gov/alerts/active?event=Severe%20Thunderstorm%20Watch,Tornado%20Watch&status=actual",
-    "iembot_feed_url": "https://weather.im/iembot-json/room/spcchat",
-    "iem_nwstext_url": "https://mesonet.agron.iastate.edu/api/1/nwstext/{product_id}",
-    "wxnext_base_url": "https://www2.mmm.ucar.edu/projects/ncar_ensemble/ainwp/img",
-    "wxnext_page_url": "https://www2.mmm.ucar.edu/projects/ncar_ensemble/ainwp/"
-}
+if not os.path.exists(_products_file):
+    raise FileNotFoundError(
+        f"Product config file not found at {_products_file}. "
+        f"This file is required — the hardcoded fallback has been removed "
+        f"to prevent silent drift between the JSON and code."
+    )
 
-if os.path.exists(_products_file):
-    try:
-        with open(_products_file, "r") as f:
-            _P.update(json.load(f))
-    except Exception as e:
-        logger.error(f"Failed to load product config from {_products_file}: {e}")
-else:
-    logger.warning(f"Product config file NOT FOUND at {_products_file} — using hardcoded defaults")
+with open(_products_file, "r") as f:
+    _P = json.load(f)
 
 # Exported constants used by cogs
 SPC_SCHEDULE = {int(k): v for k, v in _P["spc_schedule"].items()}
