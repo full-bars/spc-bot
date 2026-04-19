@@ -46,6 +46,9 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot.state = BotState()
 
+IS_PRIMARY = os.getenv("IS_PRIMARY", "true").lower() == "true"
+bot.state.is_primary = IS_PRIMARY
+
 async def setup_hook():
     """Hydrate state from DB before any cogs are loaded."""
     import json as _json
@@ -123,9 +126,6 @@ async def setup_hook():
     watchdog_task.start()
 
 bot.setup_hook = setup_hook
-
-IS_PRIMARY = os.getenv("IS_PRIMARY", "true").lower() == "true"
-bot.state.is_primary = IS_PRIMARY
 
 # Watchdog state
 _task_fail_counts = {}
@@ -284,7 +284,14 @@ async def watchdog_task():
 
         try:
             task.cancel()
-            await asyncio.sleep(0.5)
+            inner = task.get_task()
+            if inner is not None and not inner.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(inner), timeout=5.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+                except Exception:
+                    pass
             task.start()
             logger.info(f"[WATCHDOG] Successfully restarted '{name}'")
         except Exception as e:
@@ -316,7 +323,15 @@ async def watchdog_task():
 
 
 # ── Graceful shutdown ────────────────────────────────────────────────────────
+_shutting_down = False
+
+
 async def _shutdown():
+    global _shutting_down
+    if _shutting_down:
+        logger.info("Shutdown already in progress — ignoring duplicate signal")
+        return
+    _shutting_down = True
     logger.info("Shutting down bot gracefully...")
 
     # 1. Cancel managed and background tasks
