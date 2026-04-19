@@ -31,8 +31,19 @@ logger = logging.getLogger("spc_bot")
 
 UPSTASH_URL = os.getenv("UPSTASH_REDIS_REST_URL", "")
 UPSTASH_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
-FAILOVER_TOKEN = os.getenv("FAILOVER_TOKEN", "changeme")
+FAILOVER_TOKEN = os.getenv("FAILOVER_TOKEN", "")
 STATE_PORT = int(os.getenv("STATE_PORT", "8765"))
+
+
+def _require_failover_token() -> str:
+    """Fail fast if FAILOVER_TOKEN is unset or is the obsolete 'changeme' default."""
+    if not FAILOVER_TOKEN or FAILOVER_TOKEN == "changeme":
+        raise RuntimeError(
+            "FAILOVER_TOKEN environment variable must be set to a strong, "
+            "non-default value before failover networking can start. "
+            "Refusing to open the state server with a known token."
+        )
+    return FAILOVER_TOKEN
 HEARTBEAT_TTL = 420  # 7 minutes
 SYNC_INTERVAL = 30   # seconds
 
@@ -52,6 +63,10 @@ class FailoverCog(commands.Cog):
         self._ready = False
 
     async def cog_load(self):
+        # Both primary (serves /state, /sync) and standby (calls them) must
+        # share a real token. Fail fast at cog load so misconfiguration is
+        # obvious at startup rather than surfacing as silent 401s later.
+        _require_failover_token()
         if self.bot.state.is_primary:
             await self._start_http_server()
             await self._start_tunnel()
@@ -82,6 +97,7 @@ class FailoverCog(commands.Cog):
     # ── HTTP server (primary only) ────────────────────────────────────────
 
     async def _start_http_server(self):
+        _require_failover_token()
         app = web.Application()
         app.router.add_get("/state", self._handle_get_state)
         app.router.add_post("/sync", self._handle_post_sync)

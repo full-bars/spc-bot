@@ -19,6 +19,7 @@ os.environ.setdefault("MODELS_CHANNEL_ID", "987654321")
 os.environ.setdefault("GUILD_ID", "111222333")
 os.environ.setdefault("CACHE_DIR", "/tmp/spc_bot_test_cache")
 os.environ.setdefault("LOG_FILE", "/tmp/spc_bot_test.log")
+os.environ.setdefault("FAILOVER_TOKEN", "test-failover-token-not-real")
 
 @pytest.fixture(autouse=True)
 async def cleanup_resources():
