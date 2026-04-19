@@ -38,11 +38,7 @@ SYNC_INTERVAL = 30   # seconds
 
 UPSTASH_HEADERS = {"Authorization": f"Bearer {UPSTASH_TOKEN}"}
 
-ALL_EXTENSIONS = [
-    "cogs.scp", "cogs.outlooks", "cogs.mesoscale", "cogs.watches",
-    "cogs.status", "cogs.radar", "cogs.csu_mlp", "cogs.ncar",
-    "cogs.sounding", "cogs.hodograph",
-]
+from cogs import ALL_EXTENSIONS
 
 
 class FailoverCog(commands.Cog):
