@@ -16,7 +16,8 @@ Tables:
 import asyncio
 import logging
 import os
-from typing import Optional
+import time
+from typing import Iterable, Optional
 
 import aiosqlite
 
@@ -28,6 +29,30 @@ DB_PATH = os.path.join(CACHE_DIR, "bot_state.db")
 _LOCK = asyncio.Lock()
 _db: Optional[aiosqlite.Connection] = None
 _connecting: bool = False
+_last_product_cache_prune: float = 0.0
+_PRODUCT_CACHE_PRUNE_INTERVAL = 3600.0  # 1 hour
+
+
+async def _write(sql: str, params: tuple, op: str) -> None:
+    """Serialized write helper. Logs and swallows errors so callers degrade gracefully."""
+    try:
+        db = await get_db()
+        async with _LOCK:
+            await db.execute(sql, params)
+            await db.commit()
+    except Exception as e:
+        logger.warning(f"[DB] {op} failed: {e}")
+
+
+async def _write_many(sql: str, rows: Iterable[tuple], op: str) -> None:
+    """Serialized batch-write helper."""
+    try:
+        db = await get_db()
+        async with _LOCK:
+            await db.executemany(sql, rows)
+            await db.commit()
+    except Exception as e:
+        logger.warning(f"[DB] {op} failed: {e}")
 
 
 async def get_db() -> aiosqlite.Connection:
@@ -140,18 +165,13 @@ async def get_hash(url: str) -> Optional[str]:
 
 async def set_hash(url: str, hash_val: str, cache_type: str = "auto"):
     """Store or update hash for a URL."""
-    try:
-        db = await get_db()
-        async with _LOCK:
-            await db.execute(
-                """INSERT INTO image_hashes (url, hash, cache_type)
-                   VALUES (?, ?, ?)
-                   ON CONFLICT(url) DO UPDATE SET hash=excluded.hash""",
-                (url, hash_val, cache_type),
-            )
-            await db.commit()
-    except Exception as e:
-        logger.warning(f"[DB] set_hash failed for {url}: {e}")
+    await _write(
+        """INSERT INTO image_hashes (url, hash, cache_type)
+           VALUES (?, ?, ?)
+           ON CONFLICT(url) DO UPDATE SET hash=excluded.hash""",
+        (url, hash_val, cache_type),
+        f"set_hash({url})",
+    )
 
 
 async def get_all_hashes(cache_type: Optional[str] = None) -> dict:
@@ -179,18 +199,13 @@ async def set_hashes_batch(hashes: dict, cache_type: str = "auto"):
     """Store multiple hashes in a single transaction."""
     if not hashes:
         return
-    try:
-        db = await get_db()
-        async with _LOCK:
-            await db.executemany(
-                """INSERT INTO image_hashes (url, hash, cache_type)
-                   VALUES (?, ?, ?)
-                   ON CONFLICT(url) DO UPDATE SET hash=excluded.hash""",
-                [(url, h, cache_type) for url, h in hashes.items()],
-            )
-            await db.commit()
-    except Exception as e:
-        logger.warning(f"[DB] set_hashes_batch failed: {e}")
+    await _write_many(
+        """INSERT INTO image_hashes (url, hash, cache_type)
+           VALUES (?, ?, ?)
+           ON CONFLICT(url) DO UPDATE SET hash=excluded.hash""",
+        [(url, h, cache_type) for url, h in hashes.items()],
+        "set_hashes_batch",
+    )
 
 
 # ── Posted MDs ────────────────────────────────────────────────────────────────
@@ -209,34 +224,25 @@ async def get_posted_mds() -> set:
 
 async def add_posted_md(md_number: str):
     """Mark an MD as posted."""
-    try:
-        db = await get_db()
-        async with _LOCK:
-            await db.execute(
-                "INSERT OR IGNORE INTO posted_mds (md_number) VALUES (?)",
-                (md_number,),
-            )
-            await db.commit()
-    except Exception as e:
-        logger.warning(f"[DB] add_posted_md failed for {md_number}: {e}")
+    await _write(
+        "INSERT OR IGNORE INTO posted_mds (md_number) VALUES (?)",
+        (md_number,),
+        f"add_posted_md({md_number})",
+    )
 
 
 async def prune_posted_mds(max_size: int = 200):
     """Keep only the most recent MD numbers."""
-    try:
-        db = await get_db()
-        async with _LOCK:
-            await db.execute("""
-                DELETE FROM posted_mds
-                WHERE md_number NOT IN (
-                    SELECT md_number FROM posted_mds
-                    ORDER BY CAST(md_number AS INTEGER) DESC
-                    LIMIT ?
-                )
-            """, (max_size,))
-            await db.commit()
-    except Exception as e:
-        logger.warning(f"[DB] prune_posted_mds failed: {e}")
+    await _write(
+        """DELETE FROM posted_mds
+           WHERE md_number NOT IN (
+               SELECT md_number FROM posted_mds
+               ORDER BY CAST(md_number AS INTEGER) DESC
+               LIMIT ?
+           )""",
+        (max_size,),
+        "prune_posted_mds",
+    )
 
 
 # ── Posted watches ────────────────────────────────────────────────────────────
@@ -257,34 +263,25 @@ async def get_posted_watches() -> set:
 
 async def add_posted_watch(watch_number: str):
     """Mark a watch as posted."""
-    try:
-        db = await get_db()
-        async with _LOCK:
-            await db.execute(
-                "INSERT OR IGNORE INTO posted_watches (watch_number) VALUES (?)",
-                (watch_number,),
-            )
-            await db.commit()
-    except Exception as e:
-        logger.warning(f"[DB] add_posted_watch failed for {watch_number}: {e}")
+    await _write(
+        "INSERT OR IGNORE INTO posted_watches (watch_number) VALUES (?)",
+        (watch_number,),
+        f"add_posted_watch({watch_number})",
+    )
 
 
 async def prune_posted_watches(max_size: int = 200):
     """Keep only the most recent watch numbers."""
-    try:
-        db = await get_db()
-        async with _LOCK:
-            await db.execute("""
-                DELETE FROM posted_watches
-                WHERE watch_number NOT IN (
-                    SELECT watch_number FROM posted_watches
-                    ORDER BY CAST(watch_number AS INTEGER) DESC
-                    LIMIT ?
-                )
-            """, (max_size,))
-            await db.commit()
-    except Exception as e:
-        logger.warning(f"[DB] prune_posted_watches failed: {e}")
+    await _write(
+        """DELETE FROM posted_watches
+           WHERE watch_number NOT IN (
+               SELECT watch_number FROM posted_watches
+               ORDER BY CAST(watch_number AS INTEGER) DESC
+               LIMIT ?
+           )""",
+        (max_size,),
+        "prune_posted_watches",
+    )
 
 
 # ── Key/value state ───────────────────────────────────────────────────────────
@@ -305,31 +302,22 @@ async def get_state(key: str) -> Optional[str]:
 
 async def set_state(key: str, value: str):
     """Set a value in the key/value store."""
-    try:
-        db = await get_db()
-        async with _LOCK:
-            await db.execute(
-                """INSERT INTO bot_state (key, value)
-                   VALUES (?, ?)
-                   ON CONFLICT(key) DO UPDATE SET value=excluded.value""",
-                (key, value),
-            )
-            await db.commit()
-    except Exception as e:
-        logger.warning(f"[DB] set_state failed for {key}: {e}")
+    await _write(
+        """INSERT INTO bot_state (key, value)
+           VALUES (?, ?)
+           ON CONFLICT(key) DO UPDATE SET value=excluded.value""",
+        (key, value),
+        f"set_state({key})",
+    )
 
 
 async def delete_state(key: str):
     """Delete a key from the key/value store."""
-    try:
-        db = await get_db()
-        async with _LOCK:
-            await db.execute(
-                "DELETE FROM bot_state WHERE key = ?", (key,)
-            )
-            await db.commit()
-    except Exception as e:
-        logger.warning(f"[DB] delete_state failed for {key}: {e}")
+    await _write(
+        "DELETE FROM bot_state WHERE key = ?",
+        (key,),
+        f"delete_state({key})",
+    )
 
 
 # ── Posted URLs ───────────────────────────────────────────────────────────────
@@ -353,38 +341,38 @@ async def get_posted_urls(day_key: str) -> list:
 async def set_posted_urls(day_key: str, urls: list):
     """Store last posted URLs for a day key."""
     import json
-    try:
-        db = await get_db()
-        async with _LOCK:
-            await db.execute(
-                """INSERT INTO posted_urls (day_key, urls)
-                   VALUES (?, ?)
-                   ON CONFLICT(day_key) DO UPDATE SET urls=excluded.urls""",
-                (day_key, json.dumps(urls)),
-            )
-            await db.commit()
-    except Exception as e:
-        logger.warning(f"[DB] set_posted_urls failed for {day_key}: {e}")
+    await _write(
+        """INSERT INTO posted_urls (day_key, urls)
+           VALUES (?, ?)
+           ON CONFLICT(day_key) DO UPDATE SET urls=excluded.urls""",
+        (day_key, json.dumps(urls)),
+        f"set_posted_urls({day_key})",
+    )
 
 
 # ── Product text cache (IEMBot fast-path) ───────────────────────────────────
 
 async def get_product_cache(product_id: str) -> Optional[str]:
-    """Get cached product text if not expired."""
-    import time
+    """Get cached product text if not expired. Prunes expired rows at most once per hour."""
+    global _last_product_cache_prune
     try:
         db = await get_db()
         now = time.time()
-        # Delete expired entries while we're here
-        async with _LOCK:
-            await db.execute("DELETE FROM product_text_cache WHERE expires_at < ?", (now,))
-            await db.commit()
-
+        if now - _last_product_cache_prune > _PRODUCT_CACHE_PRUNE_INTERVAL:
+            _last_product_cache_prune = now
+            await _write(
+                "DELETE FROM product_text_cache WHERE expires_at < ?",
+                (now,),
+                "prune product_text_cache",
+            )
         async with db.execute(
-            "SELECT text FROM product_text_cache WHERE product_id = ?", (product_id,)
+            "SELECT text, expires_at FROM product_text_cache WHERE product_id = ?",
+            (product_id,),
         ) as cursor:
             row = await cursor.fetchone()
-            return row["text"] if row else None
+            if row and row["expires_at"] >= now:
+                return row["text"]
+            return None
     except Exception as e:
         logger.warning(f"[DB] get_product_cache failed for {product_id}: {e}")
         return None
@@ -392,19 +380,13 @@ async def get_product_cache(product_id: str) -> Optional[str]:
 
 async def set_product_cache(product_id: str, text: str, ttl: int = 600):
     """Store product text with a TTL (seconds)."""
-    import time
-    try:
-        expires_at = time.time() + ttl
-        db = await get_db()
-        async with _LOCK:
-            await db.execute(
-                """INSERT INTO product_text_cache (product_id, text, expires_at)
-                   VALUES (?, ?, ?)
-                   ON CONFLICT(product_id) DO UPDATE SET 
-                     text=excluded.text, 
-                     expires_at=excluded.expires_at""",
-                (product_id, text, expires_at),
-            )
-            await db.commit()
-    except Exception as e:
-        logger.warning(f"[DB] set_product_cache failed for {product_id}: {e}")
+    expires_at = time.time() + ttl
+    await _write(
+        """INSERT INTO product_text_cache (product_id, text, expires_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(product_id) DO UPDATE SET
+             text=excluded.text,
+             expires_at=excluded.expires_at""",
+        (product_id, text, expires_at),
+        f"set_product_cache({product_id})",
+    )
