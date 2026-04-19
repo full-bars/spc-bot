@@ -20,10 +20,17 @@ from utils.db import set_hash, set_hashes_batch
 from utils.change_detection import (
     calculate_hash_bytes,
     get_cache_path_for_url,
-    head_changed,
     is_placeholder_image,
 )
-from utils.http import ensure_session, http_get_bytes, http_head_meta, http_head_ok
+from utils.http import (
+    ensure_session,
+    http_get_bytes,
+    http_get_bytes_conditional,
+    http_head_ok,
+)
+
+# Per-URL HTTP validators (ETag, Last-Modified) from the most recent 200 response.
+_validators_cache: Dict[str, Dict[str, str]] = {}
 
 logger = logging.getLogger("spc_bot")
 
@@ -176,36 +183,37 @@ async def check_partial_updates_parallel(
     urls: List[str], cache: Dict[str, str]
 ) -> Tuple[int, int, Dict[str, Tuple[bytes, Optional[str]]]]:
     """
-    For each URL, do a HEAD check then conditionally fetch.
+    For each URL, do a conditional GET (If-None-Match / If-Modified-Since).
     Returns (updated_count, total_count, downloaded_data).
     """
     await ensure_session()
     total_count = len(urls)
     downloaded_data = {}
     updated_count = 0
-    head_fetched = 0
+    not_modified_count = 0
 
     async def _check_one(url: str):
-        nonlocal updated_count, head_fetched
-        meta = await http_head_meta(url)
-        if meta is None:
+        nonlocal updated_count, not_modified_count
+        prev = _validators_cache.get(url, {})
+        content, status, validators = await http_get_bytes_conditional(
+            url,
+            etag=prev.get("etag") or None,
+            last_modified=prev.get("last_modified") or None,
+        )
+        if status == 304:
+            not_modified_count += 1
             return
-
-        # Use efficient HEAD check first
-        if not head_changed(url, meta):
-            return
-
-        # If meta changed or unknown, fetch full bytes
-        head_fetched += 1
-        content, status = await http_get_bytes(url)
         if content is None or status != 200:
             return
+
+        # Remember fresh validators for next cycle
+        if validators:
+            _validators_cache[url] = validators
 
         if is_placeholder_image(content):
             return
 
         h = calculate_hash_bytes(content)
-        # Verify content hash actually differs from DB
         if url not in cache or cache.get(url) != h:
             downloaded_data[url] = (content, h)
             updated_count += 1
@@ -215,7 +223,7 @@ async def check_partial_updates_parallel(
     log = logger.info if updated_count > 0 else logger.debug
     log(
         f"[CACHE] Partial check complete: {updated_count}/{total_count} updated "
-        f"({head_fetched}/{total_count} warranted full fetch)"
+        f"({not_modified_count}/{total_count} returned 304 Not Modified)"
     )
     return updated_count, total_count, downloaded_data
 

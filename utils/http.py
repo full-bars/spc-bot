@@ -45,13 +45,18 @@ def _get_retry_after(response: aiohttp.ClientResponse) -> Optional[float]:
 
 
 async def http_get_bytes(
-    url: str, retries: int = 3, timeout: int = 10
+    url: str,
+    retries: int = 3,
+    timeout: int = 10,
+    headers: Optional[Dict[str, str]] = None,
 ) -> Tuple[Optional[bytes], Optional[int]]:
     for attempt in range(retries):
         try:
             session = await ensure_session()
             async with session.get(
-                url, timeout=aiohttp.ClientTimeout(total=timeout)
+                url,
+                timeout=aiohttp.ClientTimeout(total=timeout),
+                headers=headers,
             ) as response:
                 # Respect Retry-After on 429 or 503
                 if response.status in (429, 503):
@@ -63,6 +68,9 @@ async def http_get_bytes(
                     )
                     await asyncio.sleep(retry_after)
                     continue
+                # 304 Not Modified: caller passed validators; body is empty by spec.
+                if response.status == 304:
+                    return None, 304
                 content = await response.read()
                 return content, response.status
         except Exception as e:
@@ -72,6 +80,59 @@ async def http_get_bytes(
             )
             await asyncio.sleep(2**attempt)
     return None, None
+
+
+async def http_get_bytes_conditional(
+    url: str,
+    etag: Optional[str] = None,
+    last_modified: Optional[str] = None,
+    retries: int = 3,
+    timeout: int = 10,
+) -> Tuple[Optional[bytes], Optional[int], Optional[Dict[str, str]]]:
+    """Conditional GET. Returns (content, status, validators).
+
+    - If the server returns 304, content is None and validators carries the
+      prior values so callers can keep them.
+    - On 200, validators carries the fresh ETag / Last-Modified for storage.
+    """
+    headers: Dict[str, str] = {}
+    if etag:
+        headers["If-None-Match"] = etag
+    if last_modified:
+        headers["If-Modified-Since"] = last_modified
+
+    for attempt in range(retries):
+        try:
+            session = await ensure_session()
+            async with session.get(
+                url,
+                timeout=aiohttp.ClientTimeout(total=timeout),
+                headers=headers or None,
+            ) as response:
+                if response.status in (429, 503):
+                    retry_after = _get_retry_after(response) or (2**attempt)
+                    retry_after = min(retry_after, 60)
+                    logger.warning(
+                        f"Rate limited on {url} (status={response.status}), "
+                        f"waiting {retry_after:.1f}s (attempt {attempt + 1}/{retries})"
+                    )
+                    await asyncio.sleep(retry_after)
+                    continue
+                if response.status == 304:
+                    return None, 304, {"etag": etag or "", "last_modified": last_modified or ""}
+                content = await response.read()
+                validators = {
+                    "etag": response.headers.get("ETag", ""),
+                    "last_modified": response.headers.get("Last-Modified", ""),
+                }
+                return content, response.status, validators
+        except Exception as e:
+            logger.warning(
+                f"Error fetching {url} (attempt {attempt + 1}/{retries}): "
+                f"{type(e).__name__}: {e}"
+            )
+            await asyncio.sleep(2**attempt)
+    return None, None, None
 
 
 async def http_get_text(
