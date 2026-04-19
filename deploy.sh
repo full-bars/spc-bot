@@ -7,6 +7,11 @@ set -e
 # Detect environment
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CURRENT_USER=$(whoami)
+USER_HOME="$HOME"
+if [ -n "$SUDO_USER" ]; then
+    CURRENT_USER="$SUDO_USER"
+    USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+fi
 
 # Default to current directory if not specified
 INSTALL_DIR="${INSTALL_DIR:-$SOURCE_DIR}"
@@ -156,7 +161,7 @@ sudo systemctl restart "$SERVICE_NAME"
 info "Service installed and started as user '$SERVICE_USER'."
 
 # ── Shell aliases ─────────────────────────────────────────────────────────────
-ALIASES_FILE="$HOME/.bashrc"
+ALIASES_FILE="${USER_HOME}/.bashrc"
 if ! grep -q "# spcbot-aliases" "$ALIASES_FILE"; then
     info "Adding aliases to $ALIASES_FILE..."
     cat >> "$ALIASES_FILE" << 'ALIASES'
