@@ -56,10 +56,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libnetcdf19 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install cloudflared for failover
-RUN curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared \
-    && chmod +x /usr/local/bin/cloudflared
-
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

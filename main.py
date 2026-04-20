@@ -10,7 +10,7 @@ from discord.ext import commands, tasks
 
 from config import CACHE_DIR, TOKEN, CONFIG
 from utils.http import close_session, ensure_session
-from utils.db import (
+from utils.state_store import (
     check_integrity, close_db, get_db,
     get_all_hashes, get_posted_urls, get_posted_mds, get_posted_watches,
     get_state,

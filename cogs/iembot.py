@@ -18,7 +18,7 @@ from typing import Optional
 from discord.ext import commands, tasks
 
 from config import IEMBOT_FEED_URL, IEM_NWSTEXT_URL
-from utils.db import (
+from utils.state_store import (
     get_state, set_state, 
     get_product_cache, set_product_cache
 )

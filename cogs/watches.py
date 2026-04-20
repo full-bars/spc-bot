@@ -23,7 +23,7 @@ from utils.cache import (
 )
 from utils.change_detection import get_cache_path_for_url, is_placeholder_image
 from utils.http import http_get_bytes, http_get_text
-from utils.db import add_posted_watch, prune_posted_watches
+from utils.state_store import add_posted_watch, prune_posted_watches
 
 logger = logging.getLogger("spc_bot")
 

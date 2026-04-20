@@ -1,28 +1,47 @@
-# cogs/failover.py
 """
-Failover cog — manages primary/standby coordination via Upstash Redis
-and a local aiohttp HTTP state server.
+Failover cog (simplified — Upstash-backed state edition).
 
-Primary (Portland):
-  - Runs aiohttp server on localhost:8765 serving GET /state and POST /sync
-  - Starts cloudflared tunnel, writes tunnel URL to Upstash with 7min TTL
-  - Refreshes heartbeat every 5 min
+With shared state in Upstash (see utils.state_store) the primary and
+standby no longer need to ship in-memory state between themselves.
+The HTTP `/state` and `/sync` endpoints, the cloudflared tunnel, and
+all the hydration machinery are gone.
 
-Standby (3CAPE):
-  - Polls Upstash every 5 min for primary URL
-  - If URL found, fetches /state to stay hydrated
-  - If URL missing (TTL expired) → promotes to primary, loads all cogs
-  - On demotion, pushes accumulated state to primary via POST /sync
+What this cog still does
+------------------------
+Leader election via a short-lived Upstash key:
+
+    spcbot:primary_url   EX HEARTBEAT_TTL
+
+The "primary" is whichever node currently holds the key. The value is
+a per-process identifier so we can detect whether we still own the
+lease or someone else has taken it. The key name `primary_url` is
+retained for migration compatibility — the old code reads it too and
+interprets its presence correctly.
+
+Promotion semantics
+-------------------
+- Primary: writes the lease every SYNC_INTERVAL with EX HEARTBEAT_TTL.
+- Standby: reads the lease every SYNC_INTERVAL. If the key is missing
+  for `MAX_FAILURES` consecutive cycles (primary has been silent for
+  at least HEARTBEAT_TTL), the standby promotes: invalidates the
+  process cache so fresh reads come from Upstash, loads all cogs, and
+  begins holding the lease itself.
+- If a second holder appears the current holder steps back down.
+
+The v4.13.2 "liveness vs. reachability" split is no longer needed:
+liveness is Upstash-mediated directly, and there's nothing to hydrate
+from.
 """
 
-import asyncio
+from __future__ import annotations
+
 import logging
 import os
+import socket
 import time
-from datetime import datetime, timezone
+import uuid
 
 import aiohttp
-from aiohttp import web
 from discord.ext import commands, tasks
 
 logger = logging.getLogger("spc_bot")
@@ -30,90 +49,125 @@ logger = logging.getLogger("spc_bot")
 UPSTASH_URL = os.getenv("UPSTASH_REDIS_REST_URL", "")
 UPSTASH_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
 FAILOVER_TOKEN = os.getenv("FAILOVER_TOKEN", "")
-STATE_PORT = int(os.getenv("STATE_PORT", "8765"))
 
-
-def _require_failover_token() -> str:
-    """Fail fast if FAILOVER_TOKEN is unset or is the obsolete 'changeme' default."""
-    if not FAILOVER_TOKEN or FAILOVER_TOKEN == "changeme":
-        raise RuntimeError(
-            "FAILOVER_TOKEN environment variable must be set to a strong, "
-            "non-default value before failover networking can start. "
-            "Refusing to open the state server with a known token."
-        )
-    return FAILOVER_TOKEN
-HEARTBEAT_TTL = 420  # 7 minutes
+HEARTBEAT_TTL = 420  # seconds
 SYNC_INTERVAL = 30   # seconds
 
-# Grace period on standby boot during which sync-loop failures are NOT counted
-# toward promotion. Covers the common case of deploying the standby before
-# the primary has finished its own restart.
 STARTUP_GRACE_SECONDS = 120
-
-# Tolerate up to half the heartbeat TTL of consecutive failures before
-# promoting. Derived so the threshold scales with HEARTBEAT_TTL instead of
-# being a bare magic number — the old value (3) meant 90 s of unreachability
-# triggered promotion, which is shorter than a normal primary redeploy with
-# tunnel bring-up.
 MAX_FAILURES = max(5, HEARTBEAT_TTL // (2 * SYNC_INTERVAL))
 
 UPSTASH_HEADERS = {"Authorization": f"Bearer {UPSTASH_TOKEN}"}
 
+LEASE_KEY = "spcbot:primary_url"
+
 from cogs import ALL_EXTENSIONS
+
+
+def _require_failover_token() -> str:
+    if not FAILOVER_TOKEN or FAILOVER_TOKEN == "changeme":
+        raise RuntimeError(
+            "FAILOVER_TOKEN environment variable must be set to a strong, "
+            "non-default value. Refusing to participate in leader election "
+            "with a known/missing token."
+        )
+    return FAILOVER_TOKEN
+
+
+def _node_identity() -> str:
+    """Stable per-process identifier used as the lease value so we can
+    detect whether we still hold the lease vs. some other holder."""
+    host = socket.gethostname()
+    return f"{host}:{uuid.uuid4().hex[:8]}"
 
 
 class FailoverCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self._http_runner = None
-        self._tunnel_proc = None
-        self._tunnel_url = None
         self._primary_failures = 0
-        self._max_failures = MAX_FAILURES
-        self._ready = False
-        # The URL the standby was trying to reach last cycle. Used to detect
-        # that the primary published a *new* tunnel URL, which is a recovery
-        # signal and must reset the failure counter — otherwise failures
-        # against an old, dead URL accumulate against the new primary.
-        self._last_seen_primary_url: str | None = None
-        # Boot time for the startup grace period. During the first
-        # STARTUP_GRACE_SECONDS after cog_load, sync-loop failures are
-        # logged but do not count toward promotion.
+        self._identity = _node_identity()
         self._cog_load_monotonic: float | None = None
 
     async def cog_load(self):
-        # Both primary (serves /state, /sync) and standby (calls them) must
-        # share a real token. Fail fast at cog load so misconfiguration is
-        # obvious at startup rather than surfacing as silent 401s later.
         _require_failover_token()
         self._cog_load_monotonic = time.monotonic()
-        if self.bot.state.is_primary:
-            await self._start_http_server()
-            await self._start_tunnel()
         self.sync_loop.start()
 
-    def _in_startup_grace(self) -> bool:
-        """True for the first STARTUP_GRACE_SECONDS after cog_load.
+    async def cog_unload(self):
+        self.sync_loop.cancel()
+        if self.bot.state.is_primary:
+            await self._release_lease()
 
-        While the grace window is open, the sync loop still runs and will
-        happily hydrate from the primary if it's reachable — but failures
-        do not advance `_primary_failures`. This exists because when you
-        deploy both machines, the standby usually boots before the
-        primary has finished its tunnel bring-up, and the failing cycles
-        during that window are artifacts of the deploy, not evidence of
-        a real outage.
-        """
+    # ── Upstash ──────────────────────────────────────────────────────────
+
+    async def _upstash(self, *args) -> object | None:
+        """Single REST command. Kept separate from utils.state_store so
+        leader election keeps working even if the main store is
+        misbehaving (the two paths are independent)."""
+        if not UPSTASH_URL or not UPSTASH_TOKEN:
+            return None
+        try:
+            headers = {**UPSTASH_HEADERS, "Content-Type": "application/json"}
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    UPSTASH_URL,
+                    headers=headers,
+                    json=[str(a) for a in args],
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as resp:
+                    if resp.status != 200:
+                        return None
+                    data = await resp.json()
+                    return data.get("result")
+        except Exception as e:
+            logger.warning(f"[FAILOVER] Upstash error: {e}")
+            return None
+
+    async def _write_lease(self) -> None:
+        await self._upstash(
+            "SET", LEASE_KEY, self._identity, "EX", str(HEARTBEAT_TTL)
+        )
+
+    async def _read_lease_holder(self) -> str | None:
+        return await self._upstash("GET", LEASE_KEY)
+
+    async def _release_lease(self) -> None:
+        # Only release if it's still ours — otherwise we'd clobber a
+        # brand-new primary that just took over.
+        holder = await self._read_lease_holder()
+        if holder == self._identity:
+            await self._upstash("DEL", LEASE_KEY)
+            logger.info("[FAILOVER] Released primary lease on shutdown")
+
+    # ── Sync loop ────────────────────────────────────────────────────────
+
+    @tasks.loop(seconds=SYNC_INTERVAL)
+    async def sync_loop(self):
+        await self.bot.wait_until_ready()
+        try:
+            if self.bot.state.is_primary:
+                await self._primary_cycle()
+            else:
+                await self._standby_cycle()
+        except Exception as e:
+            logger.error(f"[FAILOVER] Sync loop error: {e}")
+
+    async def _primary_cycle(self) -> None:
+        """Hold the lease; step down if someone else grabbed it."""
+        holder = await self._read_lease_holder()
+        if holder and holder != self._identity:
+            logger.warning(
+                f"[FAILOVER] Another node ({holder}) holds the lease — demoting"
+            )
+            await self._demote()
+            return
+        await self._write_lease()
+
+    def _in_startup_grace(self) -> bool:
         if self._cog_load_monotonic is None:
             return False
         return (time.monotonic() - self._cog_load_monotonic) < STARTUP_GRACE_SECONDS
 
     def _register_failure(self, reason: str) -> int:
-        """Increment the failure counter unless we're in the startup
-        grace window. Returns the post-increment count (0 during grace).
-
-        `reason` is logged so operators can see what was wrong, independent
-        of whether the counter advanced.
-        """
         if self._in_startup_grace():
             logger.info(
                 f"[FAILOVER] {reason} — in startup grace "
@@ -123,390 +177,105 @@ class FailoverCog(commands.Cog):
         self._primary_failures += 1
         logger.warning(
             f"[FAILOVER] {reason} "
-            f"(failure {self._primary_failures}/{self._max_failures})"
+            f"(failure {self._primary_failures}/{MAX_FAILURES})"
         )
         return self._primary_failures
 
-    async def cog_unload(self):
-        self.sync_loop.cancel()
-        if self.bot.state.is_primary:
-            await self._delete_url_from_upstash()
-        if self._http_runner:
-            await self._http_runner.cleanup()
-        if self._tunnel_proc:
-            self._tunnel_proc.terminate()
-
-    async def _delete_url_from_upstash(self):
-        try:
-            headers = {**UPSTASH_HEADERS, "Content-Type": "application/json"}
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    UPSTASH_URL,
-                    headers=headers,
-                    json=["DEL", "spcbot:primary_url"],
-                ) as resp:
-                    logger.info(f"[FAILOVER] Deleted primary URL from Upstash on shutdown")
-        except Exception as e:
-            logger.error(f"[FAILOVER] Failed to delete URL from Upstash: {e}")
-
-    # ── HTTP server (primary only) ────────────────────────────────────────
-
-    async def _start_http_server(self):
-        _require_failover_token()
-        app = web.Application()
-        app.router.add_get("/state", self._handle_get_state)
-        app.router.add_post("/sync", self._handle_post_sync)
-        self._http_runner = web.AppRunner(app)
-        await self._http_runner.setup()
-        site = web.TCPSite(self._http_runner, "127.0.0.1", STATE_PORT)
-        await site.start()
-        logger.info(f"[FAILOVER] HTTP state server started on port {STATE_PORT}")
-
-    def _check_token(self, request):
-        return request.headers.get("Authorization") == f"Bearer {FAILOVER_TOKEN}"
-
-    async def _handle_get_state(self, request):
-        if not self._check_token(request):
-            return web.Response(status=401, text="Unauthorized")
-        state_dict = self.bot.state.to_dict()
-        return web.json_response(state_dict)
-
-    async def _handle_post_sync(self, request):
-        if not self._check_token(request):
-            return web.Response(status=401, text="Unauthorized")
-        try:
-            data = await request.json()
-            # Merge standby state into primary
-            self.bot.state.posted_mds.update(data.get("posted_mds", []))
-            self.bot.state.posted_watches.update(data.get("posted_watches", []))
-            self.bot.state.auto_cache.update(data.get("auto_cache", {}))
-            
-            # Sync seqnum (take highest)
-            new_seq = data.get("iembot_last_seqnum", 0)
-            if new_seq > self.bot.state.iembot_last_seqnum:
-                self.bot.state.iembot_last_seqnum = new_seq
-                from utils.db import set_state
-                await set_state("iembot_last_seqnum", str(new_seq))
-
-            for day_key, urls in data.get("last_posted_urls", {}).items():
-                if day_key not in self.bot.state.last_posted_urls:
-                    self.bot.state.last_posted_urls[day_key] = urls
-            logger.info("[FAILOVER] Merged standby state from POST /sync")
-            return web.json_response({"ok": True})
-        except Exception as e:
-            logger.error(f"[FAILOVER] /sync error: {e}")
-            return web.Response(status=500, text=str(e))
-
-    # ── Cloudflare tunnel ─────────────────────────────────────────────────
-
-    async def _start_tunnel(self):
-        try:
-            self._tunnel_proc = await asyncio.create_subprocess_exec(
-                "cloudflared", "tunnel", "--url", f"http://localhost:{STATE_PORT}",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            # Read stderr to find the tunnel URL (cloudflared logs to stderr)
-            async def _read_url():
-                try:
-                    while True:
-                        line = await self._tunnel_proc.stderr.readline()
-                        if not line:
-                            break
-                        text = line.decode()
-                        if "https://" in text and "trycloudflare.com" in text:
-                            for word in text.split():
-                                if word.startswith("https://") and "trycloudflare.com" in word:
-                                    url = word.strip().rstrip("|").strip()
-                                    self._tunnel_url = url
-                                    self._ready = True
-                                    logger.info(f"[FAILOVER] Tunnel URL: {self._tunnel_url}")
-                                    await self._write_url_to_upstash(self._tunnel_url)
-                                    return
-                except Exception as e:
-                    logger.error(f"[FAILOVER] Tunnel log reader error: {e}")
-
-            asyncio.create_task(_read_url())
-        except FileNotFoundError:
-            logger.error("[FAILOVER] cloudflared not found — tunnel disabled")
-
-    async def _write_url_to_upstash(self, url: str):
-        try:
-            headers = {**UPSTASH_HEADERS, "Content-Type": "application/json"}
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    UPSTASH_URL,
-                    headers=headers,
-                    json=["SET", "spcbot:primary_url", url, "EX", str(HEARTBEAT_TTL)],
-                ) as resp:
-                    if resp.status == 200:
-                        logger.debug(f"[FAILOVER] Wrote primary URL to Upstash (TTL {HEARTBEAT_TTL}s)")
-                    else:
-                        logger.error(f"[FAILOVER] Upstash write failed: {resp.status}")
-        except Exception as e:
-            logger.error(f"[FAILOVER] Failed to write URL to Upstash: {e}")
-
-    # ── Sync loop ─────────────────────────────────────────────────────────
-
-    @tasks.loop(seconds=SYNC_INTERVAL)
-    async def sync_loop(self):
-        await self.bot.wait_until_ready()
-        try:
-            if self.bot.state.is_primary:
-                if self._ready and self._tunnel_url:
-                    await self._check_for_demotion()
-                    if self.bot.state.is_primary:  # still primary after demotion check
-                        await self._write_url_to_upstash(self._tunnel_url)
-            else:
-                await self._standby_cycle()
-        except Exception as e:
-            logger.error(f"[FAILOVER] Sync loop error: {e}")
-
-    async def _standby_cycle(self):
-        """Standby's sync-loop body.
-
-        Promotion uses two *independent* signals and only the first one
-        can advance `_primary_failures`:
-
-          1. **Primary liveness** — does Upstash still have the
-             primary's URL?  The primary refreshes this key every
-             SYNC_INTERVAL with EX HEARTBEAT_TTL, so the key's
-             presence *is* a heartbeat. If the key is missing, the
-             primary has stopped refreshing for at least HEARTBEAT_TTL
-             seconds; only *that* is evidence the primary is dead.
-
-          2. **Hydration reachability** — can this host reach the
-             primary's tunnel right now?  A failure here could be
-             standby-side (DNS, local network, Cloudflare edge in my
-             region) and says nothing about whether the primary is
-             alive. It must NOT advance the failure counter — doing so
-             was the bug that caused a false promotion attempt when
-             the standby couldn't resolve trycloudflare.com while the
-             primary was fine.
-        """
-        primary_url = await self._get_primary_url()
-
-        # Recovery signal: new tunnel URL ⇒ any accumulated failures
-        # were against a stale URL, wipe the slate.
-        if primary_url and primary_url != self._last_seen_primary_url:
+    async def _standby_cycle(self) -> None:
+        holder = await self._read_lease_holder()
+        if holder:
             if self._primary_failures > 0:
                 logger.info(
-                    f"[FAILOVER] Primary URL changed "
-                    f"({self._last_seen_primary_url!r} → {primary_url!r}); "
-                    f"resetting {self._primary_failures} accumulated failures"
+                    f"[FAILOVER] Primary lease held by {holder}; clearing "
+                    f"{self._primary_failures} prior failures"
                 )
             self._primary_failures = 0
-            self._last_seen_primary_url = primary_url
-
-        # Signal 1: primary liveness.
-        if not primary_url:
-            count = self._register_failure(
-                "Primary heartbeat expired in Upstash"
-            )
-            if count >= self._max_failures:
-                await self._promote()
             return
 
-        # Primary is alive (heartbeat is fresh by definition of the
-        # Upstash TTL). Any failures below are hydration problems, not
-        # evidence of primary death. Clear the failure counter.
-        if self._primary_failures > 0:
-            logger.info(
-                f"[FAILOVER] Primary heartbeat fresh; clearing "
-                f"{self._primary_failures} hydration failures"
-            )
-            self._primary_failures = 0
+        # Key missing = primary silent for ≥ HEARTBEAT_TTL (Upstash expired it).
+        count = self._register_failure("Primary lease expired in Upstash")
+        if count >= MAX_FAILURES:
+            await self._promote()
 
-        # Signal 2: hydration. Best-effort — does not advance promotion.
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"{primary_url}/state",
-                    headers={"Authorization": f"Bearer {FAILOVER_TOKEN}"},
-                    timeout=aiohttp.ClientTimeout(total=10),
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        self._hydrate(data)
-                        logger.debug("[FAILOVER] Hydrated state from primary")
-                        await self._persist_hydrated_state()
-                    else:
-                        logger.warning(
-                            f"[FAILOVER] Cannot hydrate: /state returned "
-                            f"{resp.status} — primary heartbeat still fresh, "
-                            f"not counting toward promotion"
-                        )
-        except Exception as e:
-            logger.warning(
-                f"[FAILOVER] Cannot hydrate from primary: {e} — "
-                f"primary heartbeat still fresh, not counting toward "
-                f"promotion"
-            )
+    # ── Promotion / demotion ─────────────────────────────────────────────
 
-    async def _get_primary_url(self) -> str | None:
-        try:
-            headers = {**UPSTASH_HEADERS, "Content-Type": "application/json"}
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    UPSTASH_URL,
-                    headers=headers,
-                    json=["GET", "spcbot:primary_url"],
-                    timeout=aiohttp.ClientTimeout(total=5),
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        return data.get("result")
-        except Exception as e:
-            logger.error(f"[FAILOVER] Upstash error: {e}")
-        return None
-
-    def _hydrate(self, data: dict):
-        if "iembot_last_seqnum" in data:
-            self.bot.state.iembot_last_seqnum = max(self.bot.state.iembot_last_seqnum, data["iembot_last_seqnum"])
-        if "posted_mds" in data:
-            self.bot.state.posted_mds.update(str(m) for m in data["posted_mds"])
-        if "posted_watches" in data:
-            self.bot.state.posted_watches.update(str(w) for w in data["posted_watches"])
-        if "csu_posted" in data:
-            self.bot.state.csu_posted.update(str(d) for d in data["csu_posted"])
-        if "auto_cache" in data:
-            self.bot.state.auto_cache.update(data["auto_cache"])
-        if "last_posted_urls" in data:
-            self.bot.state.last_posted_urls.update(data["last_posted_urls"])
-        
-        # Hydrate post times
-        for k, v in data.get("last_post_times", {}).items():
-            if v and k in self.bot.state.last_post_times:
-                try:
-                    dt = datetime.fromisoformat(v)
-                    # Only update if the incoming state is newer
-                    current = self.bot.state.last_post_times[k]
-                    if not current or dt > current:
-                        self.bot.state.last_post_times[k] = dt
-                except Exception:
-                    pass
-
-    async def get_upstash_seqnum(self) -> int | None:
-        """Fetch the last-seen seqnum from Upstash (global fallback)."""
-        try:
-            headers = {**UPSTASH_HEADERS, "Content-Type": "application/json"}
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    UPSTASH_URL,
-                    headers=headers,
-                    json=["GET", "spcbot:last_seqnum"],
-                    timeout=aiohttp.ClientTimeout(total=5),
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        val = data.get("result")
-                        return int(val) if val else None
-        except Exception as e:
-            logger.error(f"[FAILOVER] Upstash seqnum read error: {e}")
-        return None
-
-    async def write_upstash_seqnum(self, seqnum: int):
-        """Write current seqnum to Upstash (global heartbeat)."""
-        try:
-            headers = {**UPSTASH_HEADERS, "Content-Type": "application/json"}
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    UPSTASH_URL,
-                    headers=headers,
-                    # No expiry on seqnum (permanent state)
-                    json=["SET", "spcbot:last_seqnum", str(seqnum)],
-                    timeout=aiohttp.ClientTimeout(total=5),
-                ) as resp:
-                    if resp.status != 200:
-                        logger.error(f"[FAILOVER] Upstash seqnum write failed: {resp.status}")
-        except Exception as e:
-            logger.error(f"[FAILOVER] Upstash seqnum write error: {e}")
-
-    async def _promote(self):
+    async def _promote(self) -> None:
         logger.warning("[FAILOVER] !!! PROMOTING TO PRIMARY !!!")
         self.bot.state.is_primary = True
-        await self._start_http_server()
-        await self._start_tunnel()
+
+        # Drop stale cache so fresh reads re-hit Upstash.
+        from utils import state_store
+        state_store.invalidate_all_caches()
+
+        # Claim the lease immediately (before loading cogs so there's no
+        # window where another watcher sees the key missing).
+        await self._write_lease()
+
+        # Refresh the in-process BotState mirrors. Cogs still read
+        # `bot.state.posted_mds`, `bot.state.auto_cache`, etc. as local
+        # collections; those were populated from SQLite at boot and are
+        # now stale relative to what the old primary wrote to Upstash
+        # while we were in standby.
+        try:
+            await self._rehydrate_bot_state()
+        except Exception as e:
+            logger.error(f"[FAILOVER] Rehydrate on promotion failed: {e}")
+
+        # Push anything SQLite has that Upstash is missing. Handles the
+        # edge case where this node's prior writes during an Upstash
+        # outage are queued only on this machine.
+        try:
+            await state_store.resync_to_upstash()
+        except Exception as e:
+            logger.error(f"[FAILOVER] Resync on promotion failed: {e}")
+
         for ext in ALL_EXTENSIONS:
             try:
                 await self.bot.load_extension(ext)
                 logger.info(f"[FAILOVER] Loaded {ext}")
             except Exception as e:
                 logger.error(f"[FAILOVER] Failed to load {ext}: {e}")
+
         try:
             synced = await self.bot.tree.sync()
             logger.info(f"[FAILOVER] Synced {len(synced)} slash commands")
         except Exception as e:
             logger.error(f"[FAILOVER] Failed to sync commands: {e}")
 
-    async def _persist_hydrated_state(self):
-        """Persist hydrated in-memory state to local SQLite so restarts load fresh data."""
-        try:
-            from utils.db import (
-                add_posted_md, add_posted_watch,
-                set_hashes_batch, set_posted_urls,
-                set_state
-            )
-            import json as _json
-            db = self.bot.state
-            for md_id in db.posted_mds:
-                await add_posted_md(md_id)
-            for watch_id in db.posted_watches:
-                await add_posted_watch(watch_id)
-            if db.auto_cache:
-                await set_hashes_batch(db.auto_cache, cache_type="auto")
-            for day_key, urls in db.last_posted_urls.items():
-                await set_posted_urls(day_key, urls)
-            
-            if db.iembot_last_seqnum > 0:
-                await set_state("iembot_last_seqnum", str(db.iembot_last_seqnum))
-            
-            # Persist CSU state if present
-            if db.csu_posted:
-                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                csu_val = _json.dumps({"date": today, "days": sorted(list(db.csu_posted), key=str)})
-                await set_state("csu_mlp_posted", csu_val)
+    async def _rehydrate_bot_state(self) -> None:
+        """Pull authoritative state from Upstash into BotState mirrors.
 
-            logger.debug("[FAILOVER] Persisted hydrated state to local DB")
-        except Exception as e:
-            logger.error(f"[FAILOVER] Failed to persist hydrated state: {e}")
+        Cogs read the BotState collections synchronously; on promotion
+        we need them to reflect what the outgoing primary wrote to
+        Upstash, not what we snapshotted at boot.
+        """
+        from utils import state_store
 
-    async def _check_for_demotion(self):
-        """If we are acting primary but another server wrote a newer URL, demote."""
-        stored_url = await self._get_primary_url()
-        if stored_url and stored_url != self._tunnel_url:
-            logger.info(f"[FAILOVER] Detected new primary at {stored_url} — demoting")
-            await self._demote(stored_url)
+        st = self.bot.state
+        st.auto_cache = await state_store.get_all_hashes("auto")
+        st.manual_cache = await state_store.get_all_hashes("manual")
+        st.posted_mds = await state_store.get_posted_mds()
+        st.posted_watches = await state_store.get_posted_watches()
 
-    async def _demote(self, primary_url: str):
-        """Push accumulated state to primary then demote."""
-        logger.info("[FAILOVER] Primary back online — syncing state and demoting")
-        try:
-            from utils.http import ensure_session
-            session = await ensure_session()
-            await session.post(
-                f"{primary_url}/sync",
-                headers={"Authorization": f"Bearer {FAILOVER_TOKEN}"},
-                json=self.bot.state.to_dict(),
-                timeout=aiohttp.ClientTimeout(total=10),
-            )
-            logger.info("[FAILOVER] Pushed state to primary successfully")
-        except Exception as e:
-            logger.error(f"[FAILOVER] Failed to push state to primary: {e}")
+        last_seq = await state_store.get_state("iembot_last_seqnum")
+        if isinstance(last_seq, str) and last_seq.isdigit():
+            st.iembot_last_seqnum = max(st.iembot_last_seqnum, int(last_seq))
 
+        for day_key in ("day1", "day2", "day3"):
+            urls = await state_store.get_posted_urls(day_key)
+            if urls:
+                st.last_posted_urls[day_key] = urls
+        logger.info("[FAILOVER] Rehydrated BotState from Upstash")
+
+    async def _demote(self) -> None:
+        logger.info("[FAILOVER] Demoting to STANDBY")
         self.bot.state.is_primary = False
         for ext in ALL_EXTENSIONS:
             try:
                 await self.bot.unload_extension(ext)
             except Exception:
                 pass
-        if self._http_runner:
-            await self._http_runner.cleanup()
-            self._http_runner = None
-        if self._tunnel_proc:
-            self._tunnel_proc.terminate()
-            self._tunnel_proc = None
-        logger.info("[FAILOVER] Demoted to STANDBY")
+        self._primary_failures = 0
 
 
 async def setup(bot):
