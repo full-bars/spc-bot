@@ -6,8 +6,6 @@ server — the objective here is to verify *our* logic around aiohttp,
 not aiohttp itself.
 """
 
-import asyncio
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp

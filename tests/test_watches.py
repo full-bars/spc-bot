@@ -6,7 +6,6 @@ Run with: python -m pytest tests/ -v
 """
 
 import json
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest

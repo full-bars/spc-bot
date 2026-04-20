@@ -4,10 +4,8 @@ Sounding cog — observed RAOB sounding plots via SounderPy.
 Supports city names, radar site codes, and RAOB station IDs.
 """
 
-import json
 import asyncio
 import logging
-import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -21,14 +19,13 @@ from cogs.sounding_utils import (
     filter_stations_with_data,
     find_nearest_stations,
     get_raob_stations,
-    get_recent_sounding_times,
     get_user_dark_mode,
     parse_sounding_time,
     resolve_location,
     set_user_dark_mode,
 )
 import os
-from cogs.sounding_views import StationSelectionView, post_sounding
+from cogs.sounding_views import post_sounding
 from cogs.sounding_utils import fetch_acars_sounding, fetch_sounding, generate_plot
 
 logger = logging.getLogger("spc_bot")

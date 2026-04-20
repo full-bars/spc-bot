@@ -6,7 +6,7 @@ that behavior down so a future refactor can't silently revert to the
 old "every poll hits full bytes" pattern.
 """
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 

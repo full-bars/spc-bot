@@ -13,7 +13,7 @@ from pathlib import Path
 
 import discord
 
-from cogs.radar.s3 import s3_download_file, list_files, resolve_z_range
+from cogs.radar.s3 import s3_download_file, list_files
 
 logger = logging.getLogger("spc_bot")
 

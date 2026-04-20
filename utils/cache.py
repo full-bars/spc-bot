@@ -9,10 +9,9 @@ import asyncio
 import logging
 import os
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from config import (
-    CACHE_DIR,
     CENTRAL,
     SPC_SCHEDULE,
 )

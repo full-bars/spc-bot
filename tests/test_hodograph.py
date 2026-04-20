@@ -6,7 +6,6 @@ No Discord connection or network access required.
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
-import pytest
 
 
 class TestRadarValidation:

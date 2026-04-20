@@ -1,7 +1,6 @@
 # cogs/csu_mlp.py
 import json
 import logging
-import os
 
 from utils.db import get_state, set_state
 from datetime import datetime, timedelta, timezone

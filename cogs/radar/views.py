@@ -1,7 +1,6 @@
 # cogs/radar/views.py
 """Discord UI views and modals for the NEXRAD radar downloader."""
 
-import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 

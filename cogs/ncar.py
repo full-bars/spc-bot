@@ -1,18 +1,17 @@
 # cogs/ncar.py
 import json
 import logging
-import os
 from datetime import datetime, timedelta, timezone
 
 import discord
 from discord.ext import commands, tasks
 
-from config import MANUAL_CACHE_FILE, MODELS_CHANNEL_ID, WXNEXT_BASE, WXNEXT_PAGE
+from config import MANUAL_CACHE_FILE, MODELS_CHANNEL_ID, WXNEXT_BASE
 from utils.cache import (
     calculate_hash_bytes,
     download_single_image,
 )
-from utils.db import delete_state, get_state, set_state
+from utils.db import get_state, set_state
 from utils.http import ensure_session
 
 import aiohttp

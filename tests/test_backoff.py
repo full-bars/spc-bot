@@ -6,7 +6,6 @@ the whole suite, so no test ever exercised the real delay/skip logic.
 
 from unittest.mock import AsyncMock, patch
 
-import pytest
 
 from utils.backoff import TaskBackoff, _BACKOFF_DELAYS
 

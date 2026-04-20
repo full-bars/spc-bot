@@ -3,7 +3,6 @@ Integration tests for BotState, cog initialization, and critical code paths.
 These tests actually execute function bodies to catch NameErrors, missing
 attributes, and broken call signatures that unit tests miss.
 """
-import asyncio
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest

@@ -13,8 +13,7 @@ Only the last-seen seqnum is persisted to DB to avoid reprocessing on restart.
 import asyncio
 import logging
 import re
-import time
-from typing import Optional, Dict, Tuple
+from typing import Optional
 
 from discord.ext import commands, tasks
 
