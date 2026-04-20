@@ -309,8 +309,12 @@ async def test_upstash_seqnum_missing_returns_none(monkeypatch):
 
 # ── _standby_cycle / _promote ───────────────────────────────────────────────
 
-async def test_standby_promotes_after_three_missing_primary(monkeypatch):
-    """Three cycles with no URL in Upstash → promote."""
+async def test_standby_promotes_after_max_failures_missing_primary(monkeypatch):
+    """MAX_FAILURES consecutive cycles with no URL in Upstash → promote.
+
+    The threshold is derived from HEARTBEAT_TTL so the test reads it back
+    from the module rather than hardcoding a count.
+    """
     monkeypatch.setattr(
         FailoverCog, "_get_primary_url", AsyncMock(return_value=None)
     )
@@ -318,12 +322,109 @@ async def test_standby_promotes_after_three_missing_primary(monkeypatch):
     monkeypatch.setattr(FailoverCog, "_start_tunnel", AsyncMock())
 
     cog = FailoverCog(_make_bot(is_primary=False))
-    for _ in range(3):
+    for _ in range(failover_module.MAX_FAILURES):
         await cog._standby_cycle()
 
     assert cog.bot.state.is_primary is True
-    # Promotion path loads every extension.
     assert cog.bot.load_extension.call_count == len(failover_module.ALL_EXTENSIONS)
+
+
+async def test_standby_does_not_promote_before_max_failures(monkeypatch):
+    """One short of the threshold: must stay in standby."""
+    monkeypatch.setattr(
+        FailoverCog, "_get_primary_url", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(FailoverCog, "_start_http_server", AsyncMock())
+    monkeypatch.setattr(FailoverCog, "_start_tunnel", AsyncMock())
+
+    cog = FailoverCog(_make_bot(is_primary=False))
+    for _ in range(failover_module.MAX_FAILURES - 1):
+        await cog._standby_cycle()
+
+    assert cog.bot.state.is_primary is False
+    cog.bot.load_extension.assert_not_called()
+
+
+async def test_standby_startup_grace_does_not_count_failures(monkeypatch):
+    """Failures during the startup grace window are logged but must NOT
+    advance the counter. Covers the "standby deployed before primary"
+    race that caused the near-miss in prod."""
+    import time as _time
+
+    monkeypatch.setattr(
+        FailoverCog, "_get_primary_url", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(FailoverCog, "_start_http_server", AsyncMock())
+    monkeypatch.setattr(FailoverCog, "_start_tunnel", AsyncMock())
+
+    cog = FailoverCog(_make_bot(is_primary=False))
+    # Simulate cog_load having just been called.
+    cog._cog_load_monotonic = _time.monotonic()
+
+    for _ in range(failover_module.MAX_FAILURES + 3):
+        await cog._standby_cycle()
+
+    assert cog._primary_failures == 0
+    assert cog.bot.state.is_primary is False
+
+
+async def test_standby_promotes_after_grace_expires(monkeypatch):
+    """After the grace window closes, failures count normally again."""
+    monkeypatch.setattr(
+        FailoverCog, "_get_primary_url", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(FailoverCog, "_start_http_server", AsyncMock())
+    monkeypatch.setattr(FailoverCog, "_start_tunnel", AsyncMock())
+
+    cog = FailoverCog(_make_bot(is_primary=False))
+    # Pretend cog_load ran well before the grace window — already expired.
+    cog._cog_load_monotonic = 0.0
+
+    for _ in range(failover_module.MAX_FAILURES):
+        await cog._standby_cycle()
+
+    assert cog.bot.state.is_primary is True
+
+
+async def test_standby_resets_failures_on_new_primary_url(monkeypatch):
+    """When Upstash returns a URL that differs from the last one we were
+    trying, the failure counter must reset — a new tunnel means the
+    primary has republished itself, so prior failures were against a
+    stale URL.
+    """
+    # Script: first 2 calls to Upstash return the OLD URL, then the NEW URL.
+    urls = iter([
+        "https://old.example",
+        "https://old.example",
+        "https://new.example",   # primary republished
+        "https://new.example",
+    ])
+
+    async def _next_url(self_):
+        return next(urls)
+
+    monkeypatch.setattr(FailoverCog, "_get_primary_url", _next_url)
+    monkeypatch.setattr(failover_module, "FAILOVER_TOKEN", "secret")
+
+    # /state always errors — doesn't matter; we're watching the counter.
+    def _responder(method, url, kwargs):
+        raise RuntimeError("tunnel unreachable")
+
+    fake_session = _fake_session_factory(_responder)
+    monkeypatch.setattr(
+        "cogs.failover.aiohttp.ClientSession", lambda: fake_session
+    )
+
+    cog = FailoverCog(_make_bot(is_primary=False))
+    cog._cog_load_monotonic = 0.0  # past grace
+
+    await cog._standby_cycle()  # old URL, failure #1
+    await cog._standby_cycle()  # old URL, failure #2
+    assert cog._primary_failures == 2
+
+    await cog._standby_cycle()  # NEW URL → reset, then try+fail → failure #1
+    assert cog._primary_failures == 1
+    assert cog._last_seen_primary_url == "https://new.example"
 
 
 async def test_standby_hydrates_when_primary_reachable(monkeypatch):
