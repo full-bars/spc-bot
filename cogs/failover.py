@@ -263,12 +263,31 @@ class FailoverCog(commands.Cog):
             logger.error(f"[FAILOVER] Sync loop error: {e}")
 
     async def _standby_cycle(self):
+        """Standby's sync-loop body.
+
+        Promotion uses two *independent* signals and only the first one
+        can advance `_primary_failures`:
+
+          1. **Primary liveness** — does Upstash still have the
+             primary's URL?  The primary refreshes this key every
+             SYNC_INTERVAL with EX HEARTBEAT_TTL, so the key's
+             presence *is* a heartbeat. If the key is missing, the
+             primary has stopped refreshing for at least HEARTBEAT_TTL
+             seconds; only *that* is evidence the primary is dead.
+
+          2. **Hydration reachability** — can this host reach the
+             primary's tunnel right now?  A failure here could be
+             standby-side (DNS, local network, Cloudflare edge in my
+             region) and says nothing about whether the primary is
+             alive. It must NOT advance the failure counter — doing so
+             was the bug that caused a false promotion attempt when
+             the standby couldn't resolve trycloudflare.com while the
+             primary was fine.
+        """
         primary_url = await self._get_primary_url()
 
-        # Recovery signal: if Upstash now hands us a URL that differs from
-        # the one we were trying last cycle, the primary has republished —
-        # any accumulated failures were against a stale URL and should not
-        # count against the new primary. Reset before doing anything else.
+        # Recovery signal: new tunnel URL ⇒ any accumulated failures
+        # were against a stale URL, wipe the slate.
         if primary_url and primary_url != self._last_seen_primary_url:
             if self._primary_failures > 0:
                 logger.info(
@@ -279,13 +298,26 @@ class FailoverCog(commands.Cog):
             self._primary_failures = 0
             self._last_seen_primary_url = primary_url
 
+        # Signal 1: primary liveness.
         if not primary_url:
-            count = self._register_failure("Primary URL missing from Upstash")
+            count = self._register_failure(
+                "Primary heartbeat expired in Upstash"
+            )
             if count >= self._max_failures:
                 await self._promote()
             return
 
-        # Try to reach primary
+        # Primary is alive (heartbeat is fresh by definition of the
+        # Upstash TTL). Any failures below are hydration problems, not
+        # evidence of primary death. Clear the failure counter.
+        if self._primary_failures > 0:
+            logger.info(
+                f"[FAILOVER] Primary heartbeat fresh; clearing "
+                f"{self._primary_failures} hydration failures"
+            )
+            self._primary_failures = 0
+
+        # Signal 2: hydration. Best-effort — does not advance promotion.
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
@@ -296,19 +328,20 @@ class FailoverCog(commands.Cog):
                     if resp.status == 200:
                         data = await resp.json()
                         self._hydrate(data)
-                        self._primary_failures = 0
                         logger.debug("[FAILOVER] Hydrated state from primary")
                         await self._persist_hydrated_state()
                     else:
-                        count = self._register_failure(
-                            f"Primary /state returned {resp.status}"
+                        logger.warning(
+                            f"[FAILOVER] Cannot hydrate: /state returned "
+                            f"{resp.status} — primary heartbeat still fresh, "
+                            f"not counting toward promotion"
                         )
-                        if count >= self._max_failures:
-                            await self._promote()
         except Exception as e:
-            count = self._register_failure(f"Cannot reach primary: {e}")
-            if count >= self._max_failures:
-                await self._promote()
+            logger.warning(
+                f"[FAILOVER] Cannot hydrate from primary: {e} — "
+                f"primary heartbeat still fresh, not counting toward "
+                f"promotion"
+            )
 
     async def _get_primary_url(self) -> str | None:
         try:
