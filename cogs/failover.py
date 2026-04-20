@@ -18,6 +18,7 @@ Standby (3CAPE):
 import asyncio
 import logging
 import os
+import time
 from datetime import datetime, timezone
 
 import aiohttp
@@ -44,6 +45,18 @@ def _require_failover_token() -> str:
 HEARTBEAT_TTL = 420  # 7 minutes
 SYNC_INTERVAL = 30   # seconds
 
+# Grace period on standby boot during which sync-loop failures are NOT counted
+# toward promotion. Covers the common case of deploying the standby before
+# the primary has finished its own restart.
+STARTUP_GRACE_SECONDS = 120
+
+# Tolerate up to half the heartbeat TTL of consecutive failures before
+# promoting. Derived so the threshold scales with HEARTBEAT_TTL instead of
+# being a bare magic number — the old value (3) meant 90 s of unreachability
+# triggered promotion, which is shorter than a normal primary redeploy with
+# tunnel bring-up.
+MAX_FAILURES = max(5, HEARTBEAT_TTL // (2 * SYNC_INTERVAL))
+
 UPSTASH_HEADERS = {"Authorization": f"Bearer {UPSTASH_TOKEN}"}
 
 from cogs import ALL_EXTENSIONS
@@ -56,18 +69,63 @@ class FailoverCog(commands.Cog):
         self._tunnel_proc = None
         self._tunnel_url = None
         self._primary_failures = 0
-        self._max_failures = 3
+        self._max_failures = MAX_FAILURES
         self._ready = False
+        # The URL the standby was trying to reach last cycle. Used to detect
+        # that the primary published a *new* tunnel URL, which is a recovery
+        # signal and must reset the failure counter — otherwise failures
+        # against an old, dead URL accumulate against the new primary.
+        self._last_seen_primary_url: str | None = None
+        # Boot time for the startup grace period. During the first
+        # STARTUP_GRACE_SECONDS after cog_load, sync-loop failures are
+        # logged but do not count toward promotion.
+        self._cog_load_monotonic: float | None = None
 
     async def cog_load(self):
         # Both primary (serves /state, /sync) and standby (calls them) must
         # share a real token. Fail fast at cog load so misconfiguration is
         # obvious at startup rather than surfacing as silent 401s later.
         _require_failover_token()
+        self._cog_load_monotonic = time.monotonic()
         if self.bot.state.is_primary:
             await self._start_http_server()
             await self._start_tunnel()
         self.sync_loop.start()
+
+    def _in_startup_grace(self) -> bool:
+        """True for the first STARTUP_GRACE_SECONDS after cog_load.
+
+        While the grace window is open, the sync loop still runs and will
+        happily hydrate from the primary if it's reachable — but failures
+        do not advance `_primary_failures`. This exists because when you
+        deploy both machines, the standby usually boots before the
+        primary has finished its tunnel bring-up, and the failing cycles
+        during that window are artifacts of the deploy, not evidence of
+        a real outage.
+        """
+        if self._cog_load_monotonic is None:
+            return False
+        return (time.monotonic() - self._cog_load_monotonic) < STARTUP_GRACE_SECONDS
+
+    def _register_failure(self, reason: str) -> int:
+        """Increment the failure counter unless we're in the startup
+        grace window. Returns the post-increment count (0 during grace).
+
+        `reason` is logged so operators can see what was wrong, independent
+        of whether the counter advanced.
+        """
+        if self._in_startup_grace():
+            logger.info(
+                f"[FAILOVER] {reason} — in startup grace "
+                f"({STARTUP_GRACE_SECONDS}s), not counting toward promotion"
+            )
+            return 0
+        self._primary_failures += 1
+        logger.warning(
+            f"[FAILOVER] {reason} "
+            f"(failure {self._primary_failures}/{self._max_failures})"
+        )
+        return self._primary_failures
 
     async def cog_unload(self):
         self.sync_loop.cancel()
@@ -206,10 +264,24 @@ class FailoverCog(commands.Cog):
 
     async def _standby_cycle(self):
         primary_url = await self._get_primary_url()
+
+        # Recovery signal: if Upstash now hands us a URL that differs from
+        # the one we were trying last cycle, the primary has republished —
+        # any accumulated failures were against a stale URL and should not
+        # count against the new primary. Reset before doing anything else.
+        if primary_url and primary_url != self._last_seen_primary_url:
+            if self._primary_failures > 0:
+                logger.info(
+                    f"[FAILOVER] Primary URL changed "
+                    f"({self._last_seen_primary_url!r} → {primary_url!r}); "
+                    f"resetting {self._primary_failures} accumulated failures"
+                )
+            self._primary_failures = 0
+            self._last_seen_primary_url = primary_url
+
         if not primary_url:
-            self._primary_failures += 1
-            logger.warning(f"[FAILOVER] Primary URL missing from Upstash (failure {self._primary_failures}/{self._max_failures})")
-            if self._primary_failures >= self._max_failures:
+            count = self._register_failure("Primary URL missing from Upstash")
+            if count >= self._max_failures:
                 await self._promote()
             return
 
@@ -228,14 +300,14 @@ class FailoverCog(commands.Cog):
                         logger.debug("[FAILOVER] Hydrated state from primary")
                         await self._persist_hydrated_state()
                     else:
-                        self._primary_failures += 1
-                        logger.warning(f"[FAILOVER] Primary /state returned {resp.status} (failure {self._primary_failures}/{self._max_failures})")
-                        if self._primary_failures >= self._max_failures:
+                        count = self._register_failure(
+                            f"Primary /state returned {resp.status}"
+                        )
+                        if count >= self._max_failures:
                             await self._promote()
         except Exception as e:
-            self._primary_failures += 1
-            logger.warning(f"[FAILOVER] Cannot reach primary: {e} (failure {self._primary_failures}/{self._max_failures})")
-            if self._primary_failures >= self._max_failures:
+            count = self._register_failure(f"Cannot reach primary: {e}")
+            if count >= self._max_failures:
                 await self._promote()
 
     async def _get_primary_url(self) -> str | None:
