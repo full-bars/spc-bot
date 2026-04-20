@@ -386,17 +386,14 @@ async def test_standby_promotes_after_grace_expires(monkeypatch):
     assert cog.bot.state.is_primary is True
 
 
-async def test_standby_resets_failures_on_new_primary_url(monkeypatch):
-    """When Upstash returns a URL that differs from the last one we were
-    trying, the failure counter must reset — a new tunnel means the
-    primary has republished itself, so prior failures were against a
-    stale URL.
+async def test_standby_tracks_last_seen_primary_url(monkeypatch):
+    """Verifies `_last_seen_primary_url` is kept in sync with Upstash —
+    the actual counter-reset behaviour on URL change is exercised by
+    `test_standby_clears_prior_failures_when_heartbeat_returns` via
+    the None → present transition.
     """
-    # Script: first 2 calls to Upstash return the OLD URL, then the NEW URL.
     urls = iter([
         "https://old.example",
-        "https://old.example",
-        "https://new.example",   # primary republished
         "https://new.example",
     ])
 
@@ -406,24 +403,21 @@ async def test_standby_resets_failures_on_new_primary_url(monkeypatch):
     monkeypatch.setattr(FailoverCog, "_get_primary_url", _next_url)
     monkeypatch.setattr(failover_module, "FAILOVER_TOKEN", "secret")
 
-    # /state always errors — doesn't matter; we're watching the counter.
-    def _responder(method, url, kwargs):
-        raise RuntimeError("tunnel unreachable")
+    # Hydration is irrelevant to this test — make it a no-op 200.
+    def _ok(method, url, kwargs):
+        return _FakeResponse(200, payload={})
 
-    fake_session = _fake_session_factory(_responder)
     monkeypatch.setattr(
-        "cogs.failover.aiohttp.ClientSession", lambda: fake_session
+        "cogs.failover.aiohttp.ClientSession",
+        lambda: _fake_session_factory(_ok),
     )
 
     cog = FailoverCog(_make_bot(is_primary=False))
-    cog._cog_load_monotonic = 0.0  # past grace
+    cog._cog_load_monotonic = 0.0
 
-    await cog._standby_cycle()  # old URL, failure #1
-    await cog._standby_cycle()  # old URL, failure #2
-    assert cog._primary_failures == 2
-
-    await cog._standby_cycle()  # NEW URL → reset, then try+fail → failure #1
-    assert cog._primary_failures == 1
+    await cog._standby_cycle()
+    assert cog._last_seen_primary_url == "https://old.example"
+    await cog._standby_cycle()
     assert cog._last_seen_primary_url == "https://new.example"
 
 
@@ -469,8 +463,15 @@ async def test_standby_hydrates_when_primary_reachable(monkeypatch):
     assert cog._primary_failures == 0
 
 
-async def test_standby_counts_failure_on_primary_5xx(monkeypatch):
-    """/state returns 500 → failure counter increments."""
+async def test_standby_hydration_failure_does_not_count_when_heartbeat_fresh(monkeypatch):
+    """If Upstash still has the primary URL (primary heartbeat fresh)
+    but /state is unreachable, this is a hydration problem, not a
+    primary-death signal. Must NOT advance `_primary_failures`.
+
+    This is the fix for the false-promotion race that fired in prod
+    when the standby could not resolve the trycloudflare.com tunnel
+    hostname while the primary was fully healthy.
+    """
     monkeypatch.setattr(
         FailoverCog,
         "_get_primary_url",
@@ -478,18 +479,68 @@ async def test_standby_counts_failure_on_primary_5xx(monkeypatch):
     )
     monkeypatch.setattr(failover_module, "FAILOVER_TOKEN", "secret")
 
-    def _responder(method, url, kwargs):
+    def _500(method, url, kwargs):
         return _FakeResponse(500, text="boom")
 
-    fake_session = _fake_session_factory(_responder)
+    def _raise(method, url, kwargs):
+        raise RuntimeError("Name or service not known")
+
+    cog = FailoverCog(_make_bot(is_primary=False))
+    cog._cog_load_monotonic = 0.0  # past startup grace
+
+    # 5xx response: heartbeat is fresh → no counter advance.
     monkeypatch.setattr(
-        "cogs.failover.aiohttp.ClientSession", lambda: fake_session
+        "cogs.failover.aiohttp.ClientSession",
+        lambda: _fake_session_factory(_500),
+    )
+    for _ in range(failover_module.MAX_FAILURES + 3):
+        await cog._standby_cycle()
+    assert cog._primary_failures == 0
+    assert cog.bot.state.is_primary is False
+
+    # Connection exception: still fresh → still no counter advance.
+    monkeypatch.setattr(
+        "cogs.failover.aiohttp.ClientSession",
+        lambda: _fake_session_factory(_raise),
+    )
+    for _ in range(failover_module.MAX_FAILURES + 3):
+        await cog._standby_cycle()
+    assert cog._primary_failures == 0
+    assert cog.bot.state.is_primary is False
+
+
+async def test_standby_clears_prior_failures_when_heartbeat_returns(monkeypatch):
+    """After the key goes missing (counter climbs) and then returns
+    (primary recovered, republished), the counter must reset even if
+    hydration keeps failing afterwards."""
+    states = iter([None, None, "https://tunnel.example", "https://tunnel.example"])
+
+    async def _next_url(self_):
+        return next(states)
+
+    monkeypatch.setattr(FailoverCog, "_get_primary_url", _next_url)
+    monkeypatch.setattr(failover_module, "FAILOVER_TOKEN", "secret")
+
+    # Hydration always errors — exercises the "heartbeat fresh but
+    # hydration dead" path that used to mistakenly increment.
+    monkeypatch.setattr(
+        "cogs.failover.aiohttp.ClientSession",
+        lambda: _fake_session_factory(
+            lambda m, u, k: (_ for _ in ()).throw(RuntimeError("x"))
+        ),
     )
 
     cog = FailoverCog(_make_bot(is_primary=False))
-    await cog._standby_cycle()
-    assert cog._primary_failures == 1
-    assert cog.bot.state.is_primary is False
+    cog._cog_load_monotonic = 0.0
+
+    await cog._standby_cycle()  # None: liveness fail #1
+    await cog._standby_cycle()  # None: liveness fail #2
+    assert cog._primary_failures == 2
+
+    await cog._standby_cycle()  # URL returns → counter cleared
+    assert cog._primary_failures == 0
+    await cog._standby_cycle()  # URL present, hydration still failing → still 0
+    assert cog._primary_failures == 0
 
 
 # ── _check_for_demotion / _demote ───────────────────────────────────────────
