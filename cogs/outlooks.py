@@ -8,7 +8,7 @@ from discord.ext import commands, tasks
 
 from config import SPC_CHANNEL_ID, SPC_URLS
 from utils.backoff import TaskBackoff
-from utils.db import get_posted_urls, set_posted_urls
+from utils.db import set_posted_urls
 from utils.cache import (
     check_all_urls_exist_parallel,
     check_partial_updates_parallel,

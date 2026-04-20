@@ -3,7 +3,6 @@
 
 import logging
 import os
-from datetime import datetime, timezone
 
 import discord
 from discord import ButtonStyle
@@ -15,7 +14,6 @@ from cogs.sounding_utils import (
     generate_plot,
     get_available_sounding_times_iem,
     get_recent_sounding_times,
-    get_user_dark_mode,
 )
 from config import CACHE_DIR
 

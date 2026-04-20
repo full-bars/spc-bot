@@ -4,7 +4,7 @@
 import hashlib
 import logging
 import os
-from typing import Dict, Optional
+from typing import Dict
 
 from config import CACHE_DIR
 

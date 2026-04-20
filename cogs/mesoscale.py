@@ -12,7 +12,6 @@ from utils.backoff import TaskBackoff
 
 from config import AUTO_CACHE_FILE, SPC_CHANNEL_ID, SPC_MD_INDEX_URL
 from utils.cache import (
-    MAX_TRACKED_MDS,
     download_single_image,
 )
 from utils.change_detection import get_cache_path_for_url

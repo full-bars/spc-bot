@@ -4,11 +4,9 @@ BotState — single source of truth for all in-memory bot state.
 Attached to the bot instance as bot.state at startup.
 """
 
-import os
 from datetime import datetime
 from typing import Dict, List, Optional, Set
 
-from config import CACHE_DIR
 
 
 class BotState:

@@ -3,14 +3,12 @@ import asyncio
 import logging
 import os
 import signal
-import sys
-from datetime import datetime, timedelta, timezone
-from typing import List, Tuple
+from datetime import datetime, timezone
 
 import discord
 from discord.ext import commands, tasks
 
-from config import CACHE_DIR, GUILD_ID, TOKEN, CONFIG
+from config import CACHE_DIR, TOKEN, CONFIG
 from utils.http import close_session, ensure_session
 from utils.db import (
     check_integrity, close_db, get_db,

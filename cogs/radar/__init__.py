@@ -1,18 +1,16 @@
 # cogs/radar/__init__.py
 """NEXRAD Level 2 radar data downloader from NOAA AWS S3."""
 
-import asyncio
 from datetime import datetime, timedelta, timezone
 import logging
 import time
 
-import aiohttp
 import discord
 from discord.app_commands import Choice
 from discord.ext import commands, tasks
 
 from cogs.radar.downloads import cleanup_old_files, run_download, OUTPUT_DIR, CLEANUP_AGE_THRESHOLD
-from cogs.radar.s3 import _s3, get_radar_sites
+from cogs.radar.s3 import _s3, get_radar_sites as get_radar_sites
 from cogs.radar.views import StartView
 
 logger = logging.getLogger("spc_bot")

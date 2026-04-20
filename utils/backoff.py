@@ -17,7 +17,6 @@ Usage:
 
 import asyncio
 import logging
-from datetime import datetime, timezone
 
 logger = logging.getLogger("spc_bot")
 

@@ -19,7 +19,6 @@ from config import (
     SPC_WATCH_INDEX_URL,
 )
 from utils.cache import (
-    MAX_TRACKED_WATCHES,
     download_single_image,
 )
 from utils.change_detection import get_cache_path_for_url, is_placeholder_image

@@ -7,10 +7,7 @@ dev database.
 """
 
 import asyncio
-import json
-import time
 
-import pytest
 
 from utils import db
 

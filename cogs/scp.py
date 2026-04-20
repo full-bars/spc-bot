@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import discord
 from discord.ext import commands, tasks
 
-from config import AUTO_CACHE_FILE, MANUAL_CACHE_FILE, PACIFIC, MODELS_CHANNEL_ID, SCP_IMAGE_URLS
+from config import MANUAL_CACHE_FILE, PACIFIC, MODELS_CHANNEL_ID, SCP_IMAGE_URLS
 from utils.cache import (
     download_images_parallel,
 )

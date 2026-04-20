@@ -8,10 +8,8 @@ Utility functions for the sounding cog:
 """
 
 import asyncio
-import json
 import logging
 import math
-import os
 import re
 from datetime import datetime, timezone
 from typing import Optional
@@ -35,7 +33,6 @@ try:
 finally:
     sys.stdout = _stdout
 
-from config import CACHE_DIR
 from utils.db import get_state, set_state
 
 logger = logging.getLogger("spc_bot")
