@@ -1,5 +1,5 @@
 # Build stage
-FROM python:3.12-slim-bookworm AS builder
+FROM python:3.14-slim-bookworm AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -34,7 +34,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Runtime stage
-FROM python:3.12-slim-bookworm
+FROM python:3.14-slim-bookworm
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
