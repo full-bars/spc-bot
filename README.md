@@ -20,9 +20,10 @@ A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks
 
 ## Prerequisites
 
-* Python 3.10+
+* Python 3.12+ (matches the Dockerfile; 3.10/3.11 may still work but CI runs on 3.12)
 * A Discord bot token and application ([Discord Developer Portal](https://discord.com/developers/applications))
 * Channel IDs and Guild ID for where the bot should post
+* An [Upstash Redis](https://upstash.com/) instance (free tier is sufficient) — shared state for the primary/standby pair
 
 ## Setup
 
@@ -72,21 +73,26 @@ spc-bot/
 ├── docker-compose.yml       # Docker orchestration
 ├── install-hooks.sh         # Installs pre-push git hooks (syntax + test checks)
 ├── config.py                # Configuration and centralized URL constants
-├── requirements.txt         # Python dependencies
+├── requirements.txt         # Runtime dependencies (what the bot needs to run)
+├── requirements-dev.txt     # Runtime + pytest/pytest-asyncio/pytest-cov/ruff for development & CI
 ├── .env.example             # Template for required environment variables
 ├── CREDITS.md               # Third-party attributions
+├── scripts/
+│   └── migrate_sqlite_to_upstash.py  # One-shot migration of local SQLite into Upstash
 ├── utils/
-│   ├── http.py              # Async HTTP session management (centralized pooling)
-│   ├── change_detection.py  # HEAD-based change detection, hashing
-│   ├── cache.py             # Download orchestration, legacy globals (deprecated)
-│   ├── state.py             # BotState class — single source of truth for in-memory state
+│   ├── http.py              # Async HTTP session management (centralized pooling, retry, conditional GET)
+│   ├── change_detection.py  # Content hashing and placeholder-image detection
+│   ├── cache.py             # Download orchestration; conditional-GET poll path
+│   ├── state.py             # BotState — HashStore + PostingLog + TimingTracker sub-stores
+│   ├── state_store.py       # Upstash Redis facade: read-through cache → Upstash → SQLite fallback;
+│   │                        # double-writes both backends, retries failed Upstash writes via a reconciler
 │   ├── spc_urls.py          # SPC outlook URL resolution
 │   ├── backoff.py           # Exponential backoff tracker for task loops
-│   └── db.py                # Async SQLite state manager (aiosqlite) with persistent product text caching
+│   └── db.py                # Async SQLite backend used internally by state_store as the durable mirror
 ├── cogs/
 │   ├── outlooks.py          # SPC Day 1-3 and Day 4-8 auto-posting
 │   ├── mesoscale.py         # SPC MD monitoring with watch probability detection and IEM fallbacks
-│   ├── iembot.py            # IEM iembot feed poller with persistent DB-backed text cache
+│   ├── iembot.py            # IEM iembot feed poller with persistent text-product caching
 │   ├── watches.py           # SPC watch monitoring via NWS API (stores affected_zones)
 │   ├── scp.py               # NIU/Gensini SCP graphics, twice daily
 │   ├── csu_mlp.py           # CSU-MLP consolidated /csu command with Choice dropdown
@@ -95,7 +101,7 @@ spc-bot/
 │   ├── sounding_utils.py    # Location resolution, IEM fetch (all hours), ACARS fetch, plot generation
 │   ├── sounding_views.py    # Discord UI: CombinedSoundingView, IEMTimeSelectionView, ACARS views
 │   ├── hodograph.py         # VWP hodograph generation via /hodograph
-│   ├── failover.py          # HTTP failover: cloudflared tunnel, Upstash coordination, primary/standby logic
+│   ├── failover.py          # Leader election via an Upstash lease (no HTTP tunnel — v5+)
 │   ├── status.py            # Bot status and manual slash commands
 │   └── radar/
 │       ├── __init__.py      # Radar cog: /download with quick-start site+time+count params
@@ -111,13 +117,22 @@ spc-bot/
 │       ├── wsr88d.py        # Radar site info and filename utilities
 │       ├── asos.py          # ASOS surface wind fetching
 │       └── utils.py         # Shared exception types
-└── tests/
-    ├── conftest.py          # Test environment setup
-    ├── test_utils.py        # Unit tests for utilities and sounding parsing
-    ├── test_watches.py      # Unit tests for watch VTEC parsing
-    ├── test_integration.py  # Integration tests: BotState, cog instantiation, function signatures
-    ├── test_hodograph.py    # Unit tests for hodograph cog
-    └── test_iem_races.py    # Tests for IEM/SPC race logic and watch-triggered soundings
+└── tests/                   # pytest suite (169+ tests, see CONTRIBUTING.md)
+    ├── conftest.py          # Fixtures: fake_bot (real BotState), isolated_db, opt-in patches
+    ├── test_fixtures.py     # Fixture invariants
+    ├── test_utils.py        # Utility and sounding parsing
+    ├── test_watches.py      # Watch VTEC parsing
+    ├── test_integration.py  # BotState, cog instantiation, function signatures
+    ├── test_state_split.py  # HashStore / PostingLog / TimingTracker delegation
+    ├── test_state_store.py  # Upstash-backed state store (cache, reconciler, SQLite fallback)
+    ├── test_db.py           # SQLite backend roundtrips
+    ├── test_http.py         # HTTP retry + conditional GET
+    ├── test_cache_conditional.py  # Partial-update poll with ETag/If-Modified-Since
+    ├── test_backoff.py      # TaskBackoff delay and alert logic
+    ├── test_main_lifecycle.py  # Shutdown guard, watchdog restart, startup smoke
+    ├── test_failover_coverage.py  # Lease election, promotion, demotion
+    ├── test_hodograph.py    # Hodograph cog
+    └── test_iem_races.py    # IEM/SPC race logic and watch-triggered soundings
 ```
 
 ## Status

@@ -118,7 +118,7 @@ scraping the SPC watch index HTML directly.
 
 ### IEMBot Real-Time Feed
 
-`IEMBotCog` polls `weather.im/iembot-json/room/spcchat` every 15 seconds. When a new SEL (watch) or SWOMCD (MD) product appears, the full text is fetched from `mesonet.agron.iastate.edu/api/1/nwstext/{product_id}` and cached in the SQLite database (`product_text_cache`) with a 10-minute TTL. `fetch_watch_details` and `fetch_md_details` check this persistent cache first, ensuring embeds are populated within seconds of issuance even across bot restarts or failovers. The last-seen seqnum is also persisted to SQLite.
+`IEMBotCog` polls `weather.im/iembot-json/room/spcchat` every 15 seconds. When a new SEL (watch) or SWOMCD (MD) product appears, the full text is fetched from `mesonet.agron.iastate.edu/api/1/nwstext/{product_id}` and cached via `state_store.set_product_cache` with a 10-minute TTL (written to both Upstash and SQLite). `fetch_watch_details` and `fetch_md_details` check the cache first, so embeds are populated within seconds of issuance — and the Upstash copy means a fresh primary after a failover already has the text. The last-seen seqnum is persisted via `state_store.set_state("iembot_last_seqnum", …)` through the same double-write path.
 
 ### SCP Graphics
 
@@ -131,7 +131,7 @@ The `/sounding` command geocodes the location, finds nearby RAOB stations that h
 
 ### CSU-MLP and NCAR WxNext2
 
-Both poll once daily around model update time. State is persisted to the SQLite database so restarts don't cause duplicate posts.
+Both poll once daily around model update time. State is persisted via `state_store` (Upstash + SQLite) so restarts and failovers don't cause duplicate posts.
 
 ---
 
@@ -154,40 +154,112 @@ Tasks are registered with the watchdog in `main.py` after cogs load.
 
 ---
 
-## Persistence
+## Persistence (v5+)
 
-All persistent state lives in a single SQLite database at `CACHE_DIR/bot_state.db`, managed by `utils/db.py` using `aiosqlite`. The database uses WAL mode and a 5-second busy timeout for safe concurrent access.
+Bot state lives in **Upstash Redis** as the source of truth, with a local SQLite database as a durable mirror for outage survival. Everything in the codebase goes through `utils/state_store.py`, which is a drop-in replacement for the historical `utils/db.py` interface.
 
-| Table | Contents |
-|---|---|
-| `image_hashes` | URL → hash mapping for change detection (replaces JSON hash caches) |
-| `posted_mds` | Set of posted MD numbers (pruned to last 200) |
-| `posted_watches` | Set of posted watch numbers (pruned to last 200) |
-| `bot_state` | Key/value store for CSU-MLP, NCAR, and sounding preferences |
-| `product_text_cache` | Fast-path text products (watch/MD) with TTL for cross-instance sync |
+### Data flow
 
-On first startup, existing JSON files are automatically migrated into the database. The in-memory dicts (`auto_cache`, `manual_cache`, `posted_mds`, `posted_watches`) are kept as a fast lookup layer — the database is the persistence layer only.
+```
+    cogs → state_store → in-process cache (60 s TTL)
+                          │
+                          ├─→ Upstash Redis (authoritative)
+                          └─→ SQLite mirror (utils/db.py)
+```
 
-If the database fails an integrity check on startup, it is renamed to `bot_state.db.corrupted` and recreated from scratch.
+- **Read**: cache hit → return. Miss → Upstash → populate cache. Upstash unavailable → fall back to SQLite.
+- **Write**: update cache immediately, then double-write to SQLite (durability guarantee) and Upstash (best-effort). An Upstash failure enqueues the write on a dirty list; a background reconciler retries every 30 s until it lands.
+- **Startup resync**: on promotion (and optionally on boot) the node pushes anything SQLite has that Upstash is missing. Handles the "Upstash was down when we wrote, then we restarted" edge case.
+
+### Upstash key schema
+
+All keys are prefixed with `spcbot:` and are centralized in `utils/state_store.py` `_k_*` helpers.
+
+| Key | Type | Contents |
+|---|---|---|
+| `spcbot:hashes_index:auto` | HASH | URL → image hash (auto-posted graphics) |
+| `spcbot:hashes_index:manual` | HASH | URL → image hash (manual slash-command results) |
+| `spcbot:posted_mds` | SET | Posted MD numbers |
+| `spcbot:posted_watches` | SET | Posted watch numbers |
+| `spcbot:state:<key>` | STRING | KV store (e.g. `iembot_last_seqnum`, `csu_mlp_posted`, sounding prefs) |
+| `spcbot:posted_urls:<day>` | STRING | JSON-encoded list of posted URLs for that outlook day |
+| `spcbot:product_cache:<id>` | STRING (EX) | Watch/MD text bodies with TTL |
+| `spcbot:primary_url` | STRING (EX) | Leader-election lease (see Failover) |
+
+### SQLite mirror
+
+Same tables as historical `utils/db.py`: `image_hashes`, `posted_mds`, `posted_watches`, `bot_state`, `posted_urls`, `product_text_cache`. WAL mode, 5-second busy timeout. If the database fails an integrity check on startup it is renamed to `bot_state.db.corrupted` and recreated.
+
+### Free-tier Upstash budget
+
+Projected ~8.2 k commands/day across both nodes (primary heartbeat writes, standby heartbeat reads, periodic bulk refreshes, state mutations) against the 10 k/day free-tier ceiling. Hot reads are served from the in-process cache, not billed.
 
 ---
 
 ## Running Tests
 
+Install the dev dependency set (runtime + pytest/pytest-asyncio/pytest-cov/ruff):
+
 ```bash
-pip install pytest pytest-asyncio
+pip install -r requirements-dev.txt
 python -m pytest tests/ -v
+```
+
+With coverage:
+
+```bash
+python -m pytest tests/ \
+    --cov=cogs --cov=utils --cov=config --cov=main \
+    --cov-report=term-missing
+```
+
+Lint (same selection CI uses):
+
+```bash
+ruff check --select=E9,F63,F7,F82,F401 --exclude=venv,lib,cache .
+```
 
 ---
 
-## Failover Configuration
+## Migrating from an older bot_state.db (pre-v5)
 
-WxAlert supports a primary/standby failover architecture using Cloudflare tunnels and Upstash Redis for coordination.
+If you have an existing SQLite-only install, one-shot migrate it into Upstash before booting the v5 code:
+
+```bash
+# First, a dry-run to print counts without touching Upstash:
+python -m scripts.migrate_sqlite_to_upstash --dry-run
+
+# Then the real run:
+python -m scripts.migrate_sqlite_to_upstash
+
+# Use --force to DEL existing Upstash keys before re-seeding (e.g. after a
+# schema change):
+python -m scripts.migrate_sqlite_to_upstash --force
+```
+
+The script is idempotent (Redis `SADD`/`HSET` won't duplicate on re-run). It requires `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` in `.env`.
+
+---
+
+## Failover (v5+)
+
+Two-node primary/standby architecture using Upstash Redis for **both** leader election *and* shared state. As of v5 there is no HTTP state-sync between nodes — they both read/write the same Upstash keys directly.
 
 ### How it works
-- **Primary** runs an aiohttp HTTP server on `STATE_PORT` (default 8765), starts a cloudflared tunnel, and writes the tunnel URL to Upstash Redis with a 7-minute TTL every 30 seconds.
-- **Standby** polls Upstash every 30 seconds. If the primary URL is missing or unreachable for 3 consecutive checks (~90 seconds), it promotes itself, loads all cogs, starts its own tunnel, and writes its URL to Upstash.
-- When the primary comes back online, it reads the standby's URL from Upstash, hydrates its state from the standby via `GET /state`, then writes its own URL. The standby detects the URL change and demotes itself, pushing accumulated state back to the primary via `POST /sync`.
+
+- **Primary** holds an Upstash lease at `spcbot:primary_url` with `EX HEARTBEAT_TTL` (420 s) and refreshes it every `SYNC_INTERVAL` (30 s). The lease value is a per-process identity (`<hostname>:<random>`) so a node can recognize whether the lease is still its own.
+- **Standby** reads the lease every sync interval. If the key is **present**, the primary is alive — the standby does nothing. If the key is **missing** for `MAX_FAILURES` consecutive cycles (derived from the TTL — currently 7 failures ≈ 210 s, half the TTL), the standby promotes:
+  1. Invalidates its in-process cache so the first read on every key goes to Upstash.
+  2. Writes its own lease value.
+  3. Rehydrates `bot.state` mirrors from Upstash.
+  4. Calls `state_store.resync_to_upstash()` to push any SQLite-only writes that may have happened during an Upstash outage.
+  5. Loads every cog and syncs the slash-command tree.
+- **Startup grace**: for the first 120 s after cog load the standby's failure counter does not advance — covers the common case of deploying the standby before the primary has finished its own restart.
+- **Self-demotion**: if the current holder sees a *different* node's identity in the lease, it demotes and unloads its cogs rather than fighting.
+
+### What this replaces (historical)
+
+Older versions (≤ v4) shipped state between the two nodes via an HTTP endpoint exposed through a Cloudflare tunnel (`cloudflared`) and used `/state` and `/sync` handlers plus hydration logic. All of that is gone in v5 — state is in Upstash; nodes talk to the shared store directly, not to each other.
 
 ### Required `.env` variables
 
@@ -195,10 +267,11 @@ WxAlert supports a primary/standby failover architecture using Cloudflare tunnel
 |---|---|---|
 | `IS_PRIMARY` | `true` | `false` |
 | `FAILOVER_TOKEN` | shared secret | same shared secret |
-| `STATE_PORT` | `8765` (default) | `8765` (default) |
 | `UPSTASH_REDIS_REST_URL` | your Upstash URL | same |
 | `UPSTASH_REDIS_REST_TOKEN` | your Upstash token | same |
 
-### Dependencies
-- `cloudflared` must be installed on both servers (handled by `deploy.sh`)
-- A free Upstash Redis instance is sufficient (well within free tier limits)
+`FAILOVER_TOKEN` is validated at cog load; the cog refuses to start if it's empty or the literal `"changeme"`. This was added after a production incident where the default value meant anyone who discovered the (now-removed) tunnel URL could read full bot state.
+
+### No `cloudflared` dependency
+
+`deploy.sh` and the Dockerfile used to install cloudflared for the tunnel. Neither does as of v5 — if you're upgrading from an older install, the binary can be removed (`sudo rm /usr/local/bin/cloudflared`) but leaving it installed is harmless.

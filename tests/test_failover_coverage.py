@@ -144,7 +144,7 @@ async def test_standby_increments_failures_when_lease_missing(monkeypatch):
     monkeypatch.setattr(FailoverCog, "_upstash", mock)
 
     cog = FailoverCog(_make_bot(is_primary=False))
-    cog._cog_load_monotonic = 0.0  # past grace
+    cog._cog_load_monotonic = __import__("time").monotonic() - failover_module.STARTUP_GRACE_SECONDS - 10  # past grace
 
     await cog._standby_cycle()
     assert cog._primary_failures == 1
@@ -172,7 +172,7 @@ async def test_standby_promotes_after_max_failures(monkeypatch):
     monkeypatch.setattr(FailoverCog, "_promote", AsyncMock())
 
     cog = FailoverCog(_make_bot(is_primary=False))
-    cog._cog_load_monotonic = 0.0
+    cog._cog_load_monotonic = __import__("time").monotonic() - failover_module.STARTUP_GRACE_SECONDS - 10  # past grace
 
     for _ in range(failover_module.MAX_FAILURES):
         await cog._standby_cycle()
@@ -186,7 +186,7 @@ async def test_standby_does_not_promote_one_short_of_threshold(monkeypatch):
     monkeypatch.setattr(FailoverCog, "_promote", AsyncMock())
 
     cog = FailoverCog(_make_bot(is_primary=False))
-    cog._cog_load_monotonic = 0.0
+    cog._cog_load_monotonic = __import__("time").monotonic() - failover_module.STARTUP_GRACE_SECONDS - 10  # past grace
 
     for _ in range(failover_module.MAX_FAILURES - 1):
         await cog._standby_cycle()
