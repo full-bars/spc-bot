@@ -119,7 +119,7 @@ class FailoverCog(commands.Cog):
                     data = await resp.json()
                     return data.get("result")
         except Exception as e:
-            logger.warning(f"[FAILOVER] Upstash error: {e}")
+            logger.warning(f"[FAILOVER] Upstash error: {e!r}")
             return None
 
     async def _write_lease(self) -> None:

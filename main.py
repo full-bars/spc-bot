@@ -230,7 +230,7 @@ async def watchdog_task():
             ) as r:
                 session_healthy = r.status < 500
         except Exception as e:
-            logger.warning(f"[WATCHDOG] Session probe failed: {e}")
+            logger.warning(f"[WATCHDOG] Session probe failed: {e!r}")
 
     if not session_healthy:
         logger.warning(
