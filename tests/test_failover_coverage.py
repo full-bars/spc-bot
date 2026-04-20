@@ -14,10 +14,7 @@ The cloudflared subprocess lifecycle is out of scope — it requires a
 binary that CI doesn't have.
 """
 
-import asyncio
-import json
-from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from aiohttp import web
