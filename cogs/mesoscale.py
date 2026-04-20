@@ -16,7 +16,7 @@ from utils.cache import (
 )
 from utils.change_detection import get_cache_path_for_url
 from utils.http import http_get_bytes, http_get_text, http_head_meta
-from utils.db import add_posted_md, prune_posted_mds
+from utils.state_store import add_posted_md, prune_posted_mds
 
 logger = logging.getLogger("spc_bot")
 

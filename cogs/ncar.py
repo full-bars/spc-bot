@@ -11,7 +11,7 @@ from utils.cache import (
     calculate_hash_bytes,
     download_single_image,
 )
-from utils.db import get_state, set_state
+from utils.state_store import get_state, set_state
 from utils.http import ensure_session
 
 import aiohttp

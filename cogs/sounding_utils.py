@@ -33,7 +33,7 @@ try:
 finally:
     sys.stdout = _stdout
 
-from utils.db import get_state, set_state
+from utils.state_store import get_state, set_state
 
 logger = logging.getLogger("spc_bot")
 

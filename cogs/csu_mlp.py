@@ -2,7 +2,7 @@
 import json
 import logging
 
-from utils.db import get_state, set_state
+from utils.state_store import get_state, set_state
 from datetime import datetime, timedelta, timezone
 
 import discord

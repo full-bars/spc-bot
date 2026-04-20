@@ -15,7 +15,7 @@ from config import (
     CENTRAL,
     SPC_SCHEDULE,
 )
-from utils.db import set_hash, set_hashes_batch
+from utils.state_store import set_hash, set_hashes_batch
 from utils.change_detection import (
     calculate_hash_bytes,
     get_cache_path_for_url,
