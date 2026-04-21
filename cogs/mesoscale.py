@@ -31,18 +31,14 @@ async def fetch_latest_md_numbers() -> List[str]:
     """
     meta = await http_head_meta(SPC_MD_INDEX_URL)
     if meta is not None and _md_index_head:
-        unchanged = (
-            (meta["etag"] and meta["etag"] == _md_index_head.get("etag"))
-            or (
-                meta["last_modified"]
-                and meta["last_modified"] == _md_index_head.get("last_modified")
-            )
-            or (
-                meta["content_length"]
-                and meta["content_length"] == _md_index_head.get("content_length")
-            )
-        )
-        if unchanged and any(meta.values()):
+        # Require ALL non-empty validators to match. OR was too loose —
+        # if content_length happened to line up while the page actually
+        # changed, we'd silently drop the new MD.
+        checks = []
+        for key in ("etag", "last_modified", "content_length"):
+            if meta.get(key):
+                checks.append(meta[key] == _md_index_head.get(key))
+        if checks and all(checks):
             return []
     if meta:
         _md_index_head.update(meta)

@@ -370,17 +370,16 @@ async def get_hash(url: str) -> Optional[str]:
         return val
 
     # Upstash path: the per-type Hash is the authoritative index.
+    # We don't know the cache_type at this call, so query both in
+    # parallel (one round-trip wall-clock) and prefer auto on match.
     try:
-        # We don't know the cache_type at this call — check both.
-        for cache_type in ("auto", "manual"):
-            result = await _upstash_cmd(
-                "HGET", _k_hash_url_lookup(cache_type, url), url
-            )
-            if result:
-                _cache_set(cache_key, result)
-                return result
-        _cache_set(cache_key, None)
-        return None
+        auto_result, manual_result = await asyncio.gather(
+            _upstash_cmd("HGET", _k_hash_url_lookup("auto", url), url),
+            _upstash_cmd("HGET", _k_hash_url_lookup("manual", url), url),
+        )
+        result = auto_result or manual_result
+        _cache_set(cache_key, result)
+        return result
     except _UpstashUnavailable as e:
         logger.debug(f"[STATE] get_hash({url}) falling back to SQLite: {e}")
         val = await sqlite_backend.get_hash(url)

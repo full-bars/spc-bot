@@ -158,6 +158,8 @@ class OutlooksCog(commands.Cog):
     @tasks.loop(seconds=30)
     async def auto_post_spc(self):
         await self.bot.wait_until_ready()
+        if not self.bot.state.is_primary:
+            return
         channel = self.bot.get_channel(SPC_CHANNEL_ID)
         if not channel:
             logger.warning("SPC channel not found for auto_post_spc")
@@ -199,6 +201,8 @@ class OutlooksCog(commands.Cog):
     @tasks.loop(minutes=30)
     async def auto_post_spc48(self):
         await self.bot.wait_until_ready()
+        if not self.bot.state.is_primary:
+            return
         channel = self.bot.get_channel(SPC_CHANNEL_ID)
         if not channel:
             logger.warning("SPC channel not found for auto_post_spc48")

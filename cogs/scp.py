@@ -44,6 +44,8 @@ class SCPCog(commands.Cog):
         Posts at 6am and 6pm Pacific if the images have changed.
         """
         await self.bot.wait_until_ready()
+        if not self.bot.state.is_primary:
+            return
 
         if self._next_post_time is None:
             self._next_post_time = self._compute_next_post_time()

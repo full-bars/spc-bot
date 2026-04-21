@@ -35,7 +35,9 @@ async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
     Returns dict: watch_num -> {"type": "SVR"|"TORNADO", "expires": datetime}
     Deduplicates by watch number from the VTEC string.
     """
-    content, status = await http_get_bytes(NWS_ALERTS_URL, retries=5, timeout=30)
+    # Keep retries×timeout well under the 2-minute auto_post_watches
+    # cycle so a bad NWS API window doesn't stall successive ticks.
+    content, status = await http_get_bytes(NWS_ALERTS_URL, retries=2, timeout=15)
     if not content or status != 200:
         logger.warning(
             f"[WATCH] NWS API returned status {status} — will retry next cycle"
