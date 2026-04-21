@@ -398,7 +398,6 @@ class StatusCog(commands.Cog):
             "auto_post_scp":        "NIU/Gensini SCP graphics",
             "csu_mlp_daily_poll":   "CSU-MLP forecasts",
             "wxnext_daily_poll":    "NCAR WxNext2",
-            "watchdog_task":        "watchdog",
             "periodic_cleanup":     "periodic cache cleanup",
             "poll_iembot_feed":     "IEMBot real-time feed",
             "sync_loop":            "Failover standby sync",

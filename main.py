@@ -380,12 +380,8 @@ def _setup_signal_handlers(loop: asyncio.AbstractEventLoop):
 # ── Entrypoint ───────────────────────────────────────────────────────────────
 async def main():
     async with bot:
-        # Register signal handlers with the running loop
-        try:
-            _setup_signal_handlers(asyncio.get_running_loop())
-        except Exception as e:
-            logger.warning(f"Could not set up signal handlers: {e}")
-
+        # _setup_signal_handlers handles per-signal errors itself.
+        _setup_signal_handlers(asyncio.get_running_loop())
         await bot.start(TOKEN)
 
 
