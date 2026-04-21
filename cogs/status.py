@@ -8,7 +8,7 @@ from typing import Optional
 import discord
 from discord.ext import commands, tasks
 
-from config import MANUAL_CACHE_FILE, SCP_IMAGE_URLS, SPC_URLS, WPC_IMAGE_URLS
+from config import MANUAL_CACHE_FILE, SCP_IMAGE_URLS, SPC_URLS, WPC_IMAGE_URLS, __version__
 import utils.http as _http
 from utils.cache import (
     check_all_urls_exist_parallel,
@@ -219,7 +219,9 @@ class StatusCog(commands.Cog):
             inline=False,
         )
 
-        embed.set_footer(text=f"WXModelBot v4.11.6 | Host: {socket.gethostname()}")
+        embed.set_footer(
+            text=f"WXModelBot v{__version__} | Host: {socket.gethostname()}"
+        )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @discord.app_commands.command(

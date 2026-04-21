@@ -5,6 +5,10 @@ import logging
 import pytz
 from dotenv import load_dotenv
 
+# Single source of truth for the release displayed in /help.
+# Bump this in the same commit as the git tag.
+__version__ = "5.0.2"
+
 load_dotenv()
 
 logger = logging.getLogger("spc_bot")
