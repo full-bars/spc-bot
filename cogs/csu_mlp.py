@@ -235,7 +235,9 @@ class CSUMLPCog(commands.Cog):
     @tasks.loop(minutes=10)
     async def csu_mlp_daily_poll(self):
         await self.bot.wait_until_ready()
-        
+        if not self.bot.state.is_primary:
+            return
+
         # Hydrate from DB if memory is empty
         if not self.bot.state.csu_posted:
             db_posted = await _load_posted_today()

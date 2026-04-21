@@ -86,38 +86,48 @@ class FailoverCog(commands.Cog):
         self._primary_failures = 0
         self._identity = _node_identity()
         self._cog_load_monotonic: float | None = None
+        # Dedicated session for leader-election traffic, kept separate from
+        # utils.http.http_session so lease operations don't interfere (and
+        # aren't interfered with) by the shared pool if it misbehaves.
+        self._session: aiohttp.ClientSession | None = None
 
     async def cog_load(self):
         _require_failover_token()
         self._cog_load_monotonic = time.monotonic()
+        self._session = aiohttp.ClientSession()
         self.sync_loop.start()
 
     async def cog_unload(self):
         self.sync_loop.cancel()
         if self.bot.state.is_primary:
             await self._release_lease()
+        if self._session is not None and not self._session.closed:
+            await self._session.close()
+            self._session = None
 
     # ── Upstash ──────────────────────────────────────────────────────────
 
     async def _upstash(self, *args) -> object | None:
-        """Single REST command. Kept separate from utils.state_store so
-        leader election keeps working even if the main store is
+        """Single REST command. Uses a dedicated session (see cog_load)
+        so leader election keeps working even if utils.http is
         misbehaving (the two paths are independent)."""
         if not UPSTASH_URL or not UPSTASH_TOKEN:
             return None
+        if self._session is None or self._session.closed:
+            # Can happen during cog reload or an unexpected unload; recreate.
+            self._session = aiohttp.ClientSession()
         try:
             headers = {**UPSTASH_HEADERS, "Content-Type": "application/json"}
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    UPSTASH_URL,
-                    headers=headers,
-                    json=[str(a) for a in args],
-                    timeout=aiohttp.ClientTimeout(total=5),
-                ) as resp:
-                    if resp.status != 200:
-                        return None
-                    data = await resp.json()
-                    return data.get("result")
+            async with self._session.post(
+                UPSTASH_URL,
+                headers=headers,
+                json=[str(a) for a in args],
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+                return data.get("result")
         except Exception as e:
             logger.warning(f"[FAILOVER] Upstash error: {e!r}")
             return None
