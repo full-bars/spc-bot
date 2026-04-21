@@ -308,7 +308,7 @@ class StatusCog(commands.Cog):
             )
             return
         for md_num in md_numbers:
-            image_url, summary, from_cache = await fetch_md_details(md_num)
+            image_url, summary, from_cache, _ = await fetch_md_details(md_num)
             cache_path = None
             if image_url:
                 cache_path, _, _ = await download_single_image(

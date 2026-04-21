@@ -10,8 +10,10 @@ from config import MANUAL_CACHE_FILE, MODELS_CHANNEL_ID, WXNEXT_BASE
 from utils.cache import (
     calculate_hash_bytes,
     download_single_image,
+    get_cache_path_for_url,
+    is_placeholder_image,
 )
-from utils.state_store import get_state, set_state
+from utils.state_store import delete_state, get_state, set_hash, set_state
 from utils.http import ensure_session
 
 import aiohttp
@@ -130,13 +132,15 @@ class NCARCog(commands.Cog):
         now_utc = datetime.now(timezone.utc)
         today_str = now_utc.strftime("%Y-%m-%d")
 
-        # Reset state at 04 UTC daily (before products start appearing)
+        # Reset state at 03 UTC daily (before products start appearing).
+        # Fires when stored state is from a prior UTC day.
         if now_utc.hour == 3 and now_utc.minute < 10:
-            if _posted_state.get("date") == today_str:
+            stored_date = _posted_state.get("date")
+            if stored_date and stored_date != today_str:
                 logger.info("[NCAR] Resetting daily posted state")
                 _posted_state = {}
                 _timing_logged = False
-                _save_state("", "")
+                await delete_state("ncar_posted")
 
         # Only poll 06-18 UTC
         if not (5 <= now_utc.hour < 12):
@@ -170,11 +174,19 @@ class NCARCog(commands.Cog):
             logger.warning("[NCAR] SCP channel not found")
             return
 
-        cache_path, _, _ = await download_single_image(
-            url, MANUAL_CACHE_FILE, self.bot.state.manual_cache
-        )
-        if not cache_path:
-            logger.warning("[NCAR] Download failed for WxNext2")
+        # We already fetched `content` in _resolve_wxnext for hashing;
+        # save it directly instead of refetching via download_single_image.
+        if is_placeholder_image(content):
+            logger.warning("[NCAR] WxNext2 image looks like a placeholder, skipping")
+            return
+        cache_path = get_cache_path_for_url(url)
+        try:
+            with open(cache_path, "wb") as f:
+                f.write(content)
+            self.bot.state.manual_cache[url] = h
+            await set_hash(url, h, "manual")
+        except Exception as e:
+            logger.error(f"[NCAR] Failed to save WxNext2 image: {e}")
             return
 
         try:
