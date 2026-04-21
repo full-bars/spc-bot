@@ -129,9 +129,8 @@ async def _save_posted_today(posted: set):
     except Exception as e:
         logger.warning(f"[CSU-MLP] Failed to save posted state: {e}")
 
-# Auto-post state — which days posted today, persisted to disk
-_posted_today: set = set()  # loaded async on first poll
-_availability_log: dict[int, str] = {}  # day -> first-seen time string
+# Per-day first-seen timestamps; purely diagnostic.
+_availability_log: dict[int, str] = {}
 
 
 class CSUMLPCog(commands.Cog):

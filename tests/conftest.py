@@ -73,24 +73,6 @@ def suppress_create_task():
 
 
 @pytest.fixture
-def stub_task_backoff(monkeypatch):
-    """Stub `utils.backoff.TaskBackoff` for one test.
-
-    Replaces the real class with a mock whose `should_skip` is always
-    False and whose `failure`/`success` are no-ops. Use when a test
-    exercises a loop task body and the backoff dance is irrelevant.
-    """
-    mock_backoff = MagicMock()
-    mock_backoff.failure = AsyncMock()
-    mock_backoff.success = MagicMock()
-    mock_backoff.should_skip = MagicMock(return_value=False)
-    monkeypatch.setattr(
-        "utils.backoff.TaskBackoff", MagicMock(return_value=mock_backoff)
-    )
-    return mock_backoff
-
-
-@pytest.fixture
 def bot_state():
     """Fresh, real `BotState` (not a MagicMock)."""
     from utils.state import BotState

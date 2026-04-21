@@ -717,8 +717,6 @@ class WatchesCog(commands.Cog):
             if not self.bot.state.is_primary:
                 return
 
-            if self._watches_backoff.should_skip():
-                return
             channel = self.bot.get_channel(SPC_CHANNEL_ID)
             if not channel:
                 logger.warning("SPC channel not found for auto_post_watches")

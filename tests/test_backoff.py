@@ -1,8 +1,4 @@
-"""Tests for `utils.backoff.TaskBackoff`.
-
-Previously this class was stubbed by an autouse conftest fixture across
-the whole suite, so no test ever exercised the real delay/skip logic.
-"""
+"""Tests for `utils.backoff.TaskBackoff`."""
 
 from unittest.mock import AsyncMock, patch
 
@@ -10,17 +6,11 @@ from unittest.mock import AsyncMock, patch
 from utils.backoff import TaskBackoff, _BACKOFF_DELAYS
 
 
-def test_fresh_backoff_does_not_skip():
-    b = TaskBackoff("t1")
-    assert b.should_skip() is False
-
-
 def test_success_resets_failure_count():
     b = TaskBackoff("t1")
     b._failures = 4
     b.success()
     assert b._failures == 0
-    assert b.should_skip() is False
 
 
 async def test_failure_increments_and_sleeps(monkeypatch):

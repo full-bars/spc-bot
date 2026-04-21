@@ -158,8 +158,6 @@ class OutlooksCog(commands.Cog):
     @tasks.loop(seconds=30)
     async def auto_post_spc(self):
         await self.bot.wait_until_ready()
-        if self._spc_backoff.should_skip():
-            return
         channel = self.bot.get_channel(SPC_CHANNEL_ID)
         if not channel:
             logger.warning("SPC channel not found for auto_post_spc")

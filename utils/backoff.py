@@ -6,8 +6,6 @@ Usage:
     backoff = TaskBackoff("auto_post_spc")
 
     # In your task loop:
-    if backoff.should_skip():
-        return
     try:
         await do_work()
         backoff.success()
@@ -27,26 +25,13 @@ _BACKOFF_DELAYS = [0, 0, 30, 60, 120, 300, 300]
 
 class TaskBackoff:
     """
-    Tracks consecutive failures for a named task and provides
-    skip/sleep logic to back off during network issues.
+    Tracks consecutive failures for a named task and sleeps inline
+    on `failure()` to back off during network issues.
     """
 
     def __init__(self, name: str):
         self.name = name
         self._failures = 0
-        self._skip_cycles = 0
-
-    def should_skip(self) -> bool:
-        """Call at the top of your loop. Returns True if this cycle should be skipped."""
-        if self._skip_cycles > 0:
-            self._skip_cycles -= 1
-            logger.debug(
-                f"[BACKOFF] {self.name}: skipping cycle "
-                f"({self._skip_cycles} skips remaining, "
-                f"{self._failures} consecutive failures)"
-            )
-            return True
-        return False
 
     def success(self):
         """Call after a successful cycle to reset backoff."""
@@ -56,7 +41,6 @@ class TaskBackoff:
                 f"{self._failures} consecutive failure(s)"
             )
         self._failures = 0
-        self._skip_cycles = 0
 
     async def failure(self, bot=None):
         """
