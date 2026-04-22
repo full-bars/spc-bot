@@ -102,23 +102,26 @@ async def fetch_latest_watch_numbers() -> List[Tuple[str, str]]:
     html = await http_get_text(SPC_WATCH_INDEX_URL)
     if not html:
         return []
-    results = []
-    seen = set()
-    for m in re.finditer(
-        r'href="[^"]*ww(\d+)\.html"', html, re.IGNORECASE
-    ):
+
+    seen = []
+    seen_set = set()
+    for m in re.finditer(r'href="[^"]*ww(\d+)\.html"', html, re.IGNORECASE):
         num = m.group(1).zfill(4)
-        if num in seen:
+        if num in seen_set:
             continue
-        seen.add(num)
+        seen_set.add(num)
+        seen.append(num)
+
+    async def _classify(num: str) -> Tuple[str, str]:
         watch_html = await http_get_text(
             f"https://www.spc.noaa.gov/products/watch/ww{num}.html"
         )
         wtype = "SVR"
         if watch_html and re.search(r"Tornado Watch", watch_html, re.IGNORECASE):
             wtype = "TORNADO"
-        results.append((num, wtype))
-    return results
+        return num, wtype
+
+    return list(await asyncio.gather(*[_classify(n) for n in seen]))
 
 
 
@@ -187,8 +190,15 @@ async def fetch_watch_details(
     Races SPC and IEM page fetches simultaneously — whichever returns first wins.
     """
     page_url = f"https://www.spc.noaa.gov/products/watch/ww{watch_number}.html"
+    prob_url = (
+        f"https://www.spc.noaa.gov/products/watch/ww{watch_number}_prob.html"
+    )
 
-    html = await http_get_text(page_url)
+    # SPC main page and prob page are independent — fetch them in parallel.
+    html, prob_html = await asyncio.gather(
+        http_get_text(page_url),
+        http_get_text(prob_url),
+    )
 
     image_url = None
     if html:
@@ -285,10 +295,6 @@ async def fetch_watch_details(
                 break
 
     probs = None
-    prob_url = (
-        f"https://www.spc.noaa.gov/products/watch/ww{watch_number}_prob.html"
-    )
-    prob_html = await http_get_text(prob_url)
     if prob_html:
         cells = re.findall(
             r"<td[^>]*>(.*?)</td>", prob_html, re.DOTALL | re.IGNORECASE
@@ -385,6 +391,56 @@ async def fetch_watch_details(
     return image_url, text_summary, probs
 
 
+def _build_watch_embed(
+    watch_num: str,
+    *,
+    is_tornado: bool,
+    watch_label: str,
+    color: discord.Color,
+    timestamp: datetime,
+    expires=None,
+    text_summary: Optional[str] = None,
+    probs: Optional[str] = None,
+    cache_path: Optional[str] = None,
+    footer: str = "SPC Watch Monitor",
+    paginator_index: Optional[Tuple[int, int]] = None,
+) -> discord.Embed:
+    """Canonical watch embed used by paginator, auto-post, iembot fast-path,
+    and the upgrade-edit. One place to fix styling drift."""
+    embed = discord.Embed(
+        title=(
+            f"{'🌪️' if is_tornado else '⛈️'}  "
+            f"{watch_label} #{int(watch_num)}"
+        ),
+        color=color,
+        timestamp=timestamp,
+    )
+    if expires:
+        embed.add_field(
+            name="Expires",
+            value=f"<t:{int(expires.timestamp())}:R>",
+            inline=True,
+        )
+    if text_summary:
+        embed.add_field(name="Details", value=text_summary[:1024], inline=False)
+    if probs:
+        embed.add_field(name="Probabilities", value=probs[:1024], inline=False)
+    if paginator_index is not None:
+        i, n = paginator_index
+        embed.set_footer(text=f"Watch {i + 1} of {n} · {footer}")
+    else:
+        embed.set_footer(text=footer)
+    if cache_path:
+        embed.set_image(url=f"attachment://watch_{watch_num}.gif")
+    return embed
+
+
+def _watch_files(watch_num: str, cache_path: Optional[str]) -> List[discord.File]:
+    if not cache_path:
+        return []
+    return [discord.File(cache_path, filename=f"watch_{watch_num}.gif")]
+
+
 class WatchPaginatorView(discord.ui.View):
     def __init__(self, watch_data, overview_path):
         super().__init__(timeout=300)
@@ -410,55 +466,23 @@ class WatchPaginatorView(discord.ui.View):
         expires = (
             nws_info.get("expires") if isinstance(nws_info, dict) else None
         )
-
         is_tornado = wtype == "TORNADO"
-        watch_label = (
-            "Tornado Watch" if is_tornado else "Severe Thunderstorm Watch"
-        )
-        color = discord.Color.red() if is_tornado else discord.Color.orange()
-
-        embed = discord.Embed(
-            title=(
-                f"{'🌪️' if is_tornado else '⛈️'}  "
-                f"{watch_label} #{int(watch_num)}"
-            ),
-            color=color,
+        return _build_watch_embed(
+            watch_num,
+            is_tornado=is_tornado,
+            watch_label="Tornado Watch" if is_tornado else "Severe Thunderstorm Watch",
+            color=discord.Color.red() if is_tornado else discord.Color.orange(),
             timestamp=datetime.now(timezone.utc),
+            expires=expires,
+            text_summary=text_summary,
+            probs=probs,
+            cache_path=cache_path,
+            paginator_index=(self.index, len(self.watch_data)),
         )
-        if expires:
-            embed.add_field(
-                name="Expires",
-                value=f"<t:{int(expires.timestamp())}:R>",
-                inline=True,
-            )
-        if text_summary:
-            embed.add_field(
-                name="Details", value=text_summary[:1024], inline=False
-            )
-        if probs:
-            embed.add_field(
-                name="Probabilities", value=probs[:1024], inline=False
-            )
-
-        embed.set_footer(
-            text=(
-                f"Watch {self.index + 1} of {len(self.watch_data)} "
-                f"· SPC Watch Monitor"
-            )
-        )
-        if cache_path:
-            embed.set_image(url=f"attachment://watch_{watch_num}.gif")
-        return embed
 
     def build_files(self):
         watch_num, _, _, _, _, cache_path = self.watch_data[self.index]
-        if cache_path:
-            return [
-                discord.File(
-                    cache_path, filename=f"watch_{watch_num}.gif"
-                )
-            ]
-        return []
+        return _watch_files(watch_num, cache_path)
 
     @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary)
     async def prev_btn(
@@ -544,17 +568,20 @@ async def _execute_watches(interaction: discord.Interaction, bot: commands.Bot):
             )
             overview_path = None
 
-    watch_data = []
-    for watch_num, nws_info in nws_watches.items():
+    async def _hydrate(watch_num: str, nws_info: dict):
         image_url, text_summary, probs = await fetch_watch_details(watch_num)
         cache_path = None
         if image_url:
             cache_path, _, _ = await download_single_image(
                 image_url, MANUAL_CACHE_FILE, bot.state.manual_cache
             )
-        watch_data.append(
-            (watch_num, nws_info, image_url, text_summary, probs, cache_path)
+        return (watch_num, nws_info, image_url, text_summary, probs, cache_path)
+
+    watch_data = list(
+        await asyncio.gather(
+            *[_hydrate(num, info) for num, info in nws_watches.items()]
         )
+    )
 
     view = WatchPaginatorView(watch_data, overview_path)
     if len(watch_data) == 1:
@@ -600,32 +627,18 @@ class WatchesCog(commands.Cog):
                         image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
                     )
 
-                embed = discord.Embed(
-                    title=(
-                        f"{'🌪️' if is_tornado else '⛈️'}  "
-                        f"{watch_label} #{int(watch_num)}"
-                    ),
+                embed = _build_watch_embed(
+                    watch_num,
+                    is_tornado=is_tornado,
+                    watch_label=watch_label,
                     color=color,
                     timestamp=datetime.now(timezone.utc),
+                    expires=expires,
+                    text_summary=text_summary,
+                    probs=probs,
+                    cache_path=cache_path,
                 )
-                if expires:
-                    embed.add_field(
-                        name="Expires",
-                        value=f"<t:{int(expires.timestamp())}:R>",
-                        inline=True,
-                    )
-                if text_summary:
-                    embed.add_field(name="Details", value=text_summary[:1024], inline=False)
-                if probs:
-                    embed.add_field(name="Probabilities", value=probs[:1024], inline=False)
-                embed.set_footer(text="SPC Watch Monitor")
-                if cache_path:
-                    embed.set_image(url=f"attachment://watch_{watch_num}.gif")
-
-                files = (
-                    [discord.File(cache_path, filename=f"watch_{watch_num}.gif")]
-                    if cache_path else []
-                )
+                files = _watch_files(watch_num, cache_path)
                 await message.edit(embed=embed, attachments=files)
                 logger.info(f"[WATCH] Upgraded embed for #{watch_num} with full SPC data")
                 return
@@ -660,33 +673,20 @@ class WatchesCog(commands.Cog):
                 image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
             )
 
-        embed = discord.Embed(
-            title=(
-                f"{'🌪️' if is_tornado else '⛈️'}  "
-                f"{watch_label} #{int(watch_num)}"
-            ),
+        embed = _build_watch_embed(
+            watch_num,
+            is_tornado=is_tornado,
+            watch_label=watch_label,
             color=color,
             timestamp=now_utc,
+            expires=expires,
+            text_summary=text_summary,
+            probs=probs,
+            cache_path=cache_path,
         )
-        if expires:
-            embed.add_field(
-                name="Expires",
-                value=f"<t:{int(expires.timestamp())}:R>",
-                inline=True,
-            )
-        if text_summary:
-            embed.add_field(name="Details", value=text_summary[:1024], inline=False)
-        if probs:
-            embed.add_field(name="Probabilities", value=probs[:1024], inline=False)
-        embed.set_footer(text="SPC Watch Monitor")
-        if cache_path:
-            embed.set_image(url=f"attachment://watch_{watch_num}.gif")
 
         try:
-            files = (
-                [discord.File(cache_path, filename=f"watch_{watch_num}.gif")]
-                if cache_path else []
-            )
+            files = _watch_files(watch_num, cache_path)
             message = await channel.send(embed=embed, files=files)
             # Do NOT add to active_watches here — let the NWS API poll
             # populate it with real expiry/zone data on the next cycle.
@@ -817,49 +817,20 @@ class WatchesCog(commands.Cog):
                         image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
                     )
 
-                embed = discord.Embed(
-                    title=(
-                        f"{'🌪️' if is_tornado else '⛈️'}  "
-                        f"{watch_label} #{int(watch_num)}"
-                    ),
+                embed = _build_watch_embed(
+                    watch_num,
+                    is_tornado=is_tornado,
+                    watch_label=watch_label,
                     color=color,
                     timestamp=now_utc,
+                    expires=expires,
+                    text_summary=text_summary,
+                    probs=probs,
+                    cache_path=cache_path,
                 )
-                if expires:
-                    embed.add_field(
-                        name="Expires",
-                        value=f"<t:{int(expires.timestamp())}:R>",
-                        inline=True,
-                    )
-                if text_summary:
-                    embed.add_field(
-                        name="Details",
-                        value=text_summary[:1024],
-                        inline=False,
-                    )
-                if probs:
-                    embed.add_field(
-                        name="Probabilities",
-                        value=probs[:1024],
-                        inline=False,
-                    )
-                embed.set_footer(text="SPC Watch Monitor")
-                if cache_path:
-                    embed.set_image(
-                        url=f"attachment://watch_{watch_num}.gif"
-                    )
 
                 try:
-                    files = (
-                        [
-                            discord.File(
-                                cache_path,
-                                filename=f"watch_{watch_num}.gif",
-                            )
-                        ]
-                        if cache_path
-                        else []
-                    )
+                    files = _watch_files(watch_num, cache_path)
                     await channel.send(embed=embed, files=files)
                     self.bot.state.posted_watches.add(watch_num)
                     await add_posted_watch(str(watch_num))
