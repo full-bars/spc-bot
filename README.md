@@ -82,13 +82,13 @@ spc-bot/
 ├── utils/
 │   ├── http.py              # Async HTTP session management (centralized pooling, retry, conditional GET)
 │   ├── change_detection.py  # Content hashing and placeholder-image detection
-│   ├── cache.py             # Download orchestration; conditional-GET poll path
+│   ├── cache.py             # Download orchestration; conditional-GET poll path (validators persist across restarts)
 │   ├── state.py             # BotState — HashStore + PostingLog + TimingTracker sub-stores
 │   ├── state_store.py       # Upstash Redis facade: read-through cache → Upstash → SQLite fallback;
 │   │                        # double-writes both backends, retries failed Upstash writes via a reconciler
 │   ├── spc_urls.py          # SPC outlook URL resolution
 │   ├── backoff.py           # Exponential backoff tracker for task loops
-│   └── db.py                # Async SQLite backend used internally by state_store as the durable mirror
+│   └── db.py                # Async SQLite backend used internally by state_store as the durable mirror; also home of http_validators
 ├── cogs/
 │   ├── outlooks.py          # SPC Day 1-3 and Day 4-8 auto-posting
 │   ├── mesoscale.py         # SPC MD monitoring with watch probability detection and IEM fallbacks
