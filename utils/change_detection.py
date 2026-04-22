@@ -18,10 +18,21 @@ def calculate_hash_bytes(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+# Whitelist of extensions we actually serve. Anything else collapses
+# to ".img" — protects against query-string junk or path separators
+# sneaking into the filename via os.path.splitext on a raw URL.
+_ALLOWED_EXTS = {".gif", ".png", ".jpg", ".jpeg", ".webp", ".svg", ".bmp"}
+
+
 def get_cache_path_for_url(url: str) -> str:
+    # Strip query / fragment before extracting an extension; splitext on
+    # "x.gif?param=.." would otherwise return ".gif?param=..".
+    clean = url.split("?", 1)[0].split("#", 1)[0]
     md5 = hashlib.md5(url.encode()).hexdigest()
-    _, ext = os.path.splitext(url)
-    ext = ext if ext else ".img"
+    _, ext = os.path.splitext(clean)
+    ext = ext.lower() if ext else ""
+    if ext not in _ALLOWED_EXTS:
+        ext = ".img"
     filename = f"cached_{md5}{ext}"
     return os.path.join(CACHE_DIR, filename)
 

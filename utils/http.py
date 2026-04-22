@@ -11,12 +11,26 @@ http_session: Optional[aiohttp.ClientSession] = None
 _session_lock = asyncio.Lock()
 
 
+def _default_user_agent() -> str:
+    # NWS/SPC require an identifying UA with contact info. Pulling the
+    # version here keeps the string aligned with the release tag.
+    try:
+        from config import __version__
+    except Exception:
+        __version__ = "dev"
+    contact = "https://github.com/full-bars/spc-bot"
+    return f"WxAlertSPCBot/{__version__} (+{contact})"
+
+
 async def ensure_session() -> aiohttp.ClientSession:
     global http_session
     async with _session_lock:
         if http_session is None or http_session.closed:
             connector = aiohttp.TCPConnector(limit=20, limit_per_host=10)
-            http_session = aiohttp.ClientSession(connector=connector)
+            http_session = aiohttp.ClientSession(
+                connector=connector,
+                headers={"User-Agent": _default_user_agent()},
+            )
             logger.info("Created new aiohttp ClientSession")
     return http_session
 
@@ -66,6 +80,8 @@ async def http_get_bytes(
                         f"Rate limited on {url} (status={response.status}), "
                         f"waiting {retry_after:.1f}s (attempt {attempt + 1}/{retries})"
                     )
+                    if attempt == retries - 1:
+                        return None, response.status
                     await asyncio.sleep(retry_after)
                     continue
                 # 304 Not Modified: caller passed validators; body is empty by spec.
@@ -78,6 +94,8 @@ async def http_get_bytes(
                 f"Error fetching {url} (attempt {attempt + 1}/{retries}): "
                 f"{type(e).__name__}: {e}"
             )
+            if attempt == retries - 1:
+                break
             await asyncio.sleep(2**attempt)
     return None, None
 
@@ -116,6 +134,8 @@ async def http_get_bytes_conditional(
                         f"Rate limited on {url} (status={response.status}), "
                         f"waiting {retry_after:.1f}s (attempt {attempt + 1}/{retries})"
                     )
+                    if attempt == retries - 1:
+                        return None, response.status, None
                     await asyncio.sleep(retry_after)
                     continue
                 if response.status == 304:
@@ -131,6 +151,8 @@ async def http_get_bytes_conditional(
                 f"Error fetching {url} (attempt {attempt + 1}/{retries}): "
                 f"{type(e).__name__}: {e}"
             )
+            if attempt == retries - 1:
+                break
             await asyncio.sleep(2**attempt)
     return None, None, None
 
@@ -145,6 +167,7 @@ async def http_get_text(
 
 
 async def http_head_ok(url: str, timeout: int = 5) -> bool:
+    """Cheap liveness check. HEAD only; no full-GET fallback (that defeats the point)."""
     try:
         session = await ensure_session()
         async with session.head(
@@ -153,11 +176,7 @@ async def http_head_ok(url: str, timeout: int = 5) -> bool:
             return r.status == 200
     except Exception as e:
         logger.warning(f"HEAD check failed for {url}: {type(e).__name__}: {e}")
-        try:
-            content, status = await http_get_bytes(url, retries=1, timeout=timeout)
-            return status == 200
-        except Exception:
-            return False
+        return False
 
 
 async def http_head_meta(url: str, timeout: int = 5) -> Optional[Dict[str, str]]:
