@@ -8,34 +8,35 @@ Utility functions for the sounding cog:
 """
 
 import asyncio
+import io
 import logging
 import math
 import re
+import sys
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import aiohttp
 import matplotlib
 import numpy as np
-from metpy.units import units
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
-# Lock to serialize matplotlib plot generation (plt is not thread-safe)
-_PLOT_LOCK = asyncio.Lock()
 import pandas as pd
-import io
-import sys
+from metpy.units import units
 
-# Suppress SounderPy's startup banner
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402  # must follow matplotlib.use()
+
+# Suppress SounderPy's startup banner by redirecting stdout during import.
 _stdout = sys.stdout
 sys.stdout = io.StringIO()
 try:
-    import sounderpy as spy
+    import sounderpy as spy  # noqa: E402  # silenced banner import
 finally:
     sys.stdout = _stdout
 
-from utils.state_store import get_state, set_state
+from utils.state_store import get_state, set_state  # noqa: E402  # follows sounderpy import
+
+# Lock to serialize matplotlib plot generation (plt is not thread-safe)
+_PLOT_LOCK = asyncio.Lock()
 
 logger = logging.getLogger("spc_bot")
 

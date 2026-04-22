@@ -117,7 +117,7 @@ async def fetch_md_details_iem(md_number: str) -> Tuple[Optional[str], Optional[
                     if concerning:
                         summary = concerning.group(1).strip()
                     else:
-                        lines = [l.strip() for l in text.splitlines() if l.strip()]
+                        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
                         summary = " ".join(lines[:3])[:200]
                     break
     except Exception as e:

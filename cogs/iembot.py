@@ -42,7 +42,7 @@ async def get_cached_md_text(md_number: str) -> Optional[str]:
 
 def _parse_watch_text(raw: str) -> Optional[str]:
     """Parse SEL product text into a formatted summary string."""
-    lines = [l.strip() for l in raw.splitlines() if l.strip()]
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
     parts = []
     for i, line in enumerate(lines):
         if re.search(r"Watch for portions of", line, re.IGNORECASE):
@@ -80,7 +80,7 @@ def _parse_md_text(raw: str) -> Optional[str]:
     concerning = re.search(r"(CONCERNING[^\n]{10,120})", raw, re.IGNORECASE)
     if concerning:
         return concerning.group(1).strip()
-    lines = [l.strip() for l in raw.splitlines() if l.strip()]
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
     return " ".join(lines[:3])[:200] if lines else None
 
 
