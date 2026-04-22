@@ -82,6 +82,8 @@ def _node_identity() -> str:
 
 
 class FailoverCog(commands.Cog):
+    MANAGED_TASK_NAMES = [("sync_loop", "sync_loop")]
+
     def __init__(self, bot):
         self.bot = bot
         self._primary_failures = 0

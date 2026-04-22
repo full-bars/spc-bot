@@ -55,7 +55,8 @@ async def get_user_dark_mode(user_id: int) -> bool:
     try:
         raw = await get_state(f"sounding_dark_{user_id}")
         return raw == "1" if raw is not None else False
-    except Exception:
+    except Exception as e:
+        logger.debug(f"[SOUNDING] Dark mode lookup failed for {user_id}: {e}")
         return False
 
 async def set_user_dark_mode(user_id: int, dark: bool):
@@ -326,7 +327,8 @@ async def get_md_area_centroid(raw_text: str) -> tuple[float, float] | None:
 
             lats.append(lat)
             lons.append(lon)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"[CENTROID] Coordinate parse failed for part {part!r}: {e}")
             continue
 
     if not lats:
@@ -385,7 +387,8 @@ def _iem_to_clean_data(profile: dict, station_id: str, station_name: str,
             
         run_time = [str(dt.year), str(dt.month).zfill(2),
                     str(dt.day).zfill(2), f"{dt.hour:02d}:{dt.minute:02d}"]
-    except Exception:
+    except Exception as e:
+        logger.debug(f"[IEM] Datetime parse failed for {valid!r}: {e}")
         run_time = ["none", "none", "none", "none"]
 
     return {
@@ -572,7 +575,8 @@ async def get_acars_profiles_near(
                     )
                     airport_latlon = (float(latlon[0]), float(latlon[1]))
                     _ACARS_STATION_COORDS[airport_code] = airport_latlon
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"[ACARS] Airport lookup failed for {airport_code!r}: {e}")
                     continue
 
             dist = haversine(lat, lon, airport_latlon[0], airport_latlon[1])
@@ -667,7 +671,8 @@ def validate_sounding_data(data: Optional[dict], min_levels: int = 5) -> bool:
         for key in ("z", "T", "Td", "u", "v"):
             if len(data[key]) != p_len:
                 return False
-    except (TypeError, KeyError):
+    except (TypeError, KeyError) as e:
+        logger.debug(f"[SOUNDING] Structural validation failed: {e}")
         return False
         
     # Check for sufficient valid data (prevent crashes in SounderPy/ecape-parcel)

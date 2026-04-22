@@ -97,9 +97,13 @@ async def _fetch_product_text(product_id: str) -> Optional[str]:
 
 
 class IEMBotCog(commands.Cog):
+    MANAGED_TASK_NAMES = [("poll_iembot_feed", "poll_iembot_feed")]
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._seqnum_loaded = False
+
+    async def cog_load(self):
         self.poll_iembot_feed.start()
 
     def cog_unload(self):

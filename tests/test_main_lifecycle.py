@@ -50,7 +50,7 @@ async def test_shutdown_guard_ignores_duplicate_signals():
     # Patch the expensive / I/O-bound things `_shutdown` touches so the
     # test runs offline.
     with patch.object(main.bot, "close", new=AsyncMock(side_effect=_fake_close)), \
-         patch("main.close_session", new=AsyncMock()), \
+         patch("utils.http.close_session", new=AsyncMock()), \
          patch("main.close_db", new=AsyncMock()):
 
         # First invocation: runs cleanup.
@@ -107,8 +107,8 @@ async def test_watchdog_restart_awaits_cancelled_inner_task(monkeypatch):
     fake_cog.fake_task = fake_loop_task
 
     monkeypatch.setattr(main, "bot", _fake_bot_with_cogs({"fake_cog": fake_cog}))
-    monkeypatch.setattr(main, "ensure_session", AsyncMock())
-    monkeypatch.setattr(main, "close_session", AsyncMock())
+    monkeypatch.setattr(main.utils.http, "ensure_session", AsyncMock())
+    monkeypatch.setattr(main.utils.http, "close_session", AsyncMock())
     monkeypatch.setattr(main, "send_bot_alert", AsyncMock())
     monkeypatch.setattr("utils.http.http_session", None)
 
@@ -156,8 +156,8 @@ async def test_watchdog_standby_does_nothing(monkeypatch):
     cls = AsyncMock()
 
     monkeypatch.setattr(main, "bot", _fake_bot_with_cogs({}, is_primary=False))
-    monkeypatch.setattr(main, "ensure_session", ens)
-    monkeypatch.setattr(main, "close_session", cls)
+    monkeypatch.setattr(main.utils.http, "ensure_session", ens)
+    monkeypatch.setattr(main.utils.http, "close_session", cls)
 
     await main.watchdog_task.coro()
 

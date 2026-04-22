@@ -623,6 +623,8 @@ class WatchesCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._watches_backoff = TaskBackoff("auto_post_watches")
+
+    async def cog_load(self):
         self.auto_post_watches.start()
 
     def cog_unload(self):

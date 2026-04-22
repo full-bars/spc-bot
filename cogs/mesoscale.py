@@ -236,6 +236,8 @@ class MesoscaleCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._md_backoff = TaskBackoff("auto_post_md")
+
+    async def cog_load(self):
         self.auto_post_md.start()
 
     def cog_unload(self):
@@ -340,6 +342,7 @@ class MesoscaleCog(commands.Cog):
                         embed.set_footer(text="SPC MD Monitor")
                         try:
                             await channel.send(embed=embed)
+                            self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
                             logger.info(
                                 f"[MD] Posted cancellation for #{md_num}"
                             )

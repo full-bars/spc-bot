@@ -142,6 +142,8 @@ class OutlooksCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._spc_backoff = TaskBackoff("auto_post_spc")
+
+    async def cog_load(self):
         self.auto_post_spc.start()
         self.aggressive_check_spc.start()
         self.auto_post_spc48.start()

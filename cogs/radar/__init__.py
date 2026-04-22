@@ -18,6 +18,8 @@ logger = logging.getLogger("spc_bot")
 
 
 class RadarCog(commands.Cog):
+    MANAGED_TASK_NAMES = [("periodic_cleanup", "periodic_cleanup")]
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.periodic_cleanup.start()

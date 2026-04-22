@@ -21,8 +21,6 @@ from utils.spc_urls import get_spc_urls
 
 logger = logging.getLogger("spc_bot")
 
-BOT_START_TIME: Optional[datetime] = None
-
 
 async def send_with_handling(source, content: str, file_paths=None):
     file_paths = file_paths or []
@@ -371,8 +369,8 @@ class StatusCog(commands.Cog):
             "",
         ]
 
-        if BOT_START_TIME:
-            uptime = now - BOT_START_TIME
+        if self.bot.state.bot_start_time:
+            uptime = now - self.bot.state.bot_start_time
             lines.append(f"Uptime         : {format_timedelta(uptime)}")
         else:
             lines.append("Uptime         : unknown")
