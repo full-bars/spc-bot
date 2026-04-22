@@ -159,6 +159,12 @@ async def _upstash_cmd(*args: Any) -> Any:
     if not UPSTASH_URL or not UPSTASH_TOKEN:
         raise _UpstashUnavailable("Upstash not configured")
 
+    # Reject None/bytes explicitly so we don't silently ship the literal
+    # "None" or a mojibake'd byte string to Upstash.
+    for a in args:
+        if a is None:
+            raise ValueError("_upstash_cmd: None is not a valid argument")
+
     from utils.http import ensure_session
 
     session = await ensure_session()
@@ -358,38 +364,42 @@ async def get_db():
 
 # ── Image hashes ─────────────────────────────────────────────────────────────
 
-async def get_hash(url: str) -> Optional[str]:
-    """Get the last-seen content hash for a URL. Cache → Upstash → SQLite."""
-    # Hashes are read inside get_all_hashes bulk-loads in normal
-    # operation; a per-url get_hash call is rare and the cache coverage
-    # reflects that — we key by the canonical hash key, not by the URL
-    # hash. A read-through cache entry is set under both encodings.
-    cache_key = f"hash::{url}"
+async def get_hash(url: str, cache_type: Optional[str] = None) -> Optional[str]:
+    """Get the last-seen content hash for a URL. Cache → Upstash → SQLite.
+
+    When the caller knows the cache_type (auto vs manual), pass it — that
+    cuts Upstash traffic in half by querying only the matching index
+    instead of both. Unscoped callers still work but cost 2 commands.
+    """
+    cache_key = f"hash::{cache_type or 'ANY'}::{url}"
     hit, val = _cache_get(cache_key)
     if hit:
         return val
 
-    # Upstash path: the per-type Hash is the authoritative index.
-    # We don't know the cache_type at this call, so query both in
-    # parallel (one round-trip wall-clock) and prefer auto on match.
     try:
-        auto_result, manual_result = await asyncio.gather(
-            _upstash_cmd("HGET", _k_hash_url_lookup("auto", url), url),
-            _upstash_cmd("HGET", _k_hash_url_lookup("manual", url), url),
-        )
-        result = auto_result or manual_result
+        if cache_type:
+            result = await _upstash_cmd(
+                "HGET", _k_hash_url_lookup(cache_type, url), url
+            )
+        else:
+            auto_result, manual_result = await asyncio.gather(
+                _upstash_cmd("HGET", _k_hash_url_lookup("auto", url), url),
+                _upstash_cmd("HGET", _k_hash_url_lookup("manual", url), url),
+            )
+            result = auto_result or manual_result
         _cache_set(cache_key, result)
         return result
     except _UpstashUnavailable as e:
         logger.debug(f"[STATE] get_hash({url}) falling back to SQLite: {e}")
-        val = await sqlite_backend.get_hash(url)
+        val = await sqlite_backend.get_hash(url, cache_type)
         _cache_set(cache_key, val, ttl=CACHE_TTL_SECONDS / 2)
         return val
 
 
 async def set_hash(url: str, hash_val: str, cache_type: str = "auto") -> None:
     """Store the content hash for a URL. Cache + Upstash + SQLite."""
-    _cache_set(f"hash::{url}", hash_val)
+    _cache_set(f"hash::{cache_type}::{url}", hash_val)
+    _cache_set(f"hash::ANY::{url}", hash_val)
     # Invalidate any cached bulk-load of this cache_type.
     _cache_invalidate(f"all_hashes::{cache_type}")
 
@@ -448,7 +458,8 @@ async def set_hashes_batch(hashes: Dict[str, str], cache_type: str = "auto") -> 
 
     # Warm local cache for any subsequent reads in this process.
     for url, h in hashes.items():
-        _cache_set(f"hash::{url}", h)
+        _cache_set(f"hash::{cache_type}::{url}", h)
+        _cache_set(f"hash::ANY::{url}", h)
     _cache_invalidate(f"all_hashes::{cache_type}")
 
     await sqlite_backend.set_hashes_batch(hashes, cache_type)
@@ -636,6 +647,24 @@ async def set_product_cache(product_id: str, text: str, ttl: int = 600) -> None:
     except _UpstashUnavailable as e:
         logger.warning(f"[STATE] set_product_cache({product_id}) queued: {e}")
         await _enqueue_dirty("set_product_cache", (product_id, text, ttl))
+
+
+# ── HTTP validators (ETag / Last-Modified) ─────────────────────────────────
+# SQLite-only by design — the conditional-GET flow runs every 60s per URL,
+# and pushing every validator update through Upstash would blow the free-
+# tier budget. SQLite is the authoritative source here.
+
+
+async def get_validators(url: str) -> Optional[Dict[str, str]]:
+    return await sqlite_backend.get_validators(url)
+
+
+async def get_all_validators() -> Dict[str, Dict[str, str]]:
+    return await sqlite_backend.get_all_validators()
+
+
+async def set_validators(url: str, etag: str, last_modified: str) -> None:
+    await sqlite_backend.set_validators(url, etag, last_modified)
 
 
 # ── Startup resync ───────────────────────────────────────────────────────────

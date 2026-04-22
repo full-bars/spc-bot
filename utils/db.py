@@ -28,36 +28,60 @@ logger = logging.getLogger("spc_bot")
 DB_PATH = os.path.join(CACHE_DIR, "bot_state.db")
 _LOCK = asyncio.Lock()
 _db: Optional[aiosqlite.Connection] = None
-_connecting: bool = False
 _last_product_cache_prune: float = 0.0
 _PRODUCT_CACHE_PRUNE_INTERVAL = 3600.0  # 1 hour
+
+# Failure counter so the watchdog / health surface can notice when the
+# DB is silently dropping writes. Swallowing every exception by itself
+# would turn a full disk or schema drift into an invisible outage.
+_write_failure_count: int = 0
+_WRITE_FAILURE_ALERT_THRESHOLD = 5
+
+
+def get_write_failure_count() -> int:
+    return _write_failure_count
+
+
+def reset_write_failure_count() -> None:
+    global _write_failure_count
+    _write_failure_count = 0
 
 
 async def _write(sql: str, params: tuple, op: str) -> None:
     """Serialized write helper. Logs and swallows errors so callers degrade gracefully."""
+    global _write_failure_count
     try:
         db = await get_db()
         async with _LOCK:
             await db.execute(sql, params)
             await db.commit()
+        if _write_failure_count:
+            _write_failure_count = 0
     except Exception as e:
-        logger.warning(f"[DB] {op} failed: {e}")
+        _write_failure_count += 1
+        level = logger.error if _write_failure_count >= _WRITE_FAILURE_ALERT_THRESHOLD else logger.warning
+        level(f"[DB] {op} failed ({_write_failure_count} consecutive): {e}")
 
 
 async def _write_many(sql: str, rows: Iterable[tuple], op: str) -> None:
     """Serialized batch-write helper."""
+    global _write_failure_count
     try:
         db = await get_db()
         async with _LOCK:
             await db.executemany(sql, rows)
             await db.commit()
+        if _write_failure_count:
+            _write_failure_count = 0
     except Exception as e:
-        logger.warning(f"[DB] {op} failed: {e}")
+        _write_failure_count += 1
+        level = logger.error if _write_failure_count >= _WRITE_FAILURE_ALERT_THRESHOLD else logger.warning
+        level(f"[DB] {op} failed ({_write_failure_count} consecutive): {e}")
 
 
 async def get_db() -> aiosqlite.Connection:
     """Get or create the shared database connection (singleton)."""
-    global _db, _connecting
+    global _db
     if _db is not None:
         return _db
     async with _LOCK:
@@ -117,6 +141,12 @@ async def _create_tables(db: aiosqlite.Connection):
             text        TEXT NOT NULL,
             expires_at  REAL NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS http_validators (
+            url           TEXT PRIMARY KEY,
+            etag          TEXT NOT NULL DEFAULT '',
+            last_modified TEXT NOT NULL DEFAULT ''
+        );
     """)
 
 
@@ -149,10 +179,18 @@ async def check_integrity() -> bool:
 
 # ── Image hash operations ─────────────────────────────────────────────────────
 
-async def get_hash(url: str) -> Optional[str]:
-    """Get stored hash for a URL."""
+async def get_hash(url: str, cache_type: Optional[str] = None) -> Optional[str]:
+    """Get stored hash for a URL. When cache_type is given, scope the
+    lookup — saves a second Upstash round-trip at the state-store layer."""
     try:
         db = await get_db()
+        if cache_type:
+            async with db.execute(
+                "SELECT hash FROM image_hashes WHERE url = ? AND cache_type = ?",
+                (url, cache_type),
+            ) as cursor:
+                row = await cursor.fetchone()
+                return row["hash"] if row else None
         async with db.execute(
             "SELECT hash FROM image_hashes WHERE url = ?", (url,)
         ) as cursor:
@@ -376,6 +414,57 @@ async def get_product_cache(product_id: str) -> Optional[str]:
     except Exception as e:
         logger.warning(f"[DB] get_product_cache failed for {product_id}: {e}")
         return None
+
+
+# ── HTTP validators (ETag / Last-Modified) ─────────────────────────────────
+
+async def get_validators(url: str) -> Optional[dict]:
+    """Return {'etag': ..., 'last_modified': ...} for a URL, or None."""
+    try:
+        db = await get_db()
+        async with db.execute(
+            "SELECT etag, last_modified FROM http_validators WHERE url = ?",
+            (url,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            return {"etag": row["etag"], "last_modified": row["last_modified"]}
+    except Exception as e:
+        logger.warning(f"[DB] get_validators failed for {url}: {e}")
+        return None
+
+
+async def get_all_validators() -> dict:
+    """Bulk-load every stored validator for startup hydration."""
+    try:
+        db = await get_db()
+        async with db.execute(
+            "SELECT url, etag, last_modified FROM http_validators"
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return {
+                row["url"]: {
+                    "etag": row["etag"],
+                    "last_modified": row["last_modified"],
+                }
+                for row in rows
+            }
+    except Exception as e:
+        logger.warning(f"[DB] get_all_validators failed: {e}")
+        return {}
+
+
+async def set_validators(url: str, etag: str, last_modified: str) -> None:
+    await _write(
+        """INSERT INTO http_validators (url, etag, last_modified)
+           VALUES (?, ?, ?)
+           ON CONFLICT(url) DO UPDATE SET
+             etag=excluded.etag,
+             last_modified=excluded.last_modified""",
+        (url, etag or "", last_modified or ""),
+        f"set_validators({url})",
+    )
 
 
 async def set_product_cache(product_id: str, text: str, ttl: int = 600):
