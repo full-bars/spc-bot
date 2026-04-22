@@ -137,6 +137,11 @@ bot.setup_hook = setup_hook
 # Watchdog state
 _task_fail_counts = {}
 _task_alerted = set()
+# Only alert when a task goes from running → stopped. Without this,
+# the first watchdog iteration can fire before the cog task loops
+# have been scheduled by the event loop, producing a spurious
+# startup "task is down" alert immediately followed by "recovered".
+_task_seen_running = set()
 
 
 async def send_bot_alert(
@@ -256,6 +261,7 @@ async def watchdog_task():
 
     for task, name in current_managed_tasks:
         if task.is_running():
+            _task_seen_running.add(name)
             if name in _task_alerted:
                 _task_alerted.discard(name)
                 _task_fail_counts[name] = 0
@@ -264,6 +270,16 @@ async def watchdog_task():
                     f"✅ The `{name}` task is running again.",
                     critical=False,
                 )
+            continue
+
+        # Suppress "stopped" alerts for tasks we've never seen running —
+        # the watchdog's first iteration can beat the cog task loops
+        # to the event loop after startup.
+        if name not in _task_seen_running:
+            logger.debug(
+                f"[WATCHDOG] Task '{name}' not yet running "
+                f"— deferring alert until first run observed"
+            )
             continue
 
         _task_fail_counts[name] = _task_fail_counts.get(name, 0) + 1

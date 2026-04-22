@@ -114,6 +114,11 @@ async def test_watchdog_restart_awaits_cancelled_inner_task(monkeypatch):
 
     main._task_fail_counts.clear()
     main._task_alerted.clear()
+    # Simulate the task having been seen running before, so the
+    # watchdog treats its current 'stopped' state as a regression
+    # rather than a startup race.
+    main._task_seen_running.clear()
+    main._task_seen_running.add("fake_task")
 
     # Drive the watchdog. With a 5s wait_for and a never-finishing
     # inner, the wait must time out and the code must still reach
