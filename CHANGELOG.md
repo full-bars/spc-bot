@@ -6,6 +6,8 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.1.0] — 2026-04-21
+
 ### Added
 - Identifying `User-Agent` on all outbound HTTP so NWS/SPC won't throttle
   the bot as an unknown client. UA is derived from `config.__version__`.
