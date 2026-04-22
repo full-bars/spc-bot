@@ -61,7 +61,7 @@ if not os.path.exists(_products_file):
         f"to prevent silent drift between the JSON and code."
     )
 
-with open(_products_file, "r") as f:
+with open(_products_file, "r", encoding="utf-8") as f:
     _P = json.load(f)
 
 # Exported constants used by cogs

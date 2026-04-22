@@ -173,7 +173,7 @@ async def check_integrity() -> bool:
                 logger.error(f"[DB] Integrity check failed: {row}")
             return ok
     except Exception as e:
-        logger.error(f"[DB] Integrity check error: {e}")
+        logger.exception(f"[DB] Integrity check error: {e}")
         return False
 
 

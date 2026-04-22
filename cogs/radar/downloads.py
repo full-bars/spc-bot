@@ -119,7 +119,7 @@ async def cleanup_old_files(directory, age_threshold):
                     item.unlink()
                     logger.debug(f"[RADAR] Deleted old file: {item}")
                 except Exception as e:
-                    logger.error(
+                    logger.exception(
                         f"[RADAR] Failed to delete old file {item}: {e}"
                     )
 
@@ -195,8 +195,8 @@ async def split_and_zip_files(
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, _zip)
     except Exception as e:
-        logger.error(f"[RADAR] ZIP creation failed: {e}")
-        raise RuntimeError(f"Failed to create ZIP file: {e}")
+        logger.exception(f"[RADAR] ZIP creation failed: {e}")
+        raise RuntimeError(f"Failed to create ZIP file: {e}") from e
 
 
 async def send_error(interaction, title, description):
@@ -212,7 +212,7 @@ async def send_error(interaction, title, description):
         try:
             await interaction.channel.send(embed=embed)
         except Exception as e:
-            logger.error(f"[RADAR] Could not send error message: {e}")
+            logger.exception(f"[RADAR] Could not send error message: {e}")
 
 
 async def run_download(
@@ -408,7 +408,7 @@ async def download_and_zip(
                 discord.errors.NotFound,
                 discord.errors.HTTPException,
             ) as e:
-                logger.error(
+                logger.exception(
                     f"[RADAR] Failed to edit progress message: {e}"
                 )
             last_update_time = current_time
@@ -607,7 +607,7 @@ async def download_and_zip(
                             )
                             embed.color = discord.Color.red()
                             await message.edit(embed=embed)
-                            logger.error(
+                            logger.exception(
                                 f"[RADAR] Upload failed for "
                                 f"{zip_path.name}: {e}"
                             )
@@ -620,7 +620,7 @@ async def download_and_zip(
             embed.description = str(e)
             embed.color = discord.Color.red()
             await message.edit(embed=embed)
-            logger.error(f"[RADAR] ZIP creation error: {e}")
+            logger.exception(f"[RADAR] ZIP creation error: {e}")
             return
 
         if not all_uploaded:
@@ -636,9 +636,8 @@ async def download_and_zip(
             logger.error("[RADAR] Upload failed at all size levels")
 
     except Exception as e:
-        logger.error(
+        logger.exception(
             f"[RADAR] Unexpected error in download_and_zip: {e}",
-            exc_info=True,
         )
         embed.title = "Unexpected Error"
         embed.description = (
@@ -658,7 +657,7 @@ async def download_and_zip(
                 try:
                     os.remove(file_path)
                 except Exception as e:
-                    logger.error(
+                    logger.exception(
                         f"[RADAR] Failed to delete temp file "
                         f"{file_path}: {e}"
                     )
@@ -666,14 +665,14 @@ async def download_and_zip(
             try:
                 zip_path.unlink()
             except Exception as e:
-                logger.error(
+                logger.exception(
                     f"[RADAR] Failed to delete zip {zip_path}: {e}"
                 )
         if os.path.exists(output_dir):
             try:
                 shutil.rmtree(output_dir)
             except Exception as e:
-                logger.error(
+                logger.exception(
                     f"[RADAR] Failed to delete output dir: {e}"
                 )
         with progress_lock:

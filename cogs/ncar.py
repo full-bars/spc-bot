@@ -188,7 +188,7 @@ class NCARCog(commands.Cog):
             self.bot.state.manual_cache[url] = h
             await set_hash(url, h, "manual")
         except Exception as e:
-            logger.error(f"[NCAR] Failed to save WxNext2 image: {e}")
+            logger.exception(f"[NCAR] Failed to save WxNext2 image: {e}")
             return
 
         try:
@@ -201,7 +201,7 @@ class NCARCog(commands.Cog):
             self.bot.state.last_post_times["wxnext"] = now_utc
             logger.info("[NCAR] Auto-posted WxNext2")
         except Exception as e:
-            logger.error(f"[NCAR] Failed to post WxNext2: {e}", exc_info=True)
+            logger.exception(f"[NCAR] Failed to post WxNext2: {e}")
 
     @wxnext_daily_poll.after_loop
     async def after_wxnext_poll(self):

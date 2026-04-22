@@ -35,7 +35,7 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
     except asyncio.TimeoutError:
         process.kill()
         await process.communicate()
-        logger.error(f"[HODO] vad.py timed out for {site}")
+        logger.exception(f"[HODO] vad.py timed out for {site}")
         await interaction.followup.send(
             f"⏱️ Timed out fetching data for `{site}`. The radar may be offline or have no recent VWP data.",
             ephemeral=True,

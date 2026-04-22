@@ -733,7 +733,7 @@ class WatchesCog(commands.Cog):
                     self._upgrade_watch_embed(watch_num, message, is_tornado, watch_label, color, expires)
                 )
         except discord.HTTPException as e:
-            logger.error(f"[WATCH] iembot-triggered send failed for #{watch_num}: {e}")
+            logger.exception(f"[WATCH] iembot-triggered send failed for #{watch_num}: {e}")
 
     @tasks.loop(minutes=2)
     async def auto_post_watches(self):
@@ -797,7 +797,7 @@ class WatchesCog(commands.Cog):
                         f"[WATCH] Posted cancellation for #{watch_num}"
                     )
                 except discord.HTTPException as e:
-                    logger.error(
+                    logger.exception(
                         f"[WATCH] Failed to send cancellation "
                         f"for #{watch_num}: {e}"
                     )
@@ -867,16 +867,15 @@ class WatchesCog(commands.Cog):
                             sounding_cog.post_soundings_for_watch(watch_num, nws_info, channel)
                         )
                 except discord.HTTPException as e:
-                    logger.error(
+                    logger.exception(
                         f"[WATCH] Discord send failed for #{watch_num}: {e}"
                     )
 
             self._watches_backoff.success()
 
         except Exception as e:
-            logger.error(
+            logger.exception(
                 f"[WATCH] Unexpected error in auto_post_watches: {e}",
-                exc_info=True,
             )
             await self._watches_backoff.failure(self.bot)
 

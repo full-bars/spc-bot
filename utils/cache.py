@@ -362,6 +362,6 @@ async def check_all_urls_exist_parallel(urls: List[str]) -> bool:
     if not ok:
         logger.warning(
             f"Some URLs not reachable: "
-            f"{[(u, r) for u, r in zip(urls, results) if not r]}"
+            f"{[(u, r) for u, r in zip(urls, results, strict=True) if not r]}"
         )
     return ok

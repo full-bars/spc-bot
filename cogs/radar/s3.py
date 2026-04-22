@@ -47,7 +47,7 @@ async def get_radar_sites(date: datetime) -> list[str]:
         )
         return sites
     except Exception as e:
-        logger.error(f"[RADAR] Error listing radar sites: {e}")
+        logger.exception(f"[RADAR] Error listing radar sites: {e}")
         return []
 
 
@@ -93,14 +93,14 @@ async def list_files(radar_site: str, dates: list) -> list[dict]:
                         f["FileTimestamp"] = f["LastModified"]
                 all_files.extend(files)
             except Exception as e:
-                logger.error(
+                logger.exception(
                     f"[RADAR] Error listing files for {radar_site} "
                     f"on {date.strftime('%Y-%m-%d')}: {e}"
                 )
                 raise RuntimeError(
                     f"Could not reach S3 to list files for {radar_site} "
                     f"on {date.strftime('%Y-%m-%d')}. Check your connection."
-                )
+                ) from e
     return sorted(all_files, key=lambda x: x["FileTimestamp"], reverse=True)
 
 
