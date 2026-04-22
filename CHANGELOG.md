@@ -74,3 +74,1423 @@ version numbers follow [SemVer](https://semver.org/).
 
 ### Removed
 - Unused `_connecting` flag in `utils.db`.
+## [5.0.2] — 2026-04-21
+
+- fix(status): wire /help footer to __version__ instead of stale literal
+- perf: reduce redundant HTTP, add missing is_primary guards, tighten heuristics
+- chore: remove dead code
+- fix(critical): /md slash crash and ncar state-reset bugs
+- log(diagnostics): use repr() for watchdog and failover exception logs
+
+## [5.0.1] — 2026-04-20
+
+- test(failover): make 'past grace' setup robust on fresh CI runners
+- docs: bring README, CONTRIBUTING, .env.example in line with v5
+
+## [5.0.0] — 2026-04-20
+
+- fix(iembot): remove dangling FailoverCog.get_upstash_seqnum call
+- experimental: shared state in Upstash, simplify failover
+- chore(deps): bump aiohttp in the python-minor-patch group
+- chore(deps): bump docker/login-action from 3 to 4
+- chore(deps): bump docker/metadata-action from 5 to 6
+- chore(deps): bump docker/build-push-action from 5 to 7
+- chore(deps): bump docker/setup-buildx-action from 3 to 4
+- chore(deps): bump actions/setup-python from 5 to 6
+
+## [4.13.2] — 2026-04-19
+
+- fix(failover): separate primary liveness from hydration reachability
+
+## [4.13.1] — 2026-04-19
+
+- fix(failover): close three promotion races that nearly triggered a split-brain
+
+## [4.13.0] — 2026-04-19
+
+- refactor: split BotState into HashStore, PostingLog, TimingTracker
+
+## [4.12.3] — 2026-04-19
+
+- test(failover): drop unused imports flagged by new F401 lint rule
+- test: expand cogs/failover coverage from 18% to 62%
+
+## [4.12.2] — 2026-04-19
+
+- refactor: drop 67 unused imports, enable F401 in CI lint
+
+## [4.12.1] — 2026-04-19
+
+- ci: add dependabot for pip, github-actions, and docker
+
+## [4.12.0] — 2026-04-19
+
+- test: expand coverage on db, http, backoff, cache conditional GET, and main
+
+## [4.11.16] — 2026-04-19
+
+- test: harden fixture layer — opt-in patches, real BotState bot, isolated DB
+
+## [4.11.15] — 2026-04-19
+
+- ci: overhaul pipeline — match Docker runtime, cache pip, gate publish on tests
+
+## [4.11.14] — 2026-04-19
+
+- fix: fail fast when FAILOVER_TOKEN is unset or is the 'changeme' default
+
+## [4.11.13] — 2026-04-19
+
+- perf: replace HEAD+GET with conditional GET in partial-update path
+
+## [4.11.12] — 2026-04-19
+
+- refactor: consolidate DB write boilerplate, prune product cache on timer
+
+## [4.11.11] — 2026-04-19
+
+- fix: harden main.py lifecycle (primary flag order, shutdown guard, watchdog cancel)
+
+## [4.11.10] — 2026-04-19
+
+- refactor: centralize extension list, require products.json, clean up imports
+- fix: correctly handle sudo user permissions in deploy.sh
+
+## [4.11.9] — 2026-04-18
+
+- fix: refactor watchdog for dynamic task discovery and add health channel redirection
+
+## [4.11.8] — 2026-04-18
+
+- Chore: Enable local builds in docker-compose.yml
+- Fix: Remove lib/ from .dockerignore to resolve ModuleNotFoundError in Docker
+- Fix: Add 'Custom/Other' option to radar downloader and improve UI clarity
+
+## [4.11.7] — 2026-04-18
+
+- Fix: Enable custom time range for multi-site radar downloads
+
+## [4.11.6] — 2026-04-18
+
+- Release: v4.11.6 - Fix help menu inaccuracies
+
+## [4.11.5] — 2026-04-18
+
+- Feat: Add comprehensive /help slash command
+- Fix: Add ACARS data depth check and validation to prevent fmin plotter crashes
+- Fix: Prioritize Wyoming RAOB and add data validation to prevent plotter crashes
+- Real fix for log silencing: change watch status to DEBUG
+- Update documentation: v4.11.3 release notes, Docker support, and project structure
+- Add pytest-asyncio to requirements.txt
+- Fix permissions permanently (portable deploy) and quiet watch logs
+- Add IEM fallback for MD index when SPC is unreachable
+- Fix sounding autoposting for iembot-triggered watches
+- docs: finalize docker instructions and build methods
+- fix: switch to debian-slim to resolve scientific library build issues
+- fix: set C_INCLUDE_PATH for netcdf4 build on alpine
+- fix: allow binary wheels for all packages to avoid netcdf4 build issues
+- fix: set HDF5_DIR for netcdf4 build
+- fix: remove syntax error in Dockerfile
+- fix: add hdf5 and netcdf dependencies for netcdf4
+- fix: remove conflicting lapack package from runtime
+- fix: resolve lapack dependency conflict in alpine
+- ci: add setup-buildx-action to support cache export
+- docs: update readme and docker-compose to use GHCR image
+- ci: add docker build and publish workflow
+- feat: dockerize bot with alpine linux and docker-compose (#86)
+- docs: update README and CONTRIBUTING for GUILD_ID and CSU command; add metpy to requirements
+- feat: store iembot_last_seqnum in Upstash/Redis for reliable failover
+- Feat: add RSS memory to /status; suppress no-change cache log spam
+- Docs: update project structure in README.md
+- Refactor: consolidate IEM and NCAR URLs into config.py
+- Refactor: optimize session handling and startup performance
+- fix: correct CSU type check, watches embed duplication, and sounding race
+- merge: resolve conflict with origin/main shutdown attempt
+- fix: prevent 90s SIGKILL hang on shutdown by not orphaning discord's _closing_task
+- fix: resolve db deadlock, slow shutdown, and duplicate IEM fetch (#80)
+- Fix NameError: datetime is not defined in cogs/failover.py
+- fix: resolve ImportError from missing migrate_from_json and optimize shutdown speed
+- fix: resolve ImportError by removing legacy migration logic and finalize setup_hook hydration
+- fix: resolve reposting flood by hydrating state in setup_hook and prioritize Wyoming soundings
+- fix: restore sounding priority and finalize state synchronization to prevent reposts
+- fix: resolve TypeErrors in download calls and NameErrors in sounding cogs
+- fix: resolve test hangs, add resource cleanup, and fix double-post race condition
+- fix: track products.json, resolve absolute paths, and restore robust cache logic
+- test: update utils tests for refactored persistence
+- refactor: automated task management, externalized product logic, and finalized sqlite transition
+- fix: make watchdog and iembot respect standby state
+- feat: re-add SOUNDING_CHANNEL_ID configuration
+- feat: persistent product cache, MD pre-warming, and enhanced observability
+- chore: ignore GEMINI.md
+- test: make IEM fallback test deterministic by mocking asyncio.wait
+- fix: resolve NCAR TypeError and system-wide task InvalidStateError
+- fix: false cancellation, preliminary probs, and SPC upgrade edit for iembot watch posts
+- fix: add missing post_md_now and post_watch_now methods
+- feat: iembot-triggered immediate posting for watches and MDs
+- feat: IEM iembot real-time feed for instant watch/MD text pre-caching
+- chore: remove dead legacy globals from utils/cache.py
+- fix: rewrite fetch_watch_details_iem to use IEM watches JSON API
+- feat: watch-triggered soundings and IEM/SPC/Wyoming race fetching
+- feat: IEM fallback for watch and MD details when SPC is unreachable
+- fix: periodic command sync primary only
+- fix: standby skips command sync on startup to prevent overwriting primary's commands with 0 (#64)
+- fix: add periodic 24h command tree sync to recover from silent Discord command drops
+- fix: correct all DB function names in _persist_hydrated_state
+- fix: persist hydrated state to standby SQLite DB so restarts load current data
+- fix: downgrade Upstash heartbeat log to DEBUG to reduce log noise
+- docs: update README bot structure and CONTRIBUTING failover architecture
+- fix: serialize matplotlib plot generation with asyncio lock, defer+followup for RAOB time picker
+- fix: use defer+followup for RAOB time picker so station picker remains visible
+- fix: IEMTimeSelectionView uses defer+followup to keep time picker visible, auto-post bypasses availability cache
+- fix: demotion check before URL write, sounding UI keeps selection embed, station availability cache
+- fix: delete Upstash key on graceful shutdown to prevent stale tunnel URL causing false failover
+- fix: Wyoming first for 00z/12z plots, IEM for special soundings, cache availability results 15min, longer UI timeout, don't auto-delete after posting
+- fix: check for existing primary before writing URL, add _ready flag to prevent premature Upstash writes
+- fix: add demotion check — standby steps down when primary URL changes in Upstash
+- fix: hydrate from standby on primary restart, 30s poll interval, failure counter for promotion
+- fix: cloudflared URL parsing — read stderr, match https:// prefix
+- fix: use Upstash POST body format for URL values with slashes
+- feat: HTTP failover system with cloudflared tunnel and Upstash coordination
+- fix: status cog use bot.state for posted_mds/watches display and all fetch_and_send_weather_images calls
+- fix: remove debug logging from _execute_watches; replace shallow integration tests with ones that actually execute code paths
+- fix: replace undefined auto_cache/manual_cache with bot.state equivalents in watches cog
+- debug: add logging to _execute_watches to trace NWS API and SPC scrape fallback
+- fix: update SPC watch index scrape — SPC removed alt attributes from watch links, now matches href only and fetches individual watch page to determine tornado vs SVR type
+- chore: update README bot structure to reflect v4.8.4
+- fix: guard task.exception() with done() check in after_aggressive_loop
+- fix: initialize bot.state at bot creation time, add integration tests for BotState and cog instantiation
+- fix: correct check_and_post_day call sites and remove double bot.state reference
+- fix: pass state explicitly to standalone functions in outlooks and status cogs
+- refactor: encapsulate global state in BotState class attached to bot.state
+- chore: pre-push hook skips tag and branch-delete pushes
+- fix: suppress chatty Wyoming fallback warnings — downgrade to debug, skip non-standard hours
+- feat: ACARS auto-post during active watches, fix sounding log messages, suppress SounderPy plot output
+- fix: add K prefix for ACARS airport lat/lon lookup (3-letter codes need KATL not ATL)
+- chore: add install-hooks.sh for pre-push syntax and test checks
+- fix: apply CombinedSoundingView to /sounding command — ACARS and IEM multi-hour support
+- feat: add IEM sounding source (all hours), ACARS aircraft profiles to /sounding
+- feat: auto-post soundings near active SPC watches at 00z/12z
+- fix: reduce sounding station verification from 10 candidates/2 times to 6/1 for faster response
+- fix: remove startup cleanup block that was silently killing on_ready before command sync
+- feat: /download count param for N most recent, fix startup cleanup blocking event loop
+- feat: add quick-start options to /download — site codes and time preset bypass interactive flow
+- fix: set group ownership to spcbot on install dir so radar cleanup works
+- fix: set 775 on install dir so spcbot can create/delete radar_data subdirs
+- fix: rename s3 download_file to s3_download_file to avoid conflict with downloads.py local function
+- fix: create radar_data dir with correct permissions during deploy
+- fix: get_radar_sites is now async, remove run_in_executor wrapper in StartView
+- refactor: replace boto3 with aioboto3 for native async S3 operations
+- fix: load posted_mds and posted_watches from DB on startup; fix triple DB connection
+- fix: add missing asyncio import to mesoscale and watches; add cog import smoke tests
+- fix: skip JSON migration if DB already populated to prevent overwriting current hashes
+- fix: load auto_cache and manual_cache from DB on startup so hashes survive restarts
+- fix: persist last_posted_urls to SQLite so Day 1-3 outlooks don't repost on restart
+- Update CONTRIBUTING.md for SQLite database changes
+- docs: fix alignment of backoff.py and db.py in project structure
+- docs: update directory tree with db.py
+- Fix formatting of backoff.py entry in README
+- refactor: migrate all persistent state from JSON files to SQLite via aiosqlite
+- feat: add exponential backoff to auto_post_spc, auto_post_md, auto_post_watches loops
+- refactor: consolidate /csu1-8 and panel commands into single /csu with Choice dropdown
+- docs: update CONTRIBUTING with sounding, fresh option, persistence; add SounderPy to CREDITS
+- fix: log file and matplotlib permissions, suppress SounderPy banner, add logout note to deploy
+- fix: complete deploy.sh rewrite — self-copy detection, venv arch check, correct permissions, aliases via /etc/bash.bashrc
+- fix: add git safe.directory config for root during deploy
+- fix: split ownership so admins can git pull, spcbot only owns cache and .env, add spcupdate alias
+- fix: deploy.sh installs to /opt/spc-bot, add shell aliases spcon/spcoff/spcstatus/spclog
+- fix: keep partial update state waiting until 20min timeout instead of clearing after 2min
+- feat: add fresh option to /scp /spc1 /spc2 /spc3 to bypass cache
+- fix: check all sounding times concurrently per station for faster verification
+- fix: verify station data availability before showing options, search wider candidate pool
+- fix: immediate loading state, auto-fallback to previous sounding times, cleanup ephemeral messages on success
+- fix: only show sounding times that are in the past
+- feat: add RAOB sounding cog with /sounding slash command, interactive station/time selection, dark mode preference
+- fix: widen CSU-MLP poll window to 22 UTC, WxNext2 to 12 UTC, add periodic_cleanup status label
+- docs: update README with hodograph feature, new dependencies, and project structure
+- fix(hodograph): use sys.executable to run vad.py in active venv
+- feat: add hodograph cog with /hodograph slash command
+- docs: fix slash command names and add missing /wpc and /downloaderstatus
+- docs: add CONTRIBUTING.md with architecture and operator reference
+- test: add unit tests for watches VTEC parsing and API failure handling
+- fix(watches): distinguish API failure from empty watch list
+- chore: remove cig_migration() dead code
+- improve: tighten CSU-MLP and WxNext2 poll windows, add friendly task labels to /status
+- refactor: rename SCP_CHANNEL_ID to MODELS_CHANNEL_ID for clarity
+- docs: add Prerequisites section with Python version and dependency requirements
+- docs: add venv creation step to manual setup instructions
+- docs: restructure setup section for consistency, remove redundant systemctl commands
+- feat: add deploy.sh with systemd service setup and update README
+- test: add tests for CSU-MLP URL builders, state persistence, and NCAR WxNext2
+- ci: add GitHub Actions workflow to run tests on push and PR
+- docs: update README with NCAR WxNext2 feature and project structure
+- feat: add NCAR WxNext2 cog with /wxnext slash command and daily auto-post
+- fix: use key=str in sorted() to handle mixed int/str posted state
+- feat: add CSU-MLP 6-panel slash commands and auto-post, update README
+- fix: persist CSU-MLP posted state across reboots using cache JSON
+- fix: CSU-MLP days 4-8 use 00z only, use Content-Type check instead of HEAD for URL validation
+- feat: add CSU-MLP cog with /csu1-8 slash commands and polling auto-post
+- v2.0.0: major refactor
+- reduce watchdog interval from 10 to 2 minutes for faster task recovery
+- Update README to remove discord.py reference
+- Initialize README with project details and features
+
+## [4.11.4] — 2026-04-18
+
+- Fix: Prioritize Wyoming RAOB and add data validation to prevent plotter crashes
+
+## [4.11.3] — 2026-04-18
+
+- Real fix for log silencing: change watch status to DEBUG
+- Update documentation: v4.11.3 release notes, Docker support, and project structure
+
+## [4.11.2] — 2026-04-18
+
+- Add pytest-asyncio to requirements.txt
+
+## [4.11.1] — 2026-04-18
+
+- Fix permissions permanently (portable deploy) and quiet watch logs
+- Add IEM fallback for MD index when SPC is unreachable
+- Fix sounding autoposting for iembot-triggered watches
+- docs: finalize docker instructions and build methods
+- fix: switch to debian-slim to resolve scientific library build issues
+- fix: set C_INCLUDE_PATH for netcdf4 build on alpine
+- fix: allow binary wheels for all packages to avoid netcdf4 build issues
+- fix: set HDF5_DIR for netcdf4 build
+- fix: remove syntax error in Dockerfile
+- fix: add hdf5 and netcdf dependencies for netcdf4
+- fix: remove conflicting lapack package from runtime
+- fix: resolve lapack dependency conflict in alpine
+- ci: add setup-buildx-action to support cache export
+- docs: update readme and docker-compose to use GHCR image
+- ci: add docker build and publish workflow
+- feat: dockerize bot with alpine linux and docker-compose (#86)
+- docs: update README and CONTRIBUTING for GUILD_ID and CSU command; add metpy to requirements
+- feat: store iembot_last_seqnum in Upstash/Redis for reliable failover
+- Feat: add RSS memory to /status; suppress no-change cache log spam
+- Docs: update project structure in README.md
+- Refactor: consolidate IEM and NCAR URLs into config.py
+- Refactor: optimize session handling and startup performance
+- fix: correct CSU type check, watches embed duplication, and sounding race
+- merge: resolve conflict with origin/main shutdown attempt
+- fix: prevent 90s SIGKILL hang on shutdown by not orphaning discord's _closing_task
+- fix: resolve db deadlock, slow shutdown, and duplicate IEM fetch (#80)
+- fix: resolve db deadlock, slow shutdown, and duplicate IEM fetch (#80)
+- Fix NameError: datetime is not defined in cogs/failover.py
+- fix: resolve ImportError from missing migrate_from_json and optimize shutdown speed
+- fix: resolve ImportError by removing legacy migration logic and finalize setup_hook hydration
+- fix: resolve reposting flood by hydrating state in setup_hook and prioritize Wyoming soundings
+- fix: restore sounding priority and finalize state synchronization to prevent reposts
+- fix: resolve TypeErrors in download calls and NameErrors in sounding cogs
+- fix: resolve test hangs, add resource cleanup, and fix double-post race condition
+- fix: track products.json, resolve absolute paths, and restore robust cache logic
+- test: update utils tests for refactored persistence
+- refactor: automated task management, externalized product logic, and finalized sqlite transition
+- fix: make watchdog and iembot respect standby state
+- feat: re-add SOUNDING_CHANNEL_ID configuration
+- feat: persistent product cache, MD pre-warming, and enhanced observability
+- chore: ignore GEMINI.md
+- test: make IEM fallback test deterministic by mocking asyncio.wait
+- fix: resolve NCAR TypeError and system-wide task InvalidStateError
+- fix: false cancellation, preliminary probs, and SPC upgrade edit for iembot watch posts
+- fix: add missing post_md_now and post_watch_now methods
+- feat: iembot-triggered immediate posting for watches and MDs
+- feat: IEM iembot real-time feed for instant watch/MD text pre-caching
+- chore: remove dead legacy globals from utils/cache.py
+- fix: rewrite fetch_watch_details_iem to use IEM watches JSON API
+- feat: watch-triggered soundings and IEM/SPC/Wyoming race fetching
+- feat: IEM fallback for watch and MD details when SPC is unreachable
+- fix: periodic command sync primary only
+- fix: standby skips command sync on startup to prevent overwriting primary's commands with 0 (#64)
+- fix: add periodic 24h command tree sync to recover from silent Discord command drops
+- fix: correct all DB function names in _persist_hydrated_state
+- fix: persist hydrated state to standby SQLite DB so restarts load current data
+- fix: downgrade Upstash heartbeat log to DEBUG to reduce log noise
+- docs: update README bot structure and CONTRIBUTING failover architecture
+- fix: serialize matplotlib plot generation with asyncio lock, defer+followup for RAOB time picker
+- fix: use defer+followup for RAOB time picker so station picker remains visible
+- fix: IEMTimeSelectionView uses defer+followup to keep time picker visible, auto-post bypasses availability cache
+- fix: demotion check before URL write, sounding UI keeps selection embed, station availability cache
+- fix: delete Upstash key on graceful shutdown to prevent stale tunnel URL causing false failover
+- fix: Wyoming first for 00z/12z plots, IEM for special soundings, cache availability results 15min, longer UI timeout, don't auto-delete after posting
+- fix: check for existing primary before writing URL, add _ready flag to prevent premature Upstash writes
+- fix: add demotion check — standby steps down when primary URL changes in Upstash
+- fix: hydrate from standby on primary restart, 30s poll interval, failure counter for promotion
+- fix: cloudflared URL parsing — read stderr, match https:// prefix
+- fix: use Upstash POST body format for URL values with slashes
+- feat: HTTP failover system with cloudflared tunnel and Upstash coordination
+- fix: status cog use bot.state for posted_mds/watches display and all fetch_and_send_weather_images calls
+- fix: remove debug logging from _execute_watches; replace shallow integration tests with ones that actually execute code paths
+- fix: replace undefined auto_cache/manual_cache with bot.state equivalents in watches cog
+- debug: add logging to _execute_watches to trace NWS API and SPC scrape fallback
+- fix: update SPC watch index scrape — SPC removed alt attributes from watch links, now matches href only and fetches individual watch page to determine tornado vs SVR type
+- chore: update README bot structure to reflect v4.8.4
+- fix: guard task.exception() with done() check in after_aggressive_loop
+- fix: initialize bot.state at bot creation time, add integration tests for BotState and cog instantiation
+- fix: correct check_and_post_day call sites and remove double bot.state reference
+- fix: pass state explicitly to standalone functions in outlooks and status cogs
+- refactor: encapsulate global state in BotState class attached to bot.state
+- chore: pre-push hook skips tag and branch-delete pushes
+- fix: suppress chatty Wyoming fallback warnings — downgrade to debug, skip non-standard hours
+- feat: ACARS auto-post during active watches, fix sounding log messages, suppress SounderPy plot output
+- fix: add K prefix for ACARS airport lat/lon lookup (3-letter codes need KATL not ATL)
+- chore: add install-hooks.sh for pre-push syntax and test checks
+- fix: apply CombinedSoundingView to /sounding command — ACARS and IEM multi-hour support
+- feat: add IEM sounding source (all hours), ACARS aircraft profiles to /sounding
+- feat: auto-post soundings near active SPC watches at 00z/12z
+- fix: reduce sounding station verification from 10 candidates/2 times to 6/1 for faster response
+- fix: remove startup cleanup block that was silently killing on_ready before command sync
+- feat: /download count param for N most recent, fix startup cleanup blocking event loop
+- feat: add quick-start options to /download — site codes and time preset bypass interactive flow
+- fix: set group ownership to spcbot on install dir so radar cleanup works
+- fix: set 775 on install dir so spcbot can create/delete radar_data subdirs
+- fix: rename s3 download_file to s3_download_file to avoid conflict with downloads.py local function
+- fix: create radar_data dir with correct permissions during deploy
+- fix: get_radar_sites is now async, remove run_in_executor wrapper in StartView
+- refactor: replace boto3 with aioboto3 for native async S3 operations
+- fix: load posted_mds and posted_watches from DB on startup; fix triple DB connection
+- fix: add missing asyncio import to mesoscale and watches; add cog import smoke tests
+- fix: skip JSON migration if DB already populated to prevent overwriting current hashes
+- fix: load auto_cache and manual_cache from DB on startup so hashes survive restarts
+- fix: persist last_posted_urls to SQLite so Day 1-3 outlooks don't repost on restart
+- Update CONTRIBUTING.md for SQLite database changes
+- docs: fix alignment of backoff.py and db.py in project structure
+- docs: update directory tree with db.py
+- Fix formatting of backoff.py entry in README
+- refactor: migrate all persistent state from JSON files to SQLite via aiosqlite
+- feat: add exponential backoff to auto_post_spc, auto_post_md, auto_post_watches loops
+- refactor: consolidate /csu1-8 and panel commands into single /csu with Choice dropdown
+- docs: update CONTRIBUTING with sounding, fresh option, persistence; add SounderPy to CREDITS
+- fix: log file and matplotlib permissions, suppress SounderPy banner, add logout note to deploy
+- fix: complete deploy.sh rewrite — self-copy detection, venv arch check, correct permissions, aliases via /etc/bash.bashrc
+- fix: add git safe.directory config for root during deploy
+- fix: split ownership so admins can git pull, spcbot only owns cache and .env, add spcupdate alias
+- fix: deploy.sh installs to /opt/spc-bot, add shell aliases spcon/spcoff/spcstatus/spclog
+- fix: keep partial update state waiting until 20min timeout instead of clearing after 2min
+- feat: add fresh option to /scp /spc1 /spc2 /spc3 to bypass cache
+- fix: check all sounding times concurrently per station for faster verification
+- fix: verify station data availability before showing options, search wider candidate pool
+- fix: immediate loading state, auto-fallback to previous sounding times, cleanup ephemeral messages on success
+- fix: only show sounding times that are in the past
+- feat: add RAOB sounding cog with /sounding slash command, interactive station/time selection, dark mode preference
+- fix: widen CSU-MLP poll window to 22 UTC, WxNext2 to 12 UTC, add periodic_cleanup status label
+- docs: update README with hodograph feature, new dependencies, and project structure
+- fix(hodograph): use sys.executable to run vad.py in active venv
+- feat: add hodograph cog with /hodograph slash command
+- docs: fix slash command names and add missing /wpc and /downloaderstatus
+- docs: add CONTRIBUTING.md with architecture and operator reference
+- test: add unit tests for watches VTEC parsing and API failure handling
+- fix(watches): distinguish API failure from empty watch list
+- chore: remove cig_migration() dead code
+- improve: tighten CSU-MLP and WxNext2 poll windows, add friendly task labels to /status
+- refactor: rename SCP_CHANNEL_ID to MODELS_CHANNEL_ID for clarity
+- docs: add Prerequisites section with Python version and dependency requirements
+- docs: add venv creation step to manual setup instructions
+- docs: restructure setup section for consistency, remove redundant systemctl commands
+- feat: add deploy.sh with systemd service setup and update README
+- test: add tests for CSU-MLP URL builders, state persistence, and NCAR WxNext2
+- ci: add GitHub Actions workflow to run tests on push and PR
+- docs: update README with NCAR WxNext2 feature and project structure
+- feat: add NCAR WxNext2 cog with /wxnext slash command and daily auto-post
+- fix: use key=str in sorted() to handle mixed int/str posted state
+- feat: add CSU-MLP 6-panel slash commands and auto-post, update README
+- fix: persist CSU-MLP posted state across reboots using cache JSON
+- fix: CSU-MLP days 4-8 use 00z only, use Content-Type check instead of HEAD for URL validation
+- feat: add CSU-MLP cog with /csu1-8 slash commands and polling auto-post
+- v2.0.0: major refactor
+- reduce watchdog interval from 10 to 2 minutes for faster task recovery
+- Update README to remove discord.py reference
+- Initialize README with project details and features
+
+## [4.11.0] — 2026-04-17
+
+- docs: finalize docker instructions and build methods
+- fix: switch to debian-slim to resolve scientific library build issues
+- fix: set C_INCLUDE_PATH for netcdf4 build on alpine
+- fix: allow binary wheels for all packages to avoid netcdf4 build issues
+- fix: set HDF5_DIR for netcdf4 build
+- fix: remove syntax error in Dockerfile
+- fix: add hdf5 and netcdf dependencies for netcdf4
+- fix: remove conflicting lapack package from runtime
+- fix: resolve lapack dependency conflict in alpine
+- ci: add setup-buildx-action to support cache export
+- docs: update readme and docker-compose to use GHCR image
+- ci: add docker build and publish workflow
+- feat: dockerize bot with alpine linux and docker-compose (#86)
+
+## [4.10.1] — 2026-04-17
+
+- docs: update README and CONTRIBUTING for GUILD_ID and CSU command; add metpy to requirements
+
+## [4.10.0] — 2026-04-16
+
+- feat: store iembot_last_seqnum in Upstash/Redis for reliable failover
+
+## [4.9.31] — 2026-04-16
+
+- Feat: add RSS memory to /status; suppress no-change cache log spam
+
+## [4.9.30] — 2026-04-14
+
+- Docs: update project structure in README.md
+- Refactor: consolidate IEM and NCAR URLs into config.py
+- Refactor: optimize session handling and startup performance
+- fix: correct CSU type check, watches embed duplication, and sounding race
+- merge: resolve conflict with origin/main shutdown attempt
+- fix: prevent 90s SIGKILL hang on shutdown by not orphaning discord's _closing_task
+- fix: resolve db deadlock, slow shutdown, and duplicate IEM fetch (#80)
+- Fix NameError: datetime is not defined in cogs/failover.py
+- fix: resolve ImportError from missing migrate_from_json and optimize shutdown speed
+- fix: resolve ImportError by removing legacy migration logic and finalize setup_hook hydration
+- fix: resolve reposting flood by hydrating state in setup_hook and prioritize Wyoming soundings
+- fix: restore sounding priority and finalize state synchronization to prevent reposts
+- fix: resolve TypeErrors in download calls and NameErrors in sounding cogs
+- fix: resolve test hangs, add resource cleanup, and fix double-post race condition
+- fix: track products.json, resolve absolute paths, and restore robust cache logic
+- test: update utils tests for refactored persistence
+- refactor: automated task management, externalized product logic, and finalized sqlite transition
+- fix: make watchdog and iembot respect standby state
+- feat: re-add SOUNDING_CHANNEL_ID configuration
+- feat: persistent product cache, MD pre-warming, and enhanced observability
+- chore: ignore GEMINI.md
+- test: make IEM fallback test deterministic by mocking asyncio.wait
+- fix: resolve NCAR TypeError and system-wide task InvalidStateError
+- fix: false cancellation, preliminary probs, and SPC upgrade edit for iembot watch posts
+- fix: add missing post_md_now and post_watch_now methods
+- feat: iembot-triggered immediate posting for watches and MDs
+- feat: IEM iembot real-time feed for instant watch/MD text pre-caching
+- chore: remove dead legacy globals from utils/cache.py
+- fix: rewrite fetch_watch_details_iem to use IEM watches JSON API
+- feat: watch-triggered soundings and IEM/SPC/Wyoming race fetching
+- feat: IEM fallback for watch and MD details when SPC is unreachable
+- fix: periodic command sync primary only
+- fix: standby skips command sync on startup to prevent overwriting primary's commands with 0 (#64)
+- fix: add periodic 24h command tree sync to recover from silent Discord command drops
+- fix: correct all DB function names in _persist_hydrated_state
+- fix: persist hydrated state to standby SQLite DB so restarts load current data
+- fix: downgrade Upstash heartbeat log to DEBUG to reduce log noise
+- docs: update README bot structure and CONTRIBUTING failover architecture
+- fix: serialize matplotlib plot generation with asyncio lock, defer+followup for RAOB time picker
+- fix: use defer+followup for RAOB time picker so station picker remains visible
+- fix: IEMTimeSelectionView uses defer+followup to keep time picker visible, auto-post bypasses availability cache
+- fix: demotion check before URL write, sounding UI keeps selection embed, station availability cache
+- fix: delete Upstash key on graceful shutdown to prevent stale tunnel URL causing false failover
+- fix: Wyoming first for 00z/12z plots, IEM for special soundings, cache availability results 15min, longer UI timeout, don't auto-delete after posting
+- fix: check for existing primary before writing URL, add _ready flag to prevent premature Upstash writes
+- fix: add demotion check — standby steps down when primary URL changes in Upstash
+- fix: hydrate from standby on primary restart, 30s poll interval, failure counter for promotion
+- fix: cloudflared URL parsing — read stderr, match https:// prefix
+- fix: use Upstash POST body format for URL values with slashes
+- feat: HTTP failover system with cloudflared tunnel and Upstash coordination
+- fix: status cog use bot.state for posted_mds/watches display and all fetch_and_send_weather_images calls
+- fix: remove debug logging from _execute_watches; replace shallow integration tests with ones that actually execute code paths
+- fix: replace undefined auto_cache/manual_cache with bot.state equivalents in watches cog
+- debug: add logging to _execute_watches to trace NWS API and SPC scrape fallback
+- fix: update SPC watch index scrape — SPC removed alt attributes from watch links, now matches href only and fetches individual watch page to determine tornado vs SVR type
+- chore: update README bot structure to reflect v4.8.4
+- fix: guard task.exception() with done() check in after_aggressive_loop
+- fix: initialize bot.state at bot creation time, add integration tests for BotState and cog instantiation
+- fix: correct check_and_post_day call sites and remove double bot.state reference
+- fix: pass state explicitly to standalone functions in outlooks and status cogs
+- refactor: encapsulate global state in BotState class attached to bot.state
+- chore: pre-push hook skips tag and branch-delete pushes
+- fix: suppress chatty Wyoming fallback warnings — downgrade to debug, skip non-standard hours
+- feat: ACARS auto-post during active watches, fix sounding log messages, suppress SounderPy plot output
+- fix: add K prefix for ACARS airport lat/lon lookup (3-letter codes need KATL not ATL)
+- chore: add install-hooks.sh for pre-push syntax and test checks
+- fix: apply CombinedSoundingView to /sounding command — ACARS and IEM multi-hour support
+- feat: add IEM sounding source (all hours), ACARS aircraft profiles to /sounding
+- feat: auto-post soundings near active SPC watches at 00z/12z
+- fix: reduce sounding station verification from 10 candidates/2 times to 6/1 for faster response
+- fix: remove startup cleanup block that was silently killing on_ready before command sync
+- feat: /download count param for N most recent, fix startup cleanup blocking event loop
+- feat: add quick-start options to /download — site codes and time preset bypass interactive flow
+- fix: set group ownership to spcbot on install dir so radar cleanup works
+- fix: set 775 on install dir so spcbot can create/delete radar_data subdirs
+- fix: rename s3 download_file to s3_download_file to avoid conflict with downloads.py local function
+- fix: create radar_data dir with correct permissions during deploy
+- fix: get_radar_sites is now async, remove run_in_executor wrapper in StartView
+- refactor: replace boto3 with aioboto3 for native async S3 operations
+- fix: load posted_mds and posted_watches from DB on startup; fix triple DB connection
+- fix: add missing asyncio import to mesoscale and watches; add cog import smoke tests
+- fix: skip JSON migration if DB already populated to prevent overwriting current hashes
+- fix: load auto_cache and manual_cache from DB on startup so hashes survive restarts
+- fix: persist last_posted_urls to SQLite so Day 1-3 outlooks don't repost on restart
+- Update CONTRIBUTING.md for SQLite database changes
+- docs: fix alignment of backoff.py and db.py in project structure
+- docs: update directory tree with db.py
+- Fix formatting of backoff.py entry in README
+- refactor: migrate all persistent state from JSON files to SQLite via aiosqlite
+- feat: add exponential backoff to auto_post_spc, auto_post_md, auto_post_watches loops
+- refactor: consolidate /csu1-8 and panel commands into single /csu with Choice dropdown
+- docs: update CONTRIBUTING with sounding, fresh option, persistence; add SounderPy to CREDITS
+- fix: log file and matplotlib permissions, suppress SounderPy banner, add logout note to deploy
+- fix: complete deploy.sh rewrite — self-copy detection, venv arch check, correct permissions, aliases via /etc/bash.bashrc
+- fix: add git safe.directory config for root during deploy
+- fix: split ownership so admins can git pull, spcbot only owns cache and .env, add spcupdate alias
+- fix: deploy.sh installs to /opt/spc-bot, add shell aliases spcon/spcoff/spcstatus/spclog
+- fix: keep partial update state waiting until 20min timeout instead of clearing after 2min
+- feat: add fresh option to /scp /spc1 /spc2 /spc3 to bypass cache
+- fix: check all sounding times concurrently per station for faster verification
+- fix: verify station data availability before showing options, search wider candidate pool
+- fix: immediate loading state, auto-fallback to previous sounding times, cleanup ephemeral messages on success
+- fix: only show sounding times that are in the past
+- feat: add RAOB sounding cog with /sounding slash command, interactive station/time selection, dark mode preference
+- fix: widen CSU-MLP poll window to 22 UTC, WxNext2 to 12 UTC, add periodic_cleanup status label
+- docs: update README with hodograph feature, new dependencies, and project structure
+- fix(hodograph): use sys.executable to run vad.py in active venv
+- feat: add hodograph cog with /hodograph slash command
+- docs: fix slash command names and add missing /wpc and /downloaderstatus
+- docs: add CONTRIBUTING.md with architecture and operator reference
+- test: add unit tests for watches VTEC parsing and API failure handling
+- fix(watches): distinguish API failure from empty watch list
+- chore: remove cig_migration() dead code
+- improve: tighten CSU-MLP and WxNext2 poll windows, add friendly task labels to /status
+- refactor: rename SCP_CHANNEL_ID to MODELS_CHANNEL_ID for clarity
+- docs: add Prerequisites section with Python version and dependency requirements
+- docs: add venv creation step to manual setup instructions
+- docs: restructure setup section for consistency, remove redundant systemctl commands
+- feat: add deploy.sh with systemd service setup and update README
+- test: add tests for CSU-MLP URL builders, state persistence, and NCAR WxNext2
+- ci: add GitHub Actions workflow to run tests on push and PR
+- docs: update README with NCAR WxNext2 feature and project structure
+- feat: add NCAR WxNext2 cog with /wxnext slash command and daily auto-post
+- fix: use key=str in sorted() to handle mixed int/str posted state
+- feat: add CSU-MLP 6-panel slash commands and auto-post, update README
+- fix: persist CSU-MLP posted state across reboots using cache JSON
+- fix: CSU-MLP days 4-8 use 00z only, use Content-Type check instead of HEAD for URL validation
+- feat: add CSU-MLP cog with /csu1-8 slash commands and polling auto-post
+- v2.0.0: major refactor
+- reduce watchdog interval from 10 to 2 minutes for faster task recovery
+- Update README to remove discord.py reference
+- Initialize README with project details and features
+
+## [4.9.29] — 2026-04-14
+
+- merge: resolve conflict with origin/main shutdown attempt
+- fix: prevent 90s SIGKILL hang on shutdown by not orphaning discord's _closing_task
+- fix: resolve db deadlock, slow shutdown, and duplicate IEM fetch (#80)
+- Fix NameError: datetime is not defined in cogs/failover.py
+- fix: resolve ImportError from missing migrate_from_json and optimize shutdown speed
+- fix: resolve ImportError by removing legacy migration logic and finalize setup_hook hydration
+- fix: resolve reposting flood by hydrating state in setup_hook and prioritize Wyoming soundings
+- fix: restore sounding priority and finalize state synchronization to prevent reposts
+- fix: resolve TypeErrors in download calls and NameErrors in sounding cogs
+- fix: resolve test hangs, add resource cleanup, and fix double-post race condition
+- fix: track products.json, resolve absolute paths, and restore robust cache logic
+- test: update utils tests for refactored persistence
+- refactor: automated task management, externalized product logic, and finalized sqlite transition
+- fix: make watchdog and iembot respect standby state
+- feat: re-add SOUNDING_CHANNEL_ID configuration
+- feat: persistent product cache, MD pre-warming, and enhanced observability
+- chore: ignore GEMINI.md
+- test: make IEM fallback test deterministic by mocking asyncio.wait
+- fix: resolve NCAR TypeError and system-wide task InvalidStateError
+- fix: false cancellation, preliminary probs, and SPC upgrade edit for iembot watch posts
+- fix: add missing post_md_now and post_watch_now methods
+- feat: iembot-triggered immediate posting for watches and MDs
+- feat: IEM iembot real-time feed for instant watch/MD text pre-caching
+- chore: remove dead legacy globals from utils/cache.py
+- fix: rewrite fetch_watch_details_iem to use IEM watches JSON API
+- feat: watch-triggered soundings and IEM/SPC/Wyoming race fetching
+- feat: IEM fallback for watch and MD details when SPC is unreachable
+- fix: periodic command sync primary only
+- fix: standby skips command sync on startup to prevent overwriting primary's commands with 0 (#64)
+- fix: add periodic 24h command tree sync to recover from silent Discord command drops
+- fix: correct all DB function names in _persist_hydrated_state
+- fix: persist hydrated state to standby SQLite DB so restarts load current data
+- fix: downgrade Upstash heartbeat log to DEBUG to reduce log noise
+- docs: update README bot structure and CONTRIBUTING failover architecture
+- fix: serialize matplotlib plot generation with asyncio lock, defer+followup for RAOB time picker
+- fix: use defer+followup for RAOB time picker so station picker remains visible
+- fix: IEMTimeSelectionView uses defer+followup to keep time picker visible, auto-post bypasses availability cache
+- fix: demotion check before URL write, sounding UI keeps selection embed, station availability cache
+- fix: delete Upstash key on graceful shutdown to prevent stale tunnel URL causing false failover
+- fix: Wyoming first for 00z/12z plots, IEM for special soundings, cache availability results 15min, longer UI timeout, don't auto-delete after posting
+- fix: check for existing primary before writing URL, add _ready flag to prevent premature Upstash writes
+- fix: add demotion check — standby steps down when primary URL changes in Upstash
+- fix: hydrate from standby on primary restart, 30s poll interval, failure counter for promotion
+- fix: cloudflared URL parsing — read stderr, match https:// prefix
+- fix: use Upstash POST body format for URL values with slashes
+- feat: HTTP failover system with cloudflared tunnel and Upstash coordination
+- fix: status cog use bot.state for posted_mds/watches display and all fetch_and_send_weather_images calls
+- fix: remove debug logging from _execute_watches; replace shallow integration tests with ones that actually execute code paths
+- fix: replace undefined auto_cache/manual_cache with bot.state equivalents in watches cog
+- debug: add logging to _execute_watches to trace NWS API and SPC scrape fallback
+- fix: update SPC watch index scrape — SPC removed alt attributes from watch links, now matches href only and fetches individual watch page to determine tornado vs SVR type
+- chore: update README bot structure to reflect v4.8.4
+- fix: guard task.exception() with done() check in after_aggressive_loop
+- fix: initialize bot.state at bot creation time, add integration tests for BotState and cog instantiation
+- fix: correct check_and_post_day call sites and remove double bot.state reference
+- fix: pass state explicitly to standalone functions in outlooks and status cogs
+- refactor: encapsulate global state in BotState class attached to bot.state
+- chore: pre-push hook skips tag and branch-delete pushes
+- fix: suppress chatty Wyoming fallback warnings — downgrade to debug, skip non-standard hours
+- feat: ACARS auto-post during active watches, fix sounding log messages, suppress SounderPy plot output
+- fix: add K prefix for ACARS airport lat/lon lookup (3-letter codes need KATL not ATL)
+- chore: add install-hooks.sh for pre-push syntax and test checks
+- fix: apply CombinedSoundingView to /sounding command — ACARS and IEM multi-hour support
+- feat: add IEM sounding source (all hours), ACARS aircraft profiles to /sounding
+- feat: auto-post soundings near active SPC watches at 00z/12z
+- fix: reduce sounding station verification from 10 candidates/2 times to 6/1 for faster response
+- fix: remove startup cleanup block that was silently killing on_ready before command sync
+- feat: /download count param for N most recent, fix startup cleanup blocking event loop
+- feat: add quick-start options to /download — site codes and time preset bypass interactive flow
+- fix: set group ownership to spcbot on install dir so radar cleanup works
+- fix: set 775 on install dir so spcbot can create/delete radar_data subdirs
+- fix: rename s3 download_file to s3_download_file to avoid conflict with downloads.py local function
+- fix: create radar_data dir with correct permissions during deploy
+- fix: get_radar_sites is now async, remove run_in_executor wrapper in StartView
+- refactor: replace boto3 with aioboto3 for native async S3 operations
+- fix: load posted_mds and posted_watches from DB on startup; fix triple DB connection
+- fix: add missing asyncio import to mesoscale and watches; add cog import smoke tests
+- fix: skip JSON migration if DB already populated to prevent overwriting current hashes
+- fix: load auto_cache and manual_cache from DB on startup so hashes survive restarts
+- fix: persist last_posted_urls to SQLite so Day 1-3 outlooks don't repost on restart
+- Update CONTRIBUTING.md for SQLite database changes
+- docs: fix alignment of backoff.py and db.py in project structure
+- docs: update directory tree with db.py
+- Fix formatting of backoff.py entry in README
+- refactor: migrate all persistent state from JSON files to SQLite via aiosqlite
+- feat: add exponential backoff to auto_post_spc, auto_post_md, auto_post_watches loops
+- refactor: consolidate /csu1-8 and panel commands into single /csu with Choice dropdown
+- docs: update CONTRIBUTING with sounding, fresh option, persistence; add SounderPy to CREDITS
+- fix: log file and matplotlib permissions, suppress SounderPy banner, add logout note to deploy
+- fix: complete deploy.sh rewrite — self-copy detection, venv arch check, correct permissions, aliases via /etc/bash.bashrc
+- fix: add git safe.directory config for root during deploy
+- fix: split ownership so admins can git pull, spcbot only owns cache and .env, add spcupdate alias
+- fix: deploy.sh installs to /opt/spc-bot, add shell aliases spcon/spcoff/spcstatus/spclog
+- fix: keep partial update state waiting until 20min timeout instead of clearing after 2min
+- feat: add fresh option to /scp /spc1 /spc2 /spc3 to bypass cache
+- fix: check all sounding times concurrently per station for faster verification
+- fix: verify station data availability before showing options, search wider candidate pool
+- fix: immediate loading state, auto-fallback to previous sounding times, cleanup ephemeral messages on success
+- fix: only show sounding times that are in the past
+- feat: add RAOB sounding cog with /sounding slash command, interactive station/time selection, dark mode preference
+- fix: widen CSU-MLP poll window to 22 UTC, WxNext2 to 12 UTC, add periodic_cleanup status label
+- docs: update README with hodograph feature, new dependencies, and project structure
+- fix(hodograph): use sys.executable to run vad.py in active venv
+- feat: add hodograph cog with /hodograph slash command
+- docs: fix slash command names and add missing /wpc and /downloaderstatus
+- docs: add CONTRIBUTING.md with architecture and operator reference
+- test: add unit tests for watches VTEC parsing and API failure handling
+- fix(watches): distinguish API failure from empty watch list
+- chore: remove cig_migration() dead code
+- improve: tighten CSU-MLP and WxNext2 poll windows, add friendly task labels to /status
+- refactor: rename SCP_CHANNEL_ID to MODELS_CHANNEL_ID for clarity
+- docs: add Prerequisites section with Python version and dependency requirements
+- docs: add venv creation step to manual setup instructions
+- docs: restructure setup section for consistency, remove redundant systemctl commands
+- feat: add deploy.sh with systemd service setup and update README
+- test: add tests for CSU-MLP URL builders, state persistence, and NCAR WxNext2
+- ci: add GitHub Actions workflow to run tests on push and PR
+- docs: update README with NCAR WxNext2 feature and project structure
+- feat: add NCAR WxNext2 cog with /wxnext slash command and daily auto-post
+- fix: use key=str in sorted() to handle mixed int/str posted state
+- feat: add CSU-MLP 6-panel slash commands and auto-post, update README
+- fix: persist CSU-MLP posted state across reboots using cache JSON
+- fix: CSU-MLP days 4-8 use 00z only, use Content-Type check instead of HEAD for URL validation
+- feat: add CSU-MLP cog with /csu1-8 slash commands and polling auto-post
+- v2.0.0: major refactor
+- reduce watchdog interval from 10 to 2 minutes for faster task recovery
+- Update README to remove discord.py reference
+- Initialize README with project details and features
+
+## [4.9.28] — 2026-04-14
+
+- fix: resolve db deadlock, slow shutdown, and duplicate IEM fetch (#80)
+
+## [4.9.27-hotfix] — 2026-04-14
+
+- (tag-only / no code changes since v4.9.27)
+
+## [4.9.27] — 2026-04-14
+
+- Fix NameError: datetime is not defined in cogs/failover.py
+
+## [4.9.26] — 2026-04-14
+
+- fix: resolve ImportError from missing migrate_from_json and optimize shutdown speed
+
+## [4.9.25] — 2026-04-14
+
+- fix: resolve ImportError by removing legacy migration logic and finalize setup_hook hydration
+
+## [4.9.24] — 2026-04-14
+
+- fix: resolve reposting flood by hydrating state in setup_hook and prioritize Wyoming soundings
+
+## [4.9.23] — 2026-04-14
+
+- fix: restore sounding priority and finalize state synchronization to prevent reposts
+
+## [4.9.22] — 2026-04-14
+
+- fix: resolve TypeErrors in download calls and NameErrors in sounding cogs
+
+## [4.9.21] — 2026-04-14
+
+- fix: resolve test hangs, add resource cleanup, and fix double-post race condition
+
+## [4.9.20] — 2026-04-14
+
+- fix: track products.json, resolve absolute paths, and restore robust cache logic
+
+## [4.9.19] — 2026-04-14
+
+- test: update utils tests for refactored persistence
+- refactor: automated task management, externalized product logic, and finalized sqlite transition
+
+## [4.9.18] — 2026-04-14
+
+- fix: make watchdog and iembot respect standby state
+
+## [4.9.17] — 2026-04-14
+
+- feat: re-add SOUNDING_CHANNEL_ID configuration
+- feat: persistent product cache, MD pre-warming, and enhanced observability
+- chore: ignore GEMINI.md
+- test: make IEM fallback test deterministic by mocking asyncio.wait
+- fix: resolve NCAR TypeError and system-wide task InvalidStateError
+- fix: false cancellation, preliminary probs, and SPC upgrade edit for iembot watch posts
+- fix: add missing post_md_now and post_watch_now methods
+- feat: iembot-triggered immediate posting for watches and MDs
+- feat: IEM iembot real-time feed for instant watch/MD text pre-caching
+- chore: remove dead legacy globals from utils/cache.py
+- fix: rewrite fetch_watch_details_iem to use IEM watches JSON API
+- feat: watch-triggered soundings and IEM/SPC/Wyoming race fetching
+- feat: IEM fallback for watch and MD details when SPC is unreachable
+- fix: periodic command sync primary only
+- fix: standby skips command sync on startup to prevent overwriting primary's commands with 0 (#64)
+- fix: add periodic 24h command tree sync to recover from silent Discord command drops
+- fix: correct all DB function names in _persist_hydrated_state
+- fix: persist hydrated state to standby SQLite DB so restarts load current data
+- fix: downgrade Upstash heartbeat log to DEBUG to reduce log noise
+- docs: update README bot structure and CONTRIBUTING failover architecture
+- fix: serialize matplotlib plot generation with asyncio lock, defer+followup for RAOB time picker
+- fix: use defer+followup for RAOB time picker so station picker remains visible
+- fix: IEMTimeSelectionView uses defer+followup to keep time picker visible, auto-post bypasses availability cache
+- fix: demotion check before URL write, sounding UI keeps selection embed, station availability cache
+- fix: delete Upstash key on graceful shutdown to prevent stale tunnel URL causing false failover
+- fix: Wyoming first for 00z/12z plots, IEM for special soundings, cache availability results 15min, longer UI timeout, don't auto-delete after posting
+- fix: check for existing primary before writing URL, add _ready flag to prevent premature Upstash writes
+- fix: add demotion check — standby steps down when primary URL changes in Upstash
+- fix: hydrate from standby on primary restart, 30s poll interval, failure counter for promotion
+- fix: cloudflared URL parsing — read stderr, match https:// prefix
+- fix: use Upstash POST body format for URL values with slashes
+- feat: HTTP failover system with cloudflared tunnel and Upstash coordination
+- fix: status cog use bot.state for posted_mds/watches display and all fetch_and_send_weather_images calls
+- fix: remove debug logging from _execute_watches; replace shallow integration tests with ones that actually execute code paths
+- fix: replace undefined auto_cache/manual_cache with bot.state equivalents in watches cog
+- debug: add logging to _execute_watches to trace NWS API and SPC scrape fallback
+- fix: update SPC watch index scrape — SPC removed alt attributes from watch links, now matches href only and fetches individual watch page to determine tornado vs SVR type
+- chore: update README bot structure to reflect v4.8.4
+- fix: guard task.exception() with done() check in after_aggressive_loop
+- fix: initialize bot.state at bot creation time, add integration tests for BotState and cog instantiation
+- fix: correct check_and_post_day call sites and remove double bot.state reference
+- fix: pass state explicitly to standalone functions in outlooks and status cogs
+- refactor: encapsulate global state in BotState class attached to bot.state
+- chore: pre-push hook skips tag and branch-delete pushes
+- fix: suppress chatty Wyoming fallback warnings — downgrade to debug, skip non-standard hours
+- feat: ACARS auto-post during active watches, fix sounding log messages, suppress SounderPy plot output
+- fix: add K prefix for ACARS airport lat/lon lookup (3-letter codes need KATL not ATL)
+- chore: add install-hooks.sh for pre-push syntax and test checks
+- fix: apply CombinedSoundingView to /sounding command — ACARS and IEM multi-hour support
+- feat: add IEM sounding source (all hours), ACARS aircraft profiles to /sounding
+- feat: auto-post soundings near active SPC watches at 00z/12z
+- fix: reduce sounding station verification from 10 candidates/2 times to 6/1 for faster response
+- fix: remove startup cleanup block that was silently killing on_ready before command sync
+- feat: /download count param for N most recent, fix startup cleanup blocking event loop
+- feat: add quick-start options to /download — site codes and time preset bypass interactive flow
+- fix: set group ownership to spcbot on install dir so radar cleanup works
+- fix: set 775 on install dir so spcbot can create/delete radar_data subdirs
+- fix: rename s3 download_file to s3_download_file to avoid conflict with downloads.py local function
+- fix: create radar_data dir with correct permissions during deploy
+- fix: get_radar_sites is now async, remove run_in_executor wrapper in StartView
+- refactor: replace boto3 with aioboto3 for native async S3 operations
+- fix: load posted_mds and posted_watches from DB on startup; fix triple DB connection
+- fix: add missing asyncio import to mesoscale and watches; add cog import smoke tests
+- fix: skip JSON migration if DB already populated to prevent overwriting current hashes
+- fix: load auto_cache and manual_cache from DB on startup so hashes survive restarts
+- fix: persist last_posted_urls to SQLite so Day 1-3 outlooks don't repost on restart
+- Update CONTRIBUTING.md for SQLite database changes
+- docs: fix alignment of backoff.py and db.py in project structure
+- docs: update directory tree with db.py
+- Fix formatting of backoff.py entry in README
+- refactor: migrate all persistent state from JSON files to SQLite via aiosqlite
+- feat: add exponential backoff to auto_post_spc, auto_post_md, auto_post_watches loops
+- refactor: consolidate /csu1-8 and panel commands into single /csu with Choice dropdown
+- docs: update CONTRIBUTING with sounding, fresh option, persistence; add SounderPy to CREDITS
+- fix: log file and matplotlib permissions, suppress SounderPy banner, add logout note to deploy
+- fix: complete deploy.sh rewrite — self-copy detection, venv arch check, correct permissions, aliases via /etc/bash.bashrc
+- fix: add git safe.directory config for root during deploy
+- fix: split ownership so admins can git pull, spcbot only owns cache and .env, add spcupdate alias
+- fix: deploy.sh installs to /opt/spc-bot, add shell aliases spcon/spcoff/spcstatus/spclog
+- fix: keep partial update state waiting until 20min timeout instead of clearing after 2min
+- feat: add fresh option to /scp /spc1 /spc2 /spc3 to bypass cache
+- fix: check all sounding times concurrently per station for faster verification
+- fix: verify station data availability before showing options, search wider candidate pool
+- fix: immediate loading state, auto-fallback to previous sounding times, cleanup ephemeral messages on success
+- fix: only show sounding times that are in the past
+- feat: add RAOB sounding cog with /sounding slash command, interactive station/time selection, dark mode preference
+- fix: widen CSU-MLP poll window to 22 UTC, WxNext2 to 12 UTC, add periodic_cleanup status label
+- docs: update README with hodograph feature, new dependencies, and project structure
+- fix(hodograph): use sys.executable to run vad.py in active venv
+- feat: add hodograph cog with /hodograph slash command
+- docs: fix slash command names and add missing /wpc and /downloaderstatus
+- docs: add CONTRIBUTING.md with architecture and operator reference
+- test: add unit tests for watches VTEC parsing and API failure handling
+- fix(watches): distinguish API failure from empty watch list
+- chore: remove cig_migration() dead code
+- improve: tighten CSU-MLP and WxNext2 poll windows, add friendly task labels to /status
+- refactor: rename SCP_CHANNEL_ID to MODELS_CHANNEL_ID for clarity
+- docs: add Prerequisites section with Python version and dependency requirements
+- docs: add venv creation step to manual setup instructions
+- docs: restructure setup section for consistency, remove redundant systemctl commands
+- feat: add deploy.sh with systemd service setup and update README
+- test: add tests for CSU-MLP URL builders, state persistence, and NCAR WxNext2
+- ci: add GitHub Actions workflow to run tests on push and PR
+- docs: update README with NCAR WxNext2 feature and project structure
+- feat: add NCAR WxNext2 cog with /wxnext slash command and daily auto-post
+- fix: use key=str in sorted() to handle mixed int/str posted state
+- feat: add CSU-MLP 6-panel slash commands and auto-post, update README
+- fix: persist CSU-MLP posted state across reboots using cache JSON
+- fix: CSU-MLP days 4-8 use 00z only, use Content-Type check instead of HEAD for URL validation
+- feat: add CSU-MLP cog with /csu1-8 slash commands and polling auto-post
+- v2.0.0: major refactor
+- reduce watchdog interval from 10 to 2 minutes for faster task recovery
+- Update README to remove discord.py reference
+- Initialize README with project details and features
+
+## [4.9.16] — 2026-04-14
+
+- feat: persistent product cache, MD pre-warming, and enhanced observability
+- chore: ignore GEMINI.md
+
+## [4.9.15] — 2026-04-13
+
+- test: make IEM fallback test deterministic by mocking asyncio.wait
+- fix: resolve NCAR TypeError and system-wide task InvalidStateError
+
+## [4.9.14] — 2026-04-13
+
+- fix: false cancellation, preliminary probs, and SPC upgrade edit for iembot watch posts
+
+## [4.9.13] — 2026-04-13
+
+- fix: add missing post_md_now and post_watch_now methods
+
+## [4.9.12] — 2026-04-13
+
+- feat: iembot-triggered immediate posting for watches and MDs
+
+## [4.9.11] — 2026-04-13
+
+- feat: IEM iembot real-time feed for instant watch/MD text pre-caching
+
+## [4.9.10] — 2026-04-13
+
+- chore: remove dead legacy globals from utils/cache.py
+
+## [4.9.9] — 2026-04-13
+
+- fix: rewrite fetch_watch_details_iem to use IEM watches JSON API
+
+## [4.9.8] — 2026-04-13
+
+- feat: watch-triggered soundings and IEM/SPC/Wyoming race fetching
+
+## [4.9.7] — 2026-04-13
+
+- feat: IEM fallback for watch and MD details when SPC is unreachable
+
+## [4.9.6] — 2026-04-12
+
+- fix: periodic command sync primary only
+
+## [4.9.5] — 2026-04-12
+
+- fix: standby skips command sync on startup to prevent overwriting primary's commands with 0 (#64)
+
+## [4.9.4] — 2026-04-12
+
+- fix: add periodic 24h command tree sync to recover from silent Discord command drops
+
+## [4.9.3] — 2026-04-12
+
+- fix: correct all DB function names in _persist_hydrated_state
+
+## [4.9.2] — 2026-04-12
+
+- fix: persist hydrated state to standby SQLite DB so restarts load current data
+
+## [4.9.1] — 2026-04-12
+
+- fix: downgrade Upstash heartbeat log to DEBUG to reduce log noise
+
+## [4.9.0] — 2026-04-12
+
+- docs: update README bot structure and CONTRIBUTING failover architecture
+- fix: serialize matplotlib plot generation with asyncio lock, defer+followup for RAOB time picker
+- fix: use defer+followup for RAOB time picker so station picker remains visible
+- fix: IEMTimeSelectionView uses defer+followup to keep time picker visible, auto-post bypasses availability cache
+- fix: demotion check before URL write, sounding UI keeps selection embed, station availability cache
+- fix: delete Upstash key on graceful shutdown to prevent stale tunnel URL causing false failover
+- fix: Wyoming first for 00z/12z plots, IEM for special soundings, cache availability results 15min, longer UI timeout, don't auto-delete after posting
+- fix: check for existing primary before writing URL, add _ready flag to prevent premature Upstash writes
+- fix: add demotion check — standby steps down when primary URL changes in Upstash
+- fix: hydrate from standby on primary restart, 30s poll interval, failure counter for promotion
+- fix: cloudflared URL parsing — read stderr, match https:// prefix
+- fix: use Upstash POST body format for URL values with slashes
+- feat: HTTP failover system with cloudflared tunnel and Upstash coordination
+- fix: status cog use bot.state for posted_mds/watches display and all fetch_and_send_weather_images calls
+
+## [4.8.8] — 2026-04-11
+
+- fix: remove debug logging from _execute_watches; replace shallow integration tests with ones that actually execute code paths
+
+## [4.8.7] — 2026-04-11
+
+- fix: replace undefined auto_cache/manual_cache with bot.state equivalents in watches cog
+
+## [4.8.6] — 2026-04-11
+
+- debug: add logging to _execute_watches to trace NWS API and SPC scrape fallback
+
+## [4.8.5] — 2026-04-11
+
+- fix: update SPC watch index scrape — SPC removed alt attributes from watch links, now matches href only and fetches individual watch page to determine tornado vs SVR type
+- chore: update README bot structure to reflect v4.8.4
+
+## [4.8.4] — 2026-04-11
+
+- fix: guard task.exception() with done() check in after_aggressive_loop
+
+## [4.8.3] — 2026-04-11
+
+- fix: initialize bot.state at bot creation time, add integration tests for BotState and cog instantiation
+
+## [4.8.2] — 2026-04-11
+
+- fix: correct check_and_post_day call sites and remove double bot.state reference
+
+## [4.8.1] — 2026-04-11
+
+- fix: pass state explicitly to standalone functions in outlooks and status cogs
+
+## [4.8.0] — 2026-04-11
+
+- refactor: encapsulate global state in BotState class attached to bot.state
+- chore: pre-push hook skips tag and branch-delete pushes
+
+## [4.7.4] — 2026-04-11
+
+- fix: suppress chatty Wyoming fallback warnings — downgrade to debug, skip non-standard hours
+
+## [4.7.3] — 2026-04-11
+
+- feat: ACARS auto-post during active watches, fix sounding log messages, suppress SounderPy plot output
+
+## [4.7.2] — 2026-04-11
+
+- fix: add K prefix for ACARS airport lat/lon lookup (3-letter codes need KATL not ATL)
+- chore: add install-hooks.sh for pre-push syntax and test checks
+
+## [4.7.1] — 2026-04-11
+
+- fix: apply CombinedSoundingView to /sounding command — ACARS and IEM multi-hour support
+
+## [4.7.0] — 2026-04-11
+
+- feat: add IEM sounding source (all hours), ACARS aircraft profiles to /sounding
+
+## [4.6.0] — 2026-04-11
+
+- feat: auto-post soundings near active SPC watches at 00z/12z
+
+## [4.5.3] — 2026-04-11
+
+- fix: reduce sounding station verification from 10 candidates/2 times to 6/1 for faster response
+
+## [4.5.2] — 2026-04-11
+
+- fix: remove startup cleanup block that was silently killing on_ready before command sync
+
+## [4.5.1] — 2026-04-11
+
+- feat: /download count param for N most recent, fix startup cleanup blocking event loop
+
+## [4.5.0] — 2026-04-11
+
+- feat: add quick-start options to /download — site codes and time preset bypass interactive flow
+
+## [4.4.5] — 2026-04-11
+
+- fix: set group ownership to spcbot on install dir so radar cleanup works
+
+## [4.4.4] — 2026-04-11
+
+- fix: set 775 on install dir so spcbot can create/delete radar_data subdirs
+
+## [4.4.3] — 2026-04-11
+
+- fix: rename s3 download_file to s3_download_file to avoid conflict with downloads.py local function
+
+## [4.4.2] — 2026-04-11
+
+- fix: create radar_data dir with correct permissions during deploy
+
+## [4.4.1] — 2026-04-11
+
+- fix: get_radar_sites is now async, remove run_in_executor wrapper in StartView
+
+## [4.4.0] — 2026-04-11
+
+- refactor: replace boto3 with aioboto3 for native async S3 operations
+
+## [4.3.4] — 2026-04-11
+
+- fix: load posted_mds and posted_watches from DB on startup; fix triple DB connection
+
+## [4.3.3] — 2026-04-11
+
+- fix: add missing asyncio import to mesoscale and watches; add cog import smoke tests
+
+## [4.3.2] — 2026-04-11
+
+- fix: skip JSON migration if DB already populated to prevent overwriting current hashes
+- fix: load auto_cache and manual_cache from DB on startup so hashes survive restarts
+- fix: persist last_posted_urls to SQLite so Day 1-3 outlooks don't repost on restart
+- Update CONTRIBUTING.md for SQLite database changes
+- docs: fix alignment of backoff.py and db.py in project structure
+- docs: update directory tree with db.py
+- Fix formatting of backoff.py entry in README
+
+## [4.3.1] — 2026-04-11
+
+- (tag-only / no code changes since v4.3.0)
+
+## [4.3.0] — 2026-04-11
+
+- refactor: migrate all persistent state from JSON files to SQLite via aiosqlite
+
+## [4.2.0] — 2026-04-11
+
+- feat: add exponential backoff to auto_post_spc, auto_post_md, auto_post_watches loops
+
+## [4.1.0] — 2026-04-11
+
+- refactor: consolidate /csu1-8 and panel commands into single /csu with Choice dropdown
+
+## [4.0.10] — 2026-04-10
+
+- docs: update CONTRIBUTING with sounding, fresh option, persistence; add SounderPy to CREDITS
+
+## [4.0.9] — 2026-04-10
+
+- fix: log file and matplotlib permissions, suppress SounderPy banner, add logout note to deploy
+
+## [4.0.8] — 2026-04-10
+
+- fix: complete deploy.sh rewrite — self-copy detection, venv arch check, correct permissions, aliases via /etc/bash.bashrc
+- fix: add git safe.directory config for root during deploy
+- fix: split ownership so admins can git pull, spcbot only owns cache and .env, add spcupdate alias
+
+## [4.0.7] — 2026-04-10
+
+- fix: deploy.sh installs to /opt/spc-bot, add shell aliases spcon/spcoff/spcstatus/spclog
+
+## [4.0.6] — 2026-04-10
+
+- fix: keep partial update state waiting until 20min timeout instead of clearing after 2min
+
+## [4.0.5] — 2026-04-10
+
+- feat: add fresh option to /scp /spc1 /spc2 /spc3 to bypass cache
+
+## [4.0.4] — 2026-04-10
+
+- fix: check all sounding times concurrently per station for faster verification
+
+## [4.0.3] — 2026-04-10
+
+- fix: verify station data availability before showing options, search wider candidate pool
+
+## [4.0.2] — 2026-04-10
+
+- fix: immediate loading state, auto-fallback to previous sounding times, cleanup ephemeral messages on success
+
+## [4.0.1] — 2026-04-10
+
+- fix: only show sounding times that are in the past
+
+## [4.0.0] — 2026-04-10
+
+- feat: add RAOB sounding cog with /sounding slash command, interactive station/time selection, dark mode preference
+
+## [3.0.1] — 2026-04-10
+
+- fix: widen CSU-MLP poll window to 22 UTC, WxNext2 to 12 UTC, add periodic_cleanup status label
+- docs: update README with hodograph feature, new dependencies, and project structure
+
+## [3.0.0] — 2026-04-09
+
+- fix(hodograph): use sys.executable to run vad.py in active venv
+- feat: add hodograph cog with /hodograph slash command
+- docs: fix slash command names and add missing /wpc and /downloaderstatus
+
+## [2.6.0] — 2026-04-09
+
+- docs: add CONTRIBUTING.md with architecture and operator reference
+- test: add unit tests for watches VTEC parsing and API failure handling
+- fix(watches): distinguish API failure from empty watch list
+- chore: remove cig_migration() dead code
+
+## [2.5.1] — 2026-04-09
+
+- improve: tighten CSU-MLP and WxNext2 poll windows, add friendly task labels to /status
+
+## [2.5.0] — 2026-04-08
+
+- refactor: rename SCP_CHANNEL_ID to MODELS_CHANNEL_ID for clarity
+
+## [2.4.3] — 2026-04-08
+
+- docs: add Prerequisites section with Python version and dependency requirements
+
+## [2.4.2] — 2026-04-08
+
+- docs: add venv creation step to manual setup instructions
+
+## [2.4.1] — 2026-04-08
+
+- docs: restructure setup section for consistency, remove redundant systemctl commands
+
+## [2.4.0] — 2026-04-08
+
+- feat: add deploy.sh with systemd service setup and update README
+
+## [2.3.3] — 2026-04-08
+
+- test: add tests for CSU-MLP URL builders, state persistence, and NCAR WxNext2
+
+## [2.3.2] — 2026-04-08
+
+- ci: add GitHub Actions workflow to run tests on push and PR
+
+## [2.3.1] — 2026-04-08
+
+- docs: update README with NCAR WxNext2 feature and project structure
+
+## [2.3.0] — 2026-04-08
+
+- feat: add NCAR WxNext2 cog with /wxnext slash command and daily auto-post
+
+## [2.2.1] — 2026-04-08
+
+- fix: use key=str in sorted() to handle mixed int/str posted state
+
+## [2.2.0] — 2026-04-08
+
+- feat: add CSU-MLP 6-panel slash commands and auto-post, update README
+
+## [2.1.2] — 2026-04-08
+
+- fix: persist CSU-MLP posted state across reboots using cache JSON
+
+## [2.1.1] — 2026-04-08
+
+- fix: CSU-MLP days 4-8 use 00z only, use Content-Type check instead of HEAD for URL validation
+
+## [2.1.0] — 2026-04-08
+
+- feat: add CSU-MLP cog with /csu1-8 slash commands and polling auto-post
+
+## [2.0.0] — 2026-04-08
+
+- v2.0.0: major refactor
+- reduce watchdog interval from 10 to 2 minutes for faster task recovery
+- Update README to remove discord.py reference
+- Initialize README with project details and features
+
+## [1.4.3-hotfix] — 2026-04-14
+
+- Fix NameError: datetime is not defined in cogs/failover.py
+- fix: resolve ImportError from missing migrate_from_json and optimize shutdown speed
+- fix: resolve ImportError by removing legacy migration logic and finalize setup_hook hydration
+- fix: resolve reposting flood by hydrating state in setup_hook and prioritize Wyoming soundings
+- fix: restore sounding priority and finalize state synchronization to prevent reposts
+- fix: resolve TypeErrors in download calls and NameErrors in sounding cogs
+- fix: resolve test hangs, add resource cleanup, and fix double-post race condition
+- fix: track products.json, resolve absolute paths, and restore robust cache logic
+- test: update utils tests for refactored persistence
+- refactor: automated task management, externalized product logic, and finalized sqlite transition
+- fix: make watchdog and iembot respect standby state
+- feat: re-add SOUNDING_CHANNEL_ID configuration
+- feat: persistent product cache, MD pre-warming, and enhanced observability
+- chore: ignore GEMINI.md
+- test: make IEM fallback test deterministic by mocking asyncio.wait
+- fix: resolve NCAR TypeError and system-wide task InvalidStateError
+- fix: false cancellation, preliminary probs, and SPC upgrade edit for iembot watch posts
+- fix: add missing post_md_now and post_watch_now methods
+- feat: iembot-triggered immediate posting for watches and MDs
+- feat: IEM iembot real-time feed for instant watch/MD text pre-caching
+- chore: remove dead legacy globals from utils/cache.py
+- fix: rewrite fetch_watch_details_iem to use IEM watches JSON API
+- feat: watch-triggered soundings and IEM/SPC/Wyoming race fetching
+- feat: IEM fallback for watch and MD details when SPC is unreachable
+- fix: periodic command sync primary only
+- fix: standby skips command sync on startup to prevent overwriting primary's commands with 0 (#64)
+- fix: add periodic 24h command tree sync to recover from silent Discord command drops
+- fix: correct all DB function names in _persist_hydrated_state
+- fix: persist hydrated state to standby SQLite DB so restarts load current data
+- fix: downgrade Upstash heartbeat log to DEBUG to reduce log noise
+- docs: update README bot structure and CONTRIBUTING failover architecture
+- fix: serialize matplotlib plot generation with asyncio lock, defer+followup for RAOB time picker
+- fix: use defer+followup for RAOB time picker so station picker remains visible
+- fix: IEMTimeSelectionView uses defer+followup to keep time picker visible, auto-post bypasses availability cache
+- fix: demotion check before URL write, sounding UI keeps selection embed, station availability cache
+- fix: delete Upstash key on graceful shutdown to prevent stale tunnel URL causing false failover
+- fix: Wyoming first for 00z/12z plots, IEM for special soundings, cache availability results 15min, longer UI timeout, don't auto-delete after posting
+- fix: check for existing primary before writing URL, add _ready flag to prevent premature Upstash writes
+- fix: add demotion check — standby steps down when primary URL changes in Upstash
+- fix: hydrate from standby on primary restart, 30s poll interval, failure counter for promotion
+- fix: cloudflared URL parsing — read stderr, match https:// prefix
+- fix: use Upstash POST body format for URL values with slashes
+- feat: HTTP failover system with cloudflared tunnel and Upstash coordination
+- fix: status cog use bot.state for posted_mds/watches display and all fetch_and_send_weather_images calls
+- fix: remove debug logging from _execute_watches; replace shallow integration tests with ones that actually execute code paths
+- fix: replace undefined auto_cache/manual_cache with bot.state equivalents in watches cog
+- debug: add logging to _execute_watches to trace NWS API and SPC scrape fallback
+- fix: update SPC watch index scrape — SPC removed alt attributes from watch links, now matches href only and fetches individual watch page to determine tornado vs SVR type
+- chore: update README bot structure to reflect v4.8.4
+- fix: guard task.exception() with done() check in after_aggressive_loop
+- fix: initialize bot.state at bot creation time, add integration tests for BotState and cog instantiation
+- fix: correct check_and_post_day call sites and remove double bot.state reference
+- fix: pass state explicitly to standalone functions in outlooks and status cogs
+- refactor: encapsulate global state in BotState class attached to bot.state
+- chore: pre-push hook skips tag and branch-delete pushes
+- fix: suppress chatty Wyoming fallback warnings — downgrade to debug, skip non-standard hours
+- feat: ACARS auto-post during active watches, fix sounding log messages, suppress SounderPy plot output
+- fix: add K prefix for ACARS airport lat/lon lookup (3-letter codes need KATL not ATL)
+- chore: add install-hooks.sh for pre-push syntax and test checks
+- fix: apply CombinedSoundingView to /sounding command — ACARS and IEM multi-hour support
+- feat: add IEM sounding source (all hours), ACARS aircraft profiles to /sounding
+- feat: auto-post soundings near active SPC watches at 00z/12z
+- fix: reduce sounding station verification from 10 candidates/2 times to 6/1 for faster response
+- fix: remove startup cleanup block that was silently killing on_ready before command sync
+- feat: /download count param for N most recent, fix startup cleanup blocking event loop
+- feat: add quick-start options to /download — site codes and time preset bypass interactive flow
+- fix: set group ownership to spcbot on install dir so radar cleanup works
+- fix: set 775 on install dir so spcbot can create/delete radar_data subdirs
+- fix: rename s3 download_file to s3_download_file to avoid conflict with downloads.py local function
+- fix: create radar_data dir with correct permissions during deploy
+- fix: get_radar_sites is now async, remove run_in_executor wrapper in StartView
+- refactor: replace boto3 with aioboto3 for native async S3 operations
+- fix: load posted_mds and posted_watches from DB on startup; fix triple DB connection
+- fix: add missing asyncio import to mesoscale and watches; add cog import smoke tests
+- fix: skip JSON migration if DB already populated to prevent overwriting current hashes
+- fix: load auto_cache and manual_cache from DB on startup so hashes survive restarts
+- fix: persist last_posted_urls to SQLite so Day 1-3 outlooks don't repost on restart
+- Update CONTRIBUTING.md for SQLite database changes
+- docs: fix alignment of backoff.py and db.py in project structure
+- docs: update directory tree with db.py
+- Fix formatting of backoff.py entry in README
+- refactor: migrate all persistent state from JSON files to SQLite via aiosqlite
+- feat: add exponential backoff to auto_post_spc, auto_post_md, auto_post_watches loops
+- refactor: consolidate /csu1-8 and panel commands into single /csu with Choice dropdown
+- docs: update CONTRIBUTING with sounding, fresh option, persistence; add SounderPy to CREDITS
+- fix: log file and matplotlib permissions, suppress SounderPy banner, add logout note to deploy
+- fix: complete deploy.sh rewrite — self-copy detection, venv arch check, correct permissions, aliases via /etc/bash.bashrc
+- fix: add git safe.directory config for root during deploy
+- fix: split ownership so admins can git pull, spcbot only owns cache and .env, add spcupdate alias
+- fix: deploy.sh installs to /opt/spc-bot, add shell aliases spcon/spcoff/spcstatus/spclog
+- fix: keep partial update state waiting until 20min timeout instead of clearing after 2min
+- feat: add fresh option to /scp /spc1 /spc2 /spc3 to bypass cache
+- fix: check all sounding times concurrently per station for faster verification
+- fix: verify station data availability before showing options, search wider candidate pool
+- fix: immediate loading state, auto-fallback to previous sounding times, cleanup ephemeral messages on success
+- fix: only show sounding times that are in the past
+- feat: add RAOB sounding cog with /sounding slash command, interactive station/time selection, dark mode preference
+- fix: widen CSU-MLP poll window to 22 UTC, WxNext2 to 12 UTC, add periodic_cleanup status label
+- docs: update README with hodograph feature, new dependencies, and project structure
+- fix(hodograph): use sys.executable to run vad.py in active venv
+- feat: add hodograph cog with /hodograph slash command
+- docs: fix slash command names and add missing /wpc and /downloaderstatus
+- docs: add CONTRIBUTING.md with architecture and operator reference
+- test: add unit tests for watches VTEC parsing and API failure handling
+- fix(watches): distinguish API failure from empty watch list
+- chore: remove cig_migration() dead code
+- improve: tighten CSU-MLP and WxNext2 poll windows, add friendly task labels to /status
+- refactor: rename SCP_CHANNEL_ID to MODELS_CHANNEL_ID for clarity
+- docs: add Prerequisites section with Python version and dependency requirements
+- docs: add venv creation step to manual setup instructions
+- docs: restructure setup section for consistency, remove redundant systemctl commands
+- feat: add deploy.sh with systemd service setup and update README
+- test: add tests for CSU-MLP URL builders, state persistence, and NCAR WxNext2
+- ci: add GitHub Actions workflow to run tests on push and PR
+- docs: update README with NCAR WxNext2 feature and project structure
+- feat: add NCAR WxNext2 cog with /wxnext slash command and daily auto-post
+- fix: use key=str in sorted() to handle mixed int/str posted state
+- feat: add CSU-MLP 6-panel slash commands and auto-post, update README
+- fix: persist CSU-MLP posted state across reboots using cache JSON
+- fix: CSU-MLP days 4-8 use 00z only, use Content-Type check instead of HEAD for URL validation
+- feat: add CSU-MLP cog with /csu1-8 slash commands and polling auto-post
+- v2.0.0: major refactor
+- reduce watchdog interval from 10 to 2 minutes for faster task recovery
+- Update README to remove discord.py reference
+- Initialize README with project details and features
+
+## [1.2.6] — 2026-04-06
+
+- fix SCP auto-post to always download all 5 images instead of only changed ones
+
+## [1.2.5] — 2026-04-03
+
+- fix filename timestamp parsing for NEXRAD files with underscore separator
+
+## [1.2.4] — 2026-04-03
+
+- fix partial update state being cleared too early when SPC publishes images a minute apart
+
+## [1.2.3] — 2026-04-03
+
+- fix progress embed overflow with smart truncation, fix multi-site zip naming per site
+
+## [1.2.2] — 2026-04-03
+
+- improve radar time selection with Z-to-Z, start+duration, explicit range, and better error messages
+- fix gitignore to catch rotated log files
+- remove log files from tracking
+
+## [1.2.1] — 2026-04-03
+
+- fix radar timeout with retries, quiet routine logs
+- status: fix IP detection using UDP socket
+- status: add hostname and IP to /status output
+- radar: add download timeout, better error handling and user messaging
+
+## [1.2.0] — 2026-03-24
+
+- (tag-only / no code changes since v1.1.2)
+
+## [1.1.2] — 2026-04-01
+
+- status: fix IP detection using UDP socket
+
+## [1.1.1] — 2026-04-01
+
+- status: add hostname and IP to /status output
+
+## [1.1.0] — 2026-04-01
+
+- radar: add download timeout, better error handling and user messaging
+- add radar downloader cog
+- update gitignore
+- remove cache dir from git tracking
+
+## [1.0.0] — 2026-03-24
+
+### Initial
+- initial working cog structure
+
