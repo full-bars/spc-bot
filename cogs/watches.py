@@ -22,10 +22,25 @@ from utils.cache import (
     download_single_image,
 )
 from utils.change_detection import get_cache_path_for_url, is_placeholder_image
-from utils.http import http_get_bytes, http_get_text
+from utils.http import http_get_bytes, http_get_bytes_conditional, http_get_text
 from utils.state_store import add_posted_watch, prune_posted_watches
 
 logger = logging.getLogger("spc_bot")
+
+# Hoisted patterns — VTEC is scanned in a loop over every active feature,
+# so caching the compiled form measurably helps on large NWS payloads.
+_VTEC_RE = re.compile(
+    r"/[^.]+\.[^.]+\.[^.]+\.(SV|TO)\.A\.(\d{4})\.",
+    re.IGNORECASE,
+)
+_WW_HREF_RE = re.compile(r'href="[^"]*ww(\d+)\.html"', re.IGNORECASE)
+_TORNADO_WATCH_RE = re.compile(r"Tornado Watch", re.IGNORECASE)
+
+# Conditional-GET state for the NWS active-alerts feed. Validators let us
+# 304 most 2-minute polls; _last_parsed holds the parsed dict to return
+# on 304 so callers see no behavioral difference vs. a fresh fetch.
+_nws_validators: Dict[str, str] = {}
+_nws_last_parsed: Optional[Dict[str, dict]] = None
 
 
 
@@ -35,14 +50,26 @@ async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
     Returns dict: watch_num -> {"type": "SVR"|"TORNADO", "expires": datetime}
     Deduplicates by watch number from the VTEC string.
     """
+    global _nws_last_parsed
     # Keep retries×timeout well under the 2-minute auto_post_watches
     # cycle so a bad NWS API window doesn't stall successive ticks.
-    content, status = await http_get_bytes(NWS_ALERTS_URL, retries=2, timeout=15)
+    content, status, validators = await http_get_bytes_conditional(
+        NWS_ALERTS_URL,
+        etag=_nws_validators.get("etag") or None,
+        last_modified=_nws_validators.get("last_modified") or None,
+        retries=2,
+        timeout=15,
+    )
+    if status == 304 and _nws_last_parsed is not None:
+        return _nws_last_parsed
     if not content or status != 200:
         logger.warning(
             f"[WATCH] NWS API returned status {status} — will retry next cycle"
         )
         return None
+    if validators and (validators.get("etag") or validators.get("last_modified")):
+        _nws_validators["etag"] = validators.get("etag", "")
+        _nws_validators["last_modified"] = validators.get("last_modified", "")
     try:
         data = _json.loads(content)
     except Exception as e:
@@ -55,11 +82,7 @@ async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
         vtec_list = props.get("parameters", {}).get("VTEC", [])
         expires_str = props.get("expires") or props.get("ends")
         for vtec in vtec_list:
-            m = re.search(
-                r"/[^.]+\.[^.]+\.[^.]+\.(SV|TO)\.A\.(\d{4})\.",
-                vtec,
-                re.IGNORECASE,
-            )
+            m = _VTEC_RE.search(vtec)
             if not m:
                 continue
             watch_num = m.group(2).zfill(4)
@@ -83,6 +106,7 @@ async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
                 "expires": expires_dt,
                 "affected_zones": affected_zones,
             }
+    _nws_last_parsed = result
     return result
 
 
@@ -105,7 +129,7 @@ async def fetch_latest_watch_numbers() -> List[Tuple[str, str]]:
 
     seen = []
     seen_set = set()
-    for m in re.finditer(r'href="[^"]*ww(\d+)\.html"', html, re.IGNORECASE):
+    for m in _WW_HREF_RE.finditer(html):
         num = m.group(1).zfill(4)
         if num in seen_set:
             continue
@@ -117,7 +141,7 @@ async def fetch_latest_watch_numbers() -> List[Tuple[str, str]]:
             f"https://www.spc.noaa.gov/products/watch/ww{num}.html"
         )
         wtype = "SVR"
-        if watch_html and re.search(r"Tornado Watch", watch_html, re.IGNORECASE):
+        if watch_html and _TORNADO_WATCH_RE.search(watch_html):
             wtype = "TORNADO"
         return num, wtype
 
