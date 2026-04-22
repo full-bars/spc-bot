@@ -6,6 +6,30 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.1.1] — 2026-04-22
+
+### Changed
+- `aiohttp.TCPConnector` now sets `ttl_dns_cache=300` and
+  `keepalive_timeout=75` so repeated NWS/SPC fetches reuse DNS + TCP.
+- All HTTP retry sleeps use full-jitter backoff to avoid lockstep
+  retries when parallel fetches all hit 429/503 at once.
+- `http_get_bytes` is now a thin wrapper over `http_get_bytes_conditional`
+  (gained `extra_headers` kwarg). Removes a duplicated retry loop.
+- `download_single_image` uses conditional GET, so auto-posts benefit
+  from 304s — not just the partial-update pass.
+- `_validators_cache` is LRU-bounded (2048 entries) to prevent unbounded
+  growth as dated URLs rotate.
+- `check_partial_updates_parallel` returns outcomes from `gather`
+  instead of mutating counters via `nonlocal`.
+- `should_use_cache_for_manual` runs its stat loop in an executor.
+- `cogs.watches` compiles VTEC / href / tornado-watch regex at module
+  level; `fetch_active_watches_nws` uses conditional GET with a
+  module-level last-parsed cache so 304 short-circuits re-parsing.
+
+### Removed
+- Dead code in `utils.change_detection`: `head_changed`,
+  `clear_head_cache_for_url`, `_head_cache` (zero callers).
+
 ## [5.1.0] — 2026-04-21
 
 ### Added
