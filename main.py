@@ -141,6 +141,7 @@ _task_alerted = set()
 # have been scheduled by the event loop, producing a spurious
 # startup "task is down" alert immediately followed by "recovered".
 _task_seen_running = set()
+_session_probe_failures = 0
 
 
 async def send_bot_alert(
@@ -218,6 +219,7 @@ async def on_command_error(ctx, error):
 # ── Watchdog ─────────────────────────────────────────────────────────────────
 @tasks.loop(minutes=2)
 async def watchdog_task():
+    global _session_probe_failures
     await bot.wait_until_ready()
 
     # If we are in STANDBY, do not monitor or restart tasks as they
@@ -228,26 +230,38 @@ async def watchdog_task():
     # Probe an endpoint we actually depend on. NWS API works as a liveness
     # check and tells us something about SPC/NWS reachability — the things
     # that would silently break posts. HEAD keeps the check cheap.
-    session_healthy = False
+    probe_healthy = False
     probe_url = "https://api.weather.gov/"
     if utils.http.http_session is not None and not utils.http.http_session.closed:
         try:
             async with utils.http.http_session.head(
                 probe_url,
-                timeout=aiohttp.ClientTimeout(total=5),
+                timeout=aiohttp.ClientTimeout(total=20),
                 allow_redirects=True,
             ) as r:
-                session_healthy = r.status < 500
+                probe_healthy = r.status < 500
         except Exception as e:
             logger.warning(f"[WATCHDOG] Session probe to {probe_url} failed: {e!r}")
 
-    if not session_healthy:
-        logger.warning(
-            "[WATCHDOG] Session is dead or unreachable — "
-            "tearing down and recreating"
-        )
-        await utils.http.close_session()
-        await utils.http.ensure_session()
+    if probe_healthy:
+        if _session_probe_failures > 0:
+            logger.info(f"[WATCHDOG] Session probe recovered after {_session_probe_failures} failure(s)")
+        _session_probe_failures = 0
+    else:
+        _session_probe_failures += 1
+        if _session_probe_failures >= 3:
+            logger.warning(
+                f"[WATCHDOG] Session probe failed {_session_probe_failures} consecutive times — "
+                "tearing down and recreating"
+            )
+            await utils.http.close_session()
+            await utils.http.ensure_session()
+            _session_probe_failures = 0
+        else:
+            logger.info(
+                f"[WATCHDOG] Session probe failed ({_session_probe_failures}/3) — "
+                "waiting for next cycle"
+            )
 
     # Grace period for startup race: tasks need a few ticks to schedule
     # their first iteration after wait_until_ready() unblocks.
