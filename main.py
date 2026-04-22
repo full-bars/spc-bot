@@ -15,6 +15,7 @@ from utils.state_store import (
     get_all_hashes, get_posted_urls, get_posted_mds, get_posted_watches,
     get_state,
 )
+from utils.cache import hydrate_validators_from_store
 from utils.state import BotState
 from cogs import ALL_EXTENSIONS
 
@@ -111,6 +112,13 @@ async def setup_hook():
         if isinstance(urls, list) and urls:
             bot.state.last_posted_urls[day_key] = urls
             logger.info(f"[DB] Restored posted URLs for {day_key}")
+    # Warm the conditional-GET validator cache so the first poll after
+    # restart doesn't redownload every URL.
+    try:
+        await hydrate_validators_from_store()
+    except Exception as e:
+        logger.warning(f"[DB] validator hydration skipped: {e}")
+
     logger.info("[DB] Database ready")
 
     # Register failover cog
@@ -221,16 +229,21 @@ async def watchdog_task():
 
     from utils.http import http_session
 
+    # Probe an endpoint we actually depend on. Google works as a liveness
+    # check but tells us nothing about SPC/NWS reachability — the things
+    # that would silently break posts. HEAD keeps the check cheap.
     session_healthy = False
+    probe_url = "https://api.weather.gov/"
     if http_session is not None and not http_session.closed:
         try:
-            async with http_session.get(
-                "https://www.google.com",
+            async with http_session.head(
+                probe_url,
                 timeout=aiohttp.ClientTimeout(total=5),
+                allow_redirects=True,
             ) as r:
                 session_healthy = r.status < 500
         except Exception as e:
-            logger.warning(f"[WATCHDOG] Session probe failed: {e!r}")
+            logger.warning(f"[WATCHDOG] Session probe to {probe_url} failed: {e!r}")
 
     if not session_healthy:
         logger.warning(

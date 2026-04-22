@@ -15,7 +15,12 @@ from config import (
     CENTRAL,
     SPC_SCHEDULE,
 )
-from utils.state_store import set_hash, set_hashes_batch
+from utils.state_store import (
+    set_hash,
+    set_hashes_batch,
+    get_all_validators,
+    set_validators,
+)
 from utils.change_detection import (
     calculate_hash_bytes,
     get_cache_path_for_url,
@@ -28,8 +33,26 @@ from utils.http import (
     http_head_ok,
 )
 
-# Per-URL HTTP validators (ETag, Last-Modified) from the most recent 200 response.
+# Per-URL HTTP validators (ETag, Last-Modified) from the most recent 200
+# response. Hydrated from the durable store at startup (see
+# hydrate_validators_from_store) so the first poll after a restart no
+# longer redownloads every URL.
 _validators_cache: Dict[str, Dict[str, str]] = {}
+_validators_hydrated: bool = False
+
+
+async def hydrate_validators_from_store() -> int:
+    """Load persisted validators into the in-process cache. Safe to call
+    more than once; only the first call hits the DB."""
+    global _validators_hydrated
+    if _validators_hydrated:
+        return len(_validators_cache)
+    stored = await get_all_validators()
+    if stored:
+        _validators_cache.update(stored)
+    _validators_hydrated = True
+    logger.info(f"[CACHE] Hydrated {len(_validators_cache)} HTTP validators from store")
+    return len(_validators_cache)
 
 logger = logging.getLogger("spc_bot")
 
@@ -84,18 +107,18 @@ def should_use_cache_for_manual(urls: List[str]) -> bool:
         logger.debug(f"[CACHE] Near Day {day} update window - forcing fresh download")
         return False
     
-    all_exist = all(
-        os.path.exists(get_cache_path_for_url(u)) for u in urls
-    )
-    if not all_exist:
-        return False
     ages = []
     for u in urls:
         p = get_cache_path_for_url(u)
+        # Single stat replaces exists() + getmtime(); on FileNotFoundError
+        # we can't use the cache at all.
         try:
-            ages.append(datetime.now() - datetime.fromtimestamp(os.path.getmtime(p)))
+            mtime = os.stat(p).st_mtime
+        except FileNotFoundError:
+            return False
         except Exception:
             return False
+        ages.append(datetime.now() - datetime.fromtimestamp(mtime))
     if ages and min(ages) > timedelta(days=3):
         logger.info("[CACHE] Cached files are older than 3 days; refreshing")
         return False
@@ -117,6 +140,18 @@ def format_timedelta(td: timedelta) -> str:
         parts.append(f"{hours}h")
     parts.append(f"{minutes}m")
     return " ".join(parts)
+
+
+async def _write_file(path: str, data: bytes) -> None:
+    """Off-loop file write. Images are small but during bursts (several
+    outlook images saved in one tick) synchronous writes stack up."""
+    loop = asyncio.get_running_loop()
+
+    def _do():
+        with open(path, "wb") as f:
+            f.write(data)
+
+    await loop.run_in_executor(None, _do)
 
 
 # ── Download helpers ─────────────────────────────────────────────────────────
@@ -142,8 +177,7 @@ async def download_single_image(
     cache_path = get_cache_path_for_url(url)
 
     try:
-        with open(cache_path, "wb") as f:
-            f.write(content)
+        await _write_file(cache_path, content)
         if url not in cache or cache.get(url) != h:
             cache[url] = h
             cache_type = "manual" if "manual" in cache_file_path else "auto"
@@ -205,9 +239,18 @@ async def check_partial_updates_parallel(
         if content is None or status != 200:
             return
 
-        # Remember fresh validators for next cycle
-        if validators:
+        # Remember fresh validators for next cycle, both in memory and
+        # in the durable store so a restart doesn't force redownload.
+        if validators and (validators.get("etag") or validators.get("last_modified")):
             _validators_cache[url] = validators
+            try:
+                await set_validators(
+                    url,
+                    validators.get("etag", ""),
+                    validators.get("last_modified", ""),
+                )
+            except Exception as e:
+                logger.debug(f"[CACHE] set_validators failed for {url}: {e}")
 
         if is_placeholder_image(content):
             return
@@ -243,8 +286,7 @@ async def save_downloaded_images(
                 continue
             cache_path = get_cache_path_for_url(url)
             try:
-                with open(cache_path, "wb") as f:
-                    f.write(content)
+                await _write_file(cache_path, content)
                 if h:
                     cache[url] = h
                     batch_updates[url] = h
