@@ -159,7 +159,7 @@ class FailoverCog(commands.Cog):
             else:
                 await self._standby_cycle()
         except Exception as e:
-            logger.error(f"[FAILOVER] Sync loop error: {e}")
+            logger.exception(f"[FAILOVER] Sync loop error: {e}")
 
     async def _primary_cycle(self) -> None:
         """Hold the lease; step down if someone else grabbed it."""
@@ -229,7 +229,7 @@ class FailoverCog(commands.Cog):
         try:
             await self._rehydrate_bot_state()
         except Exception as e:
-            logger.error(f"[FAILOVER] Rehydrate on promotion failed: {e}")
+            logger.exception(f"[FAILOVER] Rehydrate on promotion failed: {e}")
 
         # Push anything SQLite has that Upstash is missing. Handles the
         # edge case where this node's prior writes during an Upstash
@@ -237,20 +237,20 @@ class FailoverCog(commands.Cog):
         try:
             await state_store.resync_to_upstash()
         except Exception as e:
-            logger.error(f"[FAILOVER] Resync on promotion failed: {e}")
+            logger.exception(f"[FAILOVER] Resync on promotion failed: {e}")
 
         for ext in ALL_EXTENSIONS:
             try:
                 await self.bot.load_extension(ext)
                 logger.info(f"[FAILOVER] Loaded {ext}")
             except Exception as e:
-                logger.error(f"[FAILOVER] Failed to load {ext}: {e}")
+                logger.exception(f"[FAILOVER] Failed to load {ext}: {e}")
 
         try:
             synced = await self.bot.tree.sync()
             logger.info(f"[FAILOVER] Synced {len(synced)} slash commands")
         except Exception as e:
-            logger.error(f"[FAILOVER] Failed to sync commands: {e}")
+            logger.exception(f"[FAILOVER] Failed to sync commands: {e}")
 
     async def _rehydrate_bot_state(self) -> None:
         """Pull authoritative state from Upstash into BotState mirrors.

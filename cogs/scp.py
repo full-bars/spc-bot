@@ -82,7 +82,7 @@ class SCPCog(commands.Cog):
             else:
                 logger.info("[SCP_DAILY] No SCP images could be downloaded")
         except Exception as e:
-            logger.error(f"[SCP_DAILY] Unexpected error: {e}", exc_info=True)
+            logger.exception(f"[SCP_DAILY] Unexpected error: {e}")
 
         self._next_post_time = self._compute_next_post_time()
         logger.info(

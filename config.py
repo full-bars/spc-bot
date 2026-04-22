@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 # Single source of truth for the release displayed in /help.
 # Bump this in the same commit as the git tag.
-__version__ = "5.1.1"
+__version__ = "5.1.2"
 
 load_dotenv()
 
@@ -61,7 +61,7 @@ if not os.path.exists(_products_file):
         f"to prevent silent drift between the JSON and code."
     )
 
-with open(_products_file, "r") as f:
+with open(_products_file, "r", encoding="utf-8") as f:
     _P = json.load(f)
 
 # Exported constants used by cogs

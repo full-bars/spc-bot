@@ -136,7 +136,7 @@ async def post_sounding(
                 pass
 
     except Exception as e:
-        logger.error(f"[SOUNDING] Failed to post: {e}", exc_info=True)
+        logger.exception(f"[SOUNDING] Failed to post: {e}")
 
 
 # ── Time selection view ───────────────────────────────────────────────────────
@@ -526,4 +526,4 @@ async def _post_from_clean_data(
         await interaction.channel.send(caption, files=[discord.File(png_path)])
         logger.info(f"[SOUNDING] Posted {station_id} {year}/{month}/{day} {hour}z")
     except Exception as e:
-        logger.error(f"[SOUNDING] Failed to post: {e}", exc_info=True)
+        logger.exception(f"[SOUNDING] Failed to post: {e}")

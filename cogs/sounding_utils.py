@@ -221,12 +221,12 @@ def parse_sounding_time(time_str: Optional[str]) -> Optional[tuple[str, str, str
             str(dt.day).zfill(2),
             str(hour).zfill(2),
         )
-    except Exception:
+    except Exception as e:
         raise ValueError(
             f"Invalid time format: **{time_str}**\n"
             f"Use: `MM-DD-YYYY 00z` or `MM-DD-YYYY 12z`\n"
             f"Example: `04-10-2026 12z`"
-        )
+        ) from e
 
 def get_recent_sounding_times(n: int = 4) -> list[tuple[str, str, str, str]]:
     """
@@ -759,7 +759,7 @@ async def generate_plot(
         )
         return True
     except Exception as e:
-        logger.error(f"[SOUNDING] Plot generation failed: {e}", exc_info=True)
+        logger.exception(f"[SOUNDING] Plot generation failed: {e}")
         return False
 
 def _plot_sync(clean_data: dict, output_path: str, dark_mode: bool):

@@ -93,7 +93,7 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
                         )
                         state.last_post_times[day_key] = datetime.now(timezone.utc)
                     except Exception as e:
-                        logger.error(
+                        logger.exception(
                             f"Failed to send partial post for Day {day}: {e}"
                         )
                 state.partial_update_state.pop(day_key, None)
@@ -133,7 +133,7 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
             await set_posted_urls(day_key, urls)
             logger.info(f"[Day {day}] Posted {len(files)} images. URLs: {urls}")
         except Exception as e:
-            logger.error(f"Failed to send post for Day {day}: {e}")
+            logger.exception(f"Failed to send post for Day {day}: {e}")
 
 
 class OutlooksCog(commands.Cog):
@@ -227,7 +227,7 @@ class OutlooksCog(commands.Cog):
                     )
                     self.bot.state.last_post_times["day48"] = datetime.now(timezone.utc)
                 except Exception as e:
-                    logger.error(f"Failed to send SPC48 post: {e}")
+                    logger.exception(f"Failed to send SPC48 post: {e}")
 
     @auto_post_spc.after_loop
     async def after_spc_loop(self):

@@ -65,7 +65,7 @@ async def fetch_latest_md_numbers() -> List[str]:
                 # but for simplicity we'll just return the unique ones in the feed.
                 return sorted(list(md_nums), reverse=True)
         except Exception as e:
-            logger.error(f"[MD] IEM fallback for index failed: {e}")
+            logger.exception(f"[MD] IEM fallback for index failed: {e}")
         return []
 
     numbers = re.findall(
@@ -302,7 +302,7 @@ class MesoscaleCog(commands.Cog):
             self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
             logger.info(f"[MD] iembot-triggered: posted MD #{md_num}")
         except discord.HTTPException as e:
-            logger.error(f"[MD] iembot-triggered send failed for #{md_num}: {e}")
+            logger.exception(f"[MD] iembot-triggered send failed for #{md_num}: {e}")
 
     @tasks.loop(seconds=30)
     async def auto_post_md(self):
@@ -343,7 +343,7 @@ class MesoscaleCog(commands.Cog):
                                 f"[MD] Posted cancellation for #{md_num}"
                             )
                         except discord.HTTPException as e:
-                            logger.error(
+                            logger.exception(
                                 f"[MD] Failed to send cancellation "
                                 f"for #{md_num}: {e}"
                             )
@@ -392,15 +392,15 @@ class MesoscaleCog(commands.Cog):
                     self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
                     logger.info(f"[MD] Posted MD #{md_num}")
                 except discord.HTTPException as e:
-                    logger.error(
+                    logger.exception(
                         f"[MD] Discord send failed for MD #{md_num}: {e}"
                     )
             
             self._md_backoff.success()
 
         except Exception as e:
-            logger.error(
-                f"[MD] Unexpected error in auto_post_md: {e}", exc_info=True
+            logger.exception(
+                f"[MD] Unexpected error in auto_post_md: {e}"
             )
             await self._md_backoff.failure(self.bot)
 

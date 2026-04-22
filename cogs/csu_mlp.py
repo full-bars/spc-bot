@@ -180,7 +180,7 @@ class CSUMLPCog(commands.Cog):
             else:
                 await source.send(title, files=[discord.File(cache_path)])
         except discord.HTTPException as e:
-            logger.error(f"[CSU-MLP] Send failed for Day {day}: {e}")
+            logger.exception(f"[CSU-MLP] Send failed for Day {day}: {e}")
 
     # ── Slash command ─────────────────────────────────────────────────────
 
@@ -299,8 +299,8 @@ class CSUMLPCog(commands.Cog):
                 self.bot.state.last_post_times[f"csu_day{day}"] = now_utc
                 logger.info(f"[CSU-MLP] Auto-posted Day {day} ({label})")
             except Exception as e:
-                logger.error(
-                    f"[CSU-MLP] Failed to post Day {day}: {e}", exc_info=True
+                logger.exception(
+                    f"[CSU-MLP] Failed to post Day {day}: {e}"
                 )
 
         # Auto-post 6-panel products
@@ -331,7 +331,7 @@ class CSUMLPCog(commands.Cog):
                 self.bot.state.last_post_times[f"csu_{state_key}"] = now_utc
                 logger.info(f"[CSU-MLP] Auto-posted {label_name} ({label})")
             except Exception as e:
-                logger.error(f"[CSU-MLP] Failed to post {label_name}: {e}", exc_info=True)
+                logger.exception(f"[CSU-MLP] Failed to post {label_name}: {e}")
 
     @csu_mlp_daily_poll.after_loop
     async def after_csu_mlp_poll(self):

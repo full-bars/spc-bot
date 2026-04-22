@@ -5,6 +5,7 @@ import os
 import signal
 from datetime import datetime, timezone
 
+import aiohttp
 import discord
 from discord.ext import commands, tasks
 
@@ -108,7 +109,7 @@ async def setup_hook():
         except Exception:
             pass
 
-    for day_key, urls in zip(["day1", "day2", "day3"], [d1_urls, d2_urls, d3_urls]):
+    for day_key, urls in zip(["day1", "day2", "day3"], [d1_urls, d2_urls, d3_urls], strict=True):
         if isinstance(urls, list) and urls:
             bot.state.last_posted_urls[day_key] = urls
             logger.info(f"[DB] Restored posted URLs for {day_key}")
@@ -162,7 +163,7 @@ async def send_bot_alert(
         await channel.send(embed=embed)
         logger.warning(f"[ALERT] Sent Discord alert: {title}")
     except Exception as e:
-        logger.error(f"[ALERT] Failed to send Discord alert '{title}': {e}")
+        logger.exception(f"[ALERT] Failed to send Discord alert '{title}': {e}")
 
 
 # ── Events ───────────────────────────────────────────────────────────────────
@@ -186,13 +187,13 @@ async def on_ready():
                     f"Successfully synced {len(synced)} global slash command(s)"
                 )
             except Exception as e:
-                logger.error(f"Failed to sync command tree: {e}")
+                logger.exception(f"Failed to sync command tree: {e}")
         else:
             logger.info("[FAILOVER] Standby — skipping command sync to preserve primary commands")
         logger.info("All tasks started. Bot is ready.")
         periodic_sync.start()
     except Exception as e:
-        logger.error(f"[on_ready] Unhandled error: {e}")
+        logger.exception(f"[on_ready] Unhandled error: {e}")
 
 @tasks.loop(hours=24)
 async def periodic_sync():
@@ -203,7 +204,7 @@ async def periodic_sync():
         synced = await bot.tree.sync()
         logger.info(f"[SYNC] Periodic command sync: {len(synced)} commands")
     except Exception as e:
-        logger.error(f"[SYNC] Periodic command sync failed: {e}")
+        logger.exception(f"[SYNC] Periodic command sync failed: {e}")
 
 
 @bot.event
@@ -215,9 +216,6 @@ async def on_command_error(ctx, error):
 
 
 # ── Watchdog ─────────────────────────────────────────────────────────────────
-import aiohttp
-
-
 @tasks.loop(minutes=2)
 async def watchdog_task():
     await bot.wait_until_ready()
@@ -306,7 +304,7 @@ async def watchdog_task():
             task.start()
             logger.info(f"[WATCHDOG] Successfully restarted '{name}'")
         except Exception as e:
-            logger.error(
+            logger.exception(
                 f"[WATCHDOG] Failed to restart '{name}': {e}"
             )
 

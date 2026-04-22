@@ -41,11 +41,11 @@ async def send_with_handling(source, content: str, file_paths=None):
             await source.send(content, files=files)
     except discord.HTTPException as e:
         if e.status == 413:
-            logger.error(f"Discord file size limit exceeded: {e}")
+            logger.exception(f"Discord file size limit exceeded: {e}")
         else:
-            logger.error(f"Discord send failed: {e}")
+            logger.exception(f"Discord send failed: {e}")
     except Exception as e:
-        logger.error(f"Unexpected error sending message: {e}")
+        logger.exception(f"Unexpected error sending message: {e}")
 
 
 async def fetch_and_send_weather_images(
@@ -346,7 +346,7 @@ class StatusCog(commands.Cog):
                     embed=embed, files=files_to_send
                 )
             except discord.HTTPException as e:
-                logger.error(f"[/md] Failed to send MD #{md_num}: {e}")
+                logger.exception(f"[/md] Failed to send MD #{md_num}: {e}")
 
     @discord.app_commands.command(
         name="status",

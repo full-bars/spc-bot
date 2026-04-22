@@ -288,7 +288,7 @@ async def _reconciler_loop() -> None:
                 except _UpstashUnavailable:
                     still_dirty.append((op, args))
                 except Exception as e:
-                    logger.error(
+                    logger.exception(
                         f"[STATE] Reconciler dropped write {op}{args}: {e}"
                     )
 
@@ -305,7 +305,7 @@ async def _reconciler_loop() -> None:
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            logger.error(f"[STATE] Reconciler loop error: {e}")
+            logger.exception(f"[STATE] Reconciler loop error: {e}")
 
 
 async def _replay(op: str, args: tuple) -> None:

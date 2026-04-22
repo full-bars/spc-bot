@@ -60,7 +60,7 @@ class SoundingCog(commands.Cog):
         try:
             stations_df = await get_raob_stations()
         except Exception as e:
-            logger.error(f"[SOUNDING-PREWARM] Failed to load station list: {e}")
+            logger.exception(f"[SOUNDING-PREWARM] Failed to load station list: {e}")
             return
 
         candidates = find_nearest_stations(lat, lon, stations_df, n=4)
@@ -106,7 +106,7 @@ class SoundingCog(commands.Cog):
         try:
             stations_df = await get_raob_stations()
         except Exception as e:
-            logger.error(f"[SOUNDING-AUTO] Failed to load station list: {e}")
+            logger.exception(f"[SOUNDING-AUTO] Failed to load station list: {e}")
             return
 
         candidates = find_nearest_stations(lat, lon, stations_df, n=6)
@@ -152,7 +152,7 @@ class SoundingCog(commands.Cog):
                 await target_channel.send(caption, files=[discord.File(png_path)])
                 logger.info(f"[SOUNDING-AUTO] Posted {station_id} for watch #{watch_num}")
             except Exception as e:
-                logger.error(f"[SOUNDING-AUTO] Failed to post {station_id}: {e}")
+                logger.exception(f"[SOUNDING-AUTO] Failed to post {station_id}: {e}")
 
         acars_profiles = await get_acars_profiles_near(lat, lon, max_dist_km=300, hours_back=1)
         for profile in acars_profiles[:2]:
@@ -187,7 +187,7 @@ class SoundingCog(commands.Cog):
                 await channel.send(caption, files=[discord.File(png_path)])
                 logger.info(f"[SOUNDING-AUTO] Posted ACARS {profile['airport']} for watch #{watch_num}")
             except Exception as e:
-                logger.error(f"[SOUNDING-AUTO] Failed to post ACARS: {e}")
+                logger.exception(f"[SOUNDING-AUTO] Failed to post ACARS: {e}")
 
     @tasks.loop(minutes=30)
     async def auto_sounding_watches(self):
@@ -218,7 +218,7 @@ class SoundingCog(commands.Cog):
         try:
             stations_df = await get_raob_stations()
         except Exception as e:
-            logger.error(f"[SOUNDING-AUTO] Failed to load station list: {e}")
+            logger.exception(f"[SOUNDING-AUTO] Failed to load station list: {e}")
             return
 
         year = now.strftime("%Y")
@@ -279,7 +279,7 @@ class SoundingCog(commands.Cog):
                     await channel.send(caption, files=[discord.File(png_path)])
                     logger.info(f"[SOUNDING-AUTO] Posted {station_id} for watch #{watch_num}")
                 except Exception as e:
-                    logger.error(f"[SOUNDING-AUTO] Failed to post: {e}")
+                    logger.exception(f"[SOUNDING-AUTO] Failed to post: {e}")
 
         # ── ACARS auto-posting ────────────────────────────────────────────
             acars_profiles = await get_acars_profiles_near(lat, lon, max_dist_km=300, hours_back=1)
@@ -315,7 +315,7 @@ class SoundingCog(commands.Cog):
                     await channel.send(caption, files=[discord.File(png_path)])
                     logger.info(f"[SOUNDING-AUTO] Posted ACARS {profile['airport']} for watch #{watch_num}")
                 except Exception as e:
-                    logger.error(f"[SOUNDING-AUTO] Failed to post ACARS: {e}")
+                    logger.exception(f"[SOUNDING-AUTO] Failed to post ACARS: {e}")
 
     @discord.app_commands.command(
         name="sounding",
@@ -358,7 +358,7 @@ class SoundingCog(commands.Cog):
             await interaction.followup.send(str(e), ephemeral=True)
             return
         except Exception as e:
-            logger.error(f"[SOUNDING] Location resolution error: {e}", exc_info=True)
+            logger.exception(f"[SOUNDING] Location resolution error: {e}")
             await interaction.followup.send(
                 "Could not resolve that location. Try a city name or station code.",
                 ephemeral=True,
@@ -370,7 +370,7 @@ class SoundingCog(commands.Cog):
             stations_df = await get_raob_stations()
             nearest = find_nearest_stations(lat, lon, stations_df, n=3)
         except Exception as e:
-            logger.error(f"[SOUNDING] Station lookup error: {e}", exc_info=True)
+            logger.exception(f"[SOUNDING] Station lookup error: {e}")
             await interaction.followup.send(
                 "Could not load station list. Try again later.",
                 ephemeral=True,
