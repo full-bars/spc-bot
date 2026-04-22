@@ -1,5 +1,6 @@
 # main.py
 import asyncio
+import json as _json
 import logging
 import os
 import signal
@@ -9,8 +10,9 @@ import aiohttp
 import discord
 from discord.ext import commands, tasks
 
-from config import CACHE_DIR, TOKEN, CONFIG
-from utils.http import close_session, ensure_session
+import cogs.status as status_cog
+from config import CACHE_DIR, CONFIG, HEALTH_CHANNEL_ID, TOKEN
+from utils.http import close_session, ensure_session, http_session
 from utils.state_store import (
     check_integrity, close_db, get_db,
     get_all_hashes, get_posted_urls, get_posted_mds, get_posted_watches,
@@ -51,8 +53,6 @@ bot.state.is_primary = IS_PRIMARY
 
 async def setup_hook():
     """Hydrate state from DB before any cogs are loaded."""
-    import json as _json
-
     # Initialize database
     db_ok = await check_integrity()
     if not db_ok:
@@ -143,8 +143,6 @@ async def send_bot_alert(
     title: str, description: str, critical: bool = False
 ):
     """Post a health alert embed to the health/SPC channel."""
-    from config import HEALTH_CHANNEL_ID
-
     try:
         channel = bot.get_channel(HEALTH_CHANNEL_ID)
         if not channel:
@@ -169,8 +167,6 @@ async def send_bot_alert(
 # ── Events ───────────────────────────────────────────────────────────────────
 @bot.event
 async def on_ready():
-    import cogs.status as status_cog
-
     status_cog.BOT_START_TIME = datetime.now(timezone.utc)
 
     logger.info(f"Logged in as {bot.user} (id={bot.user.id})")
@@ -224,8 +220,6 @@ async def watchdog_task():
     # are suppressed by the failover mechanism.
     if not bot.state.is_primary:
         return
-
-    from utils.http import http_session
 
     # Probe an endpoint we actually depend on. Google works as a liveness
     # check but tells us nothing about SPC/NWS reachability — the things

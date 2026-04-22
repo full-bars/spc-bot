@@ -8,6 +8,7 @@ from typing import Optional
 import discord
 from discord.ext import commands, tasks
 
+from cogs.mesoscale import fetch_latest_md_numbers, fetch_md_details
 from config import MANUAL_CACHE_FILE, SCP_IMAGE_URLS, SPC_URLS, WPC_IMAGE_URLS, __version__
 import utils.http as _http
 from utils.cache import (
@@ -301,8 +302,6 @@ class StatusCog(commands.Cog):
     )
     async def md_slash(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        from cogs.mesoscale import fetch_latest_md_numbers, fetch_md_details
-
         md_numbers = await fetch_latest_md_numbers()
         if not md_numbers:
             await interaction.followup.send(

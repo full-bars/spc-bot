@@ -1,9 +1,10 @@
 # cogs/radar/__init__.py
 """NEXRAD Level 2 radar data downloader from NOAA AWS S3."""
 
-from datetime import datetime, timedelta, timezone
 import logging
+import re
 import time
+from datetime import datetime, timedelta, timezone
 
 import discord
 from discord.app_commands import Choice
@@ -11,7 +12,7 @@ from discord.ext import commands, tasks
 
 from cogs.radar.downloads import cleanup_old_files, run_download, OUTPUT_DIR, CLEANUP_AGE_THRESHOLD
 from cogs.radar.s3 import _s3
-from cogs.radar.views import StartView
+from cogs.radar.views import StartView, TimeRangeView
 
 logger = logging.getLogger("spc_bot")
 
@@ -77,7 +78,6 @@ class RadarCog(commands.Cog):
             return
 
         # Parse site codes — accept space or comma separated, uppercase
-        import re
         raw_sites = re.split(r"[,\s]+", sites.strip().upper())
         radar_sites = [s for s in raw_sites if s]
 
@@ -101,7 +101,6 @@ class RadarCog(commands.Cog):
 
         # Sites only (or 'custom' selected) — show time preset buttons
         if not time or time.value == "custom":
-            from cogs.radar.views import TimeRangeView
             await interaction.response.defer()
             view = TimeRangeView(
                 radar_sites=radar_sites,

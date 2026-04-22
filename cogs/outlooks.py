@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import discord
 from discord.ext import commands, tasks
 
-from config import SPC_CHANNEL_ID, SPC_URLS
+from config import AUTO_CACHE_FILE, SPC_CHANNEL_ID, SPC_URLS, SPC_URLS_FALLBACK
 from utils.backoff import TaskBackoff
 from utils.state_store import set_posted_urls
 from utils.cache import (
@@ -25,8 +25,6 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
     Detects partial updates and waits up to 20 minutes for all images before
     posting whatever is available.
     """
-    from config import AUTO_CACHE_FILE, SPC_URLS_FALLBACK
-
     urls = await get_spc_urls(day)
     day_key = f"day{day}"
 
@@ -116,8 +114,6 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
             f"[Day {day}] All images ready after {elapsed:.1f} min. Posting."
         )
         state.partial_update_state.pop(day_key, None)
-
-    from config import AUTO_CACHE_FILE
 
     files = await save_downloaded_images(
         urls, downloaded_data, AUTO_CACHE_FILE, state.auto_cache
@@ -214,8 +210,6 @@ class OutlooksCog(commands.Cog):
             await check_partial_updates_parallel(urls, self.bot.state.auto_cache)
         )
         if updated_count > 0:
-            from config import AUTO_CACHE_FILE
-
             files = await save_downloaded_images(
                 urls, downloaded_data, AUTO_CACHE_FILE, self.bot.state.auto_cache
             )

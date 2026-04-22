@@ -14,6 +14,7 @@ Tables:
 """
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -369,7 +370,6 @@ async def get_posted_urls(day_key: str) -> list:
         ) as cursor:
             row = await cursor.fetchone()
             if row:
-                import json
                 return json.loads(row["urls"])
     except Exception as e:
         logger.warning(f"[DB] get_posted_urls failed for {day_key}: {e}")
@@ -378,7 +378,6 @@ async def get_posted_urls(day_key: str) -> list:
 
 async def set_posted_urls(day_key: str, urls: list):
     """Store last posted URLs for a day key."""
-    import json
     await _write(
         """INSERT INTO posted_urls (day_key, urls)
            VALUES (?, ?)

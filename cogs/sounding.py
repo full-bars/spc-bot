@@ -6,6 +6,7 @@ Supports city names, radar site codes, and RAOB station IDs.
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -13,20 +14,23 @@ import discord
 from discord.ext import commands, tasks
 
 from cogs.sounding_utils import (
-    get_acars_profiles_near,
-    get_available_sounding_times_iem,
-    get_watch_area_centroid,
+    fetch_acars_sounding,
+    fetch_sounding,
     filter_stations_with_data,
     find_nearest_stations,
+    generate_plot,
+    get_acars_profiles_near,
+    get_available_sounding_times_iem,
+    get_md_area_centroid,
     get_raob_stations,
     get_user_dark_mode,
+    get_watch_area_centroid,
     parse_sounding_time,
     resolve_location,
     set_user_dark_mode,
 )
-import os
-from cogs.sounding_views import post_sounding
-from cogs.sounding_utils import fetch_acars_sounding, fetch_sounding, generate_plot
+from cogs.sounding_views import CombinedSoundingView, post_sounding
+from config import CACHE_DIR, SOUNDING_CHANNEL_ID
 
 logger = logging.getLogger("spc_bot")
 
@@ -48,7 +52,6 @@ class SoundingCog(commands.Cog):
         Background task to 'warm' the cache for soundings near an MD.
         Triggered when MesoscaleCog detects a high probability of watch issuance.
         """
-        from cogs.sounding_utils import get_md_area_centroid
         centroid = await get_md_area_centroid(raw_text)
         if not centroid:
             logger.debug(f"[SOUNDING-PREWARM] No centroid for MD #{md_num}")
@@ -83,8 +86,6 @@ class SoundingCog(commands.Cog):
         if watch_num in self._handled_watches:
             return
 
-        from config import CACHE_DIR, SOUNDING_CHANNEL_ID
-        
         # Use SOUNDING_CHANNEL_ID if configured, fallback to passed channel
         target_channel = self.bot.get_channel(SOUNDING_CHANNEL_ID) or channel
         
@@ -193,8 +194,6 @@ class SoundingCog(commands.Cog):
     async def auto_sounding_watches(self):
         """Post soundings for RAOB stations near active watches at 00z/12z."""
         await self.bot.wait_until_ready()
-        from config import SOUNDING_CHANNEL_ID
-
         now = datetime.now(timezone.utc)
         hour = now.hour
 
@@ -463,7 +462,6 @@ class SoundingCog(commands.Cog):
         mode_str = "\U0001f319 Dark" if dark_mode else "\u2600\ufe0f Light"
         embed.set_footer(text="Mode: {} | Select below".format(mode_str))
 
-        from cogs.sounding_views import CombinedSoundingView
         view = CombinedSoundingView(
             raob_stations=nearest,
             acars_profiles=acars_profiles,

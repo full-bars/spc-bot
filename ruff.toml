@@ -12,3 +12,10 @@ extend-exclude = ["lib", "venv", ".venv"]
 # abort the rest). The "performance" cost is nanoseconds on loops of
 # a dozen items; restructuring would change semantics.
 ignore = ["PERF203"]
+
+[lint.per-file-ignores]
+# Tests and scripts routinely import inside functions: pytest fixtures,
+# per-test monkeypatching, and top-level import-time side effects that
+# must be deferred until a test sets up the environment.
+"tests/*" = ["PLC0415"]
+"scripts/*" = ["PLC0415"]

@@ -15,8 +15,10 @@ _session_lock = asyncio.Lock()
 def _default_user_agent() -> str:
     # NWS/SPC require an identifying UA with contact info. Pulling the
     # version here keeps the string aligned with the release tag.
+    # Local import with try/except: falls back to "dev" if config
+    # import fails (e.g. during test collection without env vars).
     try:
-        from config import __version__
+        from config import __version__  # noqa: PLC0415
     except Exception:
         __version__ = "dev"
     contact = "https://github.com/full-bars/spc-bot"

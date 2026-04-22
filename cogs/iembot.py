@@ -11,6 +11,7 @@ between issuance and SPC/IEM REST API availability.
 Only the last-seen seqnum is persisted to DB to avoid reprocessing on restart.
 """
 import asyncio
+import json as _json
 import logging
 import re
 from typing import Optional
@@ -128,7 +129,6 @@ class IEMBotCog(commands.Cog):
             self._seqnum_loaded = True
 
         try:
-            import json as _json
             url = f"{IEMBOT_FEED_URL}?seqnum={self.bot.state.iembot_last_seqnum}"
             content, status = await http_get_bytes(url, retries=2, timeout=10)
             if not content or status != 200:

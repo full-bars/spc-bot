@@ -1,5 +1,6 @@
 # cogs/mesoscale.py
 import asyncio
+import json
 import logging
 import os
 import re
@@ -8,9 +9,10 @@ from typing import Dict, List, Optional, Tuple
 
 import discord
 from discord.ext import commands, tasks
-from utils.backoff import TaskBackoff
 
+from cogs.iembot import get_cached_md_text
 from config import AUTO_CACHE_FILE, SPC_CHANNEL_ID, SPC_MD_INDEX_URL
+from utils.backoff import TaskBackoff
 from utils.cache import (
     download_single_image,
 )
@@ -48,14 +50,13 @@ async def fetch_latest_md_numbers() -> List[str]:
     # If SPC is unreachable, try to scrape from IEM's nwstext API
     if not html:
         logger.warning("[MD] SPC index unreachable — falling back to IEM for active MD list")
-        import json as _json_fallback
         try:
             content, status = await http_get_bytes(
                 "https://mesonet.agron.iastate.edu/api/1/nwstext.json?product=MCD&limit=40",
                 retries=2, timeout=15
             )
             if content and status == 200:
-                data = _json_fallback.loads(content)
+                data = json.loads(content)
                 md_nums = set()
                 for entry in data.get("data", []):
                     m = re.search(r"MESOSCALE DISCUSSION\s+(\d+)", entry.get("data", ""), re.IGNORECASE)
@@ -87,7 +88,6 @@ async def fetch_md_details_iem(md_number: str) -> Tuple[Optional[str], Optional[
     IEM mirrors SPC MCD images at a predictable URL.
     Returns (image_url, summary_text, raw_text).
     """
-    import json as _json_iem
     padded = md_number.zfill(4)
     num_int = int(md_number)
 
@@ -105,7 +105,7 @@ async def fetch_md_details_iem(md_number: str) -> Tuple[Optional[str], Optional[
             retries=2, timeout=15
         )
         if content and status == 200:
-            data = _json_iem.loads(content)
+            data = json.loads(content)
             for entry in data.get("data", []):
                 text = entry.get("data", "")
                 if (
@@ -139,7 +139,9 @@ async def fetch_md_details(
         return await http_get_text(page_url)
 
     async def _fetch_iem_early():
-        import cogs.mesoscale as _self
+        # Self-import via module object so tests can monkeypatch
+        # cogs.mesoscale.fetch_md_details_iem at runtime.
+        import cogs.mesoscale as _self  # noqa: PLC0415
         iem_img, iem_summary, iem_raw = await _self.fetch_md_details_iem(md_number)
         return (iem_img, iem_summary, iem_raw)
 
@@ -206,7 +208,6 @@ async def fetch_md_details(
     summary = None
 
     # Check iembot real-time cache first (populated within seconds of issuance)
-    from cogs.iembot import get_cached_md_text
     summary = await get_cached_md_text(md_number)
     if summary:
         logger.info(f"[MD] Got summary from iembot cache for #{md_number}")

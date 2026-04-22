@@ -11,11 +11,13 @@ import asyncio
 import logging
 import math
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import aiohttp
 import matplotlib
+import numpy as np
+from metpy.units import units
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -232,7 +234,6 @@ def get_recent_sounding_times(n: int = 4) -> list[tuple[str, str, str, str]]:
     """
     Return the n most recent 00z/12z sounding times that are in the past.
     """
-    from datetime import timedelta
     now = datetime.now(timezone.utc)
     times = []
     for days_back in range(5):
@@ -258,7 +259,6 @@ async def get_watch_area_centroid(affected_zones: list) -> tuple[float, float] |
     Fetch zone polygons from NWS and return the centroid of the watch area.
     Returns (lat, lon) or None on failure.
     """
-    import aiohttp
     all_lats = []
     all_lons = []
 
@@ -350,8 +350,6 @@ def _iem_to_clean_data(profile: dict, station_id: str, station_name: str,
     IEM fields: pres, hght, tmpc, dwpc, drct, sknt
     SounderPy fields: p, z, T, Td, u, v, site_info, titles
     """
-    import numpy as np
-    from metpy.units import units
 
     # Filter for levels that have both thermodynamic and wind data
     # Missing winds (None) are the primary cause of jagged/broken hodographs
@@ -377,7 +375,6 @@ def _iem_to_clean_data(profile: dict, station_id: str, station_name: str,
 
     # Parse valid time
     try:
-        from datetime import datetime, timezone
         if "Z" in valid:
             dt = datetime.fromisoformat(valid.replace("Z", "+00:00"))
         else:
@@ -470,7 +467,6 @@ async def get_available_sounding_times_iem(
     Checks all hours concurrently for speed. Results are cached for 15 minutes.
     Use skip_cache=True for auto-posting tasks that need fresh data.
     """
-    from datetime import timedelta
     now = datetime.now(timezone.utc)
 
     # Check cache (skip for auto-post tasks)
@@ -535,8 +531,9 @@ async def get_acars_profiles_near(
     Find available ACARS profiles near a location.
     Returns list of dicts sorted by distance.
     """
-    import sounderpy as spy
-    from datetime import timedelta
+    # sounderpy import is deferred: importing it eagerly triggers
+    # network I/O (station list fetch) that we want to avoid at startup.
+    import sounderpy as spy  # noqa: PLC0415
 
     now = datetime.now(timezone.utc)
     results = []
@@ -604,7 +601,7 @@ async def fetch_acars_sounding(
     year: str, month: str, day: str, hour: str,
 ) -> Optional[dict]:
     """Fetch an ACARS sounding profile and return SounderPy clean_data."""
-    import sounderpy as spy
+    import sounderpy as spy  # noqa: PLC0415  # deferred; see fetch_sounding
     loop = asyncio.get_running_loop()
     try:
         acars = await loop.run_in_executor(
@@ -632,7 +629,6 @@ async def filter_stations_with_data(stations: list[dict], n_times: int = 1) -> l
     are checked concurrently to keep total wait time minimal.
     Returns only stations that have at least one available sounding.
     """
-    import asyncio
     times = get_recent_sounding_times(n_times)
 
     async def has_data(station: dict) -> tuple[dict, bool]:
@@ -675,7 +671,6 @@ def validate_sounding_data(data: Optional[dict], min_levels: int = 5) -> bool:
         
     # Check for sufficient valid data (prevent crashes in SounderPy/ecape-parcel)
     try:
-        import numpy as np
         # Check if we have at least SOME non-zero wind data (prevent jagged hodographs)
         u_vals = np.array(data["u"])
         v_vals = np.array(data["v"])
