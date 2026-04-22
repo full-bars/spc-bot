@@ -172,7 +172,7 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [4.11.6] — 2026-04-18
 
-- Release: v4.11.6 - Fix help menu inaccuracies
+- Fix help menu inaccuracies
 
 ## [4.11.5] — 2026-04-18
 
