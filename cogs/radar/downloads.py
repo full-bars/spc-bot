@@ -492,8 +492,8 @@ async def download_and_zip(
                     )
                     try:
                         await message.edit(embed=embed)
-                    except Exception:
-                        pass
+                    except discord.HTTPException as e:
+                        logger.debug(f"[RADAR] Could not update progress embed: {e}")
 
         if not file_paths:
             embed.title = "Download Failed"
@@ -540,8 +540,8 @@ async def download_and_zip(
                 for old_zip in Path(output_dir).glob("*.zip"):
                     try:
                         old_zip.unlink()
-                    except Exception:
-                        pass
+                    except OSError as e:
+                        logger.debug(f"[RADAR] Could not remove old zip {old_zip}: {e}")
                 zip_paths = await split_and_zip_files(
                     file_paths, radar_sites, attempt_size, output_dir
                 )
@@ -648,8 +648,8 @@ async def download_and_zip(
         embed.color = discord.Color.red()
         try:
             await message.edit(embed=embed)
-        except Exception:
-            pass
+        except discord.HTTPException as edit_err:
+            logger.debug(f"[RADAR] Could not post error embed: {edit_err}")
 
     finally:
         for file_path, _ in file_paths:

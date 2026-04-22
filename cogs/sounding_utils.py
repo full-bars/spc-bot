@@ -155,8 +155,8 @@ async def resolve_location(location: str) -> tuple[float, float, str]:
             if not match.empty:
                 row = match.iloc[0]
                 return float(row["lat"]), float(row["lon"]), f"RAOB station {loc}"
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"[SOUNDING] RAOB lookup for {loc!r} failed: {e}")
 
         # Try as METAR/radar site (K-prefix 4-letter)
         if len(loc) == 4 and loc.startswith("K"):
@@ -165,8 +165,8 @@ async def resolve_location(location: str) -> tuple[float, float, str]:
                     None, spy.get_latlon, "metar", loc
                 )
                 return float(latlon[0]), float(latlon[1]), f"radar site {loc}"
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"[SOUNDING] METAR lookup for {loc!r} failed: {e}")
 
     # Fall back to Nominatim geocoding
     lat, lon, display = await geocode_city(location)
@@ -498,8 +498,8 @@ async def get_available_sounding_times_iem(
                     str(dt.day).zfill(2),
                     str(dt.hour).zfill(2),
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"[SOUNDING] IEM profile probe failed for {station_id}: {e}")
         return None
 
     times_to_check = [
@@ -681,8 +681,8 @@ def validate_sounding_data(data: Optional[dict], min_levels: int = 5) -> bool:
         t_vals = np.array(data["T"])
         if np.all(np.isnan(t_vals)):
             return False
-    except Exception:
-        pass
+    except (KeyError, TypeError, ValueError) as e:
+        logger.debug(f"[SOUNDING] Data validation check failed (accepting): {e}")
 
     return True
 

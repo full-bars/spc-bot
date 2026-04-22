@@ -128,8 +128,8 @@ class HodographCog(commands.Cog):
                     f"⚠️ Unexpected error for `{site}`. Please try again.",
                     ephemeral=True,
                 )
-            except Exception:
-                pass
+            except discord.HTTPException as send_err:
+                logger.debug(f"[HODO] Could not send error message: {send_err}")
 
 
 async def setup(bot: commands.Bot):

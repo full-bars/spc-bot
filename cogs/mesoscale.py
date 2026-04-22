@@ -168,8 +168,8 @@ async def fetch_md_details(
             if pending:
                 try:
                     iem_result = await pending.pop()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"[MD] IEM fallback also failed for #{md_number}: {e}")
     else:
         iem_result = first.result()
         try:

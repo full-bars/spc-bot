@@ -96,8 +96,8 @@ async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
                     expires_dt = datetime.fromisoformat(expires_str).astimezone(
                         timezone.utc
                     )
-                except Exception:
-                    pass
+                except (ValueError, TypeError) as e:
+                    logger.debug(f"[WATCH] Could not parse expires {expires_str!r}: {e}")
             logger.debug(
                 f"[WATCH] NWS API: #{watch_num} ({wtype}) expires {expires_dt}"
             )
@@ -554,8 +554,8 @@ class WatchPaginatorView(discord.ui.View):
         if self.message:
             try:
                 await self.message.edit(view=self)
-            except Exception:
-                pass
+            except discord.HTTPException as e:
+                logger.debug(f"[WATCH] Could not disable view on timeout: {e}")
 
 
 async def _execute_watches(interaction: discord.Interaction, bot: commands.Bot):

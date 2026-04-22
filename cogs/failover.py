@@ -281,8 +281,8 @@ class FailoverCog(commands.Cog):
         for ext in ALL_EXTENSIONS:
             try:
                 await self.bot.unload_extension(ext)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"[FAILOVER] Could not unload {ext} during demote: {e}")
         self._primary_failures = 0
 
 

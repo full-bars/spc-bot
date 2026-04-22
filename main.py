@@ -106,8 +106,8 @@ async def setup_hook():
             if csu_data.get("date") == today:
                 bot.state.csu_posted.update(str(d) for d in csu_data.get("days", []))
                 logger.info(f"[DB] Restored {len(bot.state.csu_posted)} CSU posted days")
-        except Exception:
-            pass
+        except (ValueError, KeyError, TypeError) as e:
+            logger.debug(f"[DB] CSU state parse failed (ignored): {e}")
 
     for day_key, urls in zip(["day1", "day2", "day3"], [d1_urls, d2_urls, d3_urls], strict=True):
         if isinstance(urls, list) and urls:
@@ -277,8 +277,8 @@ async def watchdog_task():
                 exc = inner_task.exception()
                 if exc:
                     error_detail = f"\n**Last Error:** `{type(exc).__name__}: {exc}`"
-            except Exception:
-                pass
+            except (asyncio.CancelledError, asyncio.InvalidStateError) as e:
+                logger.debug(f"[WATCHDOG] Could not read task exception: {e}")
 
         logger.warning(
             f"[WATCHDOG] Task '{name}' has stopped "
@@ -293,8 +293,8 @@ async def watchdog_task():
                     await asyncio.wait_for(asyncio.shield(inner), timeout=5.0)
                 except (asyncio.CancelledError, asyncio.TimeoutError):
                     pass
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"[WATCHDOG] Error while awaiting cancelled task: {e}")
             task.start()
             logger.info(f"[WATCHDOG] Successfully restarted '{name}'")
         except Exception as e:

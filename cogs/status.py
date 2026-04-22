@@ -65,8 +65,8 @@ async def fetch_and_send_weather_images(
                 await source.followup.send(msg)
             else:
                 await source.send(msg)
-        except Exception:
-            pass
+        except discord.HTTPException as e:
+            logger.debug(f"[STATUS] Could not send fallback message: {e}")
         return
 
     files = await download_images_parallel(
@@ -88,8 +88,8 @@ async def fetch_and_send_weather_images(
                 await source.followup.send(msg)
             else:
                 await source.send(msg)
-        except Exception:
-            pass
+        except discord.HTTPException as e:
+            logger.debug(f"[STATUS] Could not send fallback message: {e}")
 
 
 class StatusCog(commands.Cog):
