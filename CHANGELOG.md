@@ -6,6 +6,25 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.1.2] — 2026-04-22
+
+### Changed
+- `logger.error(..., exc_info=True)` and in-`except` `logger.error(...)`
+  calls converted to `logger.exception(...)` across cogs and utils so
+  tracebacks are captured consistently (ruff G201/TRY400).
+- Re-raised `RuntimeError` / `ValueError` in `cogs/radar/downloads.py`,
+  `cogs/radar/s3.py`, `cogs/sounding_utils.py` now use `raise ... from e`
+  to preserve the original exception cause (ruff B904).
+- `zip(...)` calls in `main.py` and `utils/cache.py` pass `strict=True`
+  to catch length mismatches instead of silently truncating (ruff B905).
+- `config.py` opens `products.json` with `encoding="utf-8"` for
+  portability.
+- `main.py` hoists the `aiohttp` import to the top of the file
+  (ruff E402).
+
+### Removed
+- Stray empty `│/` directory at repo root.
+
 ## [5.1.1] — 2026-04-22
 
 ### Changed
