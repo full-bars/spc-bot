@@ -1,0 +1,14 @@
+# Ruff configuration for spc-bot.
+# Keep this file minimal — ignores need a reason, not a vibe.
+
+line-length = 100
+
+# lib/vad_plotter is vendored third-party code. Not ours, not linted.
+extend-exclude = ["lib", "venv", ".venv"]
+
+[lint]
+# Per-iteration try/except in loops is deliberate error isolation
+# (e.g. cogs/failover.py loading extensions — one bad ext must not
+# abort the rest). The "performance" cost is nanoseconds on loops of
+# a dozen items; restructuring would change semantics.
+ignore = ["PERF203"]
