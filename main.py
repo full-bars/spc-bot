@@ -229,16 +229,21 @@ async def watchdog_task():
 
     from utils.http import http_session
 
+    # Probe an endpoint we actually depend on. Google works as a liveness
+    # check but tells us nothing about SPC/NWS reachability — the things
+    # that would silently break posts. HEAD keeps the check cheap.
     session_healthy = False
+    probe_url = "https://api.weather.gov/"
     if http_session is not None and not http_session.closed:
         try:
-            async with http_session.get(
-                "https://www.google.com",
+            async with http_session.head(
+                probe_url,
                 timeout=aiohttp.ClientTimeout(total=5),
+                allow_redirects=True,
             ) as r:
                 session_healthy = r.status < 500
         except Exception as e:
-            logger.warning(f"[WATCHDOG] Session probe failed: {e!r}")
+            logger.warning(f"[WATCHDOG] Session probe to {probe_url} failed: {e!r}")
 
     if not session_healthy:
         logger.warning(
