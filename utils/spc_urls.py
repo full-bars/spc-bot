@@ -72,7 +72,7 @@ async def get_spc_urls(day: int) -> List[str]:
 
             if not otlk_match or not prob_match:
                 logger.warning(
-                    f"[DYN_URL] Could not find tabs for day3, using fallback"
+                    "[DYN_URL] Could not find tabs for day3, using fallback"
                 )
                 return fallback
 

@@ -322,12 +322,12 @@ async def watchdog_task():
                 f"attempting to restart it (attempt #{fail_count})."
                 f"{error_detail}\n\n"
                 + (
-                    f"**Watch and MD alerts may be delayed — check "
-                    f"[SPC directly](https://www.spc.noaa.gov) "
-                    f"if severe weather is ongoing.**"
+                    "**Watch and MD alerts may be delayed — check "
+                    "[SPC directly](https://www.spc.noaa.gov) "
+                    "if severe weather is ongoing.**"
                     if critical
-                    else f"Outlook posts may be delayed until the "
-                    f"task recovers."
+                    else "Outlook posts may be delayed until the "
+                    "task recovers."
                 ),
                 critical=critical,
             )

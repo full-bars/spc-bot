@@ -45,7 +45,6 @@ def get_progress_bar(progress_percentage, length=30):
 
 
 async def download_file(file_key, output_dir, start_time, file_size, filename):
-    bucket = "unidata-nexrad-level2"
     output_path = Path(output_dir) / filename
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
