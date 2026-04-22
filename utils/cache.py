@@ -8,6 +8,7 @@ Content-change detection is handled by utils.change_detection.
 import asyncio
 import logging
 import os
+from collections import OrderedDict
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -28,7 +29,6 @@ from utils.change_detection import (
 )
 from utils.http import (
     ensure_session,
-    http_get_bytes,
     http_get_bytes_conditional,
     http_head_ok,
 )
@@ -36,9 +36,26 @@ from utils.http import (
 # Per-URL HTTP validators (ETag, Last-Modified) from the most recent 200
 # response. Hydrated from the durable store at startup (see
 # hydrate_validators_from_store) so the first poll after a restart no
-# longer redownloads every URL.
-_validators_cache: Dict[str, Dict[str, str]] = {}
+# longer redownloads every URL. LRU-bounded so long-running processes
+# don't grow the dict without bound as URLs rotate (e.g. dated filenames).
+_VALIDATORS_CACHE_MAX = 2048
+_validators_cache: "OrderedDict[str, Dict[str, str]]" = OrderedDict()
 _validators_hydrated: bool = False
+
+
+def _validators_set(url: str, validators: Dict[str, str]) -> None:
+    _validators_cache[url] = validators
+    _validators_cache.move_to_end(url)
+    while len(_validators_cache) > _VALIDATORS_CACHE_MAX:
+        _validators_cache.popitem(last=False)
+
+
+def _validators_get(url: str) -> Dict[str, str]:
+    v = _validators_cache.get(url)
+    if v is not None:
+        _validators_cache.move_to_end(url)
+        return v
+    return {}
 
 
 async def hydrate_validators_from_store() -> int:
@@ -92,7 +109,23 @@ def is_near_spc_update(day: int) -> bool:
     return False
 
 
-def should_use_cache_for_manual(urls: List[str]) -> bool:
+def _stat_mtimes(paths: List[str]) -> Optional[List[float]]:
+    """Stat a batch of files. Returns None if any file is missing or
+    unreadable; otherwise a list of mtimes aligned with paths. Runs in
+    a worker thread via run_in_executor to keep the event loop free
+    on slow storage."""
+    out = []
+    for p in paths:
+        try:
+            out.append(os.stat(p).st_mtime)
+        except FileNotFoundError:
+            return None
+        except Exception:
+            return None
+    return out
+
+
+async def should_use_cache_for_manual(urls: List[str]) -> bool:
     day = None
     s = " ".join(urls)
     if "day1" in s:
@@ -106,19 +139,14 @@ def should_use_cache_for_manual(urls: List[str]) -> bool:
     if is_near_spc_update(day):
         logger.debug(f"[CACHE] Near Day {day} update window - forcing fresh download")
         return False
-    
-    ages = []
-    for u in urls:
-        p = get_cache_path_for_url(u)
-        # Single stat replaces exists() + getmtime(); on FileNotFoundError
-        # we can't use the cache at all.
-        try:
-            mtime = os.stat(p).st_mtime
-        except FileNotFoundError:
-            return False
-        except Exception:
-            return False
-        ages.append(datetime.now() - datetime.fromtimestamp(mtime))
+
+    paths = [get_cache_path_for_url(u) for u in urls]
+    loop = asyncio.get_running_loop()
+    mtimes = await loop.run_in_executor(None, _stat_mtimes, paths)
+    if mtimes is None:
+        return False
+    now = datetime.now()
+    ages = [now - datetime.fromtimestamp(m) for m in mtimes]
     if ages and min(ages) > timedelta(days=3):
         logger.info("[CACHE] Cached files are older than 3 days; refreshing")
         return False
@@ -161,10 +189,38 @@ async def download_single_image(
     cache: Dict[str, str],
     retries: int = 3,
 ) -> Tuple[Optional[str], Optional[bytes], Optional[str]]:
-    content, status = await http_get_bytes(url, retries=retries)
+    prev = _validators_get(url)
+    content, status, validators = await http_get_bytes_conditional(
+        url,
+        etag=prev.get("etag") or None,
+        last_modified=prev.get("last_modified") or None,
+        retries=retries,
+    )
+    cache_path = get_cache_path_for_url(url)
+
+    # 304: body unchanged. If we already have the file on disk we can
+    # return it; if not (rare — validator without disk file), fall back
+    # to an unconditional fetch next tick by dropping the validator.
+    if status == 304:
+        if os.path.exists(cache_path):
+            return cache_path, None, cache.get(url)
+        _validators_cache.pop(url, None)
+        return None, None, None
+
     if content is None or status != 200:
         logger.warning(f"Failed to download {url} (status={status})")
         return None, None, None
+
+    if validators and (validators.get("etag") or validators.get("last_modified")):
+        _validators_set(url, validators)
+        try:
+            await set_validators(
+                url,
+                validators.get("etag", ""),
+                validators.get("last_modified", ""),
+            )
+        except Exception as e:
+            logger.debug(f"[CACHE] set_validators failed for {url}: {e}")
 
     if is_placeholder_image(content):
         logger.info(
@@ -174,14 +230,12 @@ async def download_single_image(
         return None, content, None
 
     h = calculate_hash_bytes(content)
-    cache_path = get_cache_path_for_url(url)
 
     try:
         await _write_file(cache_path, content)
         if url not in cache or cache.get(url) != h:
             cache[url] = h
             cache_type = "manual" if "manual" in cache_file_path else "auto"
-            # Standardized await for DB integrity
             await set_hash(url, h, cache_type)
             logger.debug(f"Updated cache hash for {url}: {h}")
         logger.debug(f"Downloaded and saved: {url} -> {cache_path}")
@@ -197,7 +251,7 @@ async def download_images_parallel(
     cache: Dict[str, str],
     use_cached: bool = False,
 ) -> List[str]:
-    if use_cached and should_use_cache_for_manual(urls):
+    if use_cached and await should_use_cache_for_manual(urls):
         files = [
             get_cache_path_for_url(u)
             for u in urls
@@ -221,28 +275,23 @@ async def check_partial_updates_parallel(
     """
     await ensure_session()
     total_count = len(urls)
-    downloaded_data = {}
-    updated_count = 0
-    not_modified_count = 0
+    downloaded_data: Dict[str, Tuple[bytes, Optional[str]]] = {}
 
-    async def _check_one(url: str):
-        nonlocal updated_count, not_modified_count
-        prev = _validators_cache.get(url, {})
+    async def _check_one(url: str) -> Tuple[str, int]:
+        """Return (url, outcome) where outcome is 1=updated, 2=304, 0=other."""
+        prev = _validators_get(url)
         content, status, validators = await http_get_bytes_conditional(
             url,
             etag=prev.get("etag") or None,
             last_modified=prev.get("last_modified") or None,
         )
         if status == 304:
-            not_modified_count += 1
-            return
+            return url, 2
         if content is None or status != 200:
-            return
+            return url, 0
 
-        # Remember fresh validators for next cycle, both in memory and
-        # in the durable store so a restart doesn't force redownload.
         if validators and (validators.get("etag") or validators.get("last_modified")):
-            _validators_cache[url] = validators
+            _validators_set(url, validators)
             try:
                 await set_validators(
                     url,
@@ -253,14 +302,17 @@ async def check_partial_updates_parallel(
                 logger.debug(f"[CACHE] set_validators failed for {url}: {e}")
 
         if is_placeholder_image(content):
-            return
+            return url, 0
 
         h = calculate_hash_bytes(content)
         if url not in cache or cache.get(url) != h:
             downloaded_data[url] = (content, h)
-            updated_count += 1
+            return url, 1
+        return url, 0
 
-    await asyncio.gather(*[_check_one(u) for u in urls])
+    outcomes = await asyncio.gather(*[_check_one(u) for u in urls])
+    updated_count = sum(1 for _, o in outcomes if o == 1)
+    not_modified_count = sum(1 for _, o in outcomes if o == 2)
 
     log = logger.info if updated_count > 0 else logger.debug
     log(
