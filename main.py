@@ -15,6 +15,7 @@ from utils.state_store import (
     get_all_hashes, get_posted_urls, get_posted_mds, get_posted_watches,
     get_state,
 )
+from utils.cache import hydrate_validators_from_store
 from utils.state import BotState
 from cogs import ALL_EXTENSIONS
 
@@ -111,6 +112,13 @@ async def setup_hook():
         if isinstance(urls, list) and urls:
             bot.state.last_posted_urls[day_key] = urls
             logger.info(f"[DB] Restored posted URLs for {day_key}")
+    # Warm the conditional-GET validator cache so the first poll after
+    # restart doesn't redownload every URL.
+    try:
+        await hydrate_validators_from_store()
+    except Exception as e:
+        logger.warning(f"[DB] validator hydration skipped: {e}")
+
     logger.info("[DB] Database ready")
 
     # Register failover cog
