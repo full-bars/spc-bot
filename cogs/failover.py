@@ -42,6 +42,8 @@ import time
 import uuid
 
 import aiohttp
+import discord
+from discord import app_commands
 from discord.ext import commands, tasks
 
 from cogs import ALL_EXTENSIONS
@@ -77,8 +79,7 @@ def _require_failover_token() -> str:
 def _node_identity() -> str:
     """Stable per-process identifier used as the lease value so we can
     detect whether we still hold the lease vs. some other holder."""
-    host = socket.gethostname()
-    return f"{host}:{uuid.uuid4().hex[:8]}"
+    return socket.gethostname()
 
 
 class FailoverCog(commands.Cog):
@@ -157,6 +158,28 @@ class FailoverCog(commands.Cog):
     async def sync_loop(self):
         await self.bot.wait_until_ready()
         try:
+            # 1. Update heartbeat registry
+            await self._upstash(
+                "HSET", "spcbot:nodes", self._identity, str(int(time.time()))
+            )
+
+            # 2. Check for manual override
+            manual_primary = await self._upstash("GET", "spcbot:manual_primary")
+            
+            if manual_primary:
+                if manual_primary == self._identity:
+                    # We are the designated primary
+                    if not self.bot.state.is_primary:
+                        logger.warning(f"[FAILOVER] Manual override: Promoting node '{self._identity}' to Primary")
+                        await self._promote()
+                else:
+                    # Someone else is the designated primary
+                    if self.bot.state.is_primary:
+                        logger.warning(f"[FAILOVER] Manual override: Demoting node '{self._identity}' to Standby (Target is '{manual_primary}')")
+                        await self._demote()
+                    return # Skip normal cycles if we've been told to be standby
+
+            # 3. Proceed with normal cycle
             if self.bot.state.is_primary:
                 await self._primary_cycle()
             else:
@@ -286,6 +309,121 @@ class FailoverCog(commands.Cog):
             except Exception as e:
                 logger.debug(f"[FAILOVER] Could not unload {ext} during demote: {e}")
         self._primary_failures = 0
+
+    # ── Slash Command ───────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="failover",
+        description="Manually designate the Primary node (Admin only)"
+    )
+    async def failover_slash(self, interaction: discord.Interaction):
+        # 1. Authorization check
+        AUTHORIZED_USER_ID = 977054521035472906
+        if interaction.user.id != AUTHORIZED_USER_ID:
+            await interaction.response.send_message(
+                "❌ You are not authorized to use this command.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        # 2. Fetch active nodes from registry
+        # HGETALL returns [k1, v1, k2, v2, ...]
+        nodes_raw = await self._upstash("HGETALL", "spcbot:nodes")
+        if not nodes_raw or not isinstance(nodes_raw, list):
+            await interaction.followup.send(
+                "❌ No active nodes found in the registry.",
+                ephemeral=True
+            )
+            return
+
+        # Parse nodes and filter by age (5 minutes)
+        now = int(time.time())
+        active_nodes = []
+        for i in range(0, len(nodes_raw), 2):
+            node_id = nodes_raw[i]
+            timestamp = int(nodes_raw[i+1])
+            if (now - timestamp) < 300: # 5 minutes
+                active_nodes.append(node_id)
+
+        if not active_nodes:
+            await interaction.followup.send(
+                "❌ No nodes have sent a heartbeat in the last 5 minutes.",
+                ephemeral=True
+            )
+            return
+
+        # 3. Fetch current manual override
+        current_manual = await self._upstash("GET", "spcbot:manual_primary")
+        current_lease = await self._read_lease_holder()
+
+        # 4. Present UI
+        view = FailoverView(self, active_nodes, current_manual, current_lease)
+        await interaction.followup.send(
+            content=(
+                f"**Failover Management**\n"
+                f"Current Lease Holder: `{current_lease or 'None'}`\n"
+                f"Manual Override: `{current_manual or 'None (Automatic)'}`\n\n"
+                f"Select a node to force it to be Primary, or clear the override "
+                f"to return to automatic failover."
+            ),
+            view=view,
+            ephemeral=True
+        )
+
+
+class FailoverView(discord.ui.View):
+    def __init__(self, cog: FailoverCog, nodes: list[str], current_manual: str | None, current_lease: str | None):
+        super().__init__(timeout=60)
+        self.cog = cog
+        
+        options = []
+        for node in nodes:
+            label = node
+            if node == current_lease:
+                label += " (Active Primary)"
+            if node == cog._identity:
+                label += " (This Node)"
+            
+            options.append(discord.SelectOption(
+                label=label,
+                value=node,
+                description=f"Force {node} to be Primary",
+                default=(node == current_manual)
+            ))
+        
+        options.append(discord.SelectOption(
+            label="❌ Clear Manual Override",
+            value="CLEAR",
+            description="Return to standard automatic failover",
+            emoji="🔄"
+        ))
+
+        self.add_item(FailoverSelect(cog, options))
+
+
+class FailoverSelect(discord.ui.Select):
+    def __init__(self, cog: FailoverCog, options: list[discord.SelectOption]):
+        super().__init__(
+            placeholder="Choose a target Primary node...",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction):
+        target = self.values[0]
+        
+        if target == "CLEAR":
+            await self.cog._upstash("DEL", "spcbot:manual_primary")
+            msg = "✅ Manual override cleared. Returning to automatic failover."
+        else:
+            await self.cog._upstash("SET", "spcbot:manual_primary", target)
+            msg = f"✅ Manual override set: `{target}` is now the designated Primary."
+
+        await interaction.response.edit_message(content=msg, view=None)
 
 
 async def setup(bot):
