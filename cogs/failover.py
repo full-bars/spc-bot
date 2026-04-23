@@ -121,6 +121,10 @@ class FailoverCog(commands.Cog):
                 )
                 await self._write_lease()
                 self.bot.state.is_primary = True
+                try:
+                    await state_store.resync_to_upstash()
+                except Exception as e:
+                    logger.warning(f"[FAILOVER] Startup resync (manual) failed: {e}")
                 return True
             logger.info(
                 f"[FAILOVER] Startup: manual override names '{manual}' as "
@@ -154,6 +158,15 @@ class FailoverCog(commands.Cog):
             f"('{self._identity}')"
         )
         await self._write_lease()
+
+        # Push anything SQLite has to Upstash before loading other cogs.
+        # This handles the case where the primary rebooted after an Upstash
+        # outage and the local SQLite mirror is more recent than Upstash.
+        try:
+            await state_store.resync_to_upstash()
+        except Exception as e:
+            logger.warning(f"[FAILOVER] Startup resync failed: {e}")
+
         return True
 
     async def cog_unload(self):

@@ -61,28 +61,61 @@ class SoundingCog(commands.Cog):
         # fetch over NWS zone geometry; caching avoids N re-fetches when
         # building captions that consider every active watch.
         self._watch_centroids: dict = {}
+        # Guard against cog_load not running (observed in v5.2.0 prod:
+        # SQLite had today's persisted dedup state but posts were still
+        # being replayed on restart, strongly suggesting cog_load's
+        # restore path never populated the in-memory sets). Every
+        # auto-post entry point re-checks this and restores lazily if
+        # the initial hook was skipped.
+        self._restore_attempted: bool = False
         self.auto_sounding_watches.start()
+
+    async def _ensure_restored(self) -> None:
+        """Idempotent restore — safe to call from any auto-post entry
+        point. Covers the case where discord.py's cog_load hook didn't
+        fire or was elided, so the first actual post attempt still
+        benefits from persisted state."""
+        if self._restore_attempted:
+            return
+        self._restore_attempted = True
+        await self.cog_load()
 
     async def cog_load(self):
         """Restore posted-sounding keys from Upstash/SQLite so a restart
         during active wx doesn't re-post every station/watch combo the
         bot already covered today. Entries from previous UTC days are
         dropped on load."""
+        # Unconditional entry log — v5.2.0 shipped without one and we
+        # couldn't tell from production logs whether cog_load was even
+        # being called vs. finding an empty payload vs. raising silently.
+        self._restore_attempted = True
+        logger.info("[SOUNDING-AUTO] cog_load: restoring dedup state from state_store")
         try:
             raw = await get_state("posted_watch_soundings")
-            if isinstance(raw, str):
-                payload = json.loads(raw)
-                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                if payload.get("date") == today:
-                    self._posted_watch_soundings.update(payload.get("keys", []))
-                    self._handled_watches.update(payload.get("handled", []))
-                    logger.info(
-                        f"[SOUNDING-AUTO] Restored {len(self._posted_watch_soundings)} "
-                        f"posted-sounding keys and {len(self._handled_watches)} "
-                        f"handled watches for {today}"
-                    )
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            if not isinstance(raw, str):
+                logger.info(
+                    f"[SOUNDING-AUTO] cog_load: no persisted state "
+                    f"(raw={type(raw).__name__}) — starting with empty dedup set"
+                )
+                return
+            payload = json.loads(raw)
+            payload_date = payload.get("date")
+            if payload_date != today:
+                logger.info(
+                    f"[SOUNDING-AUTO] cog_load: persisted state is from "
+                    f"{payload_date}, today is {today} — discarding stale entries"
+                )
+                return
+            self._posted_watch_soundings.update(payload.get("keys", []))
+            self._handled_watches.update(payload.get("handled", []))
+            logger.info(
+                f"[SOUNDING-AUTO] Restored {len(self._posted_watch_soundings)} "
+                f"posted-sounding keys and {len(self._handled_watches)} "
+                f"handled watches for {today}"
+            )
         except (ValueError, TypeError) as e:
-            logger.debug(f"[SOUNDING-AUTO] posted_watch_soundings parse failed: {e}")
+            logger.warning(f"[SOUNDING-AUTO] posted_watch_soundings parse failed: {e}")
         except Exception as e:
             logger.warning(f"[SOUNDING-AUTO] Could not restore dedup state: {e}")
 
@@ -198,6 +231,7 @@ class SoundingCog(commands.Cog):
         Finds nearest RAOB stations using the most recent IEM-available sounding
         time (any hour, not locked to 00z/12z), posts up to 3 RAOB + 2 ACARS.
         """
+        await self._ensure_restored()
         if watch_num in self._handled_watches:
             return
 
@@ -359,6 +393,7 @@ class SoundingCog(commands.Cog):
     async def auto_sounding_watches(self):
         """Post soundings for RAOB stations near active watches at 00z/12z."""
         await self.bot.wait_until_ready()
+        await self._ensure_restored()
         now = datetime.now(timezone.utc)
         hour = now.hour
 

@@ -676,7 +676,7 @@ async def resync_to_upstash() -> Dict[str, int]:
     dirty list) still make it up. Returns counts of items pushed per
     category for logging.
     """
-    counts = {"hashes": 0, "posted_mds": 0, "posted_watches": 0, "state": 0}
+    counts = {"hashes": 0, "posted_mds": 0, "posted_watches": 0, "state": 0, "urls": 0}
     try:
         for cache_type in ("auto", "manual"):
             hashes = await sqlite_backend.get_all_hashes(cache_type)
@@ -697,6 +697,24 @@ async def resync_to_upstash() -> Dict[str, int]:
         if watches:
             await _upstash_cmd("SADD", _k_posted_watches(), *watches)
             counts["posted_watches"] = len(watches)
+
+        states = await sqlite_backend.get_all_state()
+        if states:
+            args = ["MSET"]
+            for key, value in states.items():
+                args.append(_k_state(key))
+                args.append(value)
+            await _upstash_cmd(*args)
+            counts["state"] = len(states)
+
+        urls_map = await sqlite_backend.get_all_posted_urls()
+        if urls_map:
+            args = ["MSET"]
+            for day_key, urls in urls_map.items():
+                args.append(_k_posted_urls(day_key))
+                args.append(json.dumps(urls))
+            await _upstash_cmd(*args)
+            counts["urls"] = len(urls_map)
 
         logger.info(f"[STATE] Resync → Upstash: {counts}")
         return counts

@@ -339,6 +339,18 @@ async def get_state(key: str) -> Optional[str]:
         return None
 
 
+async def get_all_state() -> dict:
+    """Get all key/value pairs from the bot_state table."""
+    try:
+        db = await get_db()
+        async with db.execute("SELECT key, value FROM bot_state") as cursor:
+            rows = await cursor.fetchall()
+            return {row["key"]: row["value"] for row in rows}
+    except Exception as e:
+        logger.warning(f"[DB] get_all_state failed: {e}")
+        return {}
+
+
 async def set_state(key: str, value: str):
     """Set a value in the key/value store."""
     await _write(
@@ -374,6 +386,18 @@ async def get_posted_urls(day_key: str) -> list:
     except Exception as e:
         logger.warning(f"[DB] get_posted_urls failed for {day_key}: {e}")
     return []
+
+
+async def get_all_posted_urls() -> dict:
+    """Get all day_key -> urls mapping from the posted_urls table."""
+    try:
+        db = await get_db()
+        async with db.execute("SELECT day_key, urls FROM posted_urls") as cursor:
+            rows = await cursor.fetchall()
+            return {row["day_key"]: json.loads(row["urls"]) for row in rows}
+    except Exception as e:
+        logger.warning(f"[DB] get_all_posted_urls failed: {e}")
+        return {}
 
 
 async def set_posted_urls(day_key: str, urls: list):

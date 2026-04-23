@@ -139,6 +139,7 @@ class TestPostSoundingsForWatch:
         cog.bot = bot
         cog._posted_watch_soundings = set()
         cog._handled_watches = set()
+        cog._restore_attempted = True
 
         channel = AsyncMock()
         nws_info = {"type": "SVR", "expires": None, "affected_zones": []}
@@ -156,6 +157,7 @@ class TestPostSoundingsForWatch:
         cog.bot = bot
         cog._posted_watch_soundings = set()
         cog._handled_watches = set()
+        cog._restore_attempted = True
 
         channel = AsyncMock()
         nws_info = {"type": "SVR", "expires": None, "affected_zones": ["https://api.weather.gov/zones/county/IAC001"]}
@@ -224,6 +226,7 @@ class TestSoundingDedupAcrossWatches:
         cog.bot = bot
         cog._posted_watch_soundings = set()
         cog._handled_watches = set()
+        cog._restore_attempted = True
         return cog
 
     def test_raob_key_is_station_plus_time_only(self):
@@ -352,6 +355,62 @@ class TestSoundingDedupAcrossWatches:
         cog = self._make_cog()
         await cog.cog_load()  # should not raise
         assert cog._posted_watch_soundings == set()
+
+    @pytest.mark.asyncio
+    async def test_ensure_restored_runs_cog_load_if_hook_missed(self, monkeypatch):
+        """v5.2.0 regression: in production the cog_load hook appeared
+        not to populate the sets, even though SQLite/Upstash had today's
+        state. `_ensure_restored` is the belt-and-suspenders that the
+        auto-post entry points call on every invocation so we lazy-load
+        even if discord.py's hook was elided."""
+        import json as _json
+        from datetime import datetime, timezone
+        from cogs import sounding as sounding_module
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        payload = _json.dumps({
+            "date": today,
+            "keys": ["raob:KOAX:2026-04-23_00z"],
+            "handled": ["0134"],
+        })
+
+        async def fake_get_state(key):
+            return payload
+
+        monkeypatch.setattr(sounding_module, "get_state", fake_get_state)
+
+        cog = self._make_cog()
+        cog._restore_attempted = False  # simulate hook never fired
+
+        await cog._ensure_restored()
+
+        assert "raob:KOAX:2026-04-23_00z" in cog._posted_watch_soundings
+        assert "0134" in cog._handled_watches
+        assert cog._restore_attempted is True
+
+    @pytest.mark.asyncio
+    async def test_ensure_restored_is_idempotent(self, monkeypatch):
+        """Once restored, repeated calls must not re-read state_store.
+        Each `post_soundings_for_watch` call hits `_ensure_restored` so
+        this path runs many times per watch — it needs to be cheap."""
+        from cogs import sounding as sounding_module
+
+        calls = {"n": 0}
+
+        async def counting_get_state(key):
+            calls["n"] += 1
+            return None
+
+        monkeypatch.setattr(sounding_module, "get_state", counting_get_state)
+
+        cog = self._make_cog()
+        cog._restore_attempted = False
+
+        await cog._ensure_restored()
+        await cog._ensure_restored()
+        await cog._ensure_restored()
+
+        assert calls["n"] == 1
 
 
 # ── Caption: all applicable active watches ─────────────────────────────────
