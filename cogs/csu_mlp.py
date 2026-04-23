@@ -1,15 +1,16 @@
 # cogs/csu_mlp.py
 import json
 import logging
-
-from utils.state_store import get_state, set_state
 from datetime import datetime, timedelta, timezone
 
+import aiohttp
 import discord
 from discord.app_commands import Choice
 from discord.ext import commands, tasks
 
 from config import MANUAL_CACHE_FILE, MODELS_CHANNEL_ID
+from utils.http import ensure_session
+from utils.state_store import get_state, set_state
 from utils.cache import (
     download_single_image,
 )
@@ -63,8 +64,6 @@ async def _url_is_image(url: str) -> bool:
     Check if a URL actually serves an image by inspecting Content-Type.
     The CSU server returns 200+HTML for missing files instead of 404.
     """
-    from utils.http import ensure_session
-    import aiohttp
     try:
         session = await ensure_session()
         async with session.head(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:

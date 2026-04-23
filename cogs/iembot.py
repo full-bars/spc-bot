@@ -11,6 +11,7 @@ between issuance and SPC/IEM REST API availability.
 Only the last-seen seqnum is persisted to DB to avoid reprocessing on restart.
 """
 import asyncio
+import json as _json
 import logging
 import re
 from typing import Optional
@@ -41,7 +42,7 @@ async def get_cached_md_text(md_number: str) -> Optional[str]:
 
 def _parse_watch_text(raw: str) -> Optional[str]:
     """Parse SEL product text into a formatted summary string."""
-    lines = [l.strip() for l in raw.splitlines() if l.strip()]
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
     parts = []
     for i, line in enumerate(lines):
         if re.search(r"Watch for portions of", line, re.IGNORECASE):
@@ -79,7 +80,7 @@ def _parse_md_text(raw: str) -> Optional[str]:
     concerning = re.search(r"(CONCERNING[^\n]{10,120})", raw, re.IGNORECASE)
     if concerning:
         return concerning.group(1).strip()
-    lines = [l.strip() for l in raw.splitlines() if l.strip()]
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
     return " ".join(lines[:3])[:200] if lines else None
 
 
@@ -96,9 +97,13 @@ async def _fetch_product_text(product_id: str) -> Optional[str]:
 
 
 class IEMBotCog(commands.Cog):
+    MANAGED_TASK_NAMES = [("poll_iembot_feed", "poll_iembot_feed")]
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._seqnum_loaded = False
+
+    async def cog_load(self):
         self.poll_iembot_feed.start()
 
     def cog_unload(self):
@@ -128,7 +133,6 @@ class IEMBotCog(commands.Cog):
             self._seqnum_loaded = True
 
         try:
-            import json as _json
             url = f"{IEMBOT_FEED_URL}?seqnum={self.bot.state.iembot_last_seqnum}"
             content, status = await http_get_bytes(url, retries=2, timeout=10)
             if not content or status != 200:

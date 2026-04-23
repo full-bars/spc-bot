@@ -92,6 +92,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import aiohttp
 
 from utils import db as sqlite_backend
+from utils.http import ensure_session
 
 logger = logging.getLogger("spc_bot")
 
@@ -164,8 +165,6 @@ async def _upstash_cmd(*args: Any) -> Any:
     for a in args:
         if a is None:
             raise ValueError("_upstash_cmd: None is not a valid argument")
-
-    from utils.http import ensure_session
 
     session = await ensure_session()
     try:

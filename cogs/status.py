@@ -8,6 +8,7 @@ from typing import Optional
 import discord
 from discord.ext import commands, tasks
 
+from cogs.mesoscale import fetch_latest_md_numbers, fetch_md_details
 from config import MANUAL_CACHE_FILE, SCP_IMAGE_URLS, SPC_URLS, WPC_IMAGE_URLS, __version__
 import utils.http as _http
 from utils.cache import (
@@ -19,8 +20,6 @@ from utils.cache import (
 from utils.spc_urls import get_spc_urls
 
 logger = logging.getLogger("spc_bot")
-
-BOT_START_TIME: Optional[datetime] = None
 
 
 async def send_with_handling(source, content: str, file_paths=None):
@@ -64,8 +63,8 @@ async def fetch_and_send_weather_images(
                 await source.followup.send(msg)
             else:
                 await source.send(msg)
-        except Exception:
-            pass
+        except discord.HTTPException as e:
+            logger.debug(f"[STATUS] Could not send fallback message: {e}")
         return
 
     files = await download_images_parallel(
@@ -87,8 +86,8 @@ async def fetch_and_send_weather_images(
                 await source.followup.send(msg)
             else:
                 await source.send(msg)
-        except Exception:
-            pass
+        except discord.HTTPException as e:
+            logger.debug(f"[STATUS] Could not send fallback message: {e}")
 
 
 class StatusCog(commands.Cog):
@@ -301,8 +300,6 @@ class StatusCog(commands.Cog):
     )
     async def md_slash(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        from cogs.mesoscale import fetch_latest_md_numbers, fetch_md_details
-
         md_numbers = await fetch_latest_md_numbers()
         if not md_numbers:
             await interaction.followup.send(
@@ -372,8 +369,8 @@ class StatusCog(commands.Cog):
             "",
         ]
 
-        if BOT_START_TIME:
-            uptime = now - BOT_START_TIME
+        if self.bot.state.bot_start_time:
+            uptime = now - self.bot.state.bot_start_time
             lines.append(f"Uptime         : {format_timedelta(uptime)}")
         else:
             lines.append("Uptime         : unknown")

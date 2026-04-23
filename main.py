@@ -1,5 +1,6 @@
 # main.py
 import asyncio
+import json as _json
 import logging
 import os
 import signal
@@ -9,8 +10,8 @@ import aiohttp
 import discord
 from discord.ext import commands, tasks
 
-from config import CACHE_DIR, TOKEN, CONFIG
-from utils.http import close_session, ensure_session
+from config import CACHE_DIR, CONFIG, HEALTH_CHANNEL_ID, TOKEN
+import utils.http
 from utils.state_store import (
     check_integrity, close_db, get_db,
     get_all_hashes, get_posted_urls, get_posted_mds, get_posted_watches,
@@ -51,8 +52,6 @@ bot.state.is_primary = IS_PRIMARY
 
 async def setup_hook():
     """Hydrate state from DB before any cogs are loaded."""
-    import json as _json
-
     # Initialize database
     db_ok = await check_integrity()
     if not db_ok:
@@ -106,8 +105,8 @@ async def setup_hook():
             if csu_data.get("date") == today:
                 bot.state.csu_posted.update(str(d) for d in csu_data.get("days", []))
                 logger.info(f"[DB] Restored {len(bot.state.csu_posted)} CSU posted days")
-        except Exception:
-            pass
+        except (ValueError, KeyError, TypeError) as e:
+            logger.debug(f"[DB] CSU state parse failed (ignored): {e}")
 
     for day_key, urls in zip(["day1", "day2", "day3"], [d1_urls, d2_urls, d3_urls], strict=True):
         if isinstance(urls, list) and urls:
@@ -137,14 +136,18 @@ bot.setup_hook = setup_hook
 # Watchdog state
 _task_fail_counts = {}
 _task_alerted = set()
+# Only alert when a task goes from running → stopped. Without this,
+# the first watchdog iteration can fire before the cog task loops
+# have been scheduled by the event loop, producing a spurious
+# startup "task is down" alert immediately followed by "recovered".
+_task_seen_running = set()
+_session_probe_failures = 0
 
 
 async def send_bot_alert(
     title: str, description: str, critical: bool = False
 ):
     """Post a health alert embed to the health/SPC channel."""
-    from config import HEALTH_CHANNEL_ID
-
     try:
         channel = bot.get_channel(HEALTH_CHANNEL_ID)
         if not channel:
@@ -169,13 +172,11 @@ async def send_bot_alert(
 # ── Events ───────────────────────────────────────────────────────────────────
 @bot.event
 async def on_ready():
-    import cogs.status as status_cog
-
-    status_cog.BOT_START_TIME = datetime.now(timezone.utc)
+    bot.state.bot_start_time = datetime.now(timezone.utc)
 
     logger.info(f"Logged in as {bot.user} (id={bot.user.id})")
 
-    await ensure_session()
+    await utils.http.ensure_session()
 
     # Slash command sync
     try:
@@ -218,6 +219,7 @@ async def on_command_error(ctx, error):
 # ── Watchdog ─────────────────────────────────────────────────────────────────
 @tasks.loop(minutes=2)
 async def watchdog_task():
+    global _session_probe_failures
     await bot.wait_until_ready()
 
     # If we are in STANDBY, do not monitor or restart tasks as they
@@ -225,31 +227,46 @@ async def watchdog_task():
     if not bot.state.is_primary:
         return
 
-    from utils.http import http_session
-
-    # Probe an endpoint we actually depend on. Google works as a liveness
-    # check but tells us nothing about SPC/NWS reachability — the things
+    # Probe an endpoint we actually depend on. NWS API works as a liveness
+    # check and tells us something about SPC/NWS reachability — the things
     # that would silently break posts. HEAD keeps the check cheap.
-    session_healthy = False
+    probe_healthy = False
     probe_url = "https://api.weather.gov/"
-    if http_session is not None and not http_session.closed:
+    if utils.http.http_session is not None and not utils.http.http_session.closed:
         try:
-            async with http_session.head(
+            async with utils.http.http_session.head(
                 probe_url,
-                timeout=aiohttp.ClientTimeout(total=5),
+                timeout=aiohttp.ClientTimeout(total=20),
                 allow_redirects=True,
             ) as r:
-                session_healthy = r.status < 500
+                probe_healthy = r.status < 500
         except Exception as e:
             logger.warning(f"[WATCHDOG] Session probe to {probe_url} failed: {e!r}")
 
-    if not session_healthy:
-        logger.warning(
-            "[WATCHDOG] Session is dead or unreachable — "
-            "tearing down and recreating"
-        )
-        await close_session()
-        await ensure_session()
+    if probe_healthy:
+        if _session_probe_failures > 0:
+            logger.info(f"[WATCHDOG] Session probe recovered after {_session_probe_failures} failure(s)")
+        _session_probe_failures = 0
+    else:
+        _session_probe_failures += 1
+        if _session_probe_failures >= 3:
+            logger.warning(
+                f"[WATCHDOG] Session probe failed {_session_probe_failures} consecutive times — "
+                "tearing down and recreating"
+            )
+            await utils.http.close_session()
+            await utils.http.ensure_session()
+            _session_probe_failures = 0
+        else:
+            logger.info(
+                f"[WATCHDOG] Session probe failed ({_session_probe_failures}/3) — "
+                "waiting for next cycle"
+            )
+
+    # Grace period for startup race: tasks need a few ticks to schedule
+    # their first iteration after wait_until_ready() unblocks.
+    if watchdog_task.current_loop == 0:
+        await asyncio.sleep(5)
 
     # Dynamically discover tasks from currently loaded cogs
     current_managed_tasks = []
@@ -262,6 +279,7 @@ async def watchdog_task():
 
     for task, name in current_managed_tasks:
         if task.is_running():
+            _task_seen_running.add(name)
             if name in _task_alerted:
                 _task_alerted.discard(name)
                 _task_fail_counts[name] = 0
@@ -283,14 +301,10 @@ async def watchdog_task():
                 exc = inner_task.exception()
                 if exc:
                     error_detail = f"\n**Last Error:** `{type(exc).__name__}: {exc}`"
-            except Exception:
-                pass
+            except (asyncio.CancelledError, asyncio.InvalidStateError) as e:
+                logger.debug(f"[WATCHDOG] Could not read task exception: {e}")
 
-        logger.warning(
-            f"[WATCHDOG] Task '{name}' has stopped "
-            f"(attempt #{fail_count}) — restarting. Error: {error_detail or 'None'}"
-        )
-
+        # Attempt to (re)start the task quietly
         try:
             task.cancel()
             inner = task.get_task()
@@ -299,36 +313,40 @@ async def watchdog_task():
                     await asyncio.wait_for(asyncio.shield(inner), timeout=5.0)
                 except (asyncio.CancelledError, asyncio.TimeoutError):
                     pass
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"[WATCHDOG] Error while awaiting cancelled task: {e}")
             task.start()
-            logger.info(f"[WATCHDOG] Successfully restarted '{name}'")
+            
+            log_fn = logger.info if name in _task_seen_running else logger.debug
+            log_fn(f"[WATCHDOG] Attempted to {'re' if name in _task_seen_running else ''}start '{name}'")
         except Exception as e:
             logger.exception(
                 f"[WATCHDOG] Failed to restart '{name}': {e}"
             )
 
-        is_critical_task = name in ("auto_post_watches", "auto_post_md")
-        alert_threshold = 1 if is_critical_task else 2
+        # Alerts — only for tasks we've seen running before to avoid startup noise
+        if name in _task_seen_running:
+            is_critical_task = name in ("auto_post_watches", "auto_post_md")
+            alert_threshold = 1 if is_critical_task else 2
 
-        if fail_count >= alert_threshold and name not in _task_alerted:
-            _task_alerted.add(name)
-            critical = is_critical_task
-            await send_bot_alert(
-                f"{name} is down",
-                f"The `{name}` task has stopped and the watchdog is "
-                f"attempting to restart it (attempt #{fail_count})."
-                f"{error_detail}\n\n"
-                + (
-                    "**Watch and MD alerts may be delayed — check "
-                    "[SPC directly](https://www.spc.noaa.gov) "
-                    "if severe weather is ongoing.**"
-                    if critical
-                    else "Outlook posts may be delayed until the "
-                    "task recovers."
-                ),
-                critical=critical,
-            )
+            if fail_count >= alert_threshold and name not in _task_alerted:
+                _task_alerted.add(name)
+                critical = is_critical_task
+                await send_bot_alert(
+                    f"{name} is down",
+                    f"The `{name}` task has stopped and the watchdog is "
+                    f"attempting to restart it (attempt #{fail_count})."
+                    f"{error_detail or ' Error: None'}\n\n"
+                    + (
+                        "**Watch and MD alerts may be delayed — check "
+                        "[SPC directly](https://www.spc.noaa.gov) "
+                        "if severe weather is ongoing.**"
+                        if critical
+                        else "Outlook posts may be delayed until the "
+                        "task recovers."
+                    ),
+                    critical=critical,
+                )
 
 
 # ── Graceful shutdown ────────────────────────────────────────────────────────
@@ -358,7 +376,7 @@ async def _shutdown():
     # 2. Close DB and HTTP session
     try:
         await asyncio.wait_for(
-            asyncio.gather(close_session(), close_db(), return_exceptions=True),
+            asyncio.gather(utils.http.close_session(), close_db(), return_exceptions=True),
             timeout=3.0,
         )
     except asyncio.TimeoutError:

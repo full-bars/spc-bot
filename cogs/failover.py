@@ -44,6 +44,9 @@ import uuid
 import aiohttp
 from discord.ext import commands, tasks
 
+from cogs import ALL_EXTENSIONS
+from utils import state_store
+
 logger = logging.getLogger("spc_bot")
 
 UPSTASH_URL = os.getenv("UPSTASH_REDIS_REST_URL", "")
@@ -59,8 +62,6 @@ MAX_FAILURES = max(5, HEARTBEAT_TTL // (2 * SYNC_INTERVAL))
 UPSTASH_HEADERS = {"Authorization": f"Bearer {UPSTASH_TOKEN}"}
 
 LEASE_KEY = "spcbot:primary_url"
-
-from cogs import ALL_EXTENSIONS
 
 
 def _require_failover_token() -> str:
@@ -81,6 +82,8 @@ def _node_identity() -> str:
 
 
 class FailoverCog(commands.Cog):
+    MANAGED_TASK_NAMES = [("sync_loop", "sync_loop")]
+
     def __init__(self, bot):
         self.bot = bot
         self._primary_failures = 0
@@ -214,7 +217,6 @@ class FailoverCog(commands.Cog):
         self.bot.state.is_primary = True
 
         # Drop stale cache so fresh reads re-hit Upstash.
-        from utils import state_store
         state_store.invalidate_all_caches()
 
         # Claim the lease immediately (before loading cogs so there's no
@@ -259,8 +261,6 @@ class FailoverCog(commands.Cog):
         we need them to reflect what the outgoing primary wrote to
         Upstash, not what we snapshotted at boot.
         """
-        from utils import state_store
-
         st = self.bot.state
         st.auto_cache = await state_store.get_all_hashes("auto")
         st.manual_cache = await state_store.get_all_hashes("manual")
@@ -283,8 +283,8 @@ class FailoverCog(commands.Cog):
         for ext in ALL_EXTENSIONS:
             try:
                 await self.bot.unload_extension(ext)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"[FAILOVER] Could not unload {ext} during demote: {e}")
         self._primary_failures = 0
 
 

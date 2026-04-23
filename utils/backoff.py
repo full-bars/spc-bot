@@ -67,7 +67,9 @@ class TaskBackoff:
         # Send alert at threshold
         if self._failures == 5 and bot:
             try:
-                from main import send_bot_alert
+                # main imports utils.* at module load, so importing
+                # main at the top of this file would deadlock.
+                from main import send_bot_alert  # noqa: PLC0415
                 await send_bot_alert(
                     f"{self.name} degraded",
                     f"Task `{self.name}` has failed **{self._failures}** times "

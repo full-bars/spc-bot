@@ -102,6 +102,7 @@ class BotState:
     def __init__(self):
         self.is_primary: bool = True  # overridden by IS_PRIMARY env var in main.py
         self.iembot_last_seqnum: int = 0
+        self.bot_start_time: Optional[datetime] = None
 
         self.hashes = HashStore()
         self.posting = PostingLog()

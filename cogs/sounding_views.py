@@ -132,8 +132,8 @@ async def post_sounding(
                     color=discord.Color.green(),
                 )
                 await status_msg.edit(embed=done_embed, view=None)
-            except Exception:
-                pass
+            except discord.HTTPException as e:
+                logger.debug(f"[SOUNDING] Could not update status message: {e}")
 
     except Exception as e:
         logger.exception(f"[SOUNDING] Failed to post: {e}")
@@ -521,8 +521,8 @@ async def _post_from_clean_data(
             for msg in messages_to_delete:
                 try:
                     await msg.delete()
-                except Exception:
-                    pass
+                except discord.HTTPException as e:
+                    logger.debug(f"[SOUNDING] Could not delete message: {e}")
         await interaction.channel.send(caption, files=[discord.File(png_path)])
         logger.info(f"[SOUNDING] Posted {station_id} {year}/{month}/{day} {hour}z")
     except Exception as e:

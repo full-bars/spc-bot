@@ -1,5 +1,6 @@
 # cogs/hodograph.py
 import asyncio
+import difflib
 import logging
 import os
 import sys
@@ -103,7 +104,6 @@ class HodographCog(commands.Cog):
         site = site.upper().strip()
 
         if site not in VALID_RADARS:
-            import difflib
             suggestions = difflib.get_close_matches(site, VALID_RADARS, n=3, cutoff=0.5)
             if suggestions:
                 view = RadarSuggestionView(suggestions)
@@ -128,8 +128,8 @@ class HodographCog(commands.Cog):
                     f"⚠️ Unexpected error for `{site}`. Please try again.",
                     ephemeral=True,
                 )
-            except Exception:
-                pass
+            except discord.HTTPException as send_err:
+                logger.debug(f"[HODO] Could not send error message: {send_err}")
 
 
 async def setup(bot: commands.Bot):

@@ -8,32 +8,35 @@ Utility functions for the sounding cog:
 """
 
 import asyncio
+import io
 import logging
 import math
 import re
-from datetime import datetime, timezone
+import sys
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import aiohttp
 import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
-# Lock to serialize matplotlib plot generation (plt is not thread-safe)
-_PLOT_LOCK = asyncio.Lock()
+import numpy as np
 import pandas as pd
-import io
-import sys
+from metpy.units import units
 
-# Suppress SounderPy's startup banner
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402  # must follow matplotlib.use()
+
+# Suppress SounderPy's startup banner by redirecting stdout during import.
 _stdout = sys.stdout
 sys.stdout = io.StringIO()
 try:
-    import sounderpy as spy
+    import sounderpy as spy  # noqa: E402  # silenced banner import
 finally:
     sys.stdout = _stdout
 
-from utils.state_store import get_state, set_state
+from utils.state_store import get_state, set_state  # noqa: E402  # follows sounderpy import
+
+# Lock to serialize matplotlib plot generation (plt is not thread-safe)
+_PLOT_LOCK = asyncio.Lock()
 
 logger = logging.getLogger("spc_bot")
 
@@ -52,7 +55,8 @@ async def get_user_dark_mode(user_id: int) -> bool:
     try:
         raw = await get_state(f"sounding_dark_{user_id}")
         return raw == "1" if raw is not None else False
-    except Exception:
+    except Exception as e:
+        logger.debug(f"[SOUNDING] Dark mode lookup failed for {user_id}: {e}")
         return False
 
 async def set_user_dark_mode(user_id: int, dark: bool):
@@ -153,8 +157,8 @@ async def resolve_location(location: str) -> tuple[float, float, str]:
             if not match.empty:
                 row = match.iloc[0]
                 return float(row["lat"]), float(row["lon"]), f"RAOB station {loc}"
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"[SOUNDING] RAOB lookup for {loc!r} failed: {e}")
 
         # Try as METAR/radar site (K-prefix 4-letter)
         if len(loc) == 4 and loc.startswith("K"):
@@ -163,8 +167,8 @@ async def resolve_location(location: str) -> tuple[float, float, str]:
                     None, spy.get_latlon, "metar", loc
                 )
                 return float(latlon[0]), float(latlon[1]), f"radar site {loc}"
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"[SOUNDING] METAR lookup for {loc!r} failed: {e}")
 
     # Fall back to Nominatim geocoding
     lat, lon, display = await geocode_city(location)
@@ -232,7 +236,6 @@ def get_recent_sounding_times(n: int = 4) -> list[tuple[str, str, str, str]]:
     """
     Return the n most recent 00z/12z sounding times that are in the past.
     """
-    from datetime import timedelta
     now = datetime.now(timezone.utc)
     times = []
     for days_back in range(5):
@@ -258,7 +261,6 @@ async def get_watch_area_centroid(affected_zones: list) -> tuple[float, float] |
     Fetch zone polygons from NWS and return the centroid of the watch area.
     Returns (lat, lon) or None on failure.
     """
-    import aiohttp
     all_lats = []
     all_lons = []
 
@@ -325,7 +327,8 @@ async def get_md_area_centroid(raw_text: str) -> tuple[float, float] | None:
 
             lats.append(lat)
             lons.append(lon)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"[CENTROID] Coordinate parse failed for part {part!r}: {e}")
             continue
 
     if not lats:
@@ -350,8 +353,6 @@ def _iem_to_clean_data(profile: dict, station_id: str, station_name: str,
     IEM fields: pres, hght, tmpc, dwpc, drct, sknt
     SounderPy fields: p, z, T, Td, u, v, site_info, titles
     """
-    import numpy as np
-    from metpy.units import units
 
     # Filter for levels that have both thermodynamic and wind data
     # Missing winds (None) are the primary cause of jagged/broken hodographs
@@ -377,7 +378,6 @@ def _iem_to_clean_data(profile: dict, station_id: str, station_name: str,
 
     # Parse valid time
     try:
-        from datetime import datetime, timezone
         if "Z" in valid:
             dt = datetime.fromisoformat(valid.replace("Z", "+00:00"))
         else:
@@ -387,7 +387,8 @@ def _iem_to_clean_data(profile: dict, station_id: str, station_name: str,
             
         run_time = [str(dt.year), str(dt.month).zfill(2),
                     str(dt.day).zfill(2), f"{dt.hour:02d}:{dt.minute:02d}"]
-    except Exception:
+    except Exception as e:
+        logger.debug(f"[IEM] Datetime parse failed for {valid!r}: {e}")
         run_time = ["none", "none", "none", "none"]
 
     return {
@@ -470,7 +471,6 @@ async def get_available_sounding_times_iem(
     Checks all hours concurrently for speed. Results are cached for 15 minutes.
     Use skip_cache=True for auto-posting tasks that need fresh data.
     """
-    from datetime import timedelta
     now = datetime.now(timezone.utc)
 
     # Check cache (skip for auto-post tasks)
@@ -502,8 +502,8 @@ async def get_available_sounding_times_iem(
                     str(dt.day).zfill(2),
                     str(dt.hour).zfill(2),
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"[SOUNDING] IEM profile probe failed for {station_id}: {e}")
         return None
 
     times_to_check = [
@@ -535,8 +535,9 @@ async def get_acars_profiles_near(
     Find available ACARS profiles near a location.
     Returns list of dicts sorted by distance.
     """
-    import sounderpy as spy
-    from datetime import timedelta
+    # sounderpy import is deferred: importing it eagerly triggers
+    # network I/O (station list fetch) that we want to avoid at startup.
+    import sounderpy as spy  # noqa: PLC0415
 
     now = datetime.now(timezone.utc)
     results = []
@@ -574,7 +575,8 @@ async def get_acars_profiles_near(
                     )
                     airport_latlon = (float(latlon[0]), float(latlon[1]))
                     _ACARS_STATION_COORDS[airport_code] = airport_latlon
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"[ACARS] Airport lookup failed for {airport_code!r}: {e}")
                     continue
 
             dist = haversine(lat, lon, airport_latlon[0], airport_latlon[1])
@@ -604,7 +606,7 @@ async def fetch_acars_sounding(
     year: str, month: str, day: str, hour: str,
 ) -> Optional[dict]:
     """Fetch an ACARS sounding profile and return SounderPy clean_data."""
-    import sounderpy as spy
+    import sounderpy as spy  # noqa: PLC0415  # deferred; see fetch_sounding
     loop = asyncio.get_running_loop()
     try:
         acars = await loop.run_in_executor(
@@ -632,7 +634,6 @@ async def filter_stations_with_data(stations: list[dict], n_times: int = 1) -> l
     are checked concurrently to keep total wait time minimal.
     Returns only stations that have at least one available sounding.
     """
-    import asyncio
     times = get_recent_sounding_times(n_times)
 
     async def has_data(station: dict) -> tuple[dict, bool]:
@@ -670,12 +671,12 @@ def validate_sounding_data(data: Optional[dict], min_levels: int = 5) -> bool:
         for key in ("z", "T", "Td", "u", "v"):
             if len(data[key]) != p_len:
                 return False
-    except (TypeError, KeyError):
+    except (TypeError, KeyError) as e:
+        logger.debug(f"[SOUNDING] Structural validation failed: {e}")
         return False
         
     # Check for sufficient valid data (prevent crashes in SounderPy/ecape-parcel)
     try:
-        import numpy as np
         # Check if we have at least SOME non-zero wind data (prevent jagged hodographs)
         u_vals = np.array(data["u"])
         v_vals = np.array(data["v"])
@@ -686,8 +687,8 @@ def validate_sounding_data(data: Optional[dict], min_levels: int = 5) -> bool:
         t_vals = np.array(data["T"])
         if np.all(np.isnan(t_vals)):
             return False
-    except Exception:
-        pass
+    except (KeyError, TypeError, ValueError) as e:
+        logger.debug(f"[SOUNDING] Data validation check failed (accepting): {e}")
 
     return True
 

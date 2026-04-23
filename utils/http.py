@@ -15,8 +15,10 @@ _session_lock = asyncio.Lock()
 def _default_user_agent() -> str:
     # NWS/SPC require an identifying UA with contact info. Pulling the
     # version here keeps the string aligned with the release tag.
+    # Local import with try/except: falls back to "dev" if config
+    # import fails (e.g. during test collection without env vars).
     try:
-        from config import __version__
+        from config import __version__  # noqa: PLC0415
     except Exception:
         __version__ = "dev"
     contact = "https://github.com/full-bars/spc-bot"
@@ -79,7 +81,7 @@ def _get_retry_after(response: aiohttp.ClientResponse) -> Optional[float]:
 async def http_get_bytes(
     url: str,
     retries: int = 3,
-    timeout: int = 10,
+    timeout: int = 30,
     headers: Optional[Dict[str, str]] = None,
 ) -> Tuple[Optional[bytes], Optional[int]]:
     """Unconditional GET. Thin wrapper over the conditional variant with
@@ -100,7 +102,7 @@ async def http_get_bytes_conditional(
     etag: Optional[str] = None,
     last_modified: Optional[str] = None,
     retries: int = 3,
-    timeout: int = 10,
+    timeout: int = 30,
     extra_headers: Optional[Dict[str, str]] = None,
 ) -> Tuple[Optional[bytes], Optional[int], Optional[Dict[str, str]]]:
     """Conditional GET. Returns (content, status, validators).
@@ -154,7 +156,7 @@ async def http_get_bytes_conditional(
 
 
 async def http_get_text(
-    url: str, retries: int = 3, timeout: int = 10
+    url: str, retries: int = 3, timeout: int = 30
 ) -> Optional[str]:
     content, status = await http_get_bytes(url, retries=retries, timeout=timeout)
     if content and status == 200:
@@ -162,7 +164,7 @@ async def http_get_text(
     return None
 
 
-async def http_head_ok(url: str, timeout: int = 5) -> bool:
+async def http_head_ok(url: str, timeout: int = 20) -> bool:
     """Cheap liveness check. HEAD only; no full-GET fallback (that defeats the point)."""
     try:
         session = await ensure_session()
@@ -175,7 +177,7 @@ async def http_head_ok(url: str, timeout: int = 5) -> bool:
         return False
 
 
-async def http_head_meta(url: str, timeout: int = 5) -> Optional[Dict[str, str]]:
+async def http_head_meta(url: str, timeout: int = 20) -> Optional[Dict[str, str]]:
     try:
         session = await ensure_session()
         async with session.head(

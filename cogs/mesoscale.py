@@ -1,5 +1,6 @@
 # cogs/mesoscale.py
 import asyncio
+import json
 import logging
 import os
 import re
@@ -8,9 +9,10 @@ from typing import Dict, List, Optional, Tuple
 
 import discord
 from discord.ext import commands, tasks
-from utils.backoff import TaskBackoff
 
+from cogs.iembot import get_cached_md_text
 from config import AUTO_CACHE_FILE, SPC_CHANNEL_ID, SPC_MD_INDEX_URL
+from utils.backoff import TaskBackoff
 from utils.cache import (
     download_single_image,
 )
@@ -48,14 +50,13 @@ async def fetch_latest_md_numbers() -> List[str]:
     # If SPC is unreachable, try to scrape from IEM's nwstext API
     if not html:
         logger.warning("[MD] SPC index unreachable — falling back to IEM for active MD list")
-        import json as _json_fallback
         try:
             content, status = await http_get_bytes(
                 "https://mesonet.agron.iastate.edu/api/1/nwstext.json?product=MCD&limit=40",
                 retries=2, timeout=15
             )
             if content and status == 200:
-                data = _json_fallback.loads(content)
+                data = json.loads(content)
                 md_nums = set()
                 for entry in data.get("data", []):
                     m = re.search(r"MESOSCALE DISCUSSION\s+(\d+)", entry.get("data", ""), re.IGNORECASE)
@@ -87,7 +88,6 @@ async def fetch_md_details_iem(md_number: str) -> Tuple[Optional[str], Optional[
     IEM mirrors SPC MCD images at a predictable URL.
     Returns (image_url, summary_text, raw_text).
     """
-    import json as _json_iem
     padded = md_number.zfill(4)
     num_int = int(md_number)
 
@@ -105,7 +105,7 @@ async def fetch_md_details_iem(md_number: str) -> Tuple[Optional[str], Optional[
             retries=2, timeout=15
         )
         if content and status == 200:
-            data = _json_iem.loads(content)
+            data = json.loads(content)
             for entry in data.get("data", []):
                 text = entry.get("data", "")
                 if (
@@ -117,7 +117,7 @@ async def fetch_md_details_iem(md_number: str) -> Tuple[Optional[str], Optional[
                     if concerning:
                         summary = concerning.group(1).strip()
                     else:
-                        lines = [l.strip() for l in text.splitlines() if l.strip()]
+                        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
                         summary = " ".join(lines[:3])[:200]
                     break
     except Exception as e:
@@ -139,7 +139,9 @@ async def fetch_md_details(
         return await http_get_text(page_url)
 
     async def _fetch_iem_early():
-        import cogs.mesoscale as _self
+        # Self-import via module object so tests can monkeypatch
+        # cogs.mesoscale.fetch_md_details_iem at runtime.
+        import cogs.mesoscale as _self  # noqa: PLC0415
         iem_img, iem_summary, iem_raw = await _self.fetch_md_details_iem(md_number)
         return (iem_img, iem_summary, iem_raw)
 
@@ -166,8 +168,8 @@ async def fetch_md_details(
             if pending:
                 try:
                     iem_result = await pending.pop()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"[MD] IEM fallback also failed for #{md_number}: {e}")
     else:
         iem_result = first.result()
         try:
@@ -206,7 +208,6 @@ async def fetch_md_details(
     summary = None
 
     # Check iembot real-time cache first (populated within seconds of issuance)
-    from cogs.iembot import get_cached_md_text
     summary = await get_cached_md_text(md_number)
     if summary:
         logger.info(f"[MD] Got summary from iembot cache for #{md_number}")
@@ -235,6 +236,8 @@ class MesoscaleCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._md_backoff = TaskBackoff("auto_post_md")
+
+    async def cog_load(self):
         self.auto_post_md.start()
 
     def cog_unload(self):
@@ -259,6 +262,34 @@ class MesoscaleCog(commands.Cog):
                     asyncio.create_task(sounding_cog.prewarm_soundings_for_md(md_num, raw_text))
         except Exception as e:
             logger.debug(f"[MD] Could not parse probability for MD #{md_num}: {e}")
+
+    async def _upgrade_md_message(
+        self, md_num: str, message: discord.Message, header: str
+    ):
+        """
+        Polls for the MD graphic and edits the message to include it once available.
+        Retries every 30s for up to 5 minutes.
+        """
+        image_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.png"
+        for attempt in range(10):
+            await asyncio.sleep(30)
+            try:
+                # download_single_image uses conditional GET / validators
+                cache_path, _, _ = await download_single_image(
+                    image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
+                )
+                if cache_path:
+                    try:
+                        await message.edit(
+                            content=header, attachments=[discord.File(cache_path)]
+                        )
+                        logger.info(f"[MD] Upgraded MD #{md_num} with graphic")
+                        break
+                    except discord.HTTPException as e:
+                        logger.warning(f"[MD] Failed to edit MD message for #{md_num}: {e}")
+                        break
+            except Exception as e:
+                logger.debug(f"[MD] Upgrade poll error for #{md_num}: {e}")
 
     async def post_md_now(self, md_num: str):
         """
@@ -292,10 +323,14 @@ class MesoscaleCog(commands.Cog):
         header += f"\n<{md_page_url}>"
 
         try:
+            msg = None
             if cache_path:
-                await channel.send(header, files=[discord.File(cache_path)])
+                msg = await channel.send(header, files=[discord.File(cache_path)])
             else:
-                await channel.send(header)
+                msg = await channel.send(header)
+                # Graphic missing (likely 403 index-lag), try to fetch it later
+                asyncio.create_task(self._upgrade_md_message(md_num, msg, header))
+
             self.bot.state.posted_mds.add(md_num)
             await add_posted_md(str(md_num))
             await prune_posted_mds()
@@ -321,8 +356,23 @@ class MesoscaleCog(commands.Cog):
 
             # ── MD cancellations ───────────────────────────────────────────
             if current_mds:
+                current_max = max(int(m) for m in current_mds)
                 for md_num in list(self.bot.state.active_mds):
                     if md_num not in current_mds:
+                        # Protect against index lag: if the active MD is newer than
+                        # anything on the index, it means the index hasn't caught up.
+                        num_int = int(md_num)
+                        # Handle year wraparound (e.g. 0001 is newer than 9999)
+                        is_newer = (num_int > current_max and num_int - current_max < 1000) or \
+                                   (num_int < current_max and current_max - num_int > 8000)
+                        
+                        if is_newer:
+                            logger.info(
+                                f"[MD] Index lagging (highest is {current_max:04d}) — "
+                                f"sparing #{md_num} from cancellation"
+                            )
+                            continue
+
                         self.bot.state.active_mds.discard(md_num)
                         logger.info(
                             f"[MD] MD #{md_num} no longer on index — "
@@ -339,6 +389,7 @@ class MesoscaleCog(commands.Cog):
                         embed.set_footer(text="SPC MD Monitor")
                         try:
                             await channel.send(embed=embed)
+                            self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
                             logger.info(
                                 f"[MD] Posted cancellation for #{md_num}"
                             )
@@ -380,12 +431,16 @@ class MesoscaleCog(commands.Cog):
                 header += f"\n<{md_page_url}>"
 
                 try:
+                    msg = None
                     if cache_path:
-                        await channel.send(
+                        msg = await channel.send(
                             header, files=[discord.File(cache_path)]
                         )
                     else:
-                        await channel.send(header)
+                        msg = await channel.send(header)
+                        # Graphic missing (likely 403), try to fetch it later
+                        asyncio.create_task(self._upgrade_md_message(md_num, msg, header))
+
                     self.bot.state.posted_mds.add(md_num)
                     await add_posted_md(str(md_num))
                     await prune_posted_mds()

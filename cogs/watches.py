@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Tuple
 
 import discord
 from discord.ext import commands, tasks
+from cogs.iembot import get_cached_watch_text
 from utils.backoff import TaskBackoff
 
 from config import (
@@ -95,8 +96,8 @@ async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
                     expires_dt = datetime.fromisoformat(expires_str).astimezone(
                         timezone.utc
                     )
-                except Exception:
-                    pass
+                except (ValueError, TypeError) as e:
+                    logger.debug(f"[WATCH] Could not parse expires {expires_str!r}: {e}")
             logger.debug(
                 f"[WATCH] NWS API: #{watch_num} ({wtype}) expires {expires_dt}"
             )
@@ -156,8 +157,6 @@ async def fetch_watch_details_iem(watch_number: str) -> Tuple[Optional[str], Opt
     including states, probabilities, hail size, and wind gusts.
     Returns (text_summary, image_url).
     """
-    import json as _json_iem
-    from datetime import datetime, timezone
     num_int = int(watch_number)
     year = datetime.now(timezone.utc).year
 
@@ -167,7 +166,7 @@ async def fetch_watch_details_iem(watch_number: str) -> Tuple[Optional[str], Opt
         url = f"https://mesonet.agron.iastate.edu/json/watches.py?year={year}"
         content, status = await http_get_bytes(url, retries=2, timeout=15)
         if content and status == 200:
-            data = _json_iem.loads(content)
+            data = _json.loads(content)
             for event in data.get("events", []):
                 if event.get("num") == num_int:
                     states = event.get("states", "")
@@ -392,7 +391,6 @@ async def fetch_watch_details(
             )
 
     # Check iembot real-time cache first (populated within seconds of issuance)
-    from cogs.iembot import get_cached_watch_text
     cached_text = await get_cached_watch_text(watch_number)
     if cached_text and not text_summary:
         text_summary = cached_text
@@ -556,8 +554,8 @@ class WatchPaginatorView(discord.ui.View):
         if self.message:
             try:
                 await self.message.edit(view=self)
-            except Exception:
-                pass
+            except discord.HTTPException as e:
+                logger.debug(f"[WATCH] Could not disable view on timeout: {e}")
 
 
 async def _execute_watches(interaction: discord.Interaction, bot: commands.Bot):
@@ -625,6 +623,8 @@ class WatchesCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._watches_backoff = TaskBackoff("auto_post_watches")
+
+    async def cog_load(self):
         self.auto_post_watches.start()
 
     def cog_unload(self):
