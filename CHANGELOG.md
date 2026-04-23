@@ -6,6 +6,42 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.2.0] — 2026-04-23
+
+### Fixed
+- **Failover race on primary reboot.** The primary node loaded all cogs
+  immediately based on the `IS_PRIMARY` env var, opening a ~30 s window
+  before the failover sync loop's first tick during which cogs ran MD /
+  watch / outlook scans against stale in-memory state. This caused
+  duplicate posts when the primary rebooted while the standby held the
+  Upstash lease (2026-04-23 incident: MD #0505 was posted twice within
+  13 s). New `startup_lease_check()` synchronously probes
+  `spcbot:manual_primary` and the lease key during `setup_hook` and
+  yields to standby if another node owns either.
+- **`_rehydrate_bot_state()` now refreshes `csu_mlp_posted`** on
+  promotion so CSU-MLP panels aren't re-posted after a failover.
+- **Sounding dedup scoped by `watch_num`** caused the same RAOB/ACARS
+  profile to post once per geographically-overlapping watch (e.g. ACARS
+  OMA posted three times for TOR #0134 + SVR #0135 + TOR #0136). Dedup
+  keys are now `raob:{sid}:{time}` / `acars:{airport}:{time}` — watch-
+  agnostic — and the set is persisted to Upstash under
+  `posted_watch_soundings` keyed by UTC date so a restart mid-event
+  doesn't replay every already-posted station.
+- **Auto ACARS soundings posted to the watches-announcement channel**
+  instead of the observed-soundings channel. `post_soundings_for_watch`
+  used `target_channel` (SOUNDING_CHANNEL_ID) for RAOB posts but fell
+  back to the passed-in `channel` for ACARS. Both now use the sounding
+  channel consistently.
+
+### Changed
+- Auto-sounding captions now list **all active watches near the
+  station**, not just the one that triggered the post. With three
+  overlapping watches and a station in the middle, the caption reads
+  `Near active watches #0134 (Tornado), #0135 (SVR), #0136 (Tornado)`.
+  Radius threshold is 500 km from each watch's centroid. Watch
+  centroids are memoized per-process to avoid N re-fetches of NWS zone
+  geometry when captioning multiple stations.
+
 ## [5.1.6] — 2026-04-22
 
 ### Changed
