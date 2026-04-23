@@ -6,6 +6,31 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.2.2] — 2026-04-23
+
+### Added
+- **Special Sounding Monitor.** Added `monitor_special_soundings` task
+  to `SoundingCog` that runs every 15 minutes. It identifies RAOB
+  stations near all currently active watches and checks IEM for *any*
+  new sounding release (not just 00z/12z). This ensures that 18z, 20z,
+  and other intermediate "special" releases requested by WFOs/SPC are
+  automatically detected and posted during the lifetime of a watch.
+
+## [5.2.1] — 2026-04-23
+
+### Fixed
+- **State restoration robustness.** Added idempotent `_ensure_restored`
+  safety net to `SoundingCog` auto-post paths to handle cases where
+  the `cog_load` hook is skipped by the library.
+- **Full Upstash synchronization.** Expanded `resync_to_upstash` to
+  include `bot_state` and `posted_urls` tables. This ensures that a
+  rebooting primary node with a more recent SQLite mirror than Upstash
+  (e.g. from an outage) pushes its full state before cogs start
+  running.
+- **Startup Resync.** Trigger `resync_to_upstash` immediately during
+  `startup_lease_check` in `FailoverCog` if the node claims the
+  primary role.
+
 ## [5.2.0] — 2026-04-23
 
 ### Fixed
