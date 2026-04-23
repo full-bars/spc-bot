@@ -653,9 +653,11 @@ class WatchesCog(commands.Cog):
                 # 1. We have no image yet (or it's a placeholder)
                 # 2. AND we don't have final probabilities yet
                 # Once we have BOTH a real image and real probs, we stop.
-                image_missing = cache_path is None or (
-                    os.path.exists(cache_path) and is_placeholder_image(open(cache_path, "rb").read())
-                )
+                image_missing = True
+                if cache_path and os.path.exists(cache_path):
+                    with open(cache_path, "rb") as f:
+                        image_missing = is_placeholder_image(f.read())
+                
                 if image_missing or not has_real_probs:
                     if attempt < 9: # Only continue if we have attempts left
                         continue
