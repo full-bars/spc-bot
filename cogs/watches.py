@@ -642,14 +642,23 @@ class WatchesCog(commands.Cog):
             try:
                 image_url, text_summary, probs = await fetch_watch_details(watch_num)
                 has_real_probs = probs and "preliminary" not in probs
-                if not has_real_probs and image_url is None:
-                    continue
-
+                
                 cache_path = None
                 if image_url:
                     cache_path, _, _ = await download_single_image(
                         image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
                     )
+
+                # Keep retrying if:
+                # 1. We have no image yet (or it's a placeholder)
+                # 2. AND we don't have final probabilities yet
+                # Once we have BOTH a real image and real probs, we stop.
+                image_missing = cache_path is None or (
+                    os.path.exists(cache_path) and is_placeholder_image(open(cache_path, "rb").read())
+                )
+                if image_missing or not has_real_probs:
+                    if attempt < 9: # Only continue if we have attempts left
+                        continue
 
                 embed = _build_watch_embed(
                     watch_num,
@@ -855,7 +864,7 @@ class WatchesCog(commands.Cog):
 
                 try:
                     files = _watch_files(watch_num, cache_path)
-                    await channel.send(embed=embed, files=files)
+                    message = await channel.send(embed=embed, files=files)
                     self.bot.state.posted_watches.add(watch_num)
                     await add_posted_watch(str(watch_num))
                     await prune_posted_watches()
@@ -865,6 +874,12 @@ class WatchesCog(commands.Cog):
                     if sounding_cog:
                         asyncio.create_task(
                             sounding_cog.post_soundings_for_watch(watch_num, nws_info, channel)
+                        )
+                    # Schedule upgrade edit once SPC data is available
+                    has_prelim = probs and "preliminary" in probs
+                    if not cache_path or has_prelim:
+                        asyncio.create_task(
+                            self._upgrade_watch_embed(watch_num, message, is_tornado, watch_label, color, expires)
                         )
                 except discord.HTTPException as e:
                     logger.exception(
