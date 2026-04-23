@@ -318,8 +318,13 @@ class FailoverCog(commands.Cog):
     )
     async def failover_slash(self, interaction: discord.Interaction):
         # 1. Authorization check
-        AUTHORIZED_USER_ID = 977054521035472906
-        if interaction.user.id != AUTHORIZED_USER_ID:
+        raw_admin_id = os.getenv("ADMIN_USER_ID", "0")
+        try:
+            authorized_id = int(raw_admin_id)
+        except ValueError:
+            authorized_id = 0
+
+        if interaction.user.id != authorized_id:
             await interaction.response.send_message(
                 "❌ You are not authorized to use this command.",
                 ephemeral=True
