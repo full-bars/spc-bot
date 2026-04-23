@@ -28,6 +28,7 @@ from cogs.sounding_utils import (
     parse_sounding_time,
     resolve_location,
     set_user_dark_mode,
+    sounding_quality_warning,
 )
 from cogs.sounding_views import CombinedSoundingView, post_sounding
 from config import CACHE_DIR, SOUNDING_CHANNEL_ID
@@ -149,6 +150,9 @@ class SoundingCog(commands.Cog):
                 f"**Auto Sounding — {station['name']} ({station_id})**\n"
                 f"Valid: {month}-{day}-{year} {hour}z | Near active {watch_label} #{watch_num}"
             )
+            qwarn = sounding_quality_warning(clean_data)
+            if qwarn:
+                caption += f"\n{qwarn}"
             try:
                 await target_channel.send(caption, files=[discord.File(png_path)])
                 logger.info(f"[SOUNDING-AUTO] Posted {station_id} for watch #{watch_num}")
@@ -274,6 +278,9 @@ class SoundingCog(commands.Cog):
                     f"Valid: {month}-{day}-{year} {sounding_time}z | "
                     f"Near active {watch_label} #{watch_num}"
                 )
+                qwarn = sounding_quality_warning(clean_data)
+                if qwarn:
+                    caption += f"\n{qwarn}"
                 try:
                     await channel.send(caption, files=[discord.File(png_path)])
                     logger.info(f"[SOUNDING-AUTO] Posted {station_id} for watch #{watch_num}")

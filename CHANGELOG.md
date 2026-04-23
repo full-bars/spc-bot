@@ -6,6 +6,30 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.1.5] — 2026-04-22
+
+### Fixed
+- IEM RAOB profiles now go through per-level QC (direction 0–360°,
+  speed 0–300 kt, pressure 1–1100 hPa, Td ≤ T). Levels failing QC are
+  dropped before plotting, eliminating the "starburst" hodograph
+  artifacts reported in #87 (e.g. KILX 00z 2026-04-18).
+- IEM profiles are now sorted by pressure (descending) and deduped on
+  near-duplicate pressures (< 0.1 hPa apart). IEM occasionally returns
+  multiple wind vectors at the same pressure which produced radial
+  spokes in the hodograph.
+- `generate_plot` now catches `ValueError: zero-size array to reduction`
+  (and `fmin`/`fmax`) at `WARNING` level instead of surfacing a full
+  traceback.
+
+### Added
+- `sounding_quality_warning()` returns a short human-readable note when
+  a profile is plottable but low-quality (sparse winds or shallow
+  pressure coverage). RAOB captions in `cogs/sounding.py` and
+  `cogs/sounding_views.py` append the warning rather than suppressing
+  the plot.
+- `tests/test_sounding_qc.py`: 16 tests covering per-level QC, dedup,
+  pressure sorting, and the validator/warning split.
+
 ## [5.1.2] — 2026-04-22
 
 ### Changed

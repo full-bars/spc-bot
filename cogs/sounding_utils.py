@@ -346,6 +346,37 @@ _AVAILABILITY_CACHE: dict = {}
 AVAILABILITY_CACHE_TTL = 900  # 15 minutes
 
 
+def _iem_level_is_valid(lv: dict) -> bool:
+    """Per-level QC for IEM RAOB data. Rejects levels with physically
+    implausible values that produce jagged hodographs or plot crashes."""
+    try:
+        pres = lv.get("pres")
+        tmpc = lv.get("tmpc")
+        dwpc = lv.get("dwpc")
+        drct = lv.get("drct")
+        sknt = lv.get("sknt")
+        if None in (pres, tmpc, dwpc, drct, sknt):
+            return False
+        pres = float(pres)
+        tmpc = float(tmpc)
+        dwpc = float(dwpc)
+        drct = float(drct)
+        sknt = float(sknt)
+        if not (1.0 <= pres <= 1100.0):
+            return False
+        if not (-120.0 <= tmpc <= 60.0):
+            return False
+        if not (-150.0 <= dwpc <= 60.0) or dwpc > tmpc + 0.5:
+            return False
+        if not (0.0 <= drct <= 360.0):
+            return False
+        if not (0.0 <= sknt <= 300.0):
+            return False
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
 def _iem_to_clean_data(profile: dict, station_id: str, station_name: str,
                         lat: float, lon: float, elev: float, valid: str) -> dict:
     """
@@ -354,16 +385,34 @@ def _iem_to_clean_data(profile: dict, station_id: str, station_name: str,
     SounderPy fields: p, z, T, Td, u, v, site_info, titles
     """
 
-    # Filter for levels that have both thermodynamic and wind data
-    # Missing winds (None) are the primary cause of jagged/broken hodographs
-    levels = [lv for lv in profile if lv.get("pres") is not None
-              and lv.get("tmpc") is not None
-              and lv.get("dwpc") is not None
-              and lv.get("sknt") is not None
-              and lv.get("drct") is not None]
+    raw_count = len(profile) if profile else 0
+
+    # Per-level QC — reject physically implausible values that cause jagged
+    # hodographs or downstream plot crashes (issue #87).
+    levels = [lv for lv in profile if _iem_level_is_valid(lv)]
 
     if not levels:
         return None
+
+    # Sort by pressure descending (surface → top) and dedupe near-duplicate
+    # pressures. IEM sometimes returns multiple wind vectors at the same
+    # pressure, which produces starburst hodograph artifacts.
+    levels.sort(key=lambda lv: float(lv["pres"]), reverse=True)
+    deduped = []
+    last_p = None
+    for lv in levels:
+        p = float(lv["pres"])
+        if last_p is not None and abs(last_p - p) < 0.1:
+            continue
+        deduped.append(lv)
+        last_p = p
+    levels = deduped
+
+    if len(levels) < raw_count:
+        logger.debug(
+            f"[IEM] QC dropped {raw_count - len(levels)}/{raw_count} levels "
+            f"for {station_id}"
+        )
 
     pres = np.array([lv["pres"] for lv in levels], dtype=float)
     hght = np.array([lv.get("hght") or 0 for lv in levels], dtype=float)
@@ -678,19 +727,47 @@ def validate_sounding_data(data: Optional[dict], min_levels: int = 5) -> bool:
     # Check for sufficient valid data (prevent crashes in SounderPy/ecape-parcel)
     try:
         # Check if we have at least SOME non-zero wind data (prevent jagged hodographs)
-        u_vals = np.array(data["u"])
-        v_vals = np.array(data["v"])
+        u_vals = np.asarray(getattr(data["u"], "magnitude", data["u"]), dtype=float)
+        v_vals = np.asarray(getattr(data["v"], "magnitude", data["v"]), dtype=float)
         if np.all(np.isnan(u_vals) | (u_vals == 0)) and np.all(np.isnan(v_vals) | (v_vals == 0)):
             return False
-            
+
         # Check temperature validity (prevent fmin/fmax errors on empty/NaN arrays)
-        t_vals = np.array(data["T"])
+        t_vals = np.asarray(getattr(data["T"], "magnitude", data["T"]), dtype=float)
         if np.all(np.isnan(t_vals)):
             return False
     except (KeyError, TypeError, ValueError) as e:
         logger.debug(f"[SOUNDING] Data validation check failed (accepting): {e}")
 
     return True
+
+
+def sounding_quality_warning(data: Optional[dict]) -> Optional[str]:
+    """
+    Return a short human-readable warning string if the sounding is plottable
+    but low-quality (sparse winds or shallow pressure coverage). Returns None
+    when data looks healthy. Used to annotate Discord captions rather than
+    suppress the plot entirely (issue #87).
+    """
+    if not data:
+        return None
+    try:
+        u_vals = np.asarray(getattr(data["u"], "magnitude", data["u"]), dtype=float)
+        v_vals = np.asarray(getattr(data["v"], "magnitude", data["v"]), dtype=float)
+        p_vals = np.asarray(getattr(data["p"], "magnitude", data["p"]), dtype=float)
+
+        finite_wind = np.isfinite(u_vals) & np.isfinite(v_vals) & np.isfinite(p_vals)
+        n_wind = int(finite_wind.sum())
+        if n_wind < 8:
+            return f"⚠️ Low-quality data: only {n_wind} valid wind levels — hodograph may be sparse."
+
+        wind_p = p_vals[finite_wind]
+        span = float(wind_p.max() - wind_p.min())
+        if span < 300.0:
+            return f"⚠️ Low-quality data: wind coverage only spans {span:.0f} hPa — hodograph may be shallow."
+    except (KeyError, TypeError, ValueError) as e:
+        logger.debug(f"[SOUNDING] Quality assessment failed: {e}")
+    return None
 
 async def fetch_sounding(
     station_id: str,
@@ -759,6 +836,19 @@ async def generate_plot(
             lambda: _plot_sync(clean_data, output_path, dark_mode)
         )
         return True
+    except ValueError as e:
+        # SounderPy/MetPy raise ValueError with "zero-size array to reduction"
+        # when upstream data quality is insufficient (issue #87). Treat as a
+        # clean failure rather than a crash — validation should have caught
+        # this, but guard in case a profile slips through.
+        msg = str(e)
+        if "zero-size array" in msg or "fmin" in msg or "fmax" in msg:
+            logger.warning(
+                f"[SOUNDING] Plot failed due to insufficient data quality: {e}"
+            )
+            return False
+        logger.exception(f"[SOUNDING] Plot generation failed: {e}")
+        return False
     except Exception as e:
         logger.exception(f"[SOUNDING] Plot generation failed: {e}")
         return False
