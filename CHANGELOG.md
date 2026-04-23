@@ -6,6 +6,20 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.1.6] — 2026-04-22
+
+### Changed
+- Auto-posting loops now fetch all RAOB and ACARS sounding data
+  concurrently via `asyncio.gather` instead of sequentially. Post keys
+  are claimed before the gather to prevent double-posts.
+- Sounding plot generation switched from a serialising `asyncio.Lock`
+  + thread executor to a `ProcessPoolExecutor` (max 3 workers). Each
+  worker has its own matplotlib instance so multiple plots run in
+  parallel. Workers are pre-warmed at spawn to amortize the sounderpy
+  cold-import cost. Expected reduction: 3-station batch ~60–90 s → ~15–20 s.
+- `shutdown_plot_executor()` called in `main.py` graceful shutdown to
+  clean up worker processes on SIGTERM/SIGINT.
+
 ## [5.1.5] — 2026-04-22
 
 ### Fixed
