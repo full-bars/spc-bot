@@ -6,6 +6,14 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.2.2] — 2026-04-23
+
+### Added
+- **HTTP Recovery Logging.** Successfully completed HTTP requests after
+  one or more failures/timeouts are now logged with a `Successfully
+  recovered` message. This provides visibility into the bot's ability
+  to catch up during intermittent network instability or API outages.
+
 ## [5.2.1] — 2026-04-23
 
 ### Added

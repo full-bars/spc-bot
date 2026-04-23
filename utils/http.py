@@ -136,6 +136,10 @@ async def http_get_bytes_conditional(
                         return None, response.status, None
                     await asyncio.sleep(retry_after)
                     continue
+
+                if attempt > 0:
+                    logger.info(f"Successfully recovered {url} after {attempt} failure(s)")
+
                 if response.status == 304:
                     return None, 304, {"etag": etag or "", "last_modified": last_modified or ""}
                 content = await response.read()
