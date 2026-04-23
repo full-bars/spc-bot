@@ -6,6 +6,19 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.2.3] — 2026-04-23
+
+### Fixed
+- **Persistent watch upgrades.** The `_upgrade_watch_embed` task now
+  continues retrying even if it finds a text summary, as long as the
+  watch graphic is still missing or a placeholder. This ensures that
+  watches posted via the IEMBot fast-path (which often lack images
+  initially) are correctly edited later when SPC generates the GIF.
+- **Auto-post upgrade safety.** Added the upgrade-edit trigger to the
+  `auto_post_watches` loop (previously it was only in the IEMBot path),
+  ensuring that any watch detected first via the 2-minute poll still
+  benefits from the image-backfill logic.
+
 ## [5.2.2] — 2026-04-23
 
 ### Added
