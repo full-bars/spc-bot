@@ -14,6 +14,7 @@ from cogs.sounding_utils import (
     generate_plot,
     get_available_sounding_times_iem,
     get_recent_sounding_times,
+    sounding_quality_warning,
 )
 from config import CACHE_DIR
 
@@ -118,6 +119,9 @@ async def post_sounding(
     caption = "**RAOB Sounding \u2014 {}**\nValid: {} | {} mode{}".format(
         label, time_label, mode_label, fallback_note
     )
+    qwarn = sounding_quality_warning(clean_data)
+    if qwarn:
+        caption += f"\n{qwarn}"
 
     try:
         await interaction.channel.send(caption, files=[discord.File(png_path)])
@@ -515,6 +519,9 @@ async def _post_from_clean_data(
         f"**RAOB Sounding \u2014 {station_name} ({station_id})**\n"
         f"Valid: {month}-{day}-{year} {hour}z | {mode_label} mode"
     )
+    qwarn = sounding_quality_warning(clean_data)
+    if qwarn:
+        caption += f"\n{qwarn}"
     try:
         await status_msg.delete()
         if messages_to_delete:
