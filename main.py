@@ -373,7 +373,12 @@ async def _shutdown():
     if periodic_sync.is_running():
         periodic_sync.cancel()
 
-    # 2. Close DB and HTTP session
+    # 2. Close DB, HTTP session, and plot worker pool
+    try:
+        from cogs.sounding_utils import shutdown_plot_executor
+        shutdown_plot_executor()
+    except Exception:
+        pass
     try:
         await asyncio.wait_for(
             asyncio.gather(utils.http.close_session(), close_db(), return_exceptions=True),

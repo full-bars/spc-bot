@@ -115,82 +115,115 @@ class SoundingCog(commands.Cog):
         candidates = [s for s in candidates if s.get("icao") or s.get("wmo")]
         verified = await filter_stations_with_data(candidates)
 
-        for station in verified[:3]:
-            station_id = station.get("icao") or station.get("wmo")
-
-            avail = await get_available_sounding_times_iem(station_id, hours_back=24, skip_cache=True)
+        # ── Phase 1: gather IEM availability for all stations concurrently ──
+        async def _check_avail(station):
+            sid = station.get("icao") or station.get("wmo")
+            avail = await get_available_sounding_times_iem(sid, hours_back=24, skip_cache=True)
             if not avail:
-                logger.info(f"[SOUNDING-AUTO] No IEM times for {station_id} near watch #{watch_num}")
-                continue
-            year, month, day, hour = avail[0]
-            time_key = f"{year}-{month}-{day}_{hour}z"
-            post_key = f"{watch_num}:{station_id}:{time_key}"
-            if post_key in self._posted_watch_soundings:
-                continue
+                return None
+            y, mo, d, h = avail[0]
+            tkey = f"{y}-{mo}-{d}_{h}z"
+            pkey = f"{watch_num}:{sid}:{tkey}"
+            if pkey in self._posted_watch_soundings:
+                return None
+            return station, sid, y, mo, d, h, tkey, pkey
 
-            logger.info(f"[SOUNDING-AUTO] Posting {station_id} {hour}z near {watch_label} #{watch_num}")
-            self._posted_watch_soundings.add(post_key)
+        avail_results = await asyncio.gather(*[_check_avail(s) for s in verified[:3]])
+        to_fetch = [r for r in avail_results if r]
 
-            clean_data = await fetch_sounding(
-                station_id, year, month, day, hour,
+        # Claim post keys before launching parallel fetches to prevent double-posts.
+        for *_, pkey in to_fetch:
+            self._posted_watch_soundings.add(pkey)
+
+        # ── Phase 1: fetch all sounding data concurrently ─────────────────
+        async def _fetch_raob(station, sid, y, mo, d, h, tkey, pkey):
+            logger.info(f"[SOUNDING-AUTO] Fetching {sid} {h}z near {watch_label} #{watch_num}")
+            data = await fetch_sounding(
+                sid, y, mo, d, h,
                 station_name=station["name"],
                 lat=station["lat"], lon=station["lon"],
             )
-            if not clean_data:
-                logger.warning(f"[SOUNDING-AUTO] No data for {station_id} at {time_key}")
-                continue
+            if not data:
+                logger.warning(f"[SOUNDING-AUTO] No data for {sid} at {tkey}")
+            return station, sid, y, mo, d, h, data
 
-            output_path = os.path.join(CACHE_DIR, f"sounding_{station_id}_{year}{month}{day}_{hour}z")
-            success = await generate_plot(clean_data, output_path)
-            png_path = output_path + ".png"
+        fetch_results = await asyncio.gather(*[_fetch_raob(*r) for r in to_fetch])
+
+        # ── Phase 2: generate all plots concurrently (ProcessPoolExecutor) ─
+        plot_jobs = []
+        for station, sid, y, mo, d, h, data in fetch_results:
+            if not data:
+                continue
+            opath = os.path.join(CACHE_DIR, f"sounding_{sid}_{y}{mo}{d}_{h}z")
+            plot_jobs.append((station, sid, y, mo, d, h, data, opath))
+
+        plot_results = await asyncio.gather(*[
+            generate_plot(data, opath)
+            for *_, data, opath in plot_jobs
+        ])
+
+        for (station, sid, y, mo, d, h, data, opath), success in zip(plot_jobs, plot_results):
+            png_path = opath + ".png"
             if not success or not os.path.exists(png_path):
                 continue
-
             caption = (
-                f"**Auto Sounding — {station['name']} ({station_id})**\n"
-                f"Valid: {month}-{day}-{year} {hour}z | Near active {watch_label} #{watch_num}"
+                f"**Auto Sounding — {station['name']} ({sid})**\n"
+                f"Valid: {mo}-{d}-{y} {h}z | Near active {watch_label} #{watch_num}"
             )
-            qwarn = sounding_quality_warning(clean_data)
+            qwarn = sounding_quality_warning(data)
             if qwarn:
                 caption += f"\n{qwarn}"
             try:
                 await target_channel.send(caption, files=[discord.File(png_path)])
-                logger.info(f"[SOUNDING-AUTO] Posted {station_id} for watch #{watch_num}")
+                logger.info(f"[SOUNDING-AUTO] Posted {sid} for watch #{watch_num}")
             except Exception as e:
-                logger.exception(f"[SOUNDING-AUTO] Failed to post {station_id}: {e}")
+                logger.exception(f"[SOUNDING-AUTO] Failed to post {sid}: {e}")
 
         acars_profiles = await get_acars_profiles_near(lat, lon, max_dist_km=300, hours_back=1)
+        acars_eligible = []
         for profile in acars_profiles[:2]:
-            post_key = f"acars:{watch_num}:{profile['airport']}:{profile['year']}{profile['month']}{profile['day']}_{profile['acars_hour']}z"
-            if post_key in self._posted_watch_soundings:
-                continue
-
-            logger.info(f"[SOUNDING-AUTO] Posting ACARS {profile['airport']} near {watch_label} #{watch_num}")
-            self._posted_watch_soundings.add(post_key)
-
-            clean_data = await fetch_acars_sounding(
-                profile["profile_id"], profile["year"], profile["month"],
-                profile["day"], profile["acars_hour"]
+            post_key = (
+                f"acars:{watch_num}:{profile['airport']}:"
+                f"{profile['year']}{profile['month']}{profile['day']}_{profile['acars_hour']}z"
             )
-            if not clean_data:
-                continue
+            if post_key not in self._posted_watch_soundings:
+                self._posted_watch_soundings.add(post_key)
+                acars_eligible.append(profile)
 
-            output_path = os.path.join(
+        async def _fetch_acars(p):
+            logger.info(f"[SOUNDING-AUTO] Fetching ACARS {p['airport']} near {watch_label} #{watch_num}")
+            data = await fetch_acars_sounding(
+                p["profile_id"], p["year"], p["month"], p["day"], p["acars_hour"]
+            )
+            return p, data
+
+        acars_fetched = await asyncio.gather(*[_fetch_acars(p) for p in acars_eligible])
+
+        acars_plot_jobs = []
+        for p, data in acars_fetched:
+            if not data:
+                continue
+            opath = os.path.join(
                 CACHE_DIR,
-                f"acars_{profile['airport']}_{profile['year']}{profile['month']}{profile['day']}_{profile['acars_hour']}z"
+                f"acars_{p['airport']}_{p['year']}{p['month']}{p['day']}_{p['acars_hour']}z"
             )
-            success = await generate_plot(clean_data, output_path)
-            png_path = output_path + ".png"
+            acars_plot_jobs.append((p, data, opath))
+
+        acars_plot_results = await asyncio.gather(*[
+            generate_plot(data, opath) for _, data, opath in acars_plot_jobs
+        ])
+
+        for (p, data, opath), success in zip(acars_plot_jobs, acars_plot_results):
+            png_path = opath + ".png"
             if not success or not os.path.exists(png_path):
                 continue
-
             caption = (
-                f"**Auto ACARS — {profile['airport']}**\n"
-                f"Valid: {profile['time_label']} | Near active {watch_label} #{watch_num}"
+                f"**Auto ACARS — {p['airport']}**\n"
+                f"Valid: {p['time_label']} | Near active {watch_label} #{watch_num}"
             )
             try:
                 await channel.send(caption, files=[discord.File(png_path)])
-                logger.info(f"[SOUNDING-AUTO] Posted ACARS {profile['airport']} for watch #{watch_num}")
+                logger.info(f"[SOUNDING-AUTO] Posted ACARS {p['airport']} for watch #{watch_num}")
             except Exception as e:
                 logger.exception(f"[SOUNDING-AUTO] Failed to post ACARS: {e}")
 
@@ -250,76 +283,110 @@ class SoundingCog(commands.Cog):
             wtype = info.get("type", "SVR") if isinstance(info, dict) else "SVR"
             watch_label = "Tornado Watch" if wtype == "TORNADO" else "SVR Watch"
 
+            # Collect eligible stations and claim their post keys before
+            # launching parallel fetches to prevent double-posts.
+            eligible = []
             for station in verified[:3]:
                 station_id = station.get("icao") or station.get("wmo")
                 post_key = f"{watch_num}:{station_id}:{time_key}"
-                if post_key in self._posted_watch_soundings:
-                    continue
+                if post_key not in self._posted_watch_soundings:
+                    self._posted_watch_soundings.add(post_key)
+                    eligible.append((station, station_id))
 
-                logger.info(f"[SOUNDING-AUTO] Posting sounding for {station_id} near {watch_label} #{watch_num}")
-                self._posted_watch_soundings.add(post_key)
-
-                clean_data = await fetch_sounding(station_id, year, month, day, sounding_time)
-                if not clean_data:
-                    logger.warning(f"[SOUNDING-AUTO] No data for {station_id} at {time_key}")
-                    continue
-
-                output_path = os.path.join(
-                    __import__("config").CACHE_DIR,
-                    f"sounding_{station_id}_{year}{month}{day}_{sounding_time}z"
+            # ── Phase 1: fetch all RAOB data concurrently ─────────────────
+            async def _fetch_std(station, sid):
+                logger.info(
+                    f"[SOUNDING-AUTO] Fetching {sid} {sounding_time}z"
+                    f" near {watch_label} #{watch_num}"
                 )
-                success = await generate_plot(clean_data, output_path)
-                png_path = output_path + ".png"
-                if not success or not __import__("os").path.exists(png_path):
-                    continue
+                data = await fetch_sounding(sid, year, month, day, sounding_time)
+                if not data:
+                    logger.warning(f"[SOUNDING-AUTO] No data for {sid} at {time_key}")
+                return station, sid, data
 
+            fetch_results = await asyncio.gather(*[_fetch_std(s, sid) for s, sid in eligible])
+
+            # ── Phase 2: generate all plots concurrently ───────────────────
+            import config as _cfg
+            plot_jobs = []
+            for station, sid, data in fetch_results:
+                if not data:
+                    continue
+                opath = os.path.join(
+                    _cfg.CACHE_DIR,
+                    f"sounding_{sid}_{year}{month}{day}_{sounding_time}z"
+                )
+                plot_jobs.append((station, sid, data, opath))
+
+            plot_results = await asyncio.gather(*[
+                generate_plot(data, opath)
+                for *_, data, opath in plot_jobs
+            ])
+
+            for (station, sid, data, opath), success in zip(plot_jobs, plot_results):
+                png_path = opath + ".png"
+                if not success or not os.path.exists(png_path):
+                    continue
                 caption = (
-                    f"**Auto Sounding — {station['name']} ({station_id})**\n"
+                    f"**Auto Sounding — {station['name']} ({sid})**\n"
                     f"Valid: {month}-{day}-{year} {sounding_time}z | "
                     f"Near active {watch_label} #{watch_num}"
                 )
-                qwarn = sounding_quality_warning(clean_data)
+                qwarn = sounding_quality_warning(data)
                 if qwarn:
                     caption += f"\n{qwarn}"
                 try:
                     await channel.send(caption, files=[discord.File(png_path)])
-                    logger.info(f"[SOUNDING-AUTO] Posted {station_id} for watch #{watch_num}")
+                    logger.info(f"[SOUNDING-AUTO] Posted {sid} for watch #{watch_num}")
                 except Exception as e:
                     logger.exception(f"[SOUNDING-AUTO] Failed to post: {e}")
 
         # ── ACARS auto-posting ────────────────────────────────────────────
             acars_profiles = await get_acars_profiles_near(lat, lon, max_dist_km=300, hours_back=1)
+            acars_eligible2 = []
             for profile in acars_profiles[:2]:
                 post_key = f"acars:{watch_num}:{profile['airport']}:{time_key}"
-                if post_key in self._posted_watch_soundings:
-                    continue
+                if post_key not in self._posted_watch_soundings:
+                    self._posted_watch_soundings.add(post_key)
+                    acars_eligible2.append(profile)
 
-                logger.info(f"[SOUNDING-AUTO] Posting ACARS {profile['airport']} near {watch_label} #{watch_num}")
-                self._posted_watch_soundings.add(post_key)
-
-                clean_data = await fetch_acars_sounding(
-                    profile["profile_id"], profile["year"], profile["month"],
-                    profile["day"], profile["acars_hour"]
+            async def _fetch_acars2(p):
+                logger.info(
+                    f"[SOUNDING-AUTO] Fetching ACARS {p['airport']}"
+                    f" near {watch_label} #{watch_num}"
                 )
-                if not clean_data:
-                    continue
-
-                output_path = os.path.join(
-                    __import__("config").CACHE_DIR,
-                    f"acars_{profile['airport']}_{profile['year']}{profile['month']}{profile['day']}_{profile['acars_hour']}z"
+                data = await fetch_acars_sounding(
+                    p["profile_id"], p["year"], p["month"], p["day"], p["acars_hour"]
                 )
-                success = await generate_plot(clean_data, output_path)
-                png_path = output_path + ".png"
+                return p, data
+
+            acars_fetched2 = await asyncio.gather(*[_fetch_acars2(p) for p in acars_eligible2])
+
+            acars_plot_jobs2 = []
+            for p, data in acars_fetched2:
+                if not data:
+                    continue
+                opath = os.path.join(
+                    _cfg.CACHE_DIR,
+                    f"acars_{p['airport']}_{p['year']}{p['month']}{p['day']}_{p['acars_hour']}z"
+                )
+                acars_plot_jobs2.append((p, data, opath))
+
+            acars_plot_results2 = await asyncio.gather(*[
+                generate_plot(data, opath) for _, data, opath in acars_plot_jobs2
+            ])
+
+            for (p, data, opath), success in zip(acars_plot_jobs2, acars_plot_results2):
+                png_path = opath + ".png"
                 if not success or not os.path.exists(png_path):
                     continue
-
                 caption = (
-                    f"**Auto ACARS \u2014 {profile['airport']}**\n"
-                    f"Valid: {profile['time_label']} | Near active {watch_label} #{watch_num}"
+                    f"**Auto ACARS \u2014 {p['airport']}**\n"
+                    f"Valid: {p['time_label']} | Near active {watch_label} #{watch_num}"
                 )
                 try:
                     await channel.send(caption, files=[discord.File(png_path)])
-                    logger.info(f"[SOUNDING-AUTO] Posted ACARS {profile['airport']} for watch #{watch_num}")
+                    logger.info(f"[SOUNDING-AUTO] Posted ACARS {p['airport']} for watch #{watch_num}")
                 except Exception as e:
                     logger.exception(f"[SOUNDING-AUTO] Failed to post ACARS: {e}")
 
