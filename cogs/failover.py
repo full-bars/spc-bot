@@ -100,6 +100,62 @@ class FailoverCog(commands.Cog):
         self._session = aiohttp.ClientSession()
         self.sync_loop.start()
 
+    async def startup_lease_check(self) -> bool:
+        """Synchronous lease probe run during setup_hook, before other cogs
+        are loaded. Decides whether this node should boot as primary.
+
+        Returns True if this node should load cogs as primary, False if it
+        should stay standby. Updates `bot.state.is_primary` accordingly.
+
+        Closes the 30-second window where a rebooting primary would load
+        cogs and post duplicates before the first sync_loop tick detected
+        another node already held the lease.
+        """
+        # Manual override wins over env var and over the lease.
+        manual = await self._upstash("GET", "spcbot:manual_primary")
+        if manual:
+            if manual == self._identity:
+                logger.info(
+                    f"[FAILOVER] Startup: manual override names us "
+                    f"('{self._identity}') as Primary — claiming lease"
+                )
+                await self._write_lease()
+                self.bot.state.is_primary = True
+                return True
+            logger.info(
+                f"[FAILOVER] Startup: manual override names '{manual}' as "
+                f"Primary — booting as STANDBY"
+            )
+            self.bot.state.is_primary = False
+            return False
+
+        holder = await self._read_lease_holder()
+        if holder and holder != self._identity:
+            logger.warning(
+                f"[FAILOVER] Startup: lease held by '{holder}' — booting as "
+                f"STANDBY regardless of IS_PRIMARY env"
+            )
+            self.bot.state.is_primary = False
+            return False
+
+        # Lease is free or already ours. Safe to boot as primary if that's
+        # what we were configured as. If IS_PRIMARY=false (dedicated
+        # standby), stay standby and let the sync_loop promote us later if
+        # the primary actually dies.
+        if not self.bot.state.is_primary:
+            logger.info(
+                "[FAILOVER] Startup: lease is free but node configured as "
+                "STANDBY — not self-promoting"
+            )
+            return False
+
+        logger.info(
+            f"[FAILOVER] Startup: lease free/ours — claiming as Primary "
+            f"('{self._identity}')"
+        )
+        await self._write_lease()
+        return True
+
     async def cog_unload(self):
         self.sync_loop.cancel()
         if self.bot.state.is_primary:
@@ -297,6 +353,21 @@ class FailoverCog(commands.Cog):
             urls = await state_store.get_posted_urls(day_key)
             if urls:
                 st.last_posted_urls[day_key] = urls
+
+        # Pull today's CSU-MLP posted-days set so we don't re-post panels
+        # the outgoing primary already handled this UTC day.
+        csu_raw = await state_store.get_state("csu_mlp_posted")
+        if isinstance(csu_raw, str):
+            try:
+                import json as _json
+                from datetime import datetime, timezone
+                csu_data = _json.loads(csu_raw)
+                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                if csu_data.get("date") == today:
+                    st.csu_posted.update(str(d) for d in csu_data.get("days", []))
+            except (ValueError, KeyError, TypeError) as e:
+                logger.debug(f"[FAILOVER] CSU state parse failed (ignored): {e}")
+
         logger.info("[FAILOVER] Rehydrated BotState from Upstash")
 
     async def _demote(self) -> None:

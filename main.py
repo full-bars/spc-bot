@@ -121,9 +121,26 @@ async def setup_hook():
 
     logger.info("[DB] Database ready")
 
-    # Register failover cog
+    # Register failover cog first so it can probe Upstash for the lease
+    # before we decide whether to load the rest. Without this check, a
+    # primary reboot races its own sync_loop: cogs start posting using
+    # stale in-memory state during the ~30s window before the first
+    # lease probe fires, duplicating anything the current lease holder
+    # posted while we were down.
     await bot.load_extension("cogs.failover")
-    if IS_PRIMARY:
+    failover_cog = bot.get_cog("FailoverCog")
+    should_run_primary = IS_PRIMARY
+    if failover_cog is not None:
+        try:
+            should_run_primary = await failover_cog.startup_lease_check()
+        except Exception as e:
+            logger.warning(
+                f"[FAILOVER] Startup lease check failed ({e!r}) — "
+                f"falling back to IS_PRIMARY env value and deferring to "
+                f"sync_loop for reconciliation"
+            )
+
+    if should_run_primary:
         for ext in ALL_EXTENSIONS:
             await bot.load_extension(ext)
     else:
