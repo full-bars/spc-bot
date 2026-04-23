@@ -201,3 +201,154 @@ class TestPostSoundingsForWatch:
 
         call_args = mock_sounding_cog.post_soundings_for_watch.call_args[0]
         assert call_args[0] == "0102"
+
+
+# ── Per-station (watch-agnostic) dedup ──────────────────────────────────────
+#
+# The 2026-04-23 regression: two geographically-overlapping watches (e.g. a
+# Tornado Watch and a SVR Watch covering adjacent counties) each triggered a
+# post of the same ACARS profile at the same valid time. The dedup key
+# previously included watch_num, so `acars:OMA:2026-04-23_20z` was one key
+# but `acars:0134:OMA:2026-04-23_20z` and `acars:0135:OMA:...` were not.
+#
+# The fix drops watch_num from the key. These tests pin that contract.
+
+
+class TestSoundingDedupAcrossWatches:
+
+    def _make_cog(self):
+        from cogs.sounding import SoundingCog
+        bot = MagicMock()
+        bot.state = MagicMock()
+        cog = SoundingCog.__new__(SoundingCog)
+        cog.bot = bot
+        cog._posted_watch_soundings = set()
+        cog._handled_watches = set()
+        return cog
+
+    def test_raob_key_is_station_plus_time_only(self):
+        """Same station+time for two different watches must collide."""
+        cog = self._make_cog()
+        time_key = "2026-04-23_00z"
+
+        # Watch #0134 (TOR) processes KOAX first
+        key_a = f"raob:KOAX:{time_key}"
+        assert key_a not in cog._posted_watch_soundings
+        cog._posted_watch_soundings.add(key_a)
+
+        # Watch #0135 (SVR) in an overlapping region finds KOAX too
+        key_b = f"raob:KOAX:{time_key}"
+        assert key_b in cog._posted_watch_soundings, (
+            "RAOB dedup key must NOT include watch_num — otherwise we re-post "
+            "the same sounding once per active watch."
+        )
+
+    def test_acars_key_is_airport_plus_time_only(self):
+        """Same ACARS airport+time for two different watches must collide."""
+        cog = self._make_cog()
+        time_key = "20260423_20z"
+
+        key_a = f"acars:OMA:{time_key}"
+        cog._posted_watch_soundings.add(key_a)
+
+        key_b = f"acars:OMA:{time_key}"
+        assert key_b in cog._posted_watch_soundings
+
+    @pytest.mark.asyncio
+    async def test_persist_posted_state_writes_today_payload(self, monkeypatch):
+        """After posts, the dedup set is persisted to Upstash with today's
+        UTC date. On next cog_load we restore only if date matches, so the
+        set survives a restart but auto-resets at UTC rollover."""
+        import json as _json
+        from datetime import datetime, timezone
+        from cogs import sounding as sounding_module
+
+        captured = {}
+
+        async def fake_set_state(key, value):
+            captured["key"] = key
+            captured["value"] = value
+
+        monkeypatch.setattr(sounding_module, "set_state", fake_set_state)
+
+        cog = self._make_cog()
+        cog._posted_watch_soundings = {"raob:KOAX:2026-04-23_00z", "acars:OMA:20260423_20z"}
+        cog._handled_watches = {"0134", "0135"}
+
+        await cog._persist_posted_state()
+
+        assert captured["key"] == "posted_watch_soundings"
+        payload = _json.loads(captured["value"])
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        assert payload["date"] == today
+        assert set(payload["keys"]) == {
+            "raob:KOAX:2026-04-23_00z", "acars:OMA:20260423_20z"
+        }
+        assert set(payload["handled"]) == {"0134", "0135"}
+
+    @pytest.mark.asyncio
+    async def test_cog_load_restores_todays_keys(self, monkeypatch):
+        """A restart mid-event must restore the dedup set so we don't
+        re-post every station that was already covered earlier today."""
+        import json as _json
+        from datetime import datetime, timezone
+        from cogs import sounding as sounding_module
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        payload = _json.dumps({
+            "date": today,
+            "keys": ["raob:KOAX:2026-04-23_00z", "acars:OMA:20260423_20z"],
+            "handled": ["0134", "0135"],
+        })
+
+        async def fake_get_state(key):
+            return payload if key == "posted_watch_soundings" else None
+
+        monkeypatch.setattr(sounding_module, "get_state", fake_get_state)
+
+        cog = self._make_cog()
+        await cog.cog_load()
+
+        assert cog._posted_watch_soundings == {
+            "raob:KOAX:2026-04-23_00z", "acars:OMA:20260423_20z"
+        }
+        assert cog._handled_watches == {"0134", "0135"}
+
+    @pytest.mark.asyncio
+    async def test_cog_load_drops_stale_payload_from_yesterday(self, monkeypatch):
+        """At UTC rollover yesterday's dedup keys should NOT be loaded —
+        today's posts haven't happened yet and restoring them would
+        silently suppress the first real post of each station."""
+        import json as _json
+        from cogs import sounding as sounding_module
+
+        stale = _json.dumps({
+            "date": "1999-01-01",
+            "keys": ["raob:KOAX:1999-01-01_00z"],
+            "handled": ["9999"],
+        })
+
+        async def fake_get_state(key):
+            return stale
+
+        monkeypatch.setattr(sounding_module, "get_state", fake_get_state)
+
+        cog = self._make_cog()
+        await cog.cog_load()
+
+        assert cog._posted_watch_soundings == set()
+        assert cog._handled_watches == set()
+
+    @pytest.mark.asyncio
+    async def test_cog_load_tolerates_malformed_payload(self, monkeypatch):
+        """A garbled dedup blob must not crash cog_load."""
+        from cogs import sounding as sounding_module
+
+        async def fake_get_state(key):
+            return "{not valid json"
+
+        monkeypatch.setattr(sounding_module, "get_state", fake_get_state)
+
+        cog = self._make_cog()
+        await cog.cog_load()  # should not raise
+        assert cog._posted_watch_soundings == set()

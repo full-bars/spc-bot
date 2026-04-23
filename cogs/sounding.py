@@ -5,6 +5,7 @@ Supports city names, radar site codes, and RAOB station IDs.
 """
 
 import asyncio
+import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -13,6 +14,7 @@ from typing import Optional
 import discord
 from discord.ext import commands, tasks
 
+from utils.state_store import get_state, set_state
 from cogs.sounding_utils import (
     fetch_acars_sounding,
     fetch_sounding,
@@ -41,9 +43,50 @@ class SoundingCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self._posted_watch_soundings: set = set()  # "watch_num:station:time"
-        self._handled_watches: set = set()  # "watch_num"
+        # Keys are "raob:{sid}:{time_key}" or "acars:{airport}:{time_key}" —
+        # deliberately NOT scoped by watch_num. Two geographically-overlapping
+        # watches (e.g. a TOR and SVR covering the same area) would otherwise
+        # each trigger a post of the same station at the same valid time.
+        self._posted_watch_soundings: set = set()
+        self._handled_watches: set = set()
         self.auto_sounding_watches.start()
+
+    async def cog_load(self):
+        """Restore posted-sounding keys from Upstash/SQLite so a restart
+        during active wx doesn't re-post every station/watch combo the
+        bot already covered today. Entries from previous UTC days are
+        dropped on load."""
+        try:
+            raw = await get_state("posted_watch_soundings")
+            if isinstance(raw, str):
+                payload = json.loads(raw)
+                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                if payload.get("date") == today:
+                    self._posted_watch_soundings.update(payload.get("keys", []))
+                    self._handled_watches.update(payload.get("handled", []))
+                    logger.info(
+                        f"[SOUNDING-AUTO] Restored {len(self._posted_watch_soundings)} "
+                        f"posted-sounding keys and {len(self._handled_watches)} "
+                        f"handled watches for {today}"
+                    )
+        except (ValueError, TypeError) as e:
+            logger.debug(f"[SOUNDING-AUTO] posted_watch_soundings parse failed: {e}")
+        except Exception as e:
+            logger.warning(f"[SOUNDING-AUTO] Could not restore dedup state: {e}")
+
+    async def _persist_posted_state(self) -> None:
+        """Write the current posted-sounding dedup set to state_store.
+        Called after each successful post so a restart mid-event doesn't
+        clear the set."""
+        try:
+            payload = json.dumps({
+                "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                "keys": sorted(self._posted_watch_soundings),
+                "handled": sorted(self._handled_watches),
+            })
+            await set_state("posted_watch_soundings", payload)
+        except Exception as e:
+            logger.debug(f"[SOUNDING-AUTO] Could not persist dedup state: {e}")
 
     async def cog_unload(self):
         self.auto_sounding_watches.cancel()
@@ -123,7 +166,7 @@ class SoundingCog(commands.Cog):
                 return None
             y, mo, d, h = avail[0]
             tkey = f"{y}-{mo}-{d}_{h}z"
-            pkey = f"{watch_num}:{sid}:{tkey}"
+            pkey = f"raob:{sid}:{tkey}"
             if pkey in self._posted_watch_soundings:
                 return None
             return station, sid, y, mo, d, h, tkey, pkey
@@ -183,7 +226,7 @@ class SoundingCog(commands.Cog):
         acars_eligible = []
         for profile in acars_profiles[:2]:
             post_key = (
-                f"acars:{watch_num}:{profile['airport']}:"
+                f"acars:{profile['airport']}:"
                 f"{profile['year']}{profile['month']}{profile['day']}_{profile['acars_hour']}z"
             )
             if post_key not in self._posted_watch_soundings:
@@ -226,6 +269,8 @@ class SoundingCog(commands.Cog):
                 logger.info(f"[SOUNDING-AUTO] Posted ACARS {p['airport']} for watch #{watch_num}")
             except Exception as e:
                 logger.exception(f"[SOUNDING-AUTO] Failed to post ACARS: {e}")
+
+        await self._persist_posted_state()
 
     @tasks.loop(minutes=30)
     async def auto_sounding_watches(self):
@@ -288,7 +333,7 @@ class SoundingCog(commands.Cog):
             eligible = []
             for station in verified[:3]:
                 station_id = station.get("icao") or station.get("wmo")
-                post_key = f"{watch_num}:{station_id}:{time_key}"
+                post_key = f"raob:{station_id}:{time_key}"
                 if post_key not in self._posted_watch_soundings:
                     self._posted_watch_soundings.add(post_key)
                     eligible.append((station, station_id))
@@ -345,7 +390,7 @@ class SoundingCog(commands.Cog):
             acars_profiles = await get_acars_profiles_near(lat, lon, max_dist_km=300, hours_back=1)
             acars_eligible2 = []
             for profile in acars_profiles[:2]:
-                post_key = f"acars:{watch_num}:{profile['airport']}:{time_key}"
+                post_key = f"acars:{profile['airport']}:{time_key}"
                 if post_key not in self._posted_watch_soundings:
                     self._posted_watch_soundings.add(post_key)
                     acars_eligible2.append(profile)
@@ -389,6 +434,8 @@ class SoundingCog(commands.Cog):
                     logger.info(f"[SOUNDING-AUTO] Posted ACARS {p['airport']} for watch #{watch_num}")
                 except Exception as e:
                     logger.exception(f"[SOUNDING-AUTO] Failed to post ACARS: {e}")
+
+            await self._persist_posted_state()
 
     @discord.app_commands.command(
         name="sounding",
