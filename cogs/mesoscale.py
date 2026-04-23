@@ -263,6 +263,34 @@ class MesoscaleCog(commands.Cog):
         except Exception as e:
             logger.debug(f"[MD] Could not parse probability for MD #{md_num}: {e}")
 
+    async def _upgrade_md_message(
+        self, md_num: str, message: discord.Message, header: str
+    ):
+        """
+        Polls for the MD graphic and edits the message to include it once available.
+        Retries every 30s for up to 5 minutes.
+        """
+        image_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.png"
+        for attempt in range(10):
+            await asyncio.sleep(30)
+            try:
+                # download_single_image uses conditional GET / validators
+                cache_path, _, _ = await download_single_image(
+                    image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
+                )
+                if cache_path:
+                    try:
+                        await message.edit(
+                            content=header, attachments=[discord.File(cache_path)]
+                        )
+                        logger.info(f"[MD] Upgraded MD #{md_num} with graphic")
+                        break
+                    except discord.HTTPException as e:
+                        logger.warning(f"[MD] Failed to edit MD message for #{md_num}: {e}")
+                        break
+            except Exception as e:
+                logger.debug(f"[MD] Upgrade poll error for #{md_num}: {e}")
+
     async def post_md_now(self, md_num: str):
         """
         Immediately post a specific MD if it hasn't been posted yet.
@@ -295,10 +323,14 @@ class MesoscaleCog(commands.Cog):
         header += f"\n<{md_page_url}>"
 
         try:
+            msg = None
             if cache_path:
-                await channel.send(header, files=[discord.File(cache_path)])
+                msg = await channel.send(header, files=[discord.File(cache_path)])
             else:
-                await channel.send(header)
+                msg = await channel.send(header)
+                # Graphic missing (likely 403 index-lag), try to fetch it later
+                asyncio.create_task(self._upgrade_md_message(md_num, msg, header))
+
             self.bot.state.posted_mds.add(md_num)
             await add_posted_md(str(md_num))
             await prune_posted_mds()
@@ -324,8 +356,23 @@ class MesoscaleCog(commands.Cog):
 
             # ── MD cancellations ───────────────────────────────────────────
             if current_mds:
+                current_max = max(int(m) for m in current_mds)
                 for md_num in list(self.bot.state.active_mds):
                     if md_num not in current_mds:
+                        # Protect against index lag: if the active MD is newer than
+                        # anything on the index, it means the index hasn't caught up.
+                        num_int = int(md_num)
+                        # Handle year wraparound (e.g. 0001 is newer than 9999)
+                        is_newer = (num_int > current_max and num_int - current_max < 1000) or \
+                                   (num_int < current_max and current_max - num_int > 8000)
+                        
+                        if is_newer:
+                            logger.info(
+                                f"[MD] Index lagging (highest is {current_max:04d}) — "
+                                f"sparing #{md_num} from cancellation"
+                            )
+                            continue
+
                         self.bot.state.active_mds.discard(md_num)
                         logger.info(
                             f"[MD] MD #{md_num} no longer on index — "
@@ -384,12 +431,16 @@ class MesoscaleCog(commands.Cog):
                 header += f"\n<{md_page_url}>"
 
                 try:
+                    msg = None
                     if cache_path:
-                        await channel.send(
+                        msg = await channel.send(
                             header, files=[discord.File(cache_path)]
                         )
                     else:
-                        await channel.send(header)
+                        msg = await channel.send(header)
+                        # Graphic missing (likely 403), try to fetch it later
+                        asyncio.create_task(self._upgrade_md_message(md_num, msg, header))
+
                     self.bot.state.posted_mds.add(md_num)
                     await add_posted_md(str(md_num))
                     await prune_posted_mds()
