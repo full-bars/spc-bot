@@ -47,7 +47,10 @@ logger = logging.getLogger("spc_bot")
 
 
 class SoundingCog(commands.Cog):
-    MANAGED_TASK_NAMES = [("auto_sounding_watches", "auto_sounding_watches")]
+    MANAGED_TASK_NAMES = [
+        ("auto_sounding_watches", "auto_sounding_watches"),
+        ("monitor_special_soundings", "monitor_special_soundings"),
+    ]
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -69,6 +72,7 @@ class SoundingCog(commands.Cog):
         # the initial hook was skipped.
         self._restore_attempted: bool = False
         self.auto_sounding_watches.start()
+        self.monitor_special_soundings.start()
 
     async def _ensure_restored(self) -> None:
         """Idempotent restore — safe to call from any auto-post entry
@@ -194,6 +198,144 @@ class SoundingCog(commands.Cog):
 
     async def cog_unload(self):
         self.auto_sounding_watches.cancel()
+        self.monitor_special_soundings.cancel()
+
+    @tasks.loop(minutes=15)
+    async def monitor_special_soundings(self):
+        """
+        Background task to monitor for 'special' (non-standard) sounding
+        releases near active watches. Standard 00z/12z releases are
+        handled by auto_sounding_watches.
+        """
+        await self.bot.wait_until_ready()
+        if not self.bot.state.is_primary:
+            return
+
+        active_watches = getattr(self.bot.state, "active_watches", {}) or {}
+        if not active_watches:
+            return
+
+        await self._ensure_restored()
+
+        try:
+            stations_df = await get_raob_stations()
+        except Exception as e:
+            logger.exception(f"[SOUNDING-MONITOR] Failed to load station list: {e}")
+            return
+
+        channel = self.bot.get_channel(SOUNDING_CHANNEL_ID)
+        if not channel:
+            return
+
+        # 1. Identify all unique stations near all active watches
+        station_targets = {}  # sid -> station_info
+        for watch_num, info in active_watches.items():
+            centroid = await self._resolve_watch_centroid(watch_num, info)
+            if not centroid:
+                continue
+            lat, lon = centroid
+            candidates = find_nearest_stations(lat, lon, stations_df, n=5)
+            for s in candidates:
+                sid = s.get("icao") or s.get("wmo")
+                if sid:
+                    station_targets[sid] = s
+
+        if not station_targets:
+            return
+
+        # 2. Check IEM availability for all targets concurrently
+        async def _check_target(sid, station_info):
+            # Check last 18 hours to catch special releases
+            avail = await get_available_sounding_times_iem(sid, hours_back=18, skip_cache=True)
+            if not avail:
+                return None
+            
+            # We check ALL available soundings in the window, not just the newest,
+            # in case multiple special releases happened (e.g. 18z then 20z).
+            to_post = []
+            for y, mo, d, h in avail:
+                tkey = f"{y}-{mo}-{d}_{h}z"
+                pkey = f"raob:{sid}:{tkey}"
+                if pkey not in self._posted_watch_soundings:
+                    to_post.append((station_info, sid, y, mo, d, h, tkey, pkey))
+            return to_post
+
+        check_results = await asyncio.gather(*[
+            _check_target(sid, info) for sid, info in station_targets.items()
+        ])
+        
+        # Flatten and filter
+        all_to_post = []
+        for res in check_results:
+            if res:
+                all_to_post.extend(res)
+        
+        if not all_to_post:
+            return
+
+        logger.info(f"[SOUNDING-MONITOR] Found {len(all_to_post)} new sounding(s) near active watches")
+
+        # 3. Process new soundings (Fetch -> Plot -> Send)
+        # To avoid flooding, we process them in small batches if there are many
+        for i in range(0, len(all_to_post), 3):
+            batch = all_to_post[i:i+3]
+            
+            # Claim keys
+            for *_, pkey in batch:
+                self._posted_watch_soundings.add(pkey)
+
+            # Fetch
+            async def _fetch_mon(station, sid, y, mo, d, h, tkey, pkey):
+                data = await fetch_sounding(
+                    sid, y, mo, d, h,
+                    station_name=station["name"],
+                    lat=station["lat"], lon=station["lon"],
+                )
+                return station, sid, y, mo, d, h, data
+
+            fetched = await asyncio.gather(*[_fetch_mon(*r) for r in batch])
+
+            # Plot
+            plot_jobs = []
+            for station, sid, y, mo, d, h, data in fetched:
+                if not data:
+                    continue
+                opath = os.path.join(CACHE_DIR, f"sounding_{sid}_{y}{mo}{d}_{h}z")
+                plot_jobs.append((station, sid, y, mo, d, h, data, opath))
+
+            if not plot_jobs:
+                continue
+
+            plot_results = await asyncio.gather(*[
+                generate_plot(data, opath)
+                for *_, data, opath in plot_jobs
+            ])
+
+            # Send
+            for (station, sid, y, mo, d, h, data, opath), success in zip(plot_jobs, plot_results):
+                png_path = opath + ".png"
+                if not success or not os.path.exists(png_path):
+                    continue
+                
+                applicable = await self._watches_near(station["lat"], station["lon"])
+                # We know there's at least one applicable watch because that's how we found the station
+                watches_frag = self._format_watches_caption(applicable, "0000", "Watch")
+                
+                caption = (
+                    f"**Special Sounding — {station['name']} ({sid})**\n"
+                    f"Valid: {mo}-{d}-{y} {h}z | {watches_frag}"
+                )
+                qwarn = sounding_quality_warning(data)
+                if qwarn:
+                    caption += f"\n{qwarn}"
+                    
+                try:
+                    await channel.send(caption, files=[discord.File(png_path)])
+                    logger.info(f"[SOUNDING-MONITOR] Posted special release {sid} {h}z")
+                except Exception as e:
+                    logger.exception(f"[SOUNDING-MONITOR] Failed to post {sid}: {e}")
+
+            await self._persist_posted_state()
 
     async def prewarm_soundings_for_md(self, md_num: str, raw_text: str):
         """
