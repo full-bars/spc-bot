@@ -352,3 +352,170 @@ class TestSoundingDedupAcrossWatches:
         cog = self._make_cog()
         await cog.cog_load()  # should not raise
         assert cog._posted_watch_soundings == set()
+
+
+# ── Caption: all applicable active watches ─────────────────────────────────
+#
+# When a sounding station is geographically covered by multiple active
+# watches (e.g. TOR #0134 + SVR #0135 + TOR #0136 all in the Plains at
+# once), the caption should list all of them instead of only the watch
+# that happened to trigger the post. The dedup fix prevents duplicate
+# posts; this test covers the user-facing readability of the one post
+# that does go out.
+
+
+class TestWatchesNearAndCaption:
+
+    def _make_cog_with_watches(self, active_watches: dict):
+        from cogs.sounding import SoundingCog
+        bot = MagicMock()
+        bot.state = MagicMock()
+        bot.state.active_watches = active_watches
+        cog = SoundingCog.__new__(SoundingCog)
+        cog.bot = bot
+        cog._watch_centroids = {}
+        return cog
+
+    @pytest.mark.asyncio
+    async def test_watches_near_returns_all_within_radius(self, monkeypatch):
+        """A station at the centroid of three overlapping watches should be
+        reported as 'near' all three, sorted by watch number."""
+        # Station at (41.3, -95.9) — Omaha-ish. Three watches with centroids
+        # all within ~500 km (different neighboring states).
+        active = {
+            "0134": {"type": "TORNADO", "affected_zones": ["x"]},
+            "0135": {"type": "SVR", "affected_zones": ["x"]},
+            "0136": {"type": "TORNADO", "affected_zones": ["x"]},
+        }
+        centroids = {
+            "0134": (42.5, -96.0),  # ~135 km N
+            "0135": (39.8, -94.0),  # ~230 km SE
+            "0136": (44.0, -98.0),  # ~360 km NW
+        }
+
+        from cogs import sounding as sounding_module
+
+        async def fake_centroid(zones):
+            # Called from _resolve_watch_centroid; we can't tell which
+            # watch it's for from zones alone. Cheat: the test invokes
+            # the public _watches_near which calls _resolve_watch_centroid
+            # per watch — so override _resolve_watch_centroid instead.
+            return None
+
+        monkeypatch.setattr(sounding_module, "get_watch_area_centroid", fake_centroid)
+
+        cog = self._make_cog_with_watches(active)
+
+        async def fake_resolve(watch_num, info):
+            return centroids.get(watch_num)
+
+        cog._resolve_watch_centroid = fake_resolve
+
+        applicable = await cog._watches_near(41.3, -95.9, max_km=500.0)
+
+        assert [a[0] for a in applicable] == ["0134", "0135", "0136"]
+        assert {a[1] for a in applicable} == {"Tornado", "SVR"}
+
+    @pytest.mark.asyncio
+    async def test_watches_near_excludes_watches_beyond_radius(self):
+        """Watches whose centroids are far outside the radius must not
+        appear in the caption. Otherwise an OMA sounding would claim to
+        be 'near' a watch in Georgia."""
+        active = {
+            "0134": {"type": "TORNADO", "affected_zones": ["x"]},
+            "0900": {"type": "SVR", "affected_zones": ["x"]},  # far away
+        }
+        centroids = {
+            "0134": (42.5, -96.0),     # near the station
+            "0900": (33.0, -84.0),     # Georgia — thousands of km off
+        }
+
+        cog = self._make_cog_with_watches(active)
+
+        async def fake_resolve(watch_num, info):
+            return centroids.get(watch_num)
+
+        cog._resolve_watch_centroid = fake_resolve
+
+        applicable = await cog._watches_near(41.3, -95.9, max_km=500.0)
+
+        assert [a[0] for a in applicable] == ["0134"]
+
+    @pytest.mark.asyncio
+    async def test_watches_near_skips_watches_with_no_centroid(self):
+        """A watch whose zone geometry can't be resolved (centroid=None)
+        must be dropped, not crash the caption."""
+        active = {
+            "0134": {"type": "TORNADO", "affected_zones": ["x"]},
+            "0135": {"type": "SVR", "affected_zones": []},  # no zones
+        }
+
+        cog = self._make_cog_with_watches(active)
+
+        async def fake_resolve(watch_num, info):
+            if watch_num == "0134":
+                return (42.5, -96.0)
+            return None
+
+        cog._resolve_watch_centroid = fake_resolve
+
+        applicable = await cog._watches_near(41.3, -95.9, max_km=500.0)
+        assert [a[0] for a in applicable] == ["0134"]
+
+    def test_caption_single_watch(self):
+        """One applicable watch → single-watch phrasing, matches pre-fix
+        output so existing readers aren't surprised."""
+        from cogs.sounding import SoundingCog
+        cog = SoundingCog.__new__(SoundingCog)
+
+        applicable = [("0134", "Tornado", 123.4)]
+        frag = cog._format_watches_caption(applicable, "0134", "Tornado Watch")
+        assert frag == "Near active Tornado Watch #0134"
+
+    def test_caption_multi_watch_lists_all(self):
+        """Three applicable watches → all listed, sorted, with type tag."""
+        from cogs.sounding import SoundingCog
+        cog = SoundingCog.__new__(SoundingCog)
+
+        applicable = [
+            ("0134", "Tornado", 100.0),
+            ("0135", "SVR", 200.0),
+            ("0136", "Tornado", 300.0),
+        ]
+        frag = cog._format_watches_caption(applicable, "0134", "Tornado Watch")
+        assert frag == "Near active watches #0134 (Tornado), #0135 (SVR), #0136 (Tornado)"
+
+    def test_caption_empty_applicable_uses_fallback(self):
+        """If the lookup returns nothing (e.g. centroid resolution failed
+        for every active watch) we still caption against the triggering
+        watch so the post isn't mislabeled as free-floating."""
+        from cogs.sounding import SoundingCog
+        cog = SoundingCog.__new__(SoundingCog)
+
+        frag = cog._format_watches_caption([], "0134", "SVR Watch")
+        assert frag == "Near active SVR Watch #0134"
+
+    @pytest.mark.asyncio
+    async def test_resolve_watch_centroid_memoizes(self, monkeypatch):
+        """Three stations in one watch → only one centroid fetch.
+        Critical for not hammering the NWS zones API when a busy day has
+        6+ concurrent watches and we build captions for each station."""
+        from cogs import sounding as sounding_module
+
+        calls = {"n": 0}
+
+        async def fake_centroid(zones):
+            calls["n"] += 1
+            return (42.0, -96.0)
+
+        monkeypatch.setattr(sounding_module, "get_watch_area_centroid", fake_centroid)
+
+        cog = self._make_cog_with_watches({})
+        info = {"affected_zones": ["https://api.weather.gov/zones/county/IAC001"]}
+
+        a = await cog._resolve_watch_centroid("0134", info)
+        b = await cog._resolve_watch_centroid("0134", info)
+        c = await cog._resolve_watch_centroid("0134", info)
+
+        assert a == b == c == (42.0, -96.0)
+        assert calls["n"] == 1, "centroid should be fetched once and cached"

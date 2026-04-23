@@ -27,11 +27,19 @@ from cogs.sounding_utils import (
     get_raob_stations,
     get_user_dark_mode,
     get_watch_area_centroid,
+    haversine,
     parse_sounding_time,
     resolve_location,
     set_user_dark_mode,
     sounding_quality_warning,
 )
+
+# Max distance from a watch centroid at which we still consider that watch
+# "applicable" to a sounding station. RAOB stations are ~400 km apart
+# across the CONUS and a typical watch parallelogram is ~300 km wide, so
+# 500 km comfortably covers "this sounding represents the environment
+# around the watch" without reaching obviously-unrelated systems.
+WATCH_APPLICABLE_RADIUS_KM = 500.0
 from cogs.sounding_views import CombinedSoundingView, post_sounding
 from config import CACHE_DIR, SOUNDING_CHANNEL_ID
 
@@ -49,6 +57,10 @@ class SoundingCog(commands.Cog):
         # each trigger a post of the same station at the same valid time.
         self._posted_watch_soundings: set = set()
         self._handled_watches: set = set()
+        # Memoized watch_num → (lat, lon). Centroid resolution is an async
+        # fetch over NWS zone geometry; caching avoids N re-fetches when
+        # building captions that consider every active watch.
+        self._watch_centroids: dict = {}
         self.auto_sounding_watches.start()
 
     async def cog_load(self):
@@ -87,6 +99,65 @@ class SoundingCog(commands.Cog):
             await set_state("posted_watch_soundings", payload)
         except Exception as e:
             logger.debug(f"[SOUNDING-AUTO] Could not persist dedup state: {e}")
+
+    async def _resolve_watch_centroid(
+        self, watch_num: str, info: dict
+    ) -> Optional[tuple]:
+        """Memoized centroid lookup for a watch. Returns (lat, lon) or None."""
+        if watch_num in self._watch_centroids:
+            return self._watch_centroids[watch_num]
+        zones = info.get("affected_zones", []) if isinstance(info, dict) else []
+        if not zones:
+            return None
+        centroid = await get_watch_area_centroid(zones)
+        if centroid:
+            self._watch_centroids[watch_num] = centroid
+        return centroid
+
+    async def _watches_near(
+        self,
+        station_lat: float,
+        station_lon: float,
+        max_km: float = WATCH_APPLICABLE_RADIUS_KM,
+    ) -> list:
+        """Return [(watch_num, label, distance_km), ...] for every active
+        watch whose centroid is within `max_km` of (station_lat, station_lon),
+        sorted by watch_num ascending.
+
+        Centroids are resolved lazily and memoized, so a caption that asks
+        about three stations for three overlapping watches still only
+        fetches each watch's geometry once per process lifetime.
+        """
+        applicable = []
+        active = getattr(self.bot.state, "active_watches", {}) or {}
+        for watch_num, info in list(active.items()):
+            centroid = await self._resolve_watch_centroid(watch_num, info)
+            if not centroid:
+                continue
+            lat, lon = centroid
+            dist = haversine(station_lat, station_lon, lat, lon)
+            if dist > max_km:
+                continue
+            wtype = info.get("type", "SVR") if isinstance(info, dict) else "SVR"
+            label = "Tornado" if wtype == "TORNADO" else "SVR"
+            applicable.append((watch_num, label, dist))
+        applicable.sort(key=lambda x: x[0])
+        return applicable
+
+    def _format_watches_caption(
+        self, applicable: list, fallback_num: str, fallback_label: str
+    ) -> str:
+        """Build the 'Near active …' caption fragment. With multiple
+        applicable watches this lists all of them; with one (or zero —
+        the triggering watch is always in-scope), it degrades to the
+        single-watch phrasing we had before."""
+        if not applicable:
+            return f"Near active {fallback_label} #{fallback_num}"
+        if len(applicable) == 1:
+            wn, lbl, _ = applicable[0]
+            return f"Near active {lbl} Watch #{wn}"
+        parts = [f"#{wn} ({lbl})" for wn, lbl, _ in applicable]
+        return "Near active watches " + ", ".join(parts)
 
     async def cog_unload(self):
         self.auto_sounding_watches.cancel()
@@ -209,9 +280,13 @@ class SoundingCog(commands.Cog):
             png_path = opath + ".png"
             if not success or not os.path.exists(png_path):
                 continue
+            applicable = await self._watches_near(station["lat"], station["lon"])
+            watches_frag = self._format_watches_caption(
+                applicable, watch_num, watch_label
+            )
             caption = (
                 f"**Auto Sounding — {station['name']} ({sid})**\n"
-                f"Valid: {mo}-{d}-{y} {h}z | Near active {watch_label} #{watch_num}"
+                f"Valid: {mo}-{d}-{y} {h}z | {watches_frag}"
             )
             qwarn = sounding_quality_warning(data)
             if qwarn:
@@ -260,12 +335,20 @@ class SoundingCog(commands.Cog):
             png_path = opath + ".png"
             if not success or not os.path.exists(png_path):
                 continue
+            applicable = await self._watches_near(p["lat"], p["lon"])
+            watches_frag = self._format_watches_caption(
+                applicable, watch_num, watch_label
+            )
             caption = (
                 f"**Auto ACARS — {p['airport']}**\n"
-                f"Valid: {p['time_label']} | Near active {watch_label} #{watch_num}"
+                f"Valid: {p['time_label']} | {watches_frag}"
             )
             try:
-                await channel.send(caption, files=[discord.File(png_path)])
+                # ACARS must post to the observed-soundings channel, same as
+                # the RAOB posts above. Prior versions used the passed-in
+                # `channel` (the watches-announcement channel), which
+                # caused ACARS soundings to land in #weather-chat.
+                await target_channel.send(caption, files=[discord.File(png_path)])
                 logger.info(f"[SOUNDING-AUTO] Posted ACARS {p['airport']} for watch #{watch_num}")
             except Exception as e:
                 logger.exception(f"[SOUNDING-AUTO] Failed to post ACARS: {e}")
@@ -372,10 +455,13 @@ class SoundingCog(commands.Cog):
                 png_path = opath + ".png"
                 if not success or not os.path.exists(png_path):
                     continue
+                applicable = await self._watches_near(station["lat"], station["lon"])
+                watches_frag = self._format_watches_caption(
+                    applicable, watch_num, watch_label
+                )
                 caption = (
                     f"**Auto Sounding — {station['name']} ({sid})**\n"
-                    f"Valid: {month}-{day}-{year} {sounding_time}z | "
-                    f"Near active {watch_label} #{watch_num}"
+                    f"Valid: {month}-{day}-{year} {sounding_time}z | {watches_frag}"
                 )
                 qwarn = sounding_quality_warning(data)
                 if qwarn:
@@ -425,9 +511,13 @@ class SoundingCog(commands.Cog):
                 png_path = opath + ".png"
                 if not success or not os.path.exists(png_path):
                     continue
+                applicable = await self._watches_near(p["lat"], p["lon"])
+                watches_frag = self._format_watches_caption(
+                    applicable, watch_num, watch_label
+                )
                 caption = (
                     f"**Auto ACARS \u2014 {p['airport']}**\n"
-                    f"Valid: {p['time_label']} | Near active {watch_label} #{watch_num}"
+                    f"Valid: {p['time_label']} | {watches_frag}"
                 )
                 try:
                     await channel.send(caption, files=[discord.File(png_path)])
