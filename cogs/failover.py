@@ -39,7 +39,6 @@ import logging
 import os
 import socket
 import time
-import uuid
 
 import aiohttp
 import discord
@@ -379,7 +378,13 @@ class FailoverCog(commands.Cog):
 
 
 class FailoverView(discord.ui.View):
-    def __init__(self, cog: FailoverCog, nodes: list[str], current_manual: str | None, current_lease: str | None):
+    def __init__(
+        self,
+        cog: FailoverCog,
+        nodes: list[str],
+        current_manual: str | None,
+        current_lease: str | None,
+    ):
         super().__init__(timeout=60)
         self.cog = cog
         
