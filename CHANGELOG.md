@@ -6,7 +6,18 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
-## [5.2.3] — 2026-04-23
+## [5.2.4] — 2026-04-23
+
+### Fixed
+- **Improved watch graphic backfilling.** Increased the initial upgrade
+  retry window from 5 to 10 minutes and added a secondary slow-poll
+  loop (up to 30 minutes total) if the watch graphic is still missing
+  after the final probabilities are posted. This handles cases where
+  SPC takes longer than 5 minutes to generate watch GIFs during
+  intense weather events.
+
+## [5.2.1] — 2026-04-23
+
 
 ### Fixed
 - **Persistent watch upgrades.** The `_upgrade_watch_embed` task now
