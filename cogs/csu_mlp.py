@@ -137,6 +137,7 @@ class CSUMLPCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._last_reset_date: str = ""
         self.csu_mlp_daily_poll.start()
 
     def cog_unload(self):
@@ -244,14 +245,17 @@ class CSUMLPCog(commands.Cog):
                 self.bot.state.csu_posted.update(str(d) for d in db_posted)
 
         now_utc = datetime.now(timezone.utc)
+        today_str = now_utc.strftime("%Y-%m-%d")
 
-        # Reset at 15 UTC daily before products start appearing
-        if now_utc.hour == 15 and now_utc.minute < 10:
+        # Reset once per day at 15 UTC, tracked by date so the 10-minute
+        # loop interval can't cause the window to be missed.
+        if now_utc.hour >= 15 and self._last_reset_date != today_str:
             if self.bot.state.csu_posted:
                 logger.info("[CSU-MLP] Resetting daily posted state")
                 self.bot.state.csu_posted.clear()
                 _availability_log.clear()
                 await _save_posted_today(self.bot.state.csu_posted)
+            self._last_reset_date = today_str
 
         # Only poll 16-23 UTC
         if not (15 <= now_utc.hour < 22):

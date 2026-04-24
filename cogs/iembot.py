@@ -30,6 +30,11 @@ logger = logging.getLogger("spc_bot")
 CACHE_TTL = 600  # 10 minutes
 
 
+def _log_task_exception(task: "asyncio.Task") -> None:
+    if not task.cancelled() and (exc := task.exception()):
+        logger.exception("[IEMBOT] Unhandled exception in background task", exc_info=exc)
+
+
 async def get_cached_watch_text(watch_number: str) -> Optional[str]:
     """Return cached watch text if available and not expired."""
     return await get_product_cache(f"watch_{watch_number.zfill(4)}")
@@ -155,9 +160,11 @@ class IEMBotCog(commands.Cog):
                     continue
 
                 if "WWUS20-SEL" in product_id or "WWUS40-SEL" in product_id:
-                    asyncio.create_task(self._handle_watch(product_id))
+                    t = asyncio.create_task(self._handle_watch(product_id))
+                    t.add_done_callback(_log_task_exception)
                 elif "ACUS11-SWOMCD" in product_id:
-                    asyncio.create_task(self._handle_md(product_id))
+                    t = asyncio.create_task(self._handle_md(product_id))
+                    t.add_done_callback(_log_task_exception)
 
             if new_seqnum > self.bot.state.iembot_last_seqnum:
                 self.bot.state.iembot_last_seqnum = new_seqnum
@@ -189,7 +196,8 @@ class IEMBotCog(commands.Cog):
         # Signal WatchesCog to post immediately
         watches_cog = self.bot.cogs.get("WatchesCog")
         if watches_cog:
-            asyncio.create_task(watches_cog.post_watch_now(watch_num, nws_info))
+            t = asyncio.create_task(watches_cog.post_watch_now(watch_num, nws_info))
+            t.add_done_callback(_log_task_exception)
 
     async def _handle_md(self, product_id: str):
         raw = await _fetch_product_text(product_id)
@@ -208,7 +216,8 @@ class IEMBotCog(commands.Cog):
         # Signal MesoscaleCog to post immediately
         mesoscale_cog = self.bot.cogs.get("MesoscaleCog")
         if mesoscale_cog:
-            asyncio.create_task(mesoscale_cog.post_md_now(md_num))
+            t = asyncio.create_task(mesoscale_cog.post_md_now(md_num))
+            t.add_done_callback(_log_task_exception)
 
     @poll_iembot_feed.after_loop
     async def after_poll_loop(self):
