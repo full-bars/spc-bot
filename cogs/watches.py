@@ -636,9 +636,13 @@ class WatchesCog(commands.Cog):
                                     color: discord.Color, expires):
         """
         Polls for full SPC watch details (probs + image) and edits the original
-        message once available. Retries every 30s for up to 5 minutes.
+        message once available.
+        
+        Stage 1: Fast poll (30s) for up to 10 minutes.
+        Stage 2: Slow poll (60s) for up to 20 minutes more (image only).
         """
-        for attempt in range(10):
+        # ── Stage 1: Fast poll for Probs + Image ───────────────────────────
+        for attempt in range(20):
             await asyncio.sleep(30)
             try:
                 image_url, text_summary, probs = await fetch_watch_details(watch_num)
@@ -650,19 +654,82 @@ class WatchesCog(commands.Cog):
                         image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
                     )
 
-                # Keep retrying if:
-                # 1. We have no image yet (or it's a placeholder)
-                # 2. AND we don't have final probabilities yet
-                # Once we have BOTH a real image and real probs, we stop.
                 image_missing = True
                 if cache_path and os.path.exists(cache_path):
                     with open(cache_path, "rb") as f:
                         image_missing = is_placeholder_image(f.read())
                 
-                if image_missing or not has_real_probs:
-                    if attempt < 9: # Only continue if we have attempts left
-                        continue
+                # If we have BOTH, we are fully upgraded.
+                if not image_missing and has_real_probs:
+                    embed = _build_watch_embed(
+                        watch_num,
+                        is_tornado=is_tornado,
+                        watch_label=watch_label,
+                        color=color,
+                        timestamp=datetime.now(timezone.utc),
+                        expires=expires,
+                        text_summary=text_summary,
+                        probs=probs,
+                        cache_path=cache_path,
+                    )
+                    files = _watch_files(watch_num, cache_path)
+                    await message.edit(embed=embed, attachments=files)
+                    logger.info(f"[WATCH] Full upgrade complete for #{watch_num}")
+                    return
 
+                # If we only have Probs, or we're on the last attempt, do a 
+                # partial edit and transition to Stage 2 if needed.
+                if has_real_probs or attempt == 19:
+                    embed = _build_watch_embed(
+                        watch_num,
+                        is_tornado=is_tornado,
+                        watch_label=watch_label,
+                        color=color,
+                        timestamp=datetime.now(timezone.utc),
+                        expires=expires,
+                        text_summary=text_summary,
+                        probs=probs,
+                        cache_path=cache_path if not image_missing else None,
+                    )
+                    files = _watch_files(watch_num, cache_path) if not image_missing else []
+                    await message.edit(embed=embed, attachments=files)
+                    
+                    if not image_missing:
+                        # We have image but only preliminary probs? 
+                        # Continue fast-polling until probs are real.
+                        continue
+                    
+                    if has_real_probs:
+                        # We have real probs but still no image. 
+                        # Break to Stage 2 for dedicated image slow-poll.
+                        logger.info(f"[WATCH] Probs updated for #{watch_num}; transitioning to slow-poll for image")
+                        break
+
+            except Exception as e:
+                logger.warning(f"[WATCH] Upgrade attempt {attempt+1} failed for #{watch_num}: {e}")
+
+        # ── Stage 2: Slow poll specifically for the Image ──────────────────
+        # Sometimes SPC takes 15-20 minutes to generate the GIF during high load.
+        for attempt in range(20):
+            await asyncio.sleep(60)
+            try:
+                # We only care about the image now
+                image_url, text_summary, probs = await fetch_watch_details(watch_num)
+                if not image_url:
+                    continue
+                    
+                cache_path, _, _ = await download_single_image(
+                    image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
+                )
+                
+                if cache_path and os.path.exists(cache_path):
+                    with open(cache_path, "rb") as f:
+                        if is_placeholder_image(f.read()):
+                            continue
+                else:
+                    continue
+
+                # Got it! Do the final edit.
                 embed = _build_watch_embed(
                     watch_num,
                     is_tornado=is_tornado,
@@ -676,11 +743,13 @@ class WatchesCog(commands.Cog):
                 )
                 files = _watch_files(watch_num, cache_path)
                 await message.edit(embed=embed, attachments=files)
-                logger.info(f"[WATCH] Upgraded embed for #{watch_num} with full SPC data")
+                logger.info(f"[WATCH] Image finally backfilled for #{watch_num} after slow-poll")
                 return
+
             except Exception as e:
-                logger.warning(f"[WATCH] Upgrade attempt {attempt+1} failed for #{watch_num}: {e}")
-        logger.info(f"[WATCH] Gave up upgrading embed for #{watch_num} after 5 minutes")
+                logger.debug(f"[WATCH] Slow-poll image check failed for #{watch_num}: {e}")
+
+        logger.info(f"[WATCH] Gave up on image backfill for #{watch_num} after 30 minutes")
 
     async def post_watch_now(self, watch_num: str, nws_info: dict):
         """
