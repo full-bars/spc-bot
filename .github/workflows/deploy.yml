@@ -1,0 +1,26 @@
+name: Deploy to Failovers
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.LEGION }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Deploy to each failover
+        run: |
+          while IFS= read -r host; do
+            [ -z "$host" ] && continue
+            hostname="${host#*@}"
+            echo "── Deploying to $host ──"
+            ssh-keyscan -H "$hostname" >> ~/.ssh/known_hosts 2>/dev/null
+            ssh -i ~/.ssh/id_rsa "$host" \
+              "cd /home/\$(whoami)/spc-bot && git pull && bash update.sh"
+          done <<< "${{ secrets.FAILOVER_HOSTS }}"
