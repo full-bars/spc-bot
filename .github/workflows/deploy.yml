@@ -20,7 +20,11 @@ jobs:
             [ -z "$host" ] && continue
             hostname="${host#*@}"
             echo "── Deploying to $host ──"
-            ssh-keyscan -H "$hostname" >> ~/.ssh/known_hosts 2>/dev/null
-            ssh -i ~/.ssh/id_rsa "$host" \
+            ssh-keyscan -H "$hostname" >> ~/.ssh/known_hosts 2>/dev/null || true
+            ssh -i ~/.ssh/id_rsa \
+              -o StrictHostKeyChecking=accept-new \
+              -o ConnectTimeout=30 \
+              -o BatchMode=yes \
+              "$host" \
               "cd /home/\$(whoami)/spc-bot && git pull && bash update.sh"
           done <<< "${{ secrets.FAILOVER_HOSTS }}"
