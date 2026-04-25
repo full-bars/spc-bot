@@ -41,7 +41,7 @@ The bot is now available as a pre-built image on GitHub Container Registry. This
 2.  **Configure:** Edit `.env` with your Discord token and channel IDs.
 3.  **Launch:** `docker compose up -d`
 
-### ⚡ Automatic Install (Linux / Ubuntu)
+### ⚡ Automatic Install (systemd-based linux)
 
 A portable deploy script is included that creates a virtual environment, configures your `.env` interactively, and installs a systemd service. The bot runs as your current user for seamless code and log management.
 
