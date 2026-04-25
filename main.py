@@ -209,7 +209,8 @@ async def on_ready():
         else:
             logger.info("[FAILOVER] Standby — skipping command sync to preserve primary commands")
         logger.info("All tasks started. Bot is ready.")
-        periodic_sync.start()
+        if not periodic_sync.is_running():
+            periodic_sync.start()
     except Exception as e:
         logger.exception(f"[on_ready] Unhandled error: {e}")
 
