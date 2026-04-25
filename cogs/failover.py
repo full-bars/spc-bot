@@ -39,11 +39,13 @@ import logging
 import os
 import socket
 import time
+import uuid
 
 import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
+from discord.ext.commands import ExtensionNotLoaded
 
 from cogs import ALL_EXTENSIONS
 from utils import state_store
@@ -75,10 +77,16 @@ def _require_failover_token() -> str:
     return FAILOVER_TOKEN
 
 
+_PROCESS_UUID = uuid.uuid4().hex[:8]
+
+
 def _node_identity() -> str:
-    """Stable per-process identifier used as the lease value so we can
-    detect whether we still hold the lease vs. some other holder."""
-    return socket.gethostname()
+    """Per-process identifier used as the lease value.
+
+    Includes a random suffix so two processes on the same host have
+    distinct identities and won't silently share a lease.
+    """
+    return f"{socket.gethostname()}:{_PROCESS_UUID}"
 
 
 class FailoverCog(commands.Cog):
@@ -100,6 +108,15 @@ class FailoverCog(commands.Cog):
         self._session = aiohttp.ClientSession()
         self.sync_loop.start()
 
+    def _is_our_node(self, target: str) -> bool:
+        """True if *target* designates this process.
+
+        Accepts either the full per-process identity (``hostname:uuid``) or a
+        bare hostname so that the /failover Discord command (which stores just
+        the hostname) still works correctly.
+        """
+        return target == self._identity or target == socket.gethostname()
+
     async def startup_lease_check(self) -> bool:
         """Synchronous lease probe run during setup_hook, before other cogs
         are loaded. Decides whether this node should boot as primary.
@@ -114,7 +131,7 @@ class FailoverCog(commands.Cog):
         # Manual override wins over env var and over the lease.
         manual = await self._upstash("GET", "spcbot:manual_primary")
         if manual:
-            if manual == self._identity:
+            if self._is_our_node(manual):
                 logger.info(
                     f"[FAILOVER] Startup: manual override names us "
                     f"('{self._identity}') as Primary — claiming lease"
@@ -235,7 +252,7 @@ class FailoverCog(commands.Cog):
             manual_primary = await self._upstash("GET", "spcbot:manual_primary")
             
             if manual_primary:
-                if manual_primary == self._identity:
+                if self._is_our_node(manual_primary):
                     # We are the designated primary
                     if not self.bot.state.is_primary:
                         logger.warning(f"[FAILOVER] Manual override: Promoting node '{self._identity}' to Primary")
@@ -386,11 +403,20 @@ class FailoverCog(commands.Cog):
     async def _demote(self) -> None:
         logger.info("[FAILOVER] Demoting to STANDBY")
         self.bot.state.is_primary = False
+        failed = []
         for ext in ALL_EXTENSIONS:
             try:
                 await self.bot.unload_extension(ext)
+            except ExtensionNotLoaded:
+                pass  # expected when demoting a node that was never promoted
             except Exception as e:
-                logger.debug(f"[FAILOVER] Could not unload {ext} during demote: {e}")
+                logger.warning(f"[FAILOVER] Failed to unload {ext} during demote: {e}")
+                failed.append(ext)
+        if failed:
+            logger.error(
+                f"[FAILOVER] {len(failed)} cog(s) failed to unload — "
+                f"bot may still be posting as primary: {failed}"
+            )
         self._primary_failures = 0
 
     # ── Slash Command ───────────────────────────────────────────────────
@@ -509,13 +535,16 @@ class FailoverSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         target = self.values[0]
-        
+
         if target == "CLEAR":
             await self.cog._upstash("DEL", "spcbot:manual_primary")
             msg = "✅ Manual override cleared. Returning to automatic failover."
         else:
-            await self.cog._upstash("SET", "spcbot:manual_primary", target)
-            msg = f"✅ Manual override set: `{target}` is now the designated Primary."
+            # Store just the hostname (strip per-process UUID suffix) so the
+            # override survives process restarts on the same host.
+            hostname = target.split(":")[0]
+            await self.cog._upstash("SET", "spcbot:manual_primary", hostname)
+            msg = f"✅ Manual override set: `{hostname}` is now the designated Primary."
 
         await interaction.response.edit_message(content=msg, view=None)
 
