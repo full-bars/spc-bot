@@ -332,6 +332,7 @@ class SoundingCog(commands.Cog):
                 try:
                     await channel.send(caption, files=[discord.File(png_path)])
                     logger.info(f"[SOUNDING-MONITOR] Posted special release {sid} {h}z")
+                    self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
                 except Exception as e:
                     logger.exception(f"[SOUNDING-MONITOR] Failed to post {sid}: {e}")
 
@@ -470,6 +471,7 @@ class SoundingCog(commands.Cog):
             try:
                 await target_channel.send(caption, files=[discord.File(png_path)])
                 logger.info(f"[SOUNDING-AUTO] Posted {sid} for watch #{watch_num}")
+                self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
             except Exception as e:
                 logger.exception(f"[SOUNDING-AUTO] Failed to post {sid}: {e}")
 
@@ -526,6 +528,7 @@ class SoundingCog(commands.Cog):
                 # caused ACARS soundings to land in #weather-chat.
                 await target_channel.send(caption, files=[discord.File(png_path)])
                 logger.info(f"[SOUNDING-AUTO] Posted ACARS {p['airport']} for watch #{watch_num}")
+                self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
             except Exception as e:
                 logger.exception(f"[SOUNDING-AUTO] Failed to post ACARS: {e}")
 
@@ -646,6 +649,7 @@ class SoundingCog(commands.Cog):
                 try:
                     await channel.send(caption, files=[discord.File(png_path)])
                     logger.info(f"[SOUNDING-AUTO] Posted {sid} for watch #{watch_num}")
+                    self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
                 except Exception as e:
                     logger.exception(f"[SOUNDING-AUTO] Failed to post: {e}")
 
@@ -699,6 +703,7 @@ class SoundingCog(commands.Cog):
                 try:
                     await channel.send(caption, files=[discord.File(png_path)])
                     logger.info(f"[SOUNDING-AUTO] Posted ACARS {p['airport']} for watch #{watch_num}")
+                    self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
                 except Exception as e:
                     logger.exception(f"[SOUNDING-AUTO] Failed to post ACARS: {e}")
 
