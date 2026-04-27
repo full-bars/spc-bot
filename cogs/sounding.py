@@ -12,7 +12,10 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import discord
+import pandas as pd
 from discord.ext import commands, tasks
+
+pd_isna = pd.isna
 
 from utils.state_store import get_state, set_state
 from utils.spc_outlook import get_high_risk_polygon, is_inside_polygon
@@ -355,7 +358,18 @@ class SoundingCog(commands.Cog):
         duplicate posts when a station qualifies via multiple paths.
 
         Skips immediately when no MDT/HIGH polygon is active.
+
+        The whole body is wrapped in a single try/except: an unhandled
+        exception inside a ``tasks.Loop`` body silently terminates the
+        loop, and we don't want a single bad station row to disable
+        coverage for the rest of the event.
         """
+        try:
+            await self._tick_high_risk_soundings()
+        except Exception as e:
+            logger.exception(f"[SOUNDING-RISK] Tick failed: {e}")
+
+    async def _tick_high_risk_soundings(self):
         await self.bot.wait_until_ready()
         if not self.bot.state.is_primary:
             return
@@ -376,17 +390,33 @@ class SoundingCog(commands.Cog):
         if not channel:
             return
 
-        # Filter RAOB stations to those inside the buffered polygon
+        # Filter RAOB stations to those inside the buffered polygon. Use
+        # str() coercion (matching find_nearest_stations) because the CSV
+        # has NaN for missing ICAO codes and integer WMO codes — neither
+        # supports .strip() directly.
+        def _clean(val) -> str:
+            if val is None:
+                return ""
+            try:
+                if pd_isna(val):
+                    return ""
+            except (TypeError, ValueError):
+                pass
+            s = str(val).strip()
+            return "" if s.lower() == "nan" or s == "----" else s
+
         in_area = []
         for _, row in stations_df.iterrows():
-            sid = (row.get("ICAO") or "").strip() or (row.get("WMO") or "").strip()
+            icao = _clean(row.get("ICAO"))
+            wmo = _clean(row.get("WMO"))
+            sid = icao or wmo
             if not sid:
                 continue
             if is_inside_polygon(row["lat"], row["lon"], polygon):
                 in_area.append({
-                    "icao": (row.get("ICAO") or "").strip(),
-                    "wmo": (row.get("WMO") or "").strip(),
-                    "name": (row.get("NAME") or "").strip(),
+                    "icao": icao,
+                    "wmo": wmo,
+                    "name": _clean(row.get("NAME")),
                     "lat": row["lat"],
                     "lon": row["lon"],
                 })
@@ -560,6 +590,22 @@ class SoundingCog(commands.Cog):
                         )
 
         await self._persist_posted_state()
+
+    @monitor_high_risk_soundings.after_loop
+    async def after_high_risk_loop(self):
+        if self.monitor_high_risk_soundings.is_being_cancelled():
+            return
+        task = self.monitor_high_risk_soundings.get_task()
+        try:
+            exc = task.exception() if task else None
+        except Exception:
+            exc = None
+        if exc:
+            logger.error(
+                f"[TASK] monitor_high_risk_soundings stopped: "
+                f"{type(exc).__name__}: {exc}",
+                exc_info=exc,
+            )
 
     async def prewarm_soundings_for_md(self, md_num: str, raw_text: str):
         """
