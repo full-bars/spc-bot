@@ -394,20 +394,32 @@ class StatusCog(commands.Cog):
             return
 
         async def _hydrate(md_num: str):
-            logger.info(f"[/md] Hydrating #{md_num}...")
-            image_url, summary, from_cache, raw_text = await fetch_md_details(md_num)
-            cache_path = None
-            if image_url:
-                cache_path, _, _ = await download_single_image(
-                    image_url, MANUAL_CACHE_FILE, self.bot.state.manual_cache
-                )
-            return {
-                "num": md_num,
-                "summary": summary,
-                "from_cache": from_cache,
-                "raw_text": raw_text,
-                "cache_path": cache_path
-            }
+            logger.info(f"[/md] Starting hydration for #{md_num}...")
+            try:
+                # Add a per-MD timeout to ensure one bad MD doesn't kill the whole command
+                res = await asyncio.wait_for(fetch_md_details(md_num), timeout=15.0)
+                image_url, summary, from_cache, raw_text = res
+                logger.info(f"[/md] Fetched details for #{md_num} (text size: {len(raw_text) if raw_text else 0})")
+                
+                cache_path = None
+                if image_url:
+                    logger.info(f"[/md] Downloading image for #{md_num}...")
+                    cache_path, _, _ = await download_single_image(
+                        image_url, MANUAL_CACHE_FILE, self.bot.state.manual_cache
+                    )
+                return {
+                    "num": md_num,
+                    "summary": summary,
+                    "from_cache": from_cache,
+                    "raw_text": raw_text,
+                    "cache_path": cache_path
+                }
+            except asyncio.TimeoutError:
+                logger.warning(f"[/md] Hydration timed out for #{md_num}")
+                return None
+            except Exception as e:
+                logger.error(f"[/md] Hydration failed for #{md_num}: {e}")
+                return None
 
         # Hydrate all active MDs (usually 1-5, rarely >10)
         try:
