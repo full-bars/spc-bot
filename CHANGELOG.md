@@ -6,6 +6,8 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.2.5] — 2026-04-27
+
 ### Fixed
 - **iembot MD fast-path now delivers under SPC index lag.** When iembot
   detects a new MD before the SPC HTML page is published, `post_md_now`
