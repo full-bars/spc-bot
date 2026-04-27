@@ -374,9 +374,19 @@ class StatusCog(commands.Cog):
         name="md",
         description="Show all currently active SPC Mesoscale Discussions",
     )
-    async def md_slash(self, interaction: discord.Interaction):
+    @discord.app_commands.describe(fresh="Bypass cache and fetch the latest list directly")
+    async def md_slash(self, interaction: discord.Interaction, fresh: bool = False):
         await interaction.response.defer()
-        md_numbers = await fetch_latest_md_numbers()
+        # Pass fresh flag if supported by fetch_latest_md_numbers, 
+        # but for now we'll just use it to log.
+        logger.info(f"[/md] fresh={fresh}")
+        try:
+            md_numbers = await fetch_latest_md_numbers(fresh=fresh)
+        except Exception as e:
+            logger.error(f"[/md] fetch_latest_md_numbers failed: {e}")
+            await interaction.followup.send("Failed to fetch MD index.")
+            return
+
         if not md_numbers:
             await interaction.followup.send(
                 "No active Mesoscale Discussions found."
@@ -399,7 +409,19 @@ class StatusCog(commands.Cog):
             }
 
         # Hydrate all active MDs (usually 1-5, rarely >10)
-        md_data = await asyncio.gather(*[_hydrate(num) for num in md_numbers])
+        try:
+            md_data = await asyncio.wait_for(
+                asyncio.gather(*[_hydrate(num) for num in md_numbers]),
+                timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            logger.error("[/md] Hydration timed out")
+            await interaction.followup.send("Timed out fetching MD details from SPC.")
+            return
+        except Exception as e:
+            logger.error(f"[/md] Hydration failed: {e}")
+            await interaction.followup.send("Failed to load MD details.")
+            return
         
         view = MDPaginatorView(self.bot, interaction, md_data)
         if len(md_data) == 1:

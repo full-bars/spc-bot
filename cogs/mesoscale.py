@@ -27,25 +27,30 @@ _md_index_head: Dict[str, str] = {}
 _md_index_unreachable: bool = False
 
 
-async def fetch_latest_md_numbers() -> List[str]:
+async def fetch_latest_md_numbers(fresh: bool = False) -> List[str]:
     """
     Scrape the SPC MD index page and return a list of current MD number strings.
     Uses a HEAD check first — if the index page hasn't changed since last poll,
     skips the full HTML fetch entirely. Falls back to IEM if SPC is unreachable.
     """
-    meta = await http_head_meta(SPC_MD_INDEX_URL)
-    if meta is not None and _md_index_head:
-        # Require ALL non-empty validators to match. OR was too loose —
-        # if content_length happened to line up while the page actually
-        # changed, we'd silently drop the new MD.
-        checks = []
-        for key in ("etag", "last_modified", "content_length"):
-            if meta.get(key):
-                checks.append(meta[key] == _md_index_head.get(key))
-        if checks and all(checks):
-            return []
-    if meta:
-        _md_index_head.update(meta)
+    if not fresh:
+        meta = await http_head_meta(SPC_MD_INDEX_URL)
+        if meta is not None and _md_index_head:
+            # Require ALL non-empty validators to match. OR was too loose —
+            # if content_length happened to line up while the page actually
+            # changed, we'd silently drop the new MD.
+            checks = []
+            for key in ("etag", "last_modified", "content_length"):
+                if meta.get(key):
+                    checks.append(meta[key] == _md_index_head.get(key))
+            if checks and all(checks):
+                return []
+        if meta:
+            _md_index_head.update(meta)
+    else:
+        # Clear the cached HEAD info if fresh is requested
+        global _md_index_head
+        _md_index_head = {}
 
     html = await http_get_text(SPC_MD_INDEX_URL)
 
