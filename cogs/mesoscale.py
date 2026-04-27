@@ -34,6 +34,7 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> List[str]:
     skips the full HTML fetch entirely. Falls back to IEM if SPC is unreachable.
     """
     global _md_index_head
+    logger.debug(f"[MD] Fetching MD numbers (fresh={fresh})")
 
     if not fresh:
         meta = await http_head_meta(SPC_MD_INDEX_URL)
@@ -46,6 +47,7 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> List[str]:
                 if meta.get(key):
                     checks.append(meta[key] == _md_index_head.get(key))
             if checks and all(checks):
+                logger.debug("[MD] Index unchanged (HEAD match)")
                 return []
         if meta:
             _md_index_head.update(meta)
@@ -53,11 +55,13 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> List[str]:
         # Clear the cached HEAD info if fresh is requested
         _md_index_head = {}
 
+    logger.debug(f"[MD] Requesting SPC index: {SPC_MD_INDEX_URL}")
     html = await http_get_text(SPC_MD_INDEX_URL)
 
     global _md_index_unreachable
     # If SPC is unreachable, try to scrape from IEM's nwstext API
     if not html:
+        logger.warning("[MD] SPC index HTML empty/failed, falling back to IEM")
         if not _md_index_unreachable:
             logger.warning("[MD] SPC index unreachable — falling back to IEM for active MD list")
             _md_index_unreachable = True
@@ -73,6 +77,7 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> List[str]:
                     m = re.search(r"MESOSCALE DISCUSSION\s+(\d+)", entry.get("data", ""), re.IGNORECASE)
                     if m:
                         md_nums.add(m.group(1).zfill(4))
+                logger.info(f"[MD] IEM fallback returned {len(md_nums)} MDs")
                 # Only return MDs from today/recent hours if possible, 
                 # but for simplicity we'll just return the unique ones in the feed.
                 return sorted(list(md_nums), reverse=True)
@@ -93,6 +98,8 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> List[str]:
         if n not in seen:
             seen.add(n)
             result.append(n.zfill(4))
+    
+    logger.debug(f"[MD] Scraped {len(result)} MD numbers from SPC index")
     return result
 
 

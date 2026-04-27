@@ -374,26 +374,27 @@ class StatusCog(commands.Cog):
         name="md",
         description="Show all currently active SPC Mesoscale Discussions",
     )
-    @discord.app_commands.describe(fresh="Bypass cache and fetch the latest list directly")
-    async def md_slash(self, interaction: discord.Interaction, fresh: bool = False):
+    async def md_slash(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        # Pass fresh flag if supported by fetch_latest_md_numbers, 
-        # but for now we'll just use it to log.
-        logger.info(f"[/md] fresh={fresh}")
+        logger.info("[/md] Command invoked (always fresh)")
         try:
-            md_numbers = await fetch_latest_md_numbers(fresh=fresh)
+            # We'll use a local fetch that doesn't mess with the auto-poster's cache
+            md_numbers = await fetch_latest_md_numbers(fresh=True)
+            logger.info(f"[/md] Fetched {len(md_numbers)} MD numbers")
         except Exception as e:
             logger.error(f"[/md] fetch_latest_md_numbers failed: {e}")
             await interaction.followup.send("Failed to fetch MD index.")
             return
 
         if not md_numbers:
+            logger.info("[/md] No active MDs found")
             await interaction.followup.send(
                 "No active Mesoscale Discussions found."
             )
             return
 
         async def _hydrate(md_num: str):
+            logger.info(f"[/md] Hydrating #{md_num}...")
             image_url, summary, from_cache, raw_text = await fetch_md_details(md_num)
             cache_path = None
             if image_url:
@@ -412,10 +413,11 @@ class StatusCog(commands.Cog):
         try:
             md_data = await asyncio.wait_for(
                 asyncio.gather(*[_hydrate(num) for num in md_numbers]),
-                timeout=30.0
+                timeout=45.0
             )
+            md_data = [d for d in md_data if d is not None]
         except asyncio.TimeoutError:
-            logger.error("[/md] Hydration timed out")
+            logger.error("[/md] Hydration timed out after 45s")
             await interaction.followup.send("Timed out fetching MD details from SPC.")
             return
         except Exception as e:
@@ -423,6 +425,10 @@ class StatusCog(commands.Cog):
             await interaction.followup.send("Failed to load MD details.")
             return
         
+        if not md_data:
+            await interaction.followup.send("No MD data could be retrieved.")
+            return
+
         view = MDPaginatorView(self.bot, interaction, md_data)
         if len(md_data) == 1:
             view.prev_btn.disabled = True
@@ -434,6 +440,7 @@ class StatusCog(commands.Cog):
             embeds=embeds, files=files, view=view
         )
         view.message = msg
+        logger.info("[/md] Successfully sent paginated response")
 
     @discord.app_commands.command(
         name="status",
