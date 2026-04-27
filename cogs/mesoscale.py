@@ -396,36 +396,78 @@ class MesoscaleCog(commands.Cog):
         message: discord.Message,
         full_text: Optional[str],
     ):
-        """Poll for the MD graphic and edit the message to attach it.
+        """Poll for the MD graphic and body text, editing the message
+        as either becomes available.
 
-        Retries every 30s for up to 5 minutes. Rebuilds the embeds from
-        ``full_text`` so the body content is preserved alongside the
-        newly-attached graphic.
+        Two separate things can be missing when the iembot fast-path
+        fires: the SPC graphic (slow CDN), and/or the SPC HTML body
+        text (404 until SPC publishes the discussion). Each tick we try
+        to recover whichever is still missing and edit the message
+        immediately on improvement, so the user never sits looking at
+        an empty embed for the full poll window. Stops once we have
+        both the graphic and the body text.
         """
         image_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.png"
         filename = f"mcd_{md_num}.png"
+        cache_path: Optional[str] = None
+
+        async def _push_edit():
+            embeds = build_md_embeds(
+                md_num, full_text,
+                image_filename=filename if cache_path else None,
+            )
+            try:
+                if cache_path:
+                    await message.edit(
+                        embeds=embeds,
+                        attachments=[discord.File(cache_path, filename=filename)],
+                    )
+                else:
+                    await message.edit(embeds=embeds)
+                return True
+            except discord.HTTPException as e:
+                logger.warning(f"[MD] Failed to edit MD message for #{md_num}: {e}")
+                return False
+
         for attempt in range(10):
             await asyncio.sleep(30)
-            try:
-                cache_path, _, _ = await download_single_image(
-                    image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
-                )
-                if cache_path:
-                    try:
-                        embeds = build_md_embeds(
-                            md_num, full_text, image_filename=filename
+
+            text_recovered = False
+            if not full_text:
+                try:
+                    _, _, _, raw = await fetch_md_details(md_num)
+                    recovered = extract_md_body(raw)
+                    if recovered:
+                        full_text = recovered
+                        text_recovered = True
+                        logger.info(
+                            f"[MD] Recovered body text for #{md_num} during upgrade"
                         )
-                        await message.edit(
-                            embeds=embeds,
-                            attachments=[discord.File(cache_path, filename=filename)],
-                        )
-                        logger.info(f"[MD] Upgraded MD #{md_num} with graphic")
-                        break
-                    except discord.HTTPException as e:
-                        logger.warning(f"[MD] Failed to edit MD message for #{md_num}: {e}")
-                        break
-            except Exception as e:
-                logger.debug(f"[MD] Upgrade poll error for #{md_num}: {e}")
+                except Exception as e:
+                    logger.debug(f"[MD] Body recovery failed for #{md_num}: {e}")
+
+            image_recovered = False
+            if not cache_path:
+                try:
+                    cp, _, _ = await download_single_image(
+                        image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
+                    )
+                    if cp:
+                        cache_path = cp
+                        image_recovered = True
+                except Exception as e:
+                    logger.debug(f"[MD] Upgrade poll error for #{md_num}: {e}")
+
+            if text_recovered or image_recovered:
+                ok = await _push_edit()
+                if not ok:
+                    break
+                if image_recovered:
+                    logger.info(f"[MD] Upgraded MD #{md_num} with graphic")
+
+            if cache_path and full_text:
+                # We've got both — nothing left to backfill.
+                break
 
     async def post_md_now(self, md_num: str):
         """
