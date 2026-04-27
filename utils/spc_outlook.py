@@ -168,6 +168,17 @@ def is_inside_polygon(lat: float, lon: float, polygon) -> bool:
     return polygon.contains(Point(lon, lat))
 
 
+def peek_active_labels() -> frozenset:
+    """Return whichever of {MDT, HIGH} is currently active per the
+    last-fetched outlook, without triggering a fetch. Empty set when
+    none are active or when the cache hasn't been populated yet.
+
+    Intended for ``/status`` and other read-only consumers that want to
+    surface risk state without paying the GeoJSON fetch latency.
+    """
+    return _cache["labels"]
+
+
 def reset_cache_for_tests() -> None:
     """Drop the module-level cache. Tests use this to force a fresh fetch."""
     _cache["fetched_at"] = 0.0

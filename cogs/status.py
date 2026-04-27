@@ -17,6 +17,7 @@ from utils.cache import (
     download_single_image,
     format_timedelta,
 )
+from utils.spc_outlook import get_high_risk_polygon, peek_active_labels
 from utils.spc_urls import get_spc_urls
 
 logger = logging.getLogger("spc_bot")
@@ -385,6 +386,22 @@ class StatusCog(commands.Cog):
         lines.append(
             f"HTTP Session   : {'OK' if session_ok else 'CLOSED/MISSING'}"
         )
+
+        # Proactively refresh — the 30-min TTL inside get_high_risk_polygon
+        # makes this a no-op most of the time, but it guarantees /status is
+        # accurate immediately after a restart.
+        try:
+            await get_high_risk_polygon()
+        except Exception as e:
+            logger.debug(f"[STATUS] Outlook peek failed: {e}")
+        active_risk = peek_active_labels()
+        if active_risk:
+            risk_str = "/".join(sorted(active_risk))
+            lines.append(
+                f"SPC Day 1 Risk : {risk_str} ACTIVE — high-risk sounding sweep armed"
+            )
+        else:
+            lines.append("SPC Day 1 Risk : no MDT/HIGH active")
         lines.append("")
 
         lines.append("── Tasks ──────────────────────────────")
@@ -401,6 +418,8 @@ class StatusCog(commands.Cog):
             "poll_iembot_feed":     "IEMBot real-time feed",
             "sync_loop":            "Failover standby sync",
             "auto_sounding_watches": "Sounding monitor",
+            "monitor_special_soundings": "Special-release sounding monitor",
+            "monitor_high_risk_soundings": "High-risk sounding sweep",
         }
         for cog_name, cog in self.bot.cogs.items():
             for task_name in dir(cog):
