@@ -6,6 +6,25 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **iembot MD fast-path now delivers under SPC index lag.** When iembot
+  detects a new MD before the SPC HTML page is published, `post_md_now`
+  no longer bails out on the missing graphic. It posts the header (with
+  the iembot-cached text summary) immediately and queues the existing
+  `_upgrade_md_message` poller to backfill the graphic once SPC catches
+  up — matching the behavior already in place for index-lag 403s after
+  the URL was resolved. Previously these triggers logged
+  `iembot trigger: could not resolve image` and were silently picked up
+  1–3 minutes later by the 30-second poll loop.
+- **Reduced log spam during SPC outages.** `[MD] SPC index unreachable —
+  falling back to IEM for active MD list` now logs once on transition
+  into the outage and once on recovery, instead of every 30 seconds for
+  the entire outage window.
+- **Stop polluting `active_mds` on failed iembot triggers.** `post_md_now`
+  now adds the MD to `active_mds` only after a successful Discord send,
+  so a failed fast-path post can no longer interact with the cancellation
+  logic in `auto_post_md`.
+
 ## [5.2.4] — 2026-04-23
 
 ### Fixed
