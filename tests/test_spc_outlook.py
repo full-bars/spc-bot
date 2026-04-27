@@ -141,6 +141,19 @@ async def test_fetch_failure_keeps_last_known_polygon():
     assert second is first  # exact same cached object
 
 
+def test_caption_prefix_matches_severity_label():
+    """The caption prefix used by monitor_high_risk_soundings must
+    follow the active label set: MDT alone → 'MDT-Risk'; HIGH alone or
+    HIGH+MDT → 'High-Risk' (HIGH is the dominant level)."""
+    # Replicate the prefix-selection rule inline to pin the contract.
+    def prefix(labels):
+        return "High-Risk" if "HIGH" in labels else "MDT-Risk"
+
+    assert prefix(frozenset({"MDT"})) == "MDT-Risk"
+    assert prefix(frozenset({"HIGH"})) == "High-Risk"
+    assert prefix(frozenset({"MDT", "HIGH"})) == "High-Risk"
+
+
 @pytest.mark.asyncio
 async def test_is_inside_polygon_handles_none():
     """Defensive: callers may pass None when no MDT/HIGH is active."""

@@ -429,6 +429,11 @@ class SoundingCog(commands.Cog):
             return
 
         labels_str = "/".join(sorted(labels))
+        # Caption prefix mirrors the most severe active level:
+        #  {"MDT"}        → "MDT-Risk"
+        #  {"HIGH"}       → "High-Risk"
+        #  {"MDT","HIGH"} → "High-Risk"  (HIGH dominates; covers both)
+        caption_prefix = "High-Risk" if "HIGH" in labels else "MDT-Risk"
         logger.info(
             f"[SOUNDING-RISK] {labels_str} active — "
             f"{len(in_area)} RAOB stations inside polygon"
@@ -501,7 +506,7 @@ class SoundingCog(commands.Cog):
                     if not success or not os.path.exists(png_path):
                         continue
                     caption = (
-                        f"**High-Risk Sounding — {station['name']} ({sid})**\n"
+                        f"**{caption_prefix} Sounding — {station['name']} ({sid})**\n"
                         f"Valid: {mo}-{d}-{y} {h}z | Inside SPC Day 1 {labels_str} risk area"
                     )
                     qwarn = sounding_quality_warning(data)
@@ -575,7 +580,7 @@ class SoundingCog(commands.Cog):
                     if not success or not os.path.exists(png_path):
                         continue
                     caption = (
-                        f"**High-Risk ACARS — {p['airport']}**\n"
+                        f"**{caption_prefix} ACARS — {p['airport']}**\n"
                         f"Valid: {p['time_label']} | Inside SPC Day 1 {labels_str} risk area"
                     )
                     try:

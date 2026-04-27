@@ -6,6 +6,24 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **High-risk sounding captions match the active risk level.** When
+  only MDT is active the prefix is now `MDT-Risk Sounding` /
+  `MDT-Risk ACARS` instead of misleadingly saying `High-Risk`. HIGH
+  (alone or alongside MDT) still uses `High-Risk` since HIGH is the
+  dominant level.
+
+### Changed
+- **MD posts now include the full discussion text.** SPC mesoscale
+  discussions are posted as a Discord embed whose title links to the
+  SPC page and whose description carries the full MD body in a code
+  block (preserves SPC's column-aligned "Areas affected" / "SUMMARY"
+  formatting). Discussions over 4000 characters split across multiple
+  embeds with `(N/M)` pagination on the title; the graphic stays on
+  the first embed. Previously the post was just the header and the
+  "Concerning" line. The graphic-backfill path (`_upgrade_md_message`)
+  rebuilds the same embed structure when SPC catches up.
+
 ### Added
 - **High-risk-day sounding sweep.** New `monitor_high_risk_soundings`
   task on `SoundingCog` (15-minute cadence). On SPC Day 1 **Moderate**
