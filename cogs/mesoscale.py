@@ -23,6 +23,7 @@ from utils.state_store import add_posted_md, prune_posted_mds
 logger = logging.getLogger("spc_bot")
 
 _md_index_head: Dict[str, str] = {}
+_md_index_unreachable: bool = False
 
 
 async def fetch_latest_md_numbers() -> List[str]:
@@ -46,10 +47,13 @@ async def fetch_latest_md_numbers() -> List[str]:
         _md_index_head.update(meta)
 
     html = await http_get_text(SPC_MD_INDEX_URL)
-    
+
+    global _md_index_unreachable
     # If SPC is unreachable, try to scrape from IEM's nwstext API
     if not html:
-        logger.warning("[MD] SPC index unreachable — falling back to IEM for active MD list")
+        if not _md_index_unreachable:
+            logger.warning("[MD] SPC index unreachable — falling back to IEM for active MD list")
+            _md_index_unreachable = True
         try:
             content, status = await http_get_bytes(
                 "https://mesonet.agron.iastate.edu/api/1/nwstext.json?product=MCD&limit=40",
@@ -68,6 +72,10 @@ async def fetch_latest_md_numbers() -> List[str]:
         except Exception as e:
             logger.exception(f"[MD] IEM fallback for index failed: {e}")
         return []
+
+    if _md_index_unreachable:
+        logger.info("[MD] SPC index reachable again")
+        _md_index_unreachable = False
 
     numbers = re.findall(
         r'href="(?:/products/md/)?md(\d+)\.html"', html, re.IGNORECASE
@@ -303,19 +311,27 @@ class MesoscaleCog(commands.Cog):
         if not channel:
             return
 
-        self.bot.state.active_mds.add(md_num)
         logger.info(f"[MD] iembot-triggered post for #{md_num}")
         image_url, summary, from_cache, raw_text = await fetch_md_details(md_num)
-        if not image_url:
-            logger.warning(f"[MD] iembot trigger: could not resolve image for #{md_num}")
-            return
 
         if raw_text:
             asyncio.create_task(self._check_prewarm(md_num, raw_text))
 
-        cache_path, _, _ = await download_single_image(
-            image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
-        )
+        # Fall back to the iembot text cache when SPC text was missed too
+        if not summary:
+            summary = await get_cached_md_text(md_num)
+
+        cache_path = None
+        if image_url:
+            cache_path, _, _ = await download_single_image(
+                image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
+            )
+        else:
+            logger.info(
+                f"[MD] iembot trigger: no image yet for #{md_num} — "
+                f"posting text and backfilling graphic"
+            )
+
         md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
         header = f"**🌩️ SPC Mesoscale Discussion #{md_num}**"
         if summary:
@@ -323,14 +339,14 @@ class MesoscaleCog(commands.Cog):
         header += f"\n<{md_page_url}>"
 
         try:
-            msg = None
             if cache_path:
                 msg = await channel.send(header, files=[discord.File(cache_path)])
             else:
                 msg = await channel.send(header)
-                # Graphic missing (likely 403 index-lag), try to fetch it later
+                # Graphic missing (SPC index lag or 403); backfill once SPC catches up
                 asyncio.create_task(self._upgrade_md_message(md_num, msg, header))
 
+            self.bot.state.active_mds.add(md_num)
             self.bot.state.posted_mds.add(md_num)
             await add_posted_md(str(md_num))
             await prune_posted_mds()
