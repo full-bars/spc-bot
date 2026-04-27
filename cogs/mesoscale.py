@@ -1,5 +1,6 @@
 # cogs/mesoscale.py
 import asyncio
+import html as _html
 import json
 import logging
 import os
@@ -238,6 +239,124 @@ async def fetch_md_details(
     return image_url, summary, False, html
 
 
+# ── MD body extraction & embed formatting ────────────────────────────────────
+
+# Discord embed description max is 4096 chars. We reserve room for the
+# code-block fences (``` + newlines) so the visible body stays inside the
+# limit. Splitting kicks in above this threshold.
+EMBED_BODY_LIMIT = 4000
+
+
+def extract_md_body(raw_text: Optional[str]) -> Optional[str]:
+    """Return the plain-text MD body from ``raw_text``.
+
+    ``raw_text`` may be either the full SPC HTML page (we pull the
+    contents of the first ``<pre>`` block, strip remaining tags, and
+    decode HTML entities) or already-plain IEM text (passed through).
+    Returns ``None`` for empty input, malformed HTML pages with no
+    ``<pre>``, or any other unparseable input.
+    """
+    if not raw_text:
+        return None
+    lowered = raw_text.lower()
+    looks_like_html = ("<html" in lowered) or ("<pre" in lowered) or ("<body" in lowered)
+    if looks_like_html:
+        m = re.search(r"<pre[^>]*>(.*?)</pre>", raw_text, re.DOTALL | re.IGNORECASE)
+        if not m:
+            return None
+        body = m.group(1)
+        body = re.sub(r"<[^>]+>", "", body)
+        body = _html.unescape(body)
+    else:
+        body = raw_text
+    body = body.strip()
+    return body or None
+
+
+def chunk_md_text(text: str, max_chars: int = EMBED_BODY_LIMIT) -> List[str]:
+    """Split ``text`` into chunks that each fit inside ``max_chars``.
+
+    Splits on paragraph boundaries (blank lines) first, then on line
+    boundaries inside any paragraph that's still too large. We never
+    break mid-line because SPC formats areas/threats as fixed-width
+    columns that are unreadable when wrapped.
+    """
+    if not text:
+        return []
+    text = text.strip()
+    if len(text) <= max_chars:
+        return [text]
+
+    paragraphs = re.split(r"\n\s*\n", text)
+    chunks: List[str] = []
+    current = ""
+
+    def _flush():
+        nonlocal current
+        if current.strip():
+            chunks.append(current.rstrip())
+        current = ""
+
+    for p in paragraphs:
+        # Single paragraph too big — fall through to per-line splitting.
+        if len(p) > max_chars:
+            _flush()
+            for line in p.splitlines():
+                # Even a single line might exceed the limit; in that
+                # absurd case we hard-truncate it rather than dropping it.
+                if len(line) > max_chars:
+                    line = line[: max_chars - 3] + "..."
+                if len(current) + len(line) + 1 > max_chars:
+                    _flush()
+                current += line + "\n"
+            _flush()
+            continue
+
+        addition_len = len(p) + (2 if current else 0)
+        if len(current) + addition_len > max_chars:
+            _flush()
+        if current:
+            current += "\n\n"
+        current += p
+
+    _flush()
+    return chunks
+
+
+def build_md_embeds(
+    md_num: str,
+    full_text: Optional[str],
+    image_filename: Optional[str] = None,
+) -> List[discord.Embed]:
+    """Build the list of embeds for an MD post.
+
+    A short MD becomes a single embed: title links to the SPC page,
+    description is a code-block-wrapped body to preserve SPC's column
+    alignment, image attached via ``attachment://``. Long MDs (over
+    ``EMBED_BODY_LIMIT`` chars) split into multiple embeds — paragraph
+    boundaries are preferred. The image lives only on the first embed.
+    """
+    md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
+    color = discord.Color.orange()
+    base_title = f"🌩️ SPC Mesoscale Discussion #{md_num}"
+
+    chunks = chunk_md_text(full_text, EMBED_BODY_LIMIT) if full_text else [None]
+    if not chunks:
+        chunks = [None]
+
+    embeds: List[discord.Embed] = []
+    n = len(chunks)
+    for i, chunk in enumerate(chunks):
+        title = base_title if n == 1 else f"{base_title} ({i + 1}/{n})"
+        embed = discord.Embed(title=title, url=md_page_url, color=color)
+        if chunk:
+            embed.description = f"```\n{chunk}\n```"
+        if i == 0 and image_filename:
+            embed.set_image(url=f"attachment://{image_filename}")
+        embeds.append(embed)
+    return embeds
+
+
 class MesoscaleCog(commands.Cog):
     MANAGED_TASK_NAMES = [("auto_post_md", "auto_post_md")]
 
@@ -272,24 +391,33 @@ class MesoscaleCog(commands.Cog):
             logger.debug(f"[MD] Could not parse probability for MD #{md_num}: {e}")
 
     async def _upgrade_md_message(
-        self, md_num: str, message: discord.Message, header: str
+        self,
+        md_num: str,
+        message: discord.Message,
+        full_text: Optional[str],
     ):
-        """
-        Polls for the MD graphic and edits the message to include it once available.
-        Retries every 30s for up to 5 minutes.
+        """Poll for the MD graphic and edit the message to attach it.
+
+        Retries every 30s for up to 5 minutes. Rebuilds the embeds from
+        ``full_text`` so the body content is preserved alongside the
+        newly-attached graphic.
         """
         image_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.png"
+        filename = f"mcd_{md_num}.png"
         for attempt in range(10):
             await asyncio.sleep(30)
             try:
-                # download_single_image uses conditional GET / validators
                 cache_path, _, _ = await download_single_image(
                     image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
                 )
                 if cache_path:
                     try:
+                        embeds = build_md_embeds(
+                            md_num, full_text, image_filename=filename
+                        )
                         await message.edit(
-                            content=header, attachments=[discord.File(cache_path)]
+                            embeds=embeds,
+                            attachments=[discord.File(cache_path, filename=filename)],
                         )
                         logger.info(f"[MD] Upgraded MD #{md_num} with graphic")
                         break
@@ -317,9 +445,7 @@ class MesoscaleCog(commands.Cog):
         if raw_text:
             asyncio.create_task(self._check_prewarm(md_num, raw_text))
 
-        # Fall back to the iembot text cache when SPC text was missed too
-        if not summary:
-            summary = await get_cached_md_text(md_num)
+        full_text = extract_md_body(raw_text)
 
         cache_path = None
         if image_url:
@@ -332,19 +458,23 @@ class MesoscaleCog(commands.Cog):
                 f"posting text and backfilling graphic"
             )
 
-        md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
-        header = f"**🌩️ SPC Mesoscale Discussion #{md_num}**"
-        if summary:
-            header += f"\n{summary}"
-        header += f"\n<{md_page_url}>"
+        filename = f"mcd_{md_num}.png"
+        embeds = build_md_embeds(
+            md_num, full_text, image_filename=filename if cache_path else None
+        )
 
         try:
             if cache_path:
-                msg = await channel.send(header, files=[discord.File(cache_path)])
+                msg = await channel.send(
+                    embeds=embeds,
+                    files=[discord.File(cache_path, filename=filename)],
+                )
             else:
-                msg = await channel.send(header)
+                msg = await channel.send(embeds=embeds)
                 # Graphic missing (SPC index lag or 403); backfill once SPC catches up
-                asyncio.create_task(self._upgrade_md_message(md_num, msg, header))
+                asyncio.create_task(
+                    self._upgrade_md_message(md_num, msg, full_text)
+                )
 
             self.bot.state.active_mds.add(md_num)
             self.bot.state.posted_mds.add(md_num)
@@ -434,28 +564,30 @@ class MesoscaleCog(commands.Cog):
                 if raw_text:
                     asyncio.create_task(self._check_prewarm(md_num, raw_text))
 
+                full_text = extract_md_body(raw_text)
+
                 cache_path, img_content, h = await download_single_image(
                     image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
                 )
 
-                md_page_url = (
-                    f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
+                filename = f"mcd_{md_num}.png"
+                embeds = build_md_embeds(
+                    md_num, full_text,
+                    image_filename=filename if cache_path else None,
                 )
-                header = f"**🌩️ SPC Mesoscale Discussion #{md_num}**"
-                if summary:
-                    header += f"\n{summary}"
-                header += f"\n<{md_page_url}>"
 
                 try:
-                    msg = None
                     if cache_path:
                         msg = await channel.send(
-                            header, files=[discord.File(cache_path)]
+                            embeds=embeds,
+                            files=[discord.File(cache_path, filename=filename)],
                         )
                     else:
-                        msg = await channel.send(header)
+                        msg = await channel.send(embeds=embeds)
                         # Graphic missing (likely 403), try to fetch it later
-                        asyncio.create_task(self._upgrade_md_message(md_num, msg, header))
+                        asyncio.create_task(
+                            self._upgrade_md_message(md_num, msg, full_text)
+                        )
 
                     self.bot.state.posted_mds.add(md_num)
                     await add_posted_md(str(md_num))
