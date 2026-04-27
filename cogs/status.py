@@ -1,14 +1,15 @@
 # cogs/status.py
+import asyncio
 import logging
 import resource
 import socket
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional, Tuple
 
 import discord
 from discord.ext import commands, tasks
 
-from cogs.mesoscale import fetch_latest_md_numbers, fetch_md_details
+from cogs.mesoscale import build_md_embeds, fetch_latest_md_numbers, fetch_md_details
 from config import MANUAL_CACHE_FILE, SCP_IMAGE_URLS, SPC_URLS, WPC_IMAGE_URLS, __version__
 import utils.http as _http
 from utils.cache import (
@@ -89,6 +90,80 @@ async def fetch_and_send_weather_images(
                 await source.send(msg)
         except discord.HTTPException as e:
             logger.debug(f"[STATUS] Could not send fallback message: {e}")
+
+
+class MDPaginatorView(discord.ui.View):
+    def __init__(self, bot, interaction, md_data):
+        super().__init__(timeout=300)
+        self.bot = bot
+        self.interaction = interaction
+        self.md_data = md_data
+        self.index = 0
+        self.message = None
+        self._update_buttons()
+
+    def _update_buttons(self):
+        self.prev_btn.disabled = self.index == 0
+        self.next_btn.disabled = self.index >= len(self.md_data) - 1
+
+    def build_embeds(self):
+        data = self.md_data[self.index]
+        md_num = data["num"]
+        raw_text = data["raw_text"]
+        from_cache = data["from_cache"]
+        cache_path = data["cache_path"]
+
+        image_filename = f"md_{md_num}.png" if cache_path else None
+        embeds = build_md_embeds(md_num, raw_text, image_filename)
+
+        footer_text = f"MD {self.index + 1} of {len(self.md_data)}"
+        if from_cache:
+            footer_text = f"⚠️ SPC website unreachable — image served from cache | {footer_text}"
+        embeds[-1].set_footer(text=footer_text)
+        
+        return embeds
+
+    def build_files(self):
+        data = self.md_data[self.index]
+        md_num = data["num"]
+        cache_path = data["cache_path"]
+        files = []
+        if cache_path:
+            files.append(discord.File(cache_path, filename=f"md_{md_num}.png"))
+        return files
+
+    @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary)
+    async def prev_btn(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        self.index = max(0, self.index - 1)
+        self._update_buttons()
+        embeds = self.build_embeds()
+        files = self.build_files()
+        await interaction.response.edit_message(
+            embeds=embeds, attachments=files, view=self
+        )
+
+    @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary)
+    async def next_btn(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        self.index = min(len(self.md_data) - 1, self.index + 1)
+        self._update_buttons()
+        embeds = self.build_embeds()
+        files = self.build_files()
+        await interaction.response.edit_message(
+            embeds=embeds, attachments=files, view=self
+        )
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 
 
 class StatusCog(commands.Cog):
@@ -307,44 +382,36 @@ class StatusCog(commands.Cog):
                 "No active Mesoscale Discussions found."
             )
             return
-        for md_num in md_numbers:
-            image_url, summary, from_cache, _ = await fetch_md_details(md_num)
+
+        async def _hydrate(md_num: str):
+            image_url, summary, from_cache, raw_text = await fetch_md_details(md_num)
             cache_path = None
             if image_url:
                 cache_path, _, _ = await download_single_image(
                     image_url, MANUAL_CACHE_FILE, self.bot.state.manual_cache
                 )
-            md_page_url = (
-                f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
-            )
-            embed = discord.Embed(
-                title=f"🌩️ SPC Mesoscale Discussion #{int(md_num)}",
-                url=md_page_url,
-                color=discord.Color.dark_orange(),
-            )
-            if summary:
-                embed.description = summary
-            if from_cache:
-                embed.set_footer(
-                    text=(
-                        "⚠️ SPC website unreachable — "
-                        "image served from cache"
-                    )
-                )
-            files_to_send = []
-            if cache_path:
-                files_to_send.append(
-                    discord.File(
-                        cache_path, filename=f"md_{md_num}.png"
-                    )
-                )
-                embed.set_image(url=f"attachment://md_{md_num}.png")
-            try:
-                await interaction.followup.send(
-                    embed=embed, files=files_to_send
-                )
-            except discord.HTTPException as e:
-                logger.exception(f"[/md] Failed to send MD #{md_num}: {e}")
+            return {
+                "num": md_num,
+                "summary": summary,
+                "from_cache": from_cache,
+                "raw_text": raw_text,
+                "cache_path": cache_path
+            }
+
+        # Hydrate all active MDs (usually 1-5, rarely >10)
+        md_data = await asyncio.gather(*[_hydrate(num) for num in md_numbers])
+        
+        view = MDPaginatorView(self.bot, interaction, md_data)
+        if len(md_data) == 1:
+            view.prev_btn.disabled = True
+            view.next_btn.disabled = True
+        
+        embeds = view.build_embeds()
+        files = view.build_files()
+        msg = await interaction.followup.send(
+            embeds=embeds, files=files, view=view
+        )
+        view.message = msg
 
     @discord.app_commands.command(
         name="status",
