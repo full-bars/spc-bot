@@ -12,6 +12,7 @@ A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks
 * NCAR WxNext2 Mean AI convective hazard forecast (Days 1-8), auto-posted daily with `/wxnext` slash command
 * Observed RAOB sounding plots via SounderPy with `/sounding` — supports city names, radar site codes, and station IDs with interactive station and time selection
 * Auto-posts soundings for RAOB stations near active SPC watches — immediately on watch issuance (any hour via IEM) and at 00z/12z synoptic cycles
+* On SPC Day 1 **Moderate** or **High** Risk days, sweeps every RAOB station and ACARS airport inside the categorical polygon (100 km buffer) and posts every new sounding as it arrives — runs alongside the watch-driven path with shared dedup
 * VWP hodograph generation for any NEXRAD or TDWR site (200 sites) via `/hodograph`, with auto ASOS surface wind and storm parameter table
 * NEXRAD Level 2 radar downloader from NOAA AWS S3
   * Single or multi-site downloads with per-site ZIP packaging
@@ -87,6 +88,7 @@ spc-bot/
 │   ├── state_store.py       # Upstash Redis facade: read-through cache → Upstash → SQLite fallback;
 │   │                        # double-writes both backends, retries failed Upstash writes via a reconciler
 │   ├── spc_urls.py          # SPC outlook URL resolution
+│   ├── spc_outlook.py       # SPC Day 1 categorical polygon (MDT/HIGH) with geodesic buffer
 │   ├── backoff.py           # Exponential backoff tracker for task loops
 │   └── db.py                # Async SQLite backend used internally by state_store as the durable mirror; also home of http_validators
 ├── cogs/
@@ -132,7 +134,8 @@ spc-bot/
     ├── test_main_lifecycle.py  # Shutdown guard, watchdog restart, startup smoke
     ├── test_failover_coverage.py  # Lease election, promotion, demotion
     ├── test_hodograph.py    # Hodograph cog
-    └── test_iem_races.py    # IEM/SPC race logic and watch-triggered soundings
+    ├── test_iem_races.py    # IEM/SPC race logic and watch-triggered soundings
+    └── test_spc_outlook.py  # Day 1 categorical polygon parsing + geodesic buffer
 ```
 
 ## Status
