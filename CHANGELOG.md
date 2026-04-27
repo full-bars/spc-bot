@@ -6,6 +6,18 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **High-risk-day sounding sweep.** New `monitor_high_risk_soundings`
+  task on `SoundingCog` (15-minute cadence). On SPC Day 1 **Moderate**
+  or **High** Risk days, it pulls the categorical GeoJSON
+  (`day1otlk_cat.nolyr.geojson`), unions the MDT/HIGH polygons, applies
+  a geodesic 100 km buffer (CONUS Albers Equal Area, EPSG:5070), and
+  posts every new RAOB sounding and ACARS profile inside the area as
+  soon as IEM publishes it. Shared dedup keys with the watch-driven
+  paths prevent duplicate posts. Skips immediately when no MDT/HIGH is
+  active. New module `utils/spc_outlook.py`; `shapely` and `pyproj`
+  added as explicit runtime dependencies.
+
 ## [5.2.6] — 2026-04-27
 
 ### Changed

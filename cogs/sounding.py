@@ -15,12 +15,14 @@ import discord
 from discord.ext import commands, tasks
 
 from utils.state_store import get_state, set_state
+from utils.spc_outlook import get_high_risk_polygon, is_inside_polygon
 from cogs.sounding_utils import (
     fetch_acars_sounding,
     fetch_sounding,
     filter_stations_with_data,
     find_nearest_stations,
     generate_plot,
+    get_acars_profiles_in_polygon,
     get_acars_profiles_near,
     get_available_sounding_times_iem,
     get_md_area_centroid,
@@ -50,6 +52,7 @@ class SoundingCog(commands.Cog):
     MANAGED_TASK_NAMES = [
         ("auto_sounding_watches", "auto_sounding_watches"),
         ("monitor_special_soundings", "monitor_special_soundings"),
+        ("monitor_high_risk_soundings", "monitor_high_risk_soundings"),
     ]
 
     def __init__(self, bot: commands.Bot):
@@ -73,6 +76,7 @@ class SoundingCog(commands.Cog):
         self._restore_attempted: bool = False
         self.auto_sounding_watches.start()
         self.monitor_special_soundings.start()
+        self.monitor_high_risk_soundings.start()
 
     async def _ensure_restored(self) -> None:
         """Idempotent restore — safe to call from any auto-post entry
@@ -199,6 +203,7 @@ class SoundingCog(commands.Cog):
     async def cog_unload(self):
         self.auto_sounding_watches.cancel()
         self.monitor_special_soundings.cancel()
+        self.monitor_high_risk_soundings.cancel()
 
     @tasks.loop(minutes=15)
     async def monitor_special_soundings(self):
@@ -337,6 +342,224 @@ class SoundingCog(commands.Cog):
                     logger.exception(f"[SOUNDING-MONITOR] Failed to post {sid}: {e}")
 
             await self._persist_posted_state()
+
+    @tasks.loop(minutes=15)
+    async def monitor_high_risk_soundings(self):
+        """Sweep every RAOB station and ACARS airport inside the SPC Day 1
+        MDT/HIGH categorical risk area for new soundings.
+
+        On higher-risk days we want maximum atmospheric coverage, not just
+        the few stations near each watch centroid. This runs alongside
+        ``auto_sounding_watches`` and ``monitor_special_soundings`` —
+        shared dedup keys (``raob:`` / ``acars:`` prefixed) prevent
+        duplicate posts when a station qualifies via multiple paths.
+
+        Skips immediately when no MDT/HIGH polygon is active.
+        """
+        await self.bot.wait_until_ready()
+        if not self.bot.state.is_primary:
+            return
+
+        polygon, labels = await get_high_risk_polygon()
+        if polygon is None:
+            return
+
+        await self._ensure_restored()
+
+        try:
+            stations_df = await get_raob_stations()
+        except Exception as e:
+            logger.exception(f"[SOUNDING-RISK] Failed to load station list: {e}")
+            return
+
+        channel = self.bot.get_channel(SOUNDING_CHANNEL_ID)
+        if not channel:
+            return
+
+        # Filter RAOB stations to those inside the buffered polygon
+        in_area = []
+        for _, row in stations_df.iterrows():
+            sid = (row.get("ICAO") or "").strip() or (row.get("WMO") or "").strip()
+            if not sid:
+                continue
+            if is_inside_polygon(row["lat"], row["lon"], polygon):
+                in_area.append({
+                    "icao": (row.get("ICAO") or "").strip(),
+                    "wmo": (row.get("WMO") or "").strip(),
+                    "name": (row.get("NAME") or "").strip(),
+                    "lat": row["lat"],
+                    "lon": row["lon"],
+                })
+
+        if not in_area:
+            logger.debug(
+                f"[SOUNDING-RISK] No RAOB stations inside Day 1 "
+                f"{sorted(labels)} polygon"
+            )
+            return
+
+        labels_str = "/".join(sorted(labels))
+        logger.info(
+            f"[SOUNDING-RISK] {labels_str} active — "
+            f"{len(in_area)} RAOB stations inside polygon"
+        )
+
+        # ── RAOB sweep ────────────────────────────────────────────────────
+        async def _check_station(station):
+            sid = station.get("icao") or station.get("wmo")
+            avail = await get_available_sounding_times_iem(
+                sid, hours_back=18, skip_cache=True
+            )
+            if not avail:
+                return []
+            new_times = []
+            for y, mo, d, h in avail:
+                tkey = f"{y}-{mo}-{d}_{h}z"
+                pkey = f"raob:{sid}:{tkey}"
+                if pkey not in self._posted_watch_soundings:
+                    new_times.append((station, sid, y, mo, d, h, tkey, pkey))
+            return new_times
+
+        per_station = await asyncio.gather(*[_check_station(s) for s in in_area])
+        to_post: list = []
+        for batch in per_station:
+            to_post.extend(batch)
+
+        if to_post:
+            logger.info(
+                f"[SOUNDING-RISK] Found {len(to_post)} new RAOB sounding(s) "
+                f"inside {labels_str} polygon"
+            )
+
+            # Process in batches of 3 to keep memory and Discord rate-limit happy
+            for i in range(0, len(to_post), 3):
+                batch = to_post[i:i+3]
+                for *_, pkey in batch:
+                    self._posted_watch_soundings.add(pkey)
+
+                async def _fetch(station, sid, y, mo, d, h, tkey, pkey):
+                    data = await fetch_sounding(
+                        sid, y, mo, d, h,
+                        station_name=station["name"],
+                        lat=station["lat"], lon=station["lon"],
+                    )
+                    return station, sid, y, mo, d, h, data
+
+                fetched = await asyncio.gather(*[_fetch(*r) for r in batch])
+
+                plot_jobs = []
+                for station, sid, y, mo, d, h, data in fetched:
+                    if not data:
+                        continue
+                    opath = os.path.join(
+                        CACHE_DIR, f"sounding_{sid}_{y}{mo}{d}_{h}z"
+                    )
+                    plot_jobs.append((station, sid, y, mo, d, h, data, opath))
+
+                if not plot_jobs:
+                    continue
+
+                plot_results = await asyncio.gather(*[
+                    generate_plot(data, opath)
+                    for *_, data, opath in plot_jobs
+                ])
+
+                for (station, sid, y, mo, d, h, data, opath), success in zip(
+                    plot_jobs, plot_results
+                ):
+                    png_path = opath + ".png"
+                    if not success or not os.path.exists(png_path):
+                        continue
+                    caption = (
+                        f"**High-Risk Sounding — {station['name']} ({sid})**\n"
+                        f"Valid: {mo}-{d}-{y} {h}z | Inside SPC Day 1 {labels_str} risk area"
+                    )
+                    qwarn = sounding_quality_warning(data)
+                    if qwarn:
+                        caption += f"\n{qwarn}"
+                    try:
+                        await channel.send(caption, files=[discord.File(png_path)])
+                        logger.info(
+                            f"[SOUNDING-RISK] Posted {sid} {h}z ({labels_str})"
+                        )
+                        self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
+                    except Exception as e:
+                        logger.exception(f"[SOUNDING-RISK] Failed to post {sid}: {e}")
+
+        # ── ACARS sweep ───────────────────────────────────────────────────
+        try:
+            acars_in_poly = await get_acars_profiles_in_polygon(
+                polygon, hours_back=2, max_results=15
+            )
+        except Exception as e:
+            logger.warning(f"[SOUNDING-RISK] ACARS poll failed: {e}")
+            acars_in_poly = []
+
+        acars_to_post = []
+        for p in acars_in_poly:
+            pkey = (
+                f"acars:{p['airport']}:"
+                f"{p['year']}{p['month']}{p['day']}_{p['acars_hour']}z"
+            )
+            if pkey not in self._posted_watch_soundings:
+                self._posted_watch_soundings.add(pkey)
+                acars_to_post.append(p)
+
+        if acars_to_post:
+            logger.info(
+                f"[SOUNDING-RISK] Found {len(acars_to_post)} new ACARS profile(s) "
+                f"inside {labels_str} polygon"
+            )
+
+            async def _fetch_acars(p):
+                data = await fetch_acars_sounding(
+                    p["profile_id"], p["year"], p["month"],
+                    p["day"], p["acars_hour"]
+                )
+                return p, data
+
+            for i in range(0, len(acars_to_post), 3):
+                batch = acars_to_post[i:i+3]
+                fetched = await asyncio.gather(*[_fetch_acars(p) for p in batch])
+
+                acars_plot_jobs = []
+                for p, data in fetched:
+                    if not data:
+                        continue
+                    opath = os.path.join(
+                        CACHE_DIR,
+                        f"acars_{p['airport']}_{p['year']}{p['month']}{p['day']}_{p['acars_hour']}z"
+                    )
+                    acars_plot_jobs.append((p, data, opath))
+
+                if not acars_plot_jobs:
+                    continue
+
+                acars_results = await asyncio.gather(*[
+                    generate_plot(data, opath)
+                    for _, data, opath in acars_plot_jobs
+                ])
+
+                for (p, data, opath), success in zip(acars_plot_jobs, acars_results):
+                    png_path = opath + ".png"
+                    if not success or not os.path.exists(png_path):
+                        continue
+                    caption = (
+                        f"**High-Risk ACARS — {p['airport']}**\n"
+                        f"Valid: {p['time_label']} | Inside SPC Day 1 {labels_str} risk area"
+                    )
+                    try:
+                        await channel.send(caption, files=[discord.File(png_path)])
+                        logger.info(
+                            f"[SOUNDING-RISK] Posted ACARS {p['airport']} ({labels_str})"
+                        )
+                        self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
+                    except Exception as e:
+                        logger.exception(
+                            f"[SOUNDING-RISK] Failed to post ACARS {p['airport']}: {e}"
+                        )
+
+        await self._persist_posted_state()
 
     async def prewarm_soundings_for_md(self, md_num: str, raw_text: str):
         """

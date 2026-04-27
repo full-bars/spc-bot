@@ -689,6 +689,89 @@ async def get_acars_profiles_near(
     return results[:5]
 
 
+async def get_acars_profiles_in_polygon(
+    polygon,
+    hours_back: int = 3,
+    max_results: int = 25,
+) -> list[dict]:
+    """Find ACARS profiles whose airport sits inside ``polygon`` (EPSG:4326).
+
+    Mirrors :func:`get_acars_profiles_near` but filters by polygon
+    membership instead of distance. Used on MDT/HIGH risk days to sweep
+    every airport inside the (buffered) categorical polygon — RAOB
+    coverage alone misses the convective boundary layer detail that
+    ACARS provides at hub airports.
+
+    ``polygon`` should already include any desired buffer.
+    """
+    if polygon is None:
+        return []
+
+    import sounderpy as spy  # noqa: PLC0415
+    from shapely.geometry import Point  # noqa: PLC0415
+
+    now = datetime.now(timezone.utc)
+    results: list[dict] = []
+    seen_airports: set[str] = set()
+
+    for h_back in range(hours_back + 1):
+        check_time = now - timedelta(hours=h_back)
+        year = check_time.strftime("%Y")
+        month = check_time.strftime("%m")
+        day = check_time.strftime("%d")
+        hour = check_time.strftime("%H")
+
+        try:
+            loop = asyncio.get_running_loop()
+            acars = await loop.run_in_executor(
+                None, lambda y=year, mo=month, d=day, hr=hour: spy.acars_data(y, mo, d, hr)
+            )
+            profiles = await loop.run_in_executor(None, acars.list_profiles)
+        except Exception as e:
+            logger.debug(f"[ACARS] No profiles for {year}/{month}/{day} {hour}z: {e}")
+            continue
+
+        for profile_id in profiles:
+            airport_code = profile_id.split("_")[0]
+            if airport_code in seen_airports:
+                continue
+
+            airport_latlon = _ACARS_STATION_COORDS.get(airport_code)
+            if airport_latlon is None:
+                try:
+                    metar_code = airport_code if len(airport_code) == 4 else "K" + airport_code
+                    latlon = await loop.run_in_executor(
+                        None, lambda code=metar_code: spy.get_latlon("metar", code)
+                    )
+                    airport_latlon = (float(latlon[0]), float(latlon[1]))
+                    _ACARS_STATION_COORDS[airport_code] = airport_latlon
+                except Exception as e:
+                    logger.debug(f"[ACARS] Airport lookup failed for {airport_code!r}: {e}")
+                    continue
+
+            if not polygon.contains(Point(airport_latlon[1], airport_latlon[0])):
+                continue
+
+            seen_airports.add(airport_code)
+            time_part = profile_id.split("_")[1] if "_" in profile_id else hour + "00"
+            results.append({
+                "profile_id": profile_id,
+                "airport": airport_code,
+                "name": airport_code,
+                "lat": airport_latlon[0],
+                "lon": airport_latlon[1],
+                "year": year,
+                "month": month,
+                "day": day,
+                "acars_hour": hour,
+                "time_label": f"{time_part[:2]}:{time_part[2:]}z" if len(time_part) >= 4 else f"{time_part}z",
+            })
+            if len(results) >= max_results:
+                return results
+
+    return results
+
+
 async def fetch_acars_sounding(
     profile_id: str,
     year: str, month: str, day: str, hour: str,

@@ -79,6 +79,7 @@ IEMBOT_FEED_URL = _P["iembot_feed_url"]
 IEM_NWSTEXT_URL = _P["iem_nwstext_url"]
 WXNEXT_BASE = _P["wxnext_base_url"]
 WXNEXT_PAGE = _P["wxnext_page_url"]
+SPC_DAY1_CATEGORICAL_GEOJSON_URL = _P["spc_day1_categorical_geojson_url"]
 
 # Timezones
 CENTRAL = pytz.timezone("America/Chicago")
