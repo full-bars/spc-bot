@@ -33,6 +33,8 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> List[str]:
     Uses a HEAD check first — if the index page hasn't changed since last poll,
     skips the full HTML fetch entirely. Falls back to IEM if SPC is unreachable.
     """
+    global _md_index_head
+
     if not fresh:
         meta = await http_head_meta(SPC_MD_INDEX_URL)
         if meta is not None and _md_index_head:
@@ -49,7 +51,6 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> List[str]:
             _md_index_head.update(meta)
     else:
         # Clear the cached HEAD info if fresh is requested
-        global _md_index_head
         _md_index_head = {}
 
     html = await http_get_text(SPC_MD_INDEX_URL)
