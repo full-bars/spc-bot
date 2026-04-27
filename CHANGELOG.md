@@ -6,6 +6,23 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.2.6] — 2026-04-27
+
+### Changed
+- **Dependency floor bumps** (no runtime change — already running these
+  versions): `aioboto3` ≥ 15.5.0, `aiosqlite` ≥ 0.22.1, `matplotlib` ≥
+  3.10.9, `pytest-asyncio` ≥ 1.3.0, `ruff` ≥ 0.15.12. CI workflow
+  updated to `actions/checkout@6` and `actions/upload-artifact@7`.
+
+### Fixed
+- **Failover tests no longer host-dependent.** Three tests in
+  `test_failover_coverage.py` reproduce the 2026-04-23 incident using
+  hardcoded node names (`ubunt-server`, `3cape`). When the test runner's
+  hostname matched one of those literals, the bare-hostname fallback in
+  `_is_our_node` inverted the assertions. An autouse fixture now pins
+  `socket.gethostname` to a sentinel, making the suite hermetic on any
+  host. Production logic is unchanged.
+
 ## [5.2.5] — 2026-04-27
 
 ### Fixed
