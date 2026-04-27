@@ -23,6 +23,19 @@ from cogs.failover import FailoverCog
 from utils.state import BotState
 
 
+@pytest.fixture(autouse=True)
+def _isolate_hostname(monkeypatch):
+    """Pin ``socket.gethostname`` so the bare-hostname fallback in
+    ``_is_our_node`` cannot accidentally match a string used as the
+    "other node" in a test scenario. Without this, tests that hardcode
+    a node name (``"ubunt-server"``, ``"3cape"``, etc.) invert when run
+    on a host whose actual hostname happens to be that string.
+    """
+    monkeypatch.setattr(
+        failover_module.socket, "gethostname", lambda: "_pytest_no_match"
+    )
+
+
 def _make_bot(is_primary: bool = True):
     bot = MagicMock()
     bot.state = BotState()
