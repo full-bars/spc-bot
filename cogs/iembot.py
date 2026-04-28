@@ -253,7 +253,8 @@ class IEMBotCog(commands.Cog):
     # The WFO suffix is always 3 letters; the prefix gives us the product
     # type. Initial issuances are TOR/SVR/FFW; SVS/FFS provide updates/cancels.
     # SPS products are also tracked and filtered to severe-tagged only in WarningsCog.
-    _ISSUANCE_PIL_RE = re.compile(r"-(TOR|SVR|FFW|SVS|FFS|SPS)([A-Z]{3})$")
+    # Added LSR (Local Storm Report) and PNS (Public Information Statement/Damage Survey).
+    _ISSUANCE_PIL_RE = re.compile(r"-(TOR|SVR|FFW|SVS|FFS|SPS|LSR|PNS)([A-Z]{3})$")
 
     @tasks.loop(seconds=15)
     async def poll_botstalk_feed(self):
@@ -321,6 +322,8 @@ class IEMBotCog(commands.Cog):
         "SVS": "Severe Weather Statement",
         "FFS": "Flash Flood Statement",
         "SPS": "Special Weather Statement",
+        "LSR": "Local Storm Report",
+        "PNS": "Public Information Statement",
     }
 
     async def _handle_warning(self, product_id: str, pil_prefix: str):
@@ -329,6 +332,16 @@ class IEMBotCog(commands.Cog):
             logger.warning(
                 f"[IEMBOT] Could not fetch warning text for {product_id}"
             )
+            return
+
+        # Routing logic: Warnings go to WarningsCog, Reports to ReportsCog
+        if pil_prefix in ("LSR", "PNS"):
+            reports_cog = self.bot.cogs.get("ReportsCog")
+            if reports_cog:
+                t = asyncio.create_task(
+                    reports_cog.post_report_now(product_id, raw, pil_prefix)
+                )
+                t.add_done_callback(_log_task_exception)
             return
 
         warnings_cog = self.bot.cogs.get("WarningsCog")

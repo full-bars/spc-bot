@@ -264,8 +264,8 @@ def build_concise_warning_text(
         area = feature.get("properties", {}).get("areaDesc", area)
     elif raw_text:
         # Better heuristic for warnings/SPS:
-        # Look for the block starting with "Warning for..." or "Statement for..."
-        m_area = re.search(r"(?:Warning for\.\.\.|Statement for\.\.\.)\n(.*?)(?=\n\s*\*|\n\s*[A-Z]|$)", raw_text, re.I | re.DOTALL)
+        # Look for the block starting with "Warning for..." or "Statement for..." or a bulleted list of counties
+        m_area = re.search(r"(?:Warning for\.\.\.|Statement for\.\.\.|\*\s+Locations? affected\s+include\.\.\.)\n(.*?)(?=\n\s*\*|\n\s*[A-Z]|$)", raw_text, re.I | re.DOTALL)
         if m_area:
             raw_list = m_area.group(1)
             # Split by newlines or "..." and clean up
@@ -300,13 +300,18 @@ def build_concise_warning_text(
         # Find the paragraph starting with "* At"
         # It should end when we hit another bullet (*) or a TAG line (ALLCAPS...)
         # or a line starting with LAT...LON or a blank line.
-        # Fixed: removed [A-Z] from lookahead which was causing truncation at caps on wrapped lines.
-        m_nat = re.search(r"(?m)^\s*\*\s+At\s+(.+?)(?=\n\s*\*|\n\s*[A-Z]{4,}\b\.{3,}|\n\s*\n|$)", text_to_search, re.I | re.DOTALL)
+        # Fixed: removed (?m) which was causing $ to match end-of-line despite DOTALL,
+        # and refined lookahead to stop at CAPS... tags or next bullet.
+        m_nat = re.search(r"\*\s+At\s+(.+?)(?=\n\s*\*|\n\s*LAT\.\.\.LON|\n[A-Z]{4,}\b\.{3,}|$)", text_to_search, re.I | re.DOTALL)
         if m_nat:
-            val = re.sub(r"\s+", " ", m_nat.group(1)).strip()
+            val = m_nat.group(1).strip()
+            # Bold the NWS tags (HAZARD, SOURCE, IMPACT, etc.)
+            val = re.sub(r"([A-Z]{4,}\b\.{3,})", r"**\1**", val)
+            val = re.sub(r"\s+", " ", val).strip()
             # Clean up leading/trailing dots
             val = val.lstrip(".").strip()
-            narrative = f"\n* At {val}"
+            # No bullet per user request
+            narrative = f"\nAt {val}"
 
     return f"{office} {action_verb} {event}{tag_str} for {area}{expires_str}{narrative}"
 
@@ -421,7 +426,7 @@ class WarningsCog(commands.Cog):
         if action in ("CAN", "EXP", "UPG"):
             if vtec_id in self.bot.state.active_warnings:
                 reason = "Cancelled" if action == "CAN" else ("Upgraded" if action == "UPG" else "Expired")
-                await self._handle_cancellation(vtec_id, reason=reason)
+                await self._handle_cancellation(vtec_id, reason=reason, vtec=vtec)
                 self.bot.state.active_warnings.discard(vtec_id)
             return
 
@@ -485,7 +490,7 @@ class WarningsCog(commands.Cog):
             logger.warning(f"[WARN] Failed to persist {vtec_id}: {e}")
 
     async def _handle_cancellation(
-        self, vtec_id: str, reason: str = "Expired / Cancelled"
+        self, vtec_id: str, reason: str = "Expired / Cancelled", vtec: dict | None = None
     ):
         """Edit an existing warning post to mark it as inactive."""
         info = self.bot.state.posted_warnings.get(vtec_id)
@@ -519,7 +524,21 @@ class WarningsCog(commands.Cog):
             footer = embed.footer.text or ""
             embed.set_footer(text=f"{footer} | {reason}")
 
-            await msg.edit(embeds=msg.embeds)
+            # Try to fetch updated IEM image for the cancellation
+            files = []
+            if vtec and vtec.get("etn") and vtec["etn"] != "0":
+                image_url = iem_autoplot_url(vtec)
+                filename = f"cancel_{vtec_id.replace('.', '_')}.png"
+                try:
+                    content, status = await http_get_bytes(image_url, retries=1, timeout=10)
+                    if content and status == 200:
+                        from io import BytesIO
+                        files.append(discord.File(BytesIO(content), filename=filename))
+                        embed.set_image(url=f"attachment://{filename}")
+                except Exception as e:
+                    logger.debug(f"[WARN] No cancellation image for {vtec_id}: {e}")
+
+            await msg.edit(embed=embed, attachments=files)
             logger.info(f"[WARN] Marked {vtec_id} as {reason} in Discord")
 
         except discord.NotFound:
@@ -575,6 +594,7 @@ class WarningsCog(commands.Cog):
             logger.warning(f"[WARN] JSON parse failed: {e}")
             return
 
+        current_vtec_data = {}
         current_vtec_ids = set()
         for feature in data.get("features", []) or []:
             props = feature.get("properties", {}) or {}
@@ -586,13 +606,21 @@ class WarningsCog(commands.Cog):
             vtec_dict: Optional[dict] = None
             for v in vtec_list:
                 parsed = parse_vtec(v)
-                if parsed and parsed["action"] == "NEW":
+                if parsed:
                     vtec_dict = parsed
-                    break
+                    # We prefer NEW for the initial tracking, but take any for metadata
+                    if parsed["action"] == "NEW":
+                        break
             if not vtec_dict:
                 continue
             
             issuance_id = vtec_dict["vtec_id"]
+            # Store the vtec dict so disappeared path can use it for graphics
+            current_vtec_data[issuance_id] = vtec_dict
+
+            if vtec_dict["action"] != "NEW":
+                continue
+
             current_vtec_ids.add(issuance_id)
 
             if issuance_id in self.bot.state.posted_warnings:
@@ -622,7 +650,8 @@ class WarningsCog(commands.Cog):
         # Detect disappeared warnings (cancellations/expirations)
         disappeared = self.bot.state.active_warnings - current_vtec_ids
         for vtec_id in disappeared:
-            await self._handle_cancellation(vtec_id)
+            vtec_context = current_vtec_data.get(vtec_id)
+            await self._handle_cancellation(vtec_id, vtec=vtec_context)
             self.bot.state.active_warnings.discard(vtec_id)
 
         self._backoff.success()
