@@ -326,71 +326,79 @@ def extract_md_body(raw_text: Optional[str]) -> Optional[str]:
 def clean_md_text_for_discord(text: str) -> str:
     """Un-wraps SPC's hard-wrapped lines and tightens spacing with consistent bolding.
     
-    Handles hard-wrapped header lines and variations in header casing/punctuation.
+    Heuristically identifies headers, location lists, and status lines to ensure 
+    consistent formatting even when the SPC text varies.
     """
     if not text:
         return ""
     
-    lines = text.splitlines()
-    cleaned_lines = []
+    # 1. Clean existing double-asterisks to prevent formatting bugs
+    text = text.replace("**", "")
     
-    current_para = []
-    in_top_header = False
-
-    # Standard headers we want to bold
-    top_headers = ["Concerning", "Areas affected", "Valid", "Probability"]
+    # Standard SPC labels
+    top_headers = ["Areas affected", "Concerning", "Valid", "Probability"]
     para_headers = ["SUMMARY", "DISCUSSION"]
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            if current_para:
-                cleaned_lines.append(" ".join(current_para))
-                current_para = []
-            in_top_header = False
-            continue
+    all_headers = top_headers + para_headers
+    
+    # Filter out empty lines and redundant whitespace
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    cleaned = []
+    
+    i = 0
+    while i < len(lines):
+        ln = lines[i]
+        ln_lower = ln.lower()
         
-        # Case-insensitive checks
-        is_top_start = any(stripped.lower().startswith(m.lower()) for m in top_headers)
-        is_para_start = any(stripped.upper().startswith(m.upper()) for m in para_headers)
-        
-        if is_top_start:
-            if current_para:
-                cleaned_lines.append(" ".join(current_para))
-                current_para = []
-            current_para.append(f"**{stripped}")
-            in_top_header = True
-        elif in_top_header:
-            # Continue the bold block
-            current_para.append(stripped)
-        elif is_para_start:
-            if current_para:
-                cleaned_lines.append(" ".join(current_para))
-                current_para = []
-            
-            in_top_header = False
-            # Find where the dots end (e.g., SUMMARY... text)
-            m = re.match(r"^([A-Z]+\.*)(.*)", stripped, re.IGNORECASE)
+        # A. Check for paragraph labels (SUMMARY, DISCUSSION)
+        para_label = next((h for h in para_headers if ln_lower.startswith(h.lower())), None)
+        if para_label:
+            # Match the label and any trailing dots (e.g., "SUMMARY...")
+            m = re.match(rf"^({re.escape(para_label)}[\s\.]*)(.*)", ln, re.IGNORECASE)
             if m:
-                label, rest = m.groups()
-                current_para.append(f"**{label.strip()}**")
-                if rest.strip():
-                    current_para.append(rest.strip())
+                lbl, first_part = m.groups()
+                # Collect everything until the next known header as one paragraph
+                body_parts = [first_part.strip()]
+                j = i + 1
+                while j < len(lines):
+                    if any(lines[j].lower().startswith(h.lower()) for h in all_headers):
+                        break
+                    body_parts.append(lines[j])
+                    j += 1
+                
+                body_text = " ".join(p for p in body_parts if p).strip()
+                cleaned.append(f"**{lbl.strip()}** {body_text}".strip())
+                i = j
+                continue
+
+        # B. Check for top-level bold headers (Areas affected, Concerning, etc.)
+        top_label = next((h for h in top_headers if ln_lower.startswith(h.lower())), None)
+        if top_label:
+            if top_label == "Areas affected":
+                # Special case: Location lists often wrap across 2-3 lines
+                block = [ln]
+                j = i + 1
+                while j < len(lines):
+                    if j >= len(lines): break
+                    nj = lines[j]
+                    # Merge if line continues location list (starts with dots or contains dots)
+                    if nj.startswith("...") or ("..." in nj and not any(nj.lower().startswith(h.lower()) for h in all_headers)):
+                        block.append(nj)
+                        j += 1
+                    else:
+                        break
+                cleaned.append(f"**{' '.join(block)}**")
+                i = j
             else:
-                current_para.append(f"**{stripped}**")
-        else:
-            if in_top_header:
-                cleaned_lines.append(" ".join(current_para) + "**")
-                current_para = [stripped]
-                in_top_header = False
-            else:
-                current_para.append(stripped)
-            
-    if current_para:
-        suffix = "**" if in_top_header else ""
-        cleaned_lines.append(" ".join(current_para) + suffix)
+                # Other headers (Valid, Concerning, Prob) are usually single lines
+                cleaned.append(f"**{ln}**")
+                i += 1
+            continue
+
+        # C. Regular status lines (e.g., "The severe threat continues") or signatures
+        cleaned.append(ln)
+        i += 1
         
-    return "\n".join(cleaned_lines)
+    return "\n".join(cleaned)
 
 
 def chunk_md_text(text: str, max_chars: int = EMBED_BODY_LIMIT) -> List[str]:
