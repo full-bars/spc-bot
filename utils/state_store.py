@@ -655,6 +655,16 @@ async def get_recent_significant_events(
     return await sqlite_backend.get_recent_significant_events(event_type, since_hours, limit)
 
 
+async def find_matching_tornado(
+    source: str,
+    timestamp: float,
+    location_query: str,
+    window_hours: float = 12.0
+) -> Optional[str]:
+    """Find a matching tornado in the local DB."""
+    return await sqlite_backend.find_matching_tornado(source, timestamp, location_query, window_hours)
+
+
 # ── Posted warnings ──────────────────────────────────────────────────────────
 
 async def get_all_posted_warnings() -> Dict[str, dict]:

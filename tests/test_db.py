@@ -159,3 +159,100 @@ async def test_concurrent_writes_serialized(isolated_db):
     """Fire 50 concurrent writes; all must land."""
     await asyncio.gather(*[db.add_posted_md(f"{i:04d}") for i in range(50)])
     assert len(await db.get_posted_mds()) == 50
+
+
+# ── Significant Events ──────────────────────────────────────────────────────
+
+async def test_significant_events_roundtrip(isolated_db):
+    await db.add_significant_event(
+        event_id="TEST:1",
+        event_type="Tornado",
+        location="Somewhere, OK",
+        magnitude="Confirmed",
+        source="OUN",
+        timestamp=1000.0,
+        raw_text="Test tornado"
+    )
+    
+    events = await db.get_recent_significant_events(event_type="Tornado", since_hours=24)
+    assert len(events) == 0 # because timestamp 1000.0 is way in the past
+    
+    import time
+    now = time.time()
+    await db.add_significant_event(
+        event_id="TEST:2",
+        event_type="Tornado",
+        location="Near Moore, OK",
+        magnitude="Confirmed",
+        source="OUN",
+        timestamp=now,
+        raw_text="Recent tornado"
+    )
+    
+    events = await db.get_recent_significant_events(event_type="Tornado", since_hours=1)
+    assert len(events) == 1
+    assert events[0]["location"] == "Near Moore, OK"
+    assert events[0]["event_id"] == "TEST:2"
+
+
+async def test_significant_events_conflict_update(isolated_db):
+    await db.add_significant_event(
+        event_id="CONFLICT:1",
+        event_type="Tornado",
+        location="Old Location",
+        magnitude="Confirmed",
+        source="OUN",
+        timestamp=2000.0
+    )
+    
+    # Update same ID with new info (e.g. EF rating from survey)
+    await db.add_significant_event(
+        event_id="CONFLICT:1",
+        event_type="Tornado",
+        location="New Location",
+        magnitude="EF-2",
+        source="OUN",
+        timestamp=2000.0
+    )
+    
+    events = await db.get_recent_significant_events(event_type="Tornado", since_hours=999999)
+    assert len(events) == 1
+    assert events[0]["location"] == "New Location"
+    assert events[0]["magnitude"] == "EF-2"
+
+
+async def test_find_matching_tornado(isolated_db):
+    now = 1714300000.0 # arbitrary
+    await db.add_significant_event(
+        event_id="LSR:1",
+        event_type="Tornado",
+        location="3 SE FLORENCE",
+        source="HUN",
+        timestamp=now
+    )
+    
+    # Matching case: same WFO, close time, similar location words
+    match_id = await db.find_matching_tornado(
+        source="HUN",
+        timestamp=now + 600, # 10 mins later
+        location_query="LAUDERDALE COUNTY TORNADO" # Florence is in Lauderdale
+    )
+    # Florence and Lauderdale don't overlap, but they are in the same WFO and time window.
+    # If it's the only one, it matches.
+    assert match_id == "LSR:1"
+    
+    # Non-matching case: different WFO
+    no_match = await db.find_matching_tornado(
+        source="OUN",
+        timestamp=now,
+        location_query="3 SE FLORENCE"
+    )
+    assert no_match is None
+    
+    # Non-matching case: different time
+    no_match_time = await db.find_matching_tornado(
+        source="HUN",
+        timestamp=now + 86400, # 24 hours later
+        location_query="3 SE FLORENCE"
+    )
+    assert no_match_time is None

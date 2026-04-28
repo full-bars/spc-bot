@@ -81,6 +81,21 @@ class ReportsCog(commands.Cog):
 
             office = product_id.split("-")[1] if "-" in product_id else "NWS"
             
+            # Dedup check for Tornadoes (Discord side)
+            if "TORNADO" in event_type.upper():
+                # Approx timestamp for LSR
+                lsr_ts = datetime.now(timezone.utc).timestamp()
+                if product_id and len(product_id) >= 12:
+                    try:
+                        lsr_ts = datetime.strptime(product_id[:12], "%Y%m%d%H%M").replace(tzinfo=timezone.utc).timestamp()
+                    except: pass
+                
+                from utils.state_store import find_matching_tornado
+                match_id = await find_matching_tornado(office, lsr_ts, city, window_hours=1.0)
+                if match_id:
+                    logger.info(f"[REPORTS] Skipping Discord post for Tornado LSR {product_id}, matches {match_id}")
+                    continue
+
             emoji = "⚠️"
             color = discord.Color.blue()
             if "TORNADO" in event_type.upper():
@@ -143,27 +158,33 @@ class ReportsCog(commands.Cog):
         
         # Snippet of the summary if available
         m_summary = re.search(r"SUMMARY:\s*(.*?)(?=\n\s*\n|\$\$|$)", raw_text, re.I | re.DOTALL)
+        summary = ""
         if m_summary:
             summary = m_summary.group(1).replace("\n", " ").strip()
             if len(summary) > 500:
-                summary = summary[:497] + "..."
-            embed.add_field(name="Summary", value=summary, inline=False)
+                display_summary = summary[:497] + "..."
+            else:
+                display_summary = summary
+            embed.add_field(name="Summary", value=display_summary, inline=False)
 
         embed.set_footer(text=f"{office} PNS | {product_id}")
         
         await channel.send(embed=embed)
         self.posted_reports.add(product_id)
 
-        # Trigger Autoplot 253 check if this was a damage survey
-        await self._ensure_surveys_loaded()
-        
+        # --- DB Logging & Matching ---
         # Try to find a date in the text to poll for Autoplot 253 tracks.
         # Patterns: MM/DD/YYYY or Month DD, YYYY
         event_date = None
+        event_ts = datetime.now(timezone.utc).timestamp()
+        
         # Numerical: 05/21/2024
         m_num = re.search(r"(\d{1,2})/(\d{1,2})/(\d{4})", raw_text)
         if m_num:
             event_date = f"{m_num.group(3)}-{m_num.group(1).zfill(2)}-{m_num.group(2).zfill(2)}"
+            try:
+                event_ts = datetime.strptime(event_date, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp()
+            except: pass
         else:
             # Narrative: MAY 21 2024
             months = "JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC"
@@ -172,6 +193,45 @@ class ReportsCog(commands.Cog):
                 m_str = m_narr.group(1).upper()[:3]
                 m_idx = (months.split("|").index(m_str) + 1)
                 event_date = f"{m_narr.group(3)}-{str(m_idx).zfill(2)}-{m_narr.group(2).zfill(2)}"
+                try:
+                    event_ts = datetime.strptime(event_date, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp()
+                except: pass
+
+        # Coords
+        coords = ""
+        m_latlon = re.search(r"START LAT/LON:\s*([\d\.\-]+)\s*/\s*([\d\.\-]+)", raw_text, re.I)
+        if m_latlon:
+            coords = f"{m_latlon.group(1)}N {abs(float(m_latlon.group(2)))}W"
+
+        from utils.state_store import find_matching_tornado
+        match_id = await find_matching_tornado(office, event_ts, event_name)
+        
+        if match_id:
+            logger.info(f"[REPORTS] Found matching tornado {match_id} for survey, updating rating to {rating}")
+            # Update existing row by using the same event_id
+            await add_significant_event(
+                event_id=match_id,
+                event_type="Tornado",
+                location=event_name,
+                magnitude=rating,
+                vtec_id=None, # Keep existing? add_significant_event in db.py doesn't update vtec_id on conflict yet
+                coords=coords,
+                timestamp=event_ts,
+                source=office,
+                raw_text=raw_text
+            )
+        else:
+            # Log as a new survey event
+            await add_significant_event(
+                event_id=f"IEM:PNS:{product_id}",
+                event_type="Tornado", # Log as Tornado so it shows in /recenttornadoes
+                location=event_name,
+                magnitude=rating,
+                coords=coords,
+                timestamp=event_ts,
+                source=office,
+                raw_text=raw_text
+            )
 
         if event_date:
             logger.info(f"[REPORTS] Detected event date {event_date} in PNS, checking for tracks")
@@ -278,16 +338,28 @@ class ReportsCog(commands.Cog):
                 dt = datetime.strptime(product_id[:12], "%Y%m%d%H%M")
                 ts = dt.replace(tzinfo=timezone.utc).timestamp()
             except:
-                pass
+                ts = datetime.now(timezone.utc).timestamp()
+        else:
+            ts = datetime.now(timezone.utc).timestamp()
+
+        office = product_id.split("-")[1] if "-" in product_id else "NWS"
+
+        # Dedup check for Tornadoes
+        if event_type == "Tornado":
+            from utils.state_store import find_matching_tornado
+            match_id = await find_matching_tornado(office, ts, location)
+            if match_id:
+                logger.info(f"[REPORTS] Skipping DB log for LSR {product_id}, matches existing {match_id}")
+                return
 
         await add_significant_event(
             event_id=f"IEM:LSR:{product_id}",
             event_type=event_type,
             location=location,
-            magnitude=mag,
+            magnitude=mag or ("Confirmed" if event_type == "Tornado" else ""),
             coords=coords,
             timestamp=ts,
-            source=product_id.split("-")[1] if "-" in product_id else "NWS",
+            source=office,
             raw_text=raw_text
         )
 
@@ -329,15 +401,30 @@ class ReportsCog(commands.Cog):
                     if valid_str:
                         dt = datetime.strptime(valid_str, "%Y-%m-%dT%H:%M:%SZ")
                         ts = dt.replace(tzinfo=timezone.utc).timestamp()
+                    else:
+                        ts = datetime.now(timezone.utc).timestamp()
+
+                    office = props.get("wfo")
+                    location = f"{props.get('city')}, {props.get('state')}"
+                    event_type = "Tornado" if typetext == "TORNADO" else ("Hail" if typetext == "HAIL" else "Wind")
+
+                    # Dedup check for Tornadoes
+                    if event_type == "Tornado":
+                        from utils.state_store import find_matching_tornado
+                        match_id = await find_matching_tornado(office, ts, location)
+                        if match_id:
+                            logger.info(f"[REPORTS] Skipping poll log for LSR {pid}, matches existing {match_id}")
+                            self.posted_reports.add(pid)
+                            continue
 
                     await add_significant_event(
                         event_id=f"IEM:LSR:{pid}",
-                        event_type="Tornado" if typetext == "TORNADO" else ("Hail" if typetext == "HAIL" else "Wind"),
-                        location=f"{props.get('city')}, {props.get('state')}",
+                        event_type=event_type,
+                        location=location,
                         magnitude=f"{mag} {props.get('unit')}",
                         coords=f"{props.get('lat')}N {abs(props.get('lon'))}W",
                         timestamp=ts,
-                        source=props.get("wfo"),
+                        source=office,
                         raw_text=props.get("remark")
                     )
                     # Add to posted_reports to dedup

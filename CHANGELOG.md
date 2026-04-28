@@ -41,7 +41,14 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Tornado Database and EF Rating Tracking.** Significant weather events (Confirmed Tornadoes, Giant Hail ≥ 3", Wind ≥ 80mph) are now logged to a persistent SQLite database. The bot automatically updates tornado entries with EF ratings when Damage Survey (PNS) products are published later.
+- **`/recenttornadoes` and `/significantwx` Slash Commands.** New commands to view recent logged events with configurable time ranges (1h to 30 days). `/recenttornadoes` focuses on confirmed tornadoes (including surveys), while `/significantwx` provides a broader view of severe reports.
+- **Discord-side LSR Deduplication.** Implemented a 1-hour "per-tornado" cooldown to reduce noise in the warnings channel when multiple Local Storm Reports (LSRs) are issued for the same physical tornado.
+- **Significant Event Persistence.** Added `significant_events` table to SQLite to keep a permanent log of high-impact events.
+
 ### Fixed
+- **Failover Pre-emption Logic.** Fixed a split-brain scenario where a rebooting Primary node could be stuck in Standby if a promoted Standby held the lease; the Primary now correctly pre-empts the lease if configured as the explicit manual primary.
 - **High-risk sounding captions match the active risk level.** When
   only MDT is active the prefix is now `MDT-Risk Sounding` /
   `MDT-Risk ACARS` instead of misleadingly saying `High-Risk`. HIGH

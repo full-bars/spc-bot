@@ -442,6 +442,54 @@ async def get_recent_significant_events(
         return []
 
 
+async def find_matching_tornado(
+    source: str, timestamp: float, location_query: str, window_hours: float = 12.0
+) -> Optional[str]:
+    """Attempt to find an existing Tornado event ID that matches a survey or another LSR.
+    Matches by WFO (source) and a configurable time window, then fuzzy location.
+    """
+    try:
+        db = await get_db()
+        # Look +/- window_hours from the detected timestamp
+        window_seconds = window_hours * 3600
+        start_ts = timestamp - window_seconds
+        end_ts = timestamp + window_seconds
+        
+        sql = """
+            SELECT event_id, location FROM significant_events 
+            WHERE event_type = 'Tornado' 
+              AND source = ? 
+              AND timestamp BETWEEN ? AND ?
+        """
+        async with db.execute(sql, (source, start_ts, end_ts)) as cursor:
+            rows = await cursor.fetchall()
+            
+        if not rows:
+            return None
+        
+        # Simple fuzzy match on location: if survey location is in LSR location or vice versa
+        if len(rows) == 1:
+            return rows[0]["event_id"]
+        
+        # If multiple, try matching location words
+        import re as _re
+        query_words = set(_re.findall(r"\w+", location_query.upper()))
+        best_id = None
+        best_score = -1
+        
+        for row in rows:
+            loc_words = set(_re.findall(r"\w+", row["location"].upper()))
+            overlap = len(query_words.intersection(loc_words))
+            if overlap > best_score:
+                best_score = overlap
+                best_id = row["event_id"]
+                
+        return best_id
+    except Exception as e:
+        logger.warning(f"[DB] find_matching_tornado failed: {e}")
+        return None
+
+
 # ── Posted warnings ───────────────────────────────────────────────────────────
 
 async def get_all_posted_warnings() -> dict:

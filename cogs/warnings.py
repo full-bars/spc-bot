@@ -532,17 +532,23 @@ class WarningsCog(commands.Cog):
             if m_poly:
                 coords = m_poly.group(1).replace("\n", " ").strip()
 
+            office = vtec.get("office", "NWS")
+            from utils.state_store import find_matching_tornado
+            match_id = await find_matching_tornado(office, time.time(), location, window_hours=1.0)
+            
+            event_id = match_id if match_id else f"NWS:WARN:{vtec_id}"
+
             await add_significant_event(
-                event_id=f"NWS:WARN:{vtec_id}",
+                event_id=event_id,
                 event_type="Tornado",
                 location=location,
                 magnitude="Confirmed",
                 vtec_id=vtec_id,
                 coords=coords,
-                source=vtec.get("office", "NWS"),
+                source=office,
                 raw_text=raw_text
             )
-            logger.info(f"[WARN] Logged confirmed tornado for {vtec_id}")
+            logger.info(f"[WARN] Logged confirmed tornado for {vtec_id} (match: {match_id is not None})")
 
         # 2. High-end Hail (>= 3.00 IN)
         m_hail = re.search(r"HAIL\.\.\.?([\d\.]+)\s*IN", text_upper)
@@ -626,6 +632,59 @@ class WarningsCog(commands.Cog):
 
         if len(events) > 10:
             embed.set_footer(text=f"Showing 10 of {len(events)} events.")
+
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="significantwx", description="View recent significant weather events (Tornado, Giant Hail, Hurricane-force Wind).")
+    @app_commands.describe(range="Time range to look back")
+    @app_commands.choices(range=[
+        app_commands.Choice(name="Last 6 Hours", value=6),
+        app_commands.Choice(name="Last 12 Hours", value=12),
+        app_commands.Choice(name="Last 24 Hours", value=24),
+        app_commands.Choice(name="Last 48 Hours", value=48),
+        app_commands.Choice(name="Last 72 Hours", value=72),
+        app_commands.Choice(name="Last 7 Days", value=168),
+    ])
+    async def significant_wx(self, interaction: discord.Interaction, range: int = 24):
+        await interaction.response.defer()
+        
+        # Fetch all types and filter or fetch individually? individually is safer for current API
+        tornadoes = await get_recent_significant_events(event_type="Tornado", since_hours=range)
+        hail = await get_recent_significant_events(event_type="Hail", since_hours=range)
+        wind = await get_recent_significant_events(event_type="Wind", since_hours=range)
+        
+        events = tornadoes + hail + wind
+        if not events:
+            await interaction.followup.send(f"No significant weather events logged in the requested time frame.")
+            return
+
+        # Sort by timestamp DESC
+        events.sort(key=lambda x: x["timestamp"], reverse=True)
+        
+        embed = discord.Embed(
+            title=f"⚠️ Significant Weather (Last {range}h)",
+            color=discord.Color.dark_red(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        
+        for e in events[:15]: # Limit to 15
+            rel_time = f"<t:{int(e['timestamp'])}:R>"
+            
+            emoji = "🌪️"
+            if e["event_type"] == "Hail": emoji = "🧊"
+            elif e["event_type"] == "Wind": emoji = "🌬️"
+            
+            mag_str = f" ({e['magnitude']})" if e['magnitude'] else ""
+            
+            val = (
+                f"**Location:** {e['location']}\n"
+                f"**Office:** {e['source']} | **Time:** {rel_time}"
+            )
+            
+            embed.add_field(name=f"{emoji} {e['event_type']}{mag_str}", value=val, inline=False)
+
+        if len(events) > 15:
+            embed.set_footer(text=f"Showing 15 of {len(events)} events.")
 
         await interaction.followup.send(embed=embed)
 
