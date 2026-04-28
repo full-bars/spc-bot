@@ -137,16 +137,6 @@ _WARNING_STYLE = {
     "Special Weather Statement":   ("☁️", discord.Color.blue()),
 }
 
-def is_severe_sps(text: str) -> bool:
-    """Return True if an SPS contains convective/severe tag lines."""
-    text_upper = (text or "").upper()
-    # Check for specific "Strong Thunderstorm" header or wind/hail tags
-    if "STRONG THUNDERSTORM" in text_upper:
-        return True
-    if "WIND..." in text_upper or "HAIL..." in text_upper:
-        return True
-    return False
-
 def get_warning_style(event: str, text: str, params: dict = None) -> Tuple[str, discord.Color]:
     """Determine (emoji_prefix, color) based on event type and severity tags."""
     base_emoji, color = _WARNING_STYLE.get(event, ("⚠️", discord.Color.orange()))
@@ -188,9 +178,11 @@ _DESCRIPTION_LIMIT = 4000
 
 
 def iem_autoplot_url(vtec: dict) -> str:
-    """Return the IEM Autoplot #208 URL for a given VTEC dict."""
-    # VTEC timestamps are like 260428T0428Z; extract the year
-    # or just use the current year as a fallback.
+    """Return the IEM Autoplot #20 URL for a given VTEC dict."""
+    office = vtec["office"]
+    phenom = vtec["phenom"]
+    sig = vtec["sig"]
+    etn = vtec["etn"]
     year = datetime.now(timezone.utc).year
     if vtec.get("start"):
         try:
@@ -198,32 +190,31 @@ def iem_autoplot_url(vtec: dict) -> str:
         except (ValueError, IndexError):
              pass
 
-    office = vtec["office"]
-    # IEM expects the 3-letter SID for Autoplot 208 if it's a standard WFO.
-    # KOUN -> OUN, KIND -> IND.
+    # IEM expectations:
+    # 1. 3-letter SID for the WFO (e.g. KOUN -> OUN)
+    # 2. ETN 0 is valid for SPS summary maps in Autoplot 20
     if office.startswith("K") and len(office) == 4:
         office = office[1:]
 
     return (
-        f"https://mesonet.agron.iastate.edu/plotting/auto/plot/208/"
-        f"network:WFO::wfo:{office}::year:{year}::"
-        f"phenomenav:{vtec['phenom']}::significancev:{vtec['sig']}::"
-        f"etn:{vtec['etn'].lstrip('0')}.png"
+        f"https://mesonet.agron.iastate.edu/plotting/auto/plot/20/"
+        f"wfo:{office}::phenomena:{phenom}::significance:{sig}::etn:{etn}::"
+        f"year:{year}.png"
     )
 
 
 def build_concise_warning_text(
-    event: str, 
-    vtec: dict, 
-    raw_text: Optional[str] = None, 
-    feature: Optional[dict] = None
+    event: str,
+    vtec: dict,
+    raw_text: Optional[str] = None,
+    feature: Optional[dict] = None,
 ) -> str:
-    """Generate a one-liner warning summary."""
-    # 1. Action & Office
+    """Build a one-line concise warning string for Discord."""
     office = vtec["office"]
     if office.startswith("K") and len(office) == 4:
         office = office[1:]
-    
+
+    # 1. Action Verb
     action_map = {
         "NEW": "issues",
         "CON": "continues",
@@ -258,28 +249,33 @@ def build_concise_warning_text(
 
     tag_str = f" [{', '.join(tags)}]" if tags else ""
 
-    # 3. Affected Area
+    # 3. Area Description
     area = "affected area"
     if feature:
         area = feature.get("properties", {}).get("areaDesc", area)
     elif raw_text:
-        # Better heuristic for warnings/SPS:
-        # Look for the block starting with "Warning for...", "Statement for...", 
-        # or the common SPS "IMPACT PORTIONS OF" phrasing.
-        m_area = re.search(r"(?:Warning for\.\.\.|Statement for\.\.\.|\*\s+Locations? affected\s+include\.\.\.|IMPACT\s+PORTIONS?\s+OF\.\.\.)\n(.*?)(?=\n\s*\*|\n\s*[A-Z]|$)", raw_text, re.I | re.DOTALL)
+        # Greedy search for the area list between a start keyword and the narrative/bullets
+        m_area = re.search(r"(?:Warning for|Statement for|IMPACT)\s+(.+?)(?=\n\s*\*|\n\s*At\s+|$)", raw_text, re.I | re.DOTALL)
         if m_area:
             raw_list = m_area.group(1)
-            # Split by newlines or "..." and clean up
-            parts = re.split(r"\n|\.\.\.", raw_list)
+            # Split by dots, newlines, or " AND "
+            parts = re.split(r"\n|\.\.\.|\s+AND\s+", raw_list, flags=re.I)
             counties = []
             for p in parts:
                 c = p.strip().strip(".")
-                if not c: continue
-                # Remove "in [region] Oklahoma" etc if present
+                if not c or len(c) < 3: continue
+                # Skip common NWS boilerplate and time phrases
+                if any(x in c.upper() for x in ["THROUGH", "UNTIL", "PORTIONS", "AM", "PM", "EDT", "CDT", "MDT", "PDT", "HST", "AKDT"]):
+                    continue
+                # Remove regional prefixes
+                c = re.sub(r"^(?:Northeastern|Northwestern|Southeastern|Southwestern|Northern|Southern|Eastern|Western|Central)\s+", "", c, flags=re.I)
+                # Remove region/state suffixes
                 c = re.split(r"\s+in\s+", c, flags=re.I)[0]
                 # Remove "County" or "Counties"
                 c = re.sub(r"\s+Count[iy].*$", "", c, flags=re.I)
-                if c and c not in counties and len(c) > 2:
+                # Final clean and avoid pure direction words
+                c = c.strip()
+                if c and c.upper() not in ["CENTRAL", "NORTH", "SOUTH", "EAST", "WEST"] and c not in counties:
                     counties.append(c)
             if counties:
                 area = ", ".join(counties)
@@ -289,7 +285,6 @@ def build_concise_warning_text(
     expires_str = ""
     if vtec.get("end"):
         try:
-            # Simple conversion to "till HH:MMZ"
             z_time = vtec["end"].split("T")[1] # e.g. 0530Z
             expires_str = f" till {z_time[:2]}:{z_time[2:4]}Z"
         except (IndexError, ValueError):
@@ -299,10 +294,7 @@ def build_concise_warning_text(
     narrative = ""
     if text_to_search:
         # Find the paragraph starting with "* At"
-        # It should end when we hit another bullet (*) or a TAG line (ALLCAPS...)
-        # or a line starting with LAT...LON or a blank line.
-        # Fixed: removed (?m) which was causing $ to match end-of-line despite DOTALL,
-        # and refined lookahead to stop at CAPS... tags or next bullet.
+        # Refined lookahead to stop at CAPS... tags or next bullet.
         m_nat = re.search(r"\*\s+At\s+(.+?)(?=\n\s*\*|\n\s*LAT\.\.\.LON|\n[A-Z]{4,}\b\.{3,}|$)", text_to_search, re.I | re.DOTALL)
         if m_nat:
             val = m_nat.group(1).strip()
@@ -417,11 +409,6 @@ class WarningsCog(commands.Cog):
         vtec_id = vtec["vtec_id"]
         action = vtec["action"]
         office = vtec["office"]
-
-        # PR F: SPS filter
-        if event == "Special Weather Statement":
-            if not is_severe_sps(raw_text):
-                return
 
         # PR D: Lifecycle fast-path (cancel/expire/upgrade)
         if action in ("CAN", "EXP", "UPG"):
