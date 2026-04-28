@@ -73,7 +73,7 @@ async def _url_is_image(url: str) -> bool:
         return False
 
 
-async def _resolve_best_url(day: int) -> tuple[str | None, str]:
+async def _resolve_best_url(day: int, force_hour: str | None = None) -> tuple[str | None, str]:
     """
     Try latest runs first (strictly today).
     Days 1-3 have 12z and 00z. Days 4-8 only 00z.
@@ -84,12 +84,14 @@ async def _resolve_best_url(day: int) -> tuple[str | None, str]:
 
     candidates = []
     if day <= 3:
-        # Latest possible is today 12z (available after ~18 UTC)
-        if now_utc.hour >= 18:
-            candidates.append((today, "12", "12z"))
-        
-        # Then today 00z
-        candidates.append((today, "00", "00z"))
+        if force_hour:
+            candidates.append((today, force_hour, f"{force_hour}z"))
+        else:
+            # Latest possible is today 12z (available after ~18 UTC)
+            if now_utc.hour >= 18:
+                candidates.append((today, "12", "12z"))
+            # Then today 00z
+            candidates.append((today, "00", "00z"))
     else:
         # Days 4-8: 00z only
         candidates.append((today, "00", "00z"))
@@ -100,7 +102,7 @@ async def _resolve_best_url(day: int) -> tuple[str | None, str]:
             logger.debug(f"[CSU-MLP] Day {day}: resolved {label} -> {url}")
             return url, label
 
-    logger.warning(f"[CSU-MLP] Day {day}: no today's URL available")
+    logger.warning(f"[CSU-MLP] Day {day}: no today's {force_hour or ''} URL available")
     return None, ""
 
 
@@ -265,13 +267,22 @@ class CSUMLPCog(commands.Cog):
             logger.warning("[CSU-MLP] SCP channel not found")
             return
 
+        # Use the first available missing day to determine the best init hour
+        # for the current batch (either 12z or 00z).
+        current_init_hour = None
+        
         for day in range(1, 9):
             if str(day) in self.bot.state.csu_posted:
                 continue
 
-            url, label = await _resolve_best_url(day)
+            # Resolve URL using the batch's init hour if already determined
+            url, label = await _resolve_best_url(day, force_hour=current_init_hour)
             if not url:
                 continue
+            
+            # Lock in the init hour for this poll cycle based on the first success
+            if current_init_hour is None and "z" in label:
+                current_init_hour = label.replace("z", "")
 
             # Timing research log — first time each day's product is seen
             if day not in _availability_log:
