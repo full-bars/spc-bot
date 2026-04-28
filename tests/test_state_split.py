@@ -63,7 +63,9 @@ def test_to_dict_output_shape_unchanged():
         "posted_warnings",
         "csu_posted",
         "active_watches",
+        "active_warnings",
         "last_posted_urls",
+
         "last_post_times",
     }
     assert set(d.keys()) == expected_keys

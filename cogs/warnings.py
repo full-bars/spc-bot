@@ -31,7 +31,7 @@ from utils.http import http_get_bytes_conditional
 from utils.nexrad import find_nearest_radar, polygon_centroid
 from utils.state_store import (
     add_posted_warning,
-    get_posted_warnings,
+    get_all_posted_warnings,
     prune_posted_warnings,
 )
 
@@ -129,13 +129,58 @@ def parse_warning_polygon(
 
 # ── Cog ──────────────────────────────────────────────────────────────────────
 
-# (emoji, color) for each event type. v1 covers TOR/SVR/FFW only;
-# distinct PDS / Tornado Emergency styling lands in PR E.
+# (emoji, color) for each event type.
 _WARNING_STYLE = {
     "Tornado Warning":             ("🌪️", discord.Color.red()),
     "Severe Thunderstorm Warning": ("⛈️", discord.Color.gold()),
     "Flash Flood Warning":         ("🌊", discord.Color.dark_blue()),
+    "Special Weather Statement":   ("☁️", discord.Color.light_gray()),
 }
+
+def is_severe_sps(text: str) -> bool:
+    """Return True if an SPS contains convective/severe tag lines."""
+    text_upper = (text or "").upper()
+    # Check for specific "Strong Thunderstorm" header or wind/hail tags
+    if "STRONG THUNDERSTORM" in text_upper:
+        return True
+    if "WIND..." in text_upper or "HAIL..." in text_upper:
+        return True
+    return False
+
+def get_warning_style(event: str, text: str, params: dict = None) -> Tuple[str, discord.Color]:
+    """Determine (emoji_prefix, color) based on event type and severity tags."""
+    base_emoji, color = _WARNING_STYLE.get(event, ("⚠️", discord.Color.orange()))
+    
+    # Text-based detection (works for both iembot and NWS API paths)
+    text_upper = (text or "").upper()
+    
+    if event == "Tornado Warning":
+        if "TORNADO EMERGENCY" in text_upper:
+            return "🚨🚨 TORNADO EMERGENCY", discord.Color.from_rgb(139, 0, 0)
+        if "PARTICULARLY DANGEROUS SITUATION" in text_upper:
+            return "⚠️ PDS Tornado Warning", discord.Color.red()
+            
+    if event == "Severe Thunderstorm Warning":
+        if "THUNDERSTORM DAMAGE THREAT...DESTRUCTIVE" in text_upper:
+             return "🚨 DESTRUCTIVE Severe Tstorm Warning", discord.Color.purple()
+        if "THUNDERSTORM DAMAGE THREAT...CONSIDERABLE" in text_upper:
+             return "⚠️ CONSIDERABLE Severe Tstorm Warning", discord.Color.gold()
+
+    # Param-based detection (NWS API specific)
+    if params:
+        t_threat = params.get("tornadoDamageThreat", [])
+        if "CATASTROPHIC" in t_threat:
+            return "🚨🚨 TORNADO EMERGENCY", discord.Color.from_rgb(139, 0, 0)
+        if "CONSIDERABLE" in t_threat:
+            return "⚠️ PDS Tornado Warning", discord.Color.red()
+            
+        s_threat = params.get("thunderstormDamageThreat", [])
+        if "DESTRUCTIVE" in s_threat:
+             return "🚨 DESTRUCTIVE Severe Tstorm Warning", discord.Color.purple()
+        if "CONSIDERABLE" in s_threat:
+             return "⚠️ CONSIDERABLE Severe Tstorm Warning", discord.Color.gold()
+
+    return f"{base_emoji} {event}", color
 
 # Hard-cap on the description block we render inside a code-block —
 # Discord embed descriptions cap at 4096 chars total, fences add 8.
@@ -240,10 +285,10 @@ class WarningsCog(commands.Cog):
         self._validators = {"etag": "", "last_modified": ""}
 
     async def cog_load(self):
-        # Restore the dedup set so a restart during active wx doesn't
+        # Restore the dedup mapping so a restart during active wx doesn't
         # replay every warning the bot has already posted today.
         try:
-            persisted = await get_posted_warnings()
+            persisted = await get_all_posted_warnings()
             self.bot.state.posted_warnings.update(persisted)
             logger.info(
                 f"[WARN] Restored {len(persisted)} posted warning(s) from store"
@@ -277,38 +322,60 @@ class WarningsCog(commands.Cog):
 
         vtec = parse_vtec(raw_text)
         if not vtec:
-            logger.warning(
-                f"[WARN] iembot trigger: no VTEC in {product_id} — skipping"
-            )
-            return
-        # PR B only handles the initial NEW issuance. SVS/FFS updates and
-        # cancellations land in PR D.
-        if vtec["action"] != "NEW":
+            if event == "Special Weather Statement":
+                # SPS usually lacks VTEC. Use product_id as the identity.
+                vtec_id = product_id
+                action = "NEW"
+                office = product_id.split("-")[1] if "-" in product_id else "NWS"
+            else:
+                logger.warning(
+                    f"[WARN] iembot trigger: no VTEC in {product_id} — skipping"
+                )
+                return
+        else:
+            vtec_id = vtec["vtec_id"]
+            action = vtec["action"]
+            office = vtec["office"]
+
+        # PR F: SPS filter
+        if event == "Special Weather Statement":
+            if not is_severe_sps(raw_text):
+                return
+
+        # PR D: Lifecycle fast-path (cancel/expire/upgrade)
+        if action in ("CAN", "EXP", "UPG"):
+            if vtec_id in self.bot.state.active_warnings:
+                reason = "Cancelled" if action == "CAN" else ("Upgraded" if action == "UPG" else "Expired")
+                await self._handle_cancellation(vtec_id, reason=reason)
+                self.bot.state.active_warnings.discard(vtec_id)
             return
 
-        vtec_id = vtec["vtec_id"]
+        if action != "NEW":
+            return
+
         if vtec_id in self.bot.state.posted_warnings:
             return
         # Claim the dedup key BEFORE the (possibly slow) Discord send so
         # a concurrent NWS API poll can't double-post.
-        self.bot.state.posted_warnings.add(vtec_id)
+        self.bot.state.posted_warnings[vtec_id] = {} # placeholder
+        self.bot.state.active_warnings.add(vtec_id)
 
         narrative = _extract_narrative(raw_text)
-        emoji, color = _WARNING_STYLE.get(event, ("⚠️", discord.Color.orange()))
+        title, color = get_warning_style(event, raw_text)
 
         body = narrative or ""
         if len(body) > _DESCRIPTION_LIMIT:
             body = body[:_DESCRIPTION_LIMIT].rstrip() + "\n..."
 
         embed = discord.Embed(
-            title=f"{emoji} {event}",
+            title=title,
             description=f"```\n{body}\n```" if body else None,
             color=color,
             timestamp=datetime.now(timezone.utc),
         )
         embed.add_field(
             name="Office",
-            value=vtec["office"],
+            value=office,
             inline=True,
         )
 
@@ -321,22 +388,70 @@ class WarningsCog(commands.Cog):
         embed.set_footer(text=f"VTEC {vtec_id} (iembot fast-path)")
 
         try:
-            await channel.send(embed=embed)
+            msg = await channel.send(embed=embed)
             logger.info(f"[WARN] Posted (iembot) {event} {vtec_id}")
+            # Update the in-memory mapping with the message info
+            self.bot.state.posted_warnings[vtec_id] = {
+                "message_id": msg.id,
+                "channel_id": msg.channel.id,
+            }
         except discord.HTTPException as e:
-            # Roll back the dedup claim on a hard send failure so the
-            # NWS API path or the next iembot retrigger can try again.
-            self.bot.state.posted_warnings.discard(vtec_id)
+            # Roll back the dedup claim on a hard send failure
+            if vtec_id in self.bot.state.posted_warnings:
+                del self.bot.state.posted_warnings[vtec_id]
             logger.exception(
                 f"[WARN] iembot send failed for {vtec_id}: {e}"
             )
             return
 
         try:
-            await add_posted_warning(vtec_id, time.time())
+            await add_posted_warning(vtec_id, msg.id, msg.channel.id, time.time())
             await prune_posted_warnings()
         except Exception as e:
             logger.warning(f"[WARN] Failed to persist {vtec_id}: {e}")
+
+    async def _handle_cancellation(
+        self, vtec_id: str, reason: str = "Expired / Cancelled"
+    ):
+        """Edit an existing warning post to mark it as inactive."""
+        info = self.bot.state.posted_warnings.get(vtec_id)
+        if not info:
+            return
+
+        channel_id = info.get("channel_id")
+        message_id = info.get("message_id")
+        if not (channel_id and message_id):
+            return
+
+        channel = self.bot.get_channel(channel_id)
+        if not channel:
+            return
+
+        try:
+            msg = await channel.fetch_message(message_id)
+            if not msg.embeds:
+                return
+
+            embed = msg.embeds[0]
+            # Avoid double-cancellation logic
+            if "—" in (embed.title or ""):
+                return
+
+            embed.title = f"✅ {embed.title} — {reason}"
+            embed.color = discord.Color.green()
+            if embed.description and not embed.description.startswith("~~"):
+                # Wrap description in strikethrough (fences are outside)
+                desc = embed.description.strip("`").strip()
+                embed.description = f"```\n~~{desc}~~\n```"
+
+            await msg.edit(embeds=msg.embeds)  # Re-use all embeds, just update the first one
+            logger.info(f"[WARN] Marked {vtec_id} as {reason} in Discord")
+        except discord.NotFound:
+            logger.debug(
+                f"[WARN] Message for {vtec_id} not found, skipping cancel edit"
+            )
+        except Exception as e:
+            logger.warning(f"[WARN] Failed to cancel {vtec_id}: {e}")
 
     @tasks.loop(seconds=30)
     async def auto_poll_warnings(self):
@@ -384,6 +499,7 @@ class WarningsCog(commands.Cog):
             logger.warning(f"[WARN] JSON parse failed: {e}")
             return
 
+        current_vtec_ids = set()
         for feature in data.get("features", []) or []:
             props = feature.get("properties", {}) or {}
             event = props.get("event", "")
@@ -398,27 +514,39 @@ class WarningsCog(commands.Cog):
                     issuance_id = parsed["vtec_id"]
                     break
             if not issuance_id:
-                # Update / continuation / cancellation features arrive as
-                # separate alerts; PR D handles those. v1 only posts on
-                # the original NEW issuance.
                 continue
+            
+            current_vtec_ids.add(issuance_id)
+
             if issuance_id in self.bot.state.posted_warnings:
+                # Still active, ensures it stays in the active set
+                self.bot.state.active_warnings.add(issuance_id)
                 continue
 
             try:
-                await self._post_warning(feature, channel, issuance_id, event)
+                msg = await self._post_warning(feature, channel, issuance_id, event)
             except discord.HTTPException as e:
                 logger.exception(f"[WARN] Send failed for {issuance_id}: {e}")
                 continue
 
-            self.bot.state.posted_warnings.add(issuance_id)
+            self.bot.state.active_warnings.add(issuance_id)
+            self.bot.state.posted_warnings[issuance_id] = {
+                "message_id": msg.id,
+                "channel_id": msg.channel.id,
+            }
             try:
-                await add_posted_warning(issuance_id, time.time())
+                await add_posted_warning(issuance_id, msg.id, msg.channel.id, time.time())
                 await prune_posted_warnings()
             except Exception as e:
                 logger.warning(
                     f"[WARN] Failed to persist {issuance_id}: {e}"
                 )
+
+        # Detect disappeared warnings (cancellations/expirations)
+        disappeared = self.bot.state.active_warnings - current_vtec_ids
+        for vtec_id in disappeared:
+            await self._handle_cancellation(vtec_id)
+            self.bot.state.active_warnings.discard(vtec_id)
 
         self._backoff.success()
 
@@ -428,16 +556,17 @@ class WarningsCog(commands.Cog):
         channel: discord.abc.Messageable,
         vtec_id: str,
         event: str,
-    ):
+    ) -> discord.Message:
         props = feature.get("properties", {}) or {}
-        emoji, color = _WARNING_STYLE.get(event, ("⚠️", discord.Color.orange()))
-
         description = props.get("description", "") or ""
+        params = props.get("parameters", {})
+        title, color = get_warning_style(event, description, params)
+
         if len(description) > _DESCRIPTION_LIMIT:
             description = description[:_DESCRIPTION_LIMIT].rstrip() + "\n..."
 
         embed = discord.Embed(
-            title=f"{emoji} {event}",
+            title=title,
             description=f"```\n{description}\n```" if description else None,
             color=color,
             timestamp=datetime.now(timezone.utc),
@@ -472,8 +601,9 @@ class WarningsCog(commands.Cog):
         # back to the source alert when reading logs or debugging.
         embed.set_footer(text=f"VTEC {vtec_id}")
 
-        await channel.send(embed=embed)
+        msg = await channel.send(embed=embed)
         logger.info(f"[WARN] Posted {event} {vtec_id}")
+        return msg
 
     async def _attach_radar(
         self,

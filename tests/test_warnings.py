@@ -3,17 +3,26 @@ narrative extraction, and the iembot fast-path entry point."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import discord
 import pytest
 
 from cogs.warnings import (
     WarningsCog,
     _extract_narrative,
     _polygon_from_nws_feature,
+    is_severe_sps,
     parse_vtec,
     parse_warning_polygon,
     radar_loop_url,
     resolve_radar_for_polygon,
 )
+...
+def test_is_severe_sps_detects_convective_tags():
+    assert is_severe_sps("STRONG THUNDERSTORM WILL IMPACT...") is True
+    assert is_severe_sps("HAIL...0.88IN") is True
+    assert is_severe_sps("WIND...50MPH") is True
+    assert is_severe_sps("Dense fog advisory") is False
+    assert is_severe_sps("") is False
 from utils import nexrad
 
 
@@ -217,7 +226,7 @@ def _make_cog(posted: set | None = None) -> WarningsCog:
     cog = WarningsCog.__new__(WarningsCog)
     cog.bot = MagicMock()
     cog.bot.state.is_primary = True
-    cog.bot.state.posted_warnings = posted if posted is not None else set()
+    cog.bot.state.posted_warnings = posted if posted is not None else {}
     channel = MagicMock()
     channel.send = AsyncMock()
     cog.bot.get_channel = MagicMock(return_value=channel)
@@ -229,7 +238,7 @@ async def test_post_warning_now_dedups_against_posted_set(monkeypatch):
     """If a vtec_id is already in posted_warnings, the iembot path is
     a no-op — this is what prevents the NWS API poll from
     double-posting after iembot's fast trigger."""
-    cog = _make_cog(posted={"KOUN.SV.W.0042"})
+    cog = _make_cog(posted={"KOUN.SV.W.0042": {"message_id": 1, "channel_id": 2}})
 
     # Patch the persistence helpers to no-ops so the test never touches
     # the DB. add_posted_warning would also be skipped on the dedup
@@ -367,6 +376,32 @@ async def test_resolve_radar_handles_empty_site_list(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_handle_cancellation_edits_message(monkeypatch):
+    """Marking a warning as cancelled should fetch the message and
+    edit the embed with a strike-through description."""
+    vtec_id = "KOUN.SV.W.0042"
+    mapping = {vtec_id: {"message_id": 123, "channel_id": 456}}
+    cog = _make_cog(posted=mapping)
+    cog.bot.state.active_warnings = {vtec_id}
+
+    mock_msg = AsyncMock()
+    mock_msg.embeds = [discord.Embed(title="Storm", description="Heavy rain")]
+    cog.bot.get_channel.return_value.fetch_message = AsyncMock(return_value=mock_msg)
+
+    await cog._handle_cancellation(vtec_id, reason="Cancelled")
+
+    # Verify message was fetched and edited
+    cog.bot.get_channel.return_value.fetch_message.assert_called_with(123)
+    mock_msg.edit.assert_called_once()
+    
+    # Verify embed was modified
+    edited_embed = mock_msg.edit.call_args[1]["embeds"][0]
+    assert "✅" in edited_embed.title
+    assert "Cancelled" in edited_embed.title
+    assert "~~Heavy rain~~" in edited_embed.description
+
+
+@pytest.mark.asyncio
 async def test_post_warning_now_claims_key_before_send(monkeypatch):
     """Dedup key must be added to posted_warnings BEFORE the Discord
     send. Otherwise a concurrent NWS API poll could fire while the
@@ -382,6 +417,10 @@ async def test_post_warning_now_claims_key_before_send(monkeypatch):
 
     async def _record_send(*args, **kwargs):
         observed.append("KOUN.SV.W.0042" in cog.bot.state.posted_warnings)
+        m = MagicMock()
+        m.id = 123
+        m.channel.id = 456
+        return m
 
     cog.bot.get_channel.return_value.send.side_effect = _record_send
 

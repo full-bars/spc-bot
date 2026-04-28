@@ -251,9 +251,9 @@ class IEMBotCog(commands.Cog):
     # Match the AFOS PIL embedded in product_id like
     # ``YYYYMMDDHHMM-OFFICE-WMO-AFOSPIL`` (e.g. ``-SVRIND``, ``-TORHGX``).
     # The WFO suffix is always 3 letters; the prefix gives us the product
-    # type. Initial issuances are TOR/SVR/FFW only — SVS/FFS/SPS come in
-    # later PRs.
-    _ISSUANCE_PIL_RE = re.compile(r"-(TOR|SVR|FFW)([A-Z]{3})$")
+    # type. Initial issuances are TOR/SVR/FFW; SVS/FFS provide updates/cancels.
+    # SPS products are also tracked and filtered to severe-tagged only in WarningsCog.
+    _ISSUANCE_PIL_RE = re.compile(r"-(TOR|SVR|FFW|SVS|FFS|SPS)([A-Z]{3})$")
 
     @tasks.loop(seconds=15)
     async def poll_botstalk_feed(self):
@@ -318,6 +318,9 @@ class IEMBotCog(commands.Cog):
         "TOR": "Tornado Warning",
         "SVR": "Severe Thunderstorm Warning",
         "FFW": "Flash Flood Warning",
+        "SVS": "Severe Weather Statement",
+        "FFS": "Flash Flood Statement",
+        "SPS": "Special Weather Statement",
     }
 
     async def _handle_warning(self, product_id: str, pil_prefix: str):

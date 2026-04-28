@@ -323,8 +323,9 @@ async def _replay(op: str, args: tuple) -> None:
         (watch_number,) = args
         await _upstash_cmd("SADD", _k_posted_watches(), watch_number)
     elif op == "add_posted_warning":
-        vtec_id, _ = args
-        await _upstash_cmd("SADD", _k_posted_warnings(), vtec_id)
+        vtec_id, message_id, channel_id, _ = args
+        data = {"message_id": message_id, "channel_id": channel_id}
+        await _upstash_cmd("HSET", _k_posted_warnings(), vtec_id, json.dumps(data))
     elif op == "set_state":
         key, value = args
         await _upstash_cmd("SET", _k_state(key), value)
@@ -559,31 +560,43 @@ async def prune_posted_watches(max_size: int = 200) -> None:
 
 # ── Posted warnings ──────────────────────────────────────────────────────────
 
-async def get_posted_warnings() -> Set[str]:
+async def get_all_posted_warnings() -> Dict[str, dict]:
     cache_key = "posted_warnings"
     hit, val = _cache_get(cache_key)
     if hit:
-        return set(val)
+        return dict(val)
     try:
-        result = await _upstash_cmd("SMEMBERS", _k_posted_warnings())
-        members = set(result or [])
-        _cache_set(cache_key, members)
-        return set(members)
+        # We store as a hash in Upstash: {vtec_id -> JSON string}
+        result = await _upstash_cmd("HGETALL", _k_posted_warnings())
+        # HGETALL returns [k1, v1, k2, v2, ...]
+        mapping = {}
+        if result:
+            for i in range(0, len(result), 2):
+                vtec_id = result[i]
+                try:
+                    mapping[vtec_id] = json.loads(result[i + 1])
+                except json.JSONDecodeError:
+                    continue
+        _cache_set(cache_key, mapping)
+        return dict(mapping)
     except _UpstashUnavailable as e:
-        logger.debug(f"[STATE] get_posted_warnings falling back to SQLite: {e}")
-        val = await sqlite_backend.get_posted_warnings()
+        logger.debug(f"[STATE] get_all_posted_warnings falling back to SQLite: {e}")
+        val = await sqlite_backend.get_all_posted_warnings()
         _cache_set(cache_key, val, ttl=CACHE_TTL_SECONDS / 2)
         return val
 
 
-async def add_posted_warning(vtec_id: str, posted_at: float = 0.0) -> None:
+async def add_posted_warning(
+    vtec_id: str, message_id: int, channel_id: int, posted_at: float = 0.0
+) -> None:
     _cache_invalidate("posted_warnings")
-    await sqlite_backend.add_posted_warning(vtec_id, posted_at)
+    await sqlite_backend.add_posted_warning(vtec_id, message_id, channel_id, posted_at)
+    data = {"message_id": message_id, "channel_id": channel_id}
     try:
-        await _upstash_cmd("SADD", _k_posted_warnings(), vtec_id)
+        await _upstash_cmd("HSET", _k_posted_warnings(), vtec_id, json.dumps(data))
     except _UpstashUnavailable as e:
         logger.warning(f"[STATE] add_posted_warning({vtec_id}) queued: {e}")
-        await _enqueue_dirty("add_posted_warning", (vtec_id, posted_at))
+        await _enqueue_dirty("add_posted_warning", (vtec_id, message_id, channel_id, posted_at))
 
 
 async def prune_posted_warnings(max_size: int = 500) -> None:
