@@ -59,8 +59,8 @@ class PostingLog:
         self.csu_posted: Set[str] = set()
         self.active_mds: Set[str] = set()
         self.active_watches: Dict[str, dict] = {}
-        # Currently-active VTEC IDs (issuance not yet expired/cancelled)
-        self.active_warnings: Set[str] = set()
+        # Currently-active VTEC IDs mapping to their latest vtec metadata dict
+        self.active_warnings: Dict[str, dict] = {}
 
 
 class TimingTracker:
@@ -148,7 +148,7 @@ class BotState:
             "posted_watches": list(self.posted_watches),
             "posted_warnings": self.posted_warnings,
             "csu_posted": list(self.csu_posted),
-            "active_warnings": list(self.active_warnings),
+            "active_warnings": list(self.active_warnings.keys()),
             "active_watches": {
 
                 k: {

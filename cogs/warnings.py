@@ -427,8 +427,10 @@ class WarningsCog(commands.Cog):
         if action in ("CAN", "EXP", "UPG"):
             if vtec_id in self.bot.state.active_warnings:
                 reason = "Cancelled" if action == "CAN" else ("Upgraded" if action == "UPG" else "Expired")
-                await self._handle_cancellation(vtec_id, reason=reason, vtec=vtec)
-                self.bot.state.active_warnings.discard(vtec_id)
+                # Use stored vtec if available, or current one
+                vtec_to_use = vtec or self.bot.state.active_warnings.get(vtec_id)
+                await self._handle_cancellation(vtec_id, reason=reason, vtec=vtec_to_use)
+                self.bot.state.active_warnings.pop(vtec_id, None)
             return
 
         if action != "NEW":
@@ -439,7 +441,7 @@ class WarningsCog(commands.Cog):
         # Claim the dedup key BEFORE the (possibly slow) Discord send so
         # a concurrent NWS API poll can't double-post.
         self.bot.state.posted_warnings[vtec_id] = {} # placeholder
-        self.bot.state.active_warnings.add(vtec_id)
+        self.bot.state.active_warnings[vtec_id] = vtec
 
         concise_text = build_concise_warning_text(event, vtec, raw_text=raw_text)
         title, color = get_warning_style(event, raw_text)
@@ -620,14 +622,16 @@ class WarningsCog(commands.Cog):
             # Store the vtec dict so disappeared path can use it for graphics
             current_vtec_data[issuance_id] = vtec_dict
 
-            if vtec_dict["action"] != "NEW":
-                continue
-
-            current_vtec_ids.add(issuance_id)
+            if vtec_dict["action"] == "NEW":
+                current_vtec_ids.add(issuance_id)
 
             if issuance_id in self.bot.state.posted_warnings:
                 # Still active, ensures it stays in the active set
-                self.bot.state.active_warnings.add(issuance_id)
+                if issuance_id not in self.bot.state.active_warnings:
+                    self.bot.state.active_warnings[issuance_id] = vtec_dict
+                continue
+
+            if vtec_dict["action"] != "NEW":
                 continue
 
             try:
@@ -636,7 +640,7 @@ class WarningsCog(commands.Cog):
                 logger.exception(f"[WARN] Send failed for {issuance_id}: {e}")
                 continue
 
-            self.bot.state.active_warnings.add(issuance_id)
+            self.bot.state.active_warnings[issuance_id] = vtec_dict
             self.bot.state.posted_warnings[issuance_id] = {
                 "message_id": msg.id,
                 "channel_id": msg.channel.id,
@@ -650,11 +654,13 @@ class WarningsCog(commands.Cog):
                 )
 
         # Detect disappeared warnings (cancellations/expirations)
-        disappeared = self.bot.state.active_warnings - current_vtec_ids
+        disappeared = set(self.bot.state.active_warnings.keys()) - current_vtec_ids
         for vtec_id in disappeared:
-            vtec_context = current_vtec_data.get(vtec_id)
+            # Prefer the vtec context from the current poll features list if it's there
+            # (e.g. it's in the list as CAN/EXP), otherwise fallback to our cache
+            vtec_context = current_vtec_data.get(vtec_id) or self.bot.state.active_warnings.get(vtec_id)
             await self._handle_cancellation(vtec_id, vtec=vtec_context)
-            self.bot.state.active_warnings.discard(vtec_id)
+            self.bot.state.active_warnings.pop(vtec_id, None)
 
         self._backoff.success()
 
