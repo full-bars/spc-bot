@@ -206,14 +206,23 @@ async def fetch_md_details(
     if not html:
         fallback_url = f"https://www.spc.noaa.gov/products/md/mcd{md_number}.png"
         cached_path = get_cache_path_for_url(fallback_url)
+        
+        # Check iembot cache for text as a last resort
+        cached_text = await get_cached_md_text(md_number)
+        
         if os.path.exists(cached_path):
-            logger.info(f"[MD] SPC unreachable for #{md_number}, serving from cache")
-            return fallback_url, None, True, None
+            logger.info(f"[MD] SPC unreachable for #{md_number}, serving image from cache")
+            return fallback_url, None, True, cached_text
         if iem_result:
             iem_img, iem_summary, iem_raw = iem_result
             if iem_img:
                 logger.info(f"[MD] Got MD #{md_number} from IEM")
-                return iem_img, iem_summary, True, iem_raw
+                return iem_img, iem_summary, True, iem_raw or cached_text
+        
+        if cached_text:
+            logger.info(f"[MD] SPC/IEM unreachable for #{md_number}, but found text in iembot cache")
+            return None, None, False, cached_text
+
         logger.warning(f"[MD] SPC unreachable for #{md_number} and no cache or IEM available")
         return None, None, False, None
 
@@ -271,14 +280,17 @@ def extract_md_body(raw_text: Optional[str]) -> Optional[str]:
     
     # 1. Extraction from HTML if needed
     clean = None
-    if "<pre" in raw_text.lower() or "<p>" in raw_text.lower():
+    lowered_raw = raw_text.lower()
+    if "<pre" in lowered_raw or "<p>" in lowered_raw:
         text_blocks = re.findall(
             r"<pre[^>]*>(.*?)</pre>", raw_text, re.DOTALL | re.IGNORECASE
         )
         for block in text_blocks:
             candidate = re.sub(r"<[^>]+>", "", block)
             candidate = _html.unescape(candidate).strip()
-            if "MESOSCALE DISCUSSION" in candidate.upper() or "PROBABILITY OF WATCH ISSUANCE" in candidate.upper():
+            # Case-insensitive check for content markers
+            uc = candidate.upper()
+            if "MESOSCALE DISCUSSION" in uc or "PROBABILITY OF WATCH ISSUANCE" in uc:
                 clean = candidate
                 break
     else:
@@ -287,24 +299,25 @@ def extract_md_body(raw_text: Optional[str]) -> Optional[str]:
     if not clean:
         return None
 
-    # 2. Strip technical footers
+    # 2. Strip technical footers (case-insensitive)
     footers = [
         "...Please see www.spc.noaa.gov",
         "ATTN...WFO",
         "LAT...LON",
     ]
     for footer in footers:
-        idx = clean.find(footer)
-        if idx != -1:
-            clean = clean[:idx].strip()
+        # Use regex for case-insensitive search
+        m = re.search(re.escape(footer), clean, re.IGNORECASE)
+        if m:
+            clean = clean[:m.start()].strip()
 
     # 3. Strip redundant top header (everything before 'Areas affected' or 'Concerning')
-    # This removes the "Discussion 0XXX", "Norman OK", and "Timestamp" lines.
-    markers = ["Areas affected...", "Concerning...", "Valid ", "SUMMARY..."]
+    markers = ["Areas affected", "Concerning", "Valid", "SUMMARY"]
     for marker in markers:
-        idx = clean.find(marker)
-        if idx != -1:
-            clean = clean[idx:].strip()
+        # Look for marker at start of line or following whitespace
+        m = re.search(rf"(?m)^\s*{re.escape(marker)}", clean, re.IGNORECASE)
+        if m:
+            clean = clean[m.start():].strip()
             break
 
     return clean
@@ -313,8 +326,7 @@ def extract_md_body(raw_text: Optional[str]) -> Optional[str]:
 def clean_md_text_for_discord(text: str) -> str:
     """Un-wraps SPC's hard-wrapped lines and tightens spacing with consistent bolding.
     
-    Handles hard-wrapped header lines (e.g. 'Areas affected...') by merging 
-    continuation lines into the bolded block.
+    Handles hard-wrapped header lines and variations in header casing/punctuation.
     """
     if not text:
         return ""
@@ -323,8 +335,11 @@ def clean_md_text_for_discord(text: str) -> str:
     cleaned_lines = []
     
     current_para = []
-    # Tracks if we are currently inside a multi-line bold header (Areas affected, Concerning, etc.)
     in_top_header = False
+
+    # Standard headers we want to bold
+    top_headers = ["Concerning", "Areas affected", "Valid", "Probability"]
+    para_headers = ["SUMMARY", "DISCUSSION"]
 
     for line in lines:
         stripped = line.strip()
@@ -335,46 +350,36 @@ def clean_md_text_for_discord(text: str) -> str:
             in_top_header = False
             continue
         
-        # 1. Detect "Top Headers" (Lines that should be entirely bold)
-        top_headers = ["Concerning", "Areas affected", "Valid", "Probability"]
-        # 2. Detect "Paragraph Headers" (Labels that start a block of text)
-        para_headers = ["SUMMARY", "DISCUSSION"]
-        
-        is_top_start = any(stripped.startswith(m) for m in top_headers)
-        is_para_start = any(stripped.startswith(m) for m in para_headers)
+        # Case-insensitive checks
+        is_top_start = any(stripped.lower().startswith(m.lower()) for m in top_headers)
+        is_para_start = any(stripped.upper().startswith(m.upper()) for m in para_headers)
         
         if is_top_start:
             if current_para:
                 cleaned_lines.append(" ".join(current_para))
                 current_para = []
-            # Start a new bold block
             current_para.append(f"**{stripped}")
             in_top_header = True
         elif in_top_header:
-            # Continue the bold block (handle hard-wrapped location lists)
+            # Continue the bold block
             current_para.append(stripped)
         elif is_para_start:
             if current_para:
                 cleaned_lines.append(" ".join(current_para))
                 current_para = []
             
-            # Close header state
             in_top_header = False
-
-            # Bold only the label part (up to the dots)
-            if "..." in stripped:
-                idx = stripped.find("...") + 3
-                label = stripped[:idx]
-                rest = stripped[idx:].strip()
-                current_para.append(f"**{label}**")
-                if rest:
-                    current_para.append(rest)
+            # Find where the dots end (e.g., SUMMARY... text)
+            m = re.match(r"^([A-Z]+\.*)(.*)", stripped, re.IGNORECASE)
+            if m:
+                label, rest = m.groups()
+                current_para.append(f"**{label.strip()}**")
+                if rest.strip():
+                    current_para.append(rest.strip())
             else:
-                cleaned_lines.append(f"**{stripped}**")
+                current_para.append(f"**{stripped}**")
         else:
-            # Regular paragraph text
             if in_top_header:
-                # If we were in a header but this line doesn't look like one, close it
                 cleaned_lines.append(" ".join(current_para) + "**")
                 current_para = [stripped]
                 in_top_header = False
