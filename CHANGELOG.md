@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.3.0] — 2026-04-28
+
+### Added
+- **Autoposting Tornado Tracks (Autoplot 253).** The bot now automatically
+  monitors Public Information Statements (PNS) for "DAMAGE SURVEY" results.
+  When a completed survey is detected, it polls the IEM metadata API to
+  resolve the corresponding **Autoplot 253 (Tornado Tracks + Lead Time)**
+  graphic and posts it to the warnings channel.
+- **Persistent Survey Tracking.** Added `posted_surveys` table to SQLite and
+  `spcbot:posted_surveys` set to Upstash Redis to ensure each tornado track
+  is only posted once.
+- **Improved IEM Image Reliability.** Added a 404-retry mechanism with a
+  5-second delay for all warning graphics. This accounts for the lag between
+  a product issuance and IEM's map generation, significantly reducing the
+  frequency of missing images on the iembot fast-path.
+
+### Fixed
+- **Restored IEM Autoplot 208 for VTEC maps.** Corrected a regression where
+  warnings were using Autoplot 20 (resulting in irrelevant bar graphs).
+  Standard VTEC events now correctly use the single-event map plot.
+- **Special Weather Statement (SPS) Mapping.** SPS products now use
+  **Autoplot 217**, which is specifically designed to map their unique
+  polygon identifiers (PIDs).
+- **SPS Narrative Extraction.** Improved regex to capture "At" narrative
+  bullets that lack a preceding asterisk (common in SPS products).
+- **SPS Anti-Cancellation.** Prevented the bot from incorrectly marking
+  SPS products as "Expired" when they drop out of the NWS API active
+  alerts feed.
+- **IEM Parameter Naming.** Fixed the Autoplot 208 URL construction to use
+  `phenomena` / `significance` instead of `phenomenav` / `significancev`.
+
+### Removed
+- **Legacy SPS Severity Filter.** The `is_severe_sps` function and its
+  associated tests have been removed; all SPS products are now processed.
+
 ## [Unreleased]
 
 ### Fixed
