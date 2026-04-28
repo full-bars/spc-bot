@@ -9,7 +9,7 @@ from typing import List, Optional, Tuple
 import discord
 from discord.ext import commands, tasks
 
-from cogs.mesoscale import build_md_embeds, fetch_latest_md_numbers, fetch_md_details
+from cogs.mesoscale import build_md_embeds, extract_md_body, fetch_latest_md_numbers, fetch_md_details
 from config import MANUAL_CACHE_FILE, SCP_IMAGE_URLS, SPC_URLS, WPC_IMAGE_URLS, __version__
 import utils.http as _http
 from utils.cache import (
@@ -401,7 +401,10 @@ class StatusCog(commands.Cog):
                 # Add a per-MD timeout to ensure one bad MD doesn't kill the whole command
                 res = await asyncio.wait_for(fetch_md_details(md_num), timeout=15.0)
                 image_url, summary, from_cache, raw_text = res
-                logger.info(f"[/md] Fetched details for #{md_num} (text size: {len(raw_text) if raw_text else 0})")
+                
+                # Extract the actual body text from the HTML
+                body_text = extract_md_body(raw_text)
+                logger.info(f"[/md] Fetched details for #{md_num} (body size: {len(body_text) if body_text else 0})")
                 
                 cache_path = None
                 if image_url:
@@ -414,7 +417,7 @@ class StatusCog(commands.Cog):
                     "num": md_num,
                     "summary": summary,
                     "from_cache": from_cache,
-                    "raw_text": raw_text,
+                    "raw_text": body_text, # Use extracted body
                     "cache_path": cache_path
                 }
             except asyncio.TimeoutError:

@@ -261,29 +261,28 @@ EMBED_BODY_LIMIT = 4000
 
 
 def extract_md_body(raw_text: Optional[str]) -> Optional[str]:
-    """Return the plain-text MD body from ``raw_text``.
+    """Return the plain-text MD body from the SPC HTML page or IEM text.
 
-    ``raw_text`` may be either the full SPC HTML page (we pull the
-    contents of the first ``<pre>`` block, strip remaining tags, and
-    decode HTML entities) or already-plain IEM text (passed through).
-    Returns ``None`` for empty input, malformed HTML pages with no
-    ``<pre>``, or any other unparseable input.
+    If HTML is provided, we pull the contents of the <pre> block, 
+    strip remaining tags, and decode HTML entities.
     """
     if not raw_text:
         return None
-    lowered = raw_text.lower()
-    looks_like_html = ("<html" in lowered) or ("<pre" in lowered) or ("<body" in lowered)
-    if looks_like_html:
-        m = re.search(r"<pre[^>]*>(.*?)</pre>", raw_text, re.DOTALL | re.IGNORECASE)
-        if not m:
-            return None
-        body = m.group(1)
-        body = re.sub(r"<[^>]+>", "", body)
-        body = _html.unescape(body)
-    else:
-        body = raw_text
-    body = body.strip()
-    return body or None
+    
+    # If it's already plain text (no tags), just return it
+    if "<pre" not in raw_text.lower() and "<p>" not in raw_text.lower():
+        return raw_text.strip()
+
+    text_blocks = re.findall(
+        r"<pre[^>]*>(.*?)</pre>", raw_text, re.DOTALL | re.IGNORECASE
+    )
+    for block in text_blocks:
+        clean = re.sub(r"<[^>]+>", "", block)
+        clean = _html.unescape(clean).strip()
+        # Actual MDs usually start with "MESOSCALE DISCUSSION"
+        if "MESOSCALE DISCUSSION" in clean.upper() or "PROBABILITY OF WATCH ISSUANCE" in clean.upper():
+            return clean
+    return None
 
 
 def chunk_md_text(text: str, max_chars: int = EMBED_BODY_LIMIT) -> List[str]:
