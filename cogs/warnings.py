@@ -178,11 +178,8 @@ _DESCRIPTION_LIMIT = 4000
 
 
 def iem_autoplot_url(vtec: dict) -> str:
-    """Return the IEM Autoplot #20 URL for a given VTEC dict."""
+    """Return the IEM Autoplot #208 URL for a given VTEC dict."""
     office = vtec["office"]
-    phenom = vtec["phenom"]
-    sig = vtec["sig"]
-    etn = vtec["etn"]
     year = datetime.now(timezone.utc).year
     if vtec.get("start"):
         try:
@@ -192,14 +189,15 @@ def iem_autoplot_url(vtec: dict) -> str:
 
     # IEM expectations:
     # 1. 3-letter SID for the WFO (e.g. KOUN -> OUN)
-    # 2. ETN 0 is valid for SPS summary maps in Autoplot 20
+    # 2. ETN 0 is NOT valid for Autoplot 208 (it's for individual VTEC events)
     if office.startswith("K") and len(office) == 4:
         office = office[1:]
 
     return (
-        f"https://mesonet.agron.iastate.edu/plotting/auto/plot/20/"
-        f"wfo:{office}::phenomena:{phenom}::significance:{sig}::etn:{etn}::"
-        f"year:{year}.png"
+        f"https://mesonet.agron.iastate.edu/plotting/auto/plot/208/"
+        f"network:WFO::wfo:{office}::year:{year}::"
+        f"phenomenav:{vtec['phenom']}::significancev:{vtec['sig']}::"
+        f"etn:{vtec['etn'].lstrip('0')}.png"
     )
 
 

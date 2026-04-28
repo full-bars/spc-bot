@@ -9,7 +9,6 @@ import pytest
 from cogs.warnings import (
     WarningsCog,
     _extract_narrative,
-    is_severe_sps,
     parse_vtec,
     parse_warning_polygon,
 )
@@ -136,16 +135,6 @@ def test_parse_polygon_odd_number_of_values_drops_orphan():
     assert poly == [(41.19, -89.02), (41.35, -88.45)]
 
 
-# ── is_severe_sps ────────────────────────────────────────────────────────────
-
-def test_is_severe_sps_detects_convective_tags():
-    assert is_severe_sps("STRONG THUNDERSTORM WILL IMPACT...") is True
-    assert is_severe_sps("HAIL...0.88IN") is True
-    assert is_severe_sps("WIND...50MPH") is True
-    assert is_severe_sps("Dense fog advisory") is False
-    assert is_severe_sps("") is False
-
-
 # ── _extract_narrative ──────────────────────────────────────────────────────
 
 
@@ -196,7 +185,7 @@ def _make_cog(posted: dict | None = None) -> WarningsCog:
     cog.bot = MagicMock()
     cog.bot.state.is_primary = True
     cog.bot.state.posted_warnings = posted if posted is not None else {}
-    cog.bot.state.active_warnings = set()
+    cog.bot.state.active_warnings = {}
     channel = MagicMock()
     channel.send = AsyncMock()
     cog.bot.get_channel = MagicMock(return_value=channel)
@@ -256,7 +245,7 @@ async def test_handle_cancellation_edits_message(monkeypatch):
     vtec_id = "KOUN.SV.W.0042"
     mapping = {vtec_id: {"message_id": 123, "channel_id": 456}}
     cog = _make_cog(posted=mapping)
-    cog.bot.state.active_warnings = {vtec_id}
+    cog.bot.state.active_warnings = {vtec_id: {"office": "OUN"}}
 
     mock_msg = AsyncMock()
     mock_msg.embeds = [discord.Embed(title="Storm", description="Heavy rain")]
@@ -269,8 +258,9 @@ async def test_handle_cancellation_edits_message(monkeypatch):
     mock_msg.edit.assert_called_once()
     
     # Verify embed was modified
-    edited_embed = mock_msg.edit.call_args[1]["embeds"][0]
-    assert "Cancelled" in edited_embed.footer.text
+    # Note: edit is called with embed=embed, attachments=files
+    edited_embed = mock_msg.edit.call_args[1]["embed"]
+    assert "Cancelled" in edited_embed.title
     assert edited_embed.color == discord.Color.green()
 
 
