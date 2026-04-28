@@ -178,7 +178,7 @@ _DESCRIPTION_LIMIT = 4000
 
 
 def iem_autoplot_url(vtec: dict) -> str:
-    """Return the IEM Autoplot #208 URL for a given VTEC dict."""
+    """Return the IEM Autoplot URL (#208 for VTEC, #217 for SPS)."""
     office = vtec["office"]
     phenom = vtec["phenom"]
     sig = vtec["sig"]
@@ -195,10 +195,17 @@ def iem_autoplot_url(vtec: dict) -> str:
     if office.startswith("K") and len(office) == 4:
         office = office[1:]
 
+    # SPS (Special Weather Statements) use Autoplot 217 which requires the PID
+    if phenom == "SPS" and "-" in vtec["vtec_id"]:
+        return (
+            f"https://mesonet.agron.iastate.edu/plotting/auto/plot/217/"
+            f"pid:{vtec['vtec_id']}::segnum:0.png"
+        )
+
+    # Standard VTEC events use Autoplot 208
     return (
         f"https://mesonet.agron.iastate.edu/plotting/auto/plot/208/"
-        f"network:WFO::wfo:{office}::year:{year}::"
-        f"phenomenav:{phenom}::significancev:{sig}::"
+        f"wfo:{office}::year:{year}::phenomena:{phenom}::significance:{sig}::"
         f"etn:{etn.lstrip('0') or '0'}.png"
     )
 
