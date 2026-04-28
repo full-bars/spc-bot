@@ -15,10 +15,6 @@ import discord
 import pandas as pd
 from discord.ext import commands, tasks
 
-pd_isna = pd.isna
-
-from utils.state_store import get_state, set_state
-from utils.spc_outlook import get_high_risk_polygon, is_inside_polygon
 from cogs.sounding_utils import (
     fetch_acars_sounding,
     fetch_sounding,
@@ -38,6 +34,12 @@ from cogs.sounding_utils import (
     set_user_dark_mode,
     sounding_quality_warning,
 )
+from cogs.sounding_views import CombinedSoundingView, post_sounding
+from config import CACHE_DIR, SOUNDING_CHANNEL_ID
+from utils.spc_outlook import get_high_risk_polygon, is_inside_polygon
+from utils.state_store import get_state, set_state
+
+pd_isna = pd.isna
 
 # Max distance from a watch centroid at which we still consider that watch
 # "applicable" to a sounding station. RAOB stations are ~400 km apart
@@ -45,8 +47,6 @@ from cogs.sounding_utils import (
 # 500 km comfortably covers "this sounding represents the environment
 # around the watch" without reaching obviously-unrelated systems.
 WATCH_APPLICABLE_RADIUS_KM = 500.0
-from cogs.sounding_views import CombinedSoundingView, post_sounding
-from config import CACHE_DIR, SOUNDING_CHANNEL_ID
 
 logger = logging.getLogger("spc_bot")
 

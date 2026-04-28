@@ -14,7 +14,6 @@ This is the v1 baseline. Subsequent PRs add:
 """
 from __future__ import annotations
 
-from io import BytesIO
 import asyncio  # noqa: F401  # used by future PRs
 import json as _json
 import logging
@@ -248,11 +247,14 @@ def build_concise_warning_text(
     if not tags and text_to_search:
         # Regex fallback for iembot path
         m_tor = re.search(r"TORNADO\.\.\.(.+?)(?:\n|$)", text_to_search, re.I)
-        if m_tor: tags.append(f"tornado: {m_tor.group(1).strip()}")
+        if m_tor:
+            tags.append(f"tornado: {m_tor.group(1).strip()}")
         m_hail = re.search(r"HAIL\.\.\.(.+?)(?:\n|$)", text_to_search, re.I)
-        if m_hail: tags.append(f"hail: {m_hail.group(1).strip()}")
+        if m_hail:
+            tags.append(f"hail: {m_hail.group(1).strip()}")
         m_wind = re.search(r"WIND\.\.\.(.+?)(?:\n|$)", text_to_search, re.I)
-        if m_wind: tags.append(f"wind: {m_wind.group(1).strip()}")
+        if m_wind:
+            tags.append(f"wind: {m_wind.group(1).strip()}")
 
     tag_str = f" [{', '.join(tags)}]" if tags else ""
 
@@ -270,8 +272,10 @@ def build_concise_warning_text(
             counties = []
             for p in parts:
                 c = p.strip().strip(".")
-                if not c or len(c) < 3: continue
+                if not c or len(c) < 3:
+                    continue
                 # Skip common NWS boilerplate and time phrases
+
                 if any(x in c.upper() for x in ["THROUGH", "UNTIL", "PORTIONS", "AM", "PM", "EDT", "CDT", "MDT", "PDT", "HST", "AKDT"]):
                     continue
                 # Remove regional prefixes

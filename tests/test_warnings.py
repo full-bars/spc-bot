@@ -1,7 +1,7 @@
 """Unit tests for cogs.warnings — VTEC and LAT...LON polygon parsers,
 narrative extraction, and the iembot fast-path entry point."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import discord
 import pytest

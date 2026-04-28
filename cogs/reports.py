@@ -3,7 +3,6 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timezone
-from typing import Optional
 
 import discord
 from discord.ext import commands
@@ -53,20 +52,17 @@ class ReportsCog(commands.Cog):
         reports = re.split(r"\n\n(?=\d{4}\s+[A-Z])", raw_text)
         
         channel = self.bot.get_channel(WARNINGS_CHANNEL_ID)
-        if not channel: return
+        if not channel:
+            return
 
         for r in reports:
             if "LOCAL STORM REPORT" not in r and "EVENT" not in r:
                 continue
             
-            # Simple extraction
-            m_event = re.search(r"(\d{4}\s+[AP]M)\s+([A-Z\s]+)\s+([\d\.\-]+)\s+MILES?\s+([A-Z\s]+)", r, re.I)
-            # This is hard to parse generic LSRs without a state machine, 
-            # so let's use a more robust regex for the header lines.
-            
             # Match: 0131 AM     TSTM WND DMG     DICKSON                 36.03N 87.39W
             m_header = re.search(r"^(\d{4}\s+[AP]M)\s+(.{16})\s+(.{24})\s+(\d+\.\d+N\s+\d+\.\d+W)", r, re.M)
-            if not m_header: continue
+            if not m_header:
+                continue
 
             time_str, event_type, city, coords = m_header.groups()
             event_type = event_type.strip()
@@ -110,7 +106,8 @@ class ReportsCog(commands.Cog):
             return
         
         channel = self.bot.get_channel(WARNINGS_CHANNEL_ID)
-        if not channel: return
+        if not channel:
+            return
 
         # Extract EF Rating
         rating = "N/A"
@@ -196,7 +193,8 @@ class ReportsCog(commands.Cog):
                 return
 
             channel = self.bot.get_channel(WARNINGS_CHANNEL_ID)
-            if not channel: return
+            if not channel:
+                return
 
             for guid, label in options.items():
                 if guid in self.posted_surveys:
@@ -210,7 +208,7 @@ class ReportsCog(commands.Cog):
                 )
                 
                 embed = discord.Embed(
-                    title=f"🌪️ Tornado Track + Lead Time",
+                    title="🌪️ Tornado Track + Lead Time",
                     description=f"**Event:** {label}\n**Date:** {event_date}",
                     color=discord.Color.red(),
                     url=f"https://mesonet.agron.iastate.edu/plotting/auto/?q=253&dat={event_date.replace('-', '/')}&datglobalid={guid}"

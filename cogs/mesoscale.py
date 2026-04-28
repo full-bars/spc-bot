@@ -378,7 +378,8 @@ def clean_md_text_for_discord(text: str) -> str:
                 block = [ln]
                 j = i + 1
                 while j < len(lines):
-                    if j >= len(lines): break
+                    if j >= len(lines):
+                        break
                     nj = lines[j]
                     # Merge if line continues location list (starts with dots or contains dots)
                     if nj.startswith("...") or ("..." in nj and not any(nj.lower().startswith(h.lower()) for h in all_headers)):
@@ -542,7 +543,8 @@ class MesoscaleCog(commands.Cog):
             try:
                 await message.edit(embeds=[img_embed, text_embed], attachments=files)
                 return True
-            except Exception: return False
+            except Exception:
+                return False
 
         for attempt in range(20):
             await asyncio.sleep(30)
@@ -560,16 +562,21 @@ class MesoscaleCog(commands.Cog):
                     cache_path = cp
                     changed = True
                     logger.info(f"[MD] Recovered image for #{md_num}")
-            if changed: await _push_edit()
-            if cache_path and full_text: break
+            if changed:
+                await _push_edit()
+            if cache_path and full_text:
+                break
     async def post_md_now(self, md_num: str):
         md_num = md_num.zfill(4)
-        if md_num in self.bot.state.posted_mds: return
+        if md_num in self.bot.state.posted_mds:
+            return
         channel = self.bot.get_channel(SPC_CHANNEL_ID)
-        if not channel: return
+        if not channel:
+            return
         logger.info(f"[MD] iembot-triggered post for #{md_num}")
         image_url, summary, from_cache, raw_text = await fetch_md_details(md_num)
-        if raw_text: asyncio.create_task(self._check_prewarm(md_num, raw_text))
+        if raw_text:
+            asyncio.create_task(self._check_prewarm(md_num, raw_text))
         full_text = extract_md_body(raw_text)
         cache_path = None
         if image_url:
@@ -593,7 +600,8 @@ class MesoscaleCog(commands.Cog):
             if not cache_path or not full_text:
                 asyncio.create_task(self._upgrade_md_message(md_num, msg, full_text))
             logger.info(f"[MD] iembot-triggered: posted MD #{md_num}")
-        except Exception as e: logger.exception(f"[MD] iembot send failed: {e}")
+        except Exception as e:
+            logger.exception(f"[MD] iembot send failed: {e}")
     @tasks.loop(seconds=30)
     async def auto_post_md(self):
         try:
@@ -698,7 +706,8 @@ class MesoscaleCog(commands.Cog):
                     await prune_posted_mds()
                     self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
                     logger.info(f"[MD] Posted MD #{md_num}")
-                except Exception: pass
+                except Exception:
+                    pass
             self._md_backoff.success()
 
         except Exception as e:
