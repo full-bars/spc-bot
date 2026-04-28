@@ -208,10 +208,9 @@ class IEMBotCog(commands.Cog):
         if not m:
             return
         md_num = m.group(1).zfill(4)
-        text = _parse_md_text(raw)
-        if text:
-            await set_product_cache(f"md_{md_num}", text, ttl=CACHE_TTL)
-            logger.info(f"[IEMBOT] Cached MD text for #{md_num}")
+        # Cache the FULL raw text so mesoscale.py can extract the body properly
+        await set_product_cache(f"md_{md_num}", raw, ttl=CACHE_TTL)
+        logger.info(f"[IEMBOT] Cached full MD text for #{md_num}")
 
         # Signal MesoscaleCog to post immediately
         mesoscale_cog = self.bot.cogs.get("MesoscaleCog")
