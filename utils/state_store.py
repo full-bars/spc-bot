@@ -131,6 +131,10 @@ def _k_posted_watches() -> str:
     return f"{_PREFIX}:posted_watches"
 
 
+def _k_posted_warnings() -> str:
+    return f"{_PREFIX}:posted_warnings"
+
+
 def _k_state(key: str) -> str:
     return f"{_PREFIX}:state:{key}"
 
@@ -240,7 +244,7 @@ def invalidate_all_caches() -> None:
 # ── Reconciler (dirty-key retry) ─────────────────────────────────────────────
 
 # Each entry describes an Upstash write that needs to be retried. `op`
-# is one of: "set_hash", "add_posted_md", "add_posted_watch",
+# is one of: "set_hash", "add_posted_md", "add_posted_watch", "add_posted_warning",
 # "set_state", "delete_state", "set_posted_urls", "set_product_cache".
 # `args` are the user-facing arguments to the corresponding public
 # function (NOT the Upstash command args) so the reconciler replays
@@ -318,6 +322,9 @@ async def _replay(op: str, args: tuple) -> None:
     elif op == "add_posted_watch":
         (watch_number,) = args
         await _upstash_cmd("SADD", _k_posted_watches(), watch_number)
+    elif op == "add_posted_warning":
+        vtec_id, _ = args
+        await _upstash_cmd("SADD", _k_posted_warnings(), vtec_id)
     elif op == "set_state":
         key, value = args
         await _upstash_cmd("SET", _k_state(key), value)
@@ -548,6 +555,40 @@ async def add_posted_watch(watch_number: str) -> None:
 async def prune_posted_watches(max_size: int = 200) -> None:
     await sqlite_backend.prune_posted_watches(max_size)
     _cache_invalidate("posted_watches")
+
+
+# ── Posted warnings ──────────────────────────────────────────────────────────
+
+async def get_posted_warnings() -> Set[str]:
+    cache_key = "posted_warnings"
+    hit, val = _cache_get(cache_key)
+    if hit:
+        return set(val)
+    try:
+        result = await _upstash_cmd("SMEMBERS", _k_posted_warnings())
+        members = set(result or [])
+        _cache_set(cache_key, members)
+        return set(members)
+    except _UpstashUnavailable as e:
+        logger.debug(f"[STATE] get_posted_warnings falling back to SQLite: {e}")
+        val = await sqlite_backend.get_posted_warnings()
+        _cache_set(cache_key, val, ttl=CACHE_TTL_SECONDS / 2)
+        return val
+
+
+async def add_posted_warning(vtec_id: str, posted_at: float = 0.0) -> None:
+    _cache_invalidate("posted_warnings")
+    await sqlite_backend.add_posted_warning(vtec_id, posted_at)
+    try:
+        await _upstash_cmd("SADD", _k_posted_warnings(), vtec_id)
+    except _UpstashUnavailable as e:
+        logger.warning(f"[STATE] add_posted_warning({vtec_id}) queued: {e}")
+        await _enqueue_dirty("add_posted_warning", (vtec_id, posted_at))
+
+
+async def prune_posted_warnings(max_size: int = 500) -> None:
+    await sqlite_backend.prune_posted_warnings(max_size)
+    _cache_invalidate("posted_warnings")
 
 
 # ── Key/value state ──────────────────────────────────────────────────────────

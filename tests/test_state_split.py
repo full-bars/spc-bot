@@ -60,6 +60,7 @@ def test_to_dict_output_shape_unchanged():
         "manual_cache",
         "posted_mds",
         "posted_watches",
+        "posted_warnings",
         "csu_posted",
         "active_watches",
         "last_posted_urls",

@@ -10,6 +10,7 @@ Tables:
   image_hashes  — URL -> hash mapping for change detection
   posted_mds    — set of posted MD numbers
   posted_watches — set of posted watch numbers
+  posted_warnings — set of posted NWS warning VTEC ETNs (e.g. "KOUN.TO.W.0042")
   bot_state     — key/value store for simple state (ncar, csu_mlp, prefs, etc.)
 """
 
@@ -125,6 +126,11 @@ async def _create_tables(db: aiosqlite.Connection):
 
         CREATE TABLE IF NOT EXISTS posted_watches (
             watch_number TEXT PRIMARY KEY
+        );
+
+        CREATE TABLE IF NOT EXISTS posted_warnings (
+            vtec_id    TEXT PRIMARY KEY,
+            posted_at  REAL NOT NULL DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS bot_state (
@@ -320,6 +326,48 @@ async def prune_posted_watches(max_size: int = 200):
            )""",
         (max_size,),
         "prune_posted_watches",
+    )
+
+
+# ── Posted warnings ───────────────────────────────────────────────────────────
+
+async def get_posted_warnings() -> set:
+    """Get all posted warning VTEC ETN keys (e.g. {'KOUN.TO.W.0042', ...})."""
+    try:
+        db = await get_db()
+        async with db.execute(
+            "SELECT vtec_id FROM posted_warnings"
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return {row["vtec_id"] for row in rows}
+    except Exception as e:
+        logger.warning(f"[DB] get_posted_warnings failed: {e}")
+        return set()
+
+
+async def add_posted_warning(vtec_id: str, posted_at: float = 0.0):
+    """Mark a warning as posted. ``vtec_id`` is the VTEC event identity
+    (office.phenom.sig.etn), which stays stable across the warning's
+    lifecycle so it doubles as our dedup key."""
+    await _write(
+        "INSERT OR IGNORE INTO posted_warnings (vtec_id, posted_at) VALUES (?, ?)",
+        (vtec_id, posted_at),
+        f"add_posted_warning({vtec_id})",
+    )
+
+
+async def prune_posted_warnings(max_size: int = 500):
+    """Keep only the most recently-posted warnings. Warnings churn far
+    faster than watches, so the default cap is higher."""
+    await _write(
+        """DELETE FROM posted_warnings
+           WHERE vtec_id NOT IN (
+               SELECT vtec_id FROM posted_warnings
+               ORDER BY posted_at DESC
+               LIMIT ?
+           )""",
+        (max_size,),
+        "prune_posted_warnings",
     )
 
 

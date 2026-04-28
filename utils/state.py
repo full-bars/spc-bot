@@ -43,6 +43,7 @@ class PostingLog:
     __slots__ = (
         "posted_mds",
         "posted_watches",
+        "posted_warnings",
         "csu_posted",
         "active_mds",
         "active_watches",
@@ -51,6 +52,11 @@ class PostingLog:
     def __init__(self):
         self.posted_mds: Set[str] = set()
         self.posted_watches: Set[str] = set()
+        # Posted NWS warnings keyed by VTEC ETN (e.g. "KOUN.TO.W.0042").
+        # The ETN is stable across the warning's full lifecycle, so the
+        # same key dedups the issuance, every CON/SVS update, and the
+        # eventual CAN/EXP.
+        self.posted_warnings: Set[str] = set()
         self.csu_posted: Set[str] = set()
         self.active_mds: Set[str] = set()
         self.active_watches: Dict[str, dict] = {}
@@ -115,6 +121,7 @@ class BotState:
 
     posted_mds = _delegate("posting", "posted_mds")
     posted_watches = _delegate("posting", "posted_watches")
+    posted_warnings = _delegate("posting", "posted_warnings")
     csu_posted = _delegate("posting", "csu_posted")
     active_mds = _delegate("posting", "active_mds")
     active_watches = _delegate("posting", "active_watches")
@@ -132,6 +139,7 @@ class BotState:
             "manual_cache": self.manual_cache,
             "posted_mds": list(self.posted_mds),
             "posted_watches": list(self.posted_watches),
+            "posted_warnings": list(self.posted_warnings),
             "csu_posted": list(self.csu_posted),
             "active_watches": {
                 k: {

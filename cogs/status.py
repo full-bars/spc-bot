@@ -4,13 +4,12 @@ import logging
 import resource
 import socket
 from datetime import datetime, timezone
-from typing import List, Optional, Tuple
+from typing import Optional
 
 import discord
 from discord.ext import commands, tasks
 
 from cogs.mesoscale import (
-    build_md_embeds,
     clean_md_text_for_discord,
     extract_md_body,
     fetch_latest_md_numbers,

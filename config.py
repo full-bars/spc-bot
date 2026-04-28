@@ -27,6 +27,9 @@ CONFIG = {
     "spc_channel_id": _require_int("SPC_CHANNEL_ID"),
     "health_channel_id": int(os.getenv("HEALTH_CHANNEL_ID") or os.getenv("SPC_CHANNEL_ID")),
     "sounding_channel_id": int(os.getenv("SOUNDING_CHANNEL_ID") or os.getenv("SPC_CHANNEL_ID")),
+    # Test channel for warnings during dev. Override via env once we're
+    # ready to point this at production.
+    "warnings_channel_id": int(os.getenv("WARNINGS_CHANNEL_ID") or "1336294580743704607"),
     "manual_cache_file": os.getenv("MANUAL_CACHE_FILE", "posted_records.json"),
     "auto_cache_file": os.getenv("AUTO_CACHE_FILE", "auto_posted_records.json"),
     "guild_id": _require_int("GUILD_ID"),
@@ -42,6 +45,7 @@ MODELS_CHANNEL_ID = CONFIG["models_channel_id"]
 SPC_CHANNEL_ID = CONFIG["spc_channel_id"]
 HEALTH_CHANNEL_ID = CONFIG["health_channel_id"]
 SOUNDING_CHANNEL_ID = CONFIG["sounding_channel_id"]
+WARNINGS_CHANNEL_ID = CONFIG["warnings_channel_id"]
 MANUAL_CACHE_FILE = os.path.join(CONFIG["cache_file_dir"], CONFIG["manual_cache_file"])
 AUTO_CACHE_FILE = os.path.join(CONFIG["cache_file_dir"], CONFIG["auto_cache_file"])
 GUILD_ID = CONFIG["guild_id"]
@@ -75,6 +79,7 @@ SPC_MD_INDEX_URL = _P["spc_md_index_url"]
 SPC_WATCH_INDEX_URL = _P["spc_watch_index_url"]
 SPC_VALID_WATCHES_URL = _P["spc_valid_watches_url"]
 NWS_ALERTS_URL = _P["nws_alerts_url"]
+NWS_ALERTS_WARNINGS_URL = _P["nws_alerts_warnings_url"]
 IEMBOT_FEED_URL = _P["iembot_feed_url"]
 IEM_NWSTEXT_URL = _P["iem_nwstext_url"]
 WXNEXT_BASE = _P["wxnext_base_url"]
