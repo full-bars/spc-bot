@@ -9,7 +9,13 @@ from typing import List, Optional, Tuple
 import discord
 from discord.ext import commands, tasks
 
-from cogs.mesoscale import build_md_embeds, extract_md_body, fetch_latest_md_numbers, fetch_md_details
+from cogs.mesoscale import (
+    build_md_embeds,
+    clean_md_text_for_discord,
+    extract_md_body,
+    fetch_latest_md_numbers,
+    fetch_md_details,
+)
 from config import MANUAL_CACHE_FILE, SCP_IMAGE_URLS, SPC_URLS, WPC_IMAGE_URLS, __version__
 import utils.http as _http
 from utils.cache import (
@@ -106,33 +112,37 @@ class MDPaginatorView(discord.ui.View):
         self.prev_btn.disabled = self.index == 0
         self.next_btn.disabled = self.index >= len(self.md_data) - 1
 
-    def build_embeds(self):
+    def build_response(self):
+        """Returns (content, embeds, files) for the current MD."""
         data = self.md_data[self.index]
         md_num = data["num"]
         raw_text = data["raw_text"]
         from_cache = data["from_cache"]
         cache_path = data["cache_path"]
 
-        logger.info(f"[/md] Building embeds for #{md_num} (text length: {len(raw_text) if raw_text else 0})")
-        image_filename = f"md_{md_num}.png" if cache_path else None
-        embeds = build_md_embeds(md_num, raw_text, image_filename)
-        logger.info(f"[/md] Built {len(embeds)} embeds for #{md_num}")
+        # Clean and un-wrap the text for compact regular display
+        cleaned_text = clean_md_text_for_discord(raw_text)
+        content = f"🌩️ **SPC Mesoscale Discussion #{int(md_num)}**\n\n{cleaned_text}"
+        if len(content) > 2000:
+            content = content[:1990] + "..."
 
+        # Simpler embed just for the image
+        md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
+        embed = discord.Embed(
+            url=md_page_url,
+            color=discord.Color.dark_orange(),
+        )
         footer_text = f"MD {self.index + 1} of {len(self.md_data)}"
         if from_cache:
             footer_text = f"⚠️ SPC website unreachable — image served from cache | {footer_text}"
-        embeds[-1].set_footer(text=footer_text)
-        
-        return embeds
+        embed.set_footer(text=footer_text)
 
-    def build_files(self):
-        data = self.md_data[self.index]
-        md_num = data["num"]
-        cache_path = data["cache_path"]
         files = []
         if cache_path:
             files.append(discord.File(cache_path, filename=f"md_{md_num}.png"))
-        return files
+            embed.set_image(url=f"attachment://md_{md_num}.png")
+        
+        return content, [embed], files
 
     @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary)
     async def prev_btn(
@@ -140,10 +150,9 @@ class MDPaginatorView(discord.ui.View):
     ):
         self.index = max(0, self.index - 1)
         self._update_buttons()
-        embeds = self.build_embeds()
-        files = self.build_files()
+        content, embeds, files = self.build_response()
         await interaction.response.edit_message(
-            embeds=embeds, attachments=files, view=self
+            content=content, embeds=embeds, attachments=files, view=self
         )
 
     @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary)
@@ -152,10 +161,9 @@ class MDPaginatorView(discord.ui.View):
     ):
         self.index = min(len(self.md_data) - 1, self.index + 1)
         self._update_buttons()
-        embeds = self.build_embeds()
-        files = self.build_files()
+        content, embeds, files = self.build_response()
         await interaction.response.edit_message(
-            embeds=embeds, attachments=files, view=self
+            content=content, embeds=embeds, attachments=files, view=self
         )
 
     async def on_timeout(self):
@@ -452,10 +460,9 @@ class StatusCog(commands.Cog):
             view.prev_btn.disabled = True
             view.next_btn.disabled = True
         
-        embeds = view.build_embeds()
-        files = view.build_files()
+        content, embeds, files = view.build_response()
         msg = await interaction.followup.send(
-            embeds=embeds, files=files, view=view
+            content=content, embeds=embeds, files=files, view=view
         )
         view.message = msg
         logger.info("[/md] Successfully sent paginated response")

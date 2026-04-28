@@ -263,8 +263,8 @@ EMBED_BODY_LIMIT = 4000
 def extract_md_body(raw_text: Optional[str]) -> Optional[str]:
     """Return the plain-text MD body from the SPC HTML page or IEM text.
 
-    Truncates at common footer blocks (LAT...LON, ATTN, etc.) to keep
-    only the summary, discussion, and signature.
+    Truncates at common footer blocks and strips the redundant header 
+    to keep only the meat of the discussion.
     """
     if not raw_text:
         return None
@@ -287,27 +287,59 @@ def extract_md_body(raw_text: Optional[str]) -> Optional[str]:
     if not clean:
         return None
 
-    # 2. Truncation at technical footers
-    # We look for the first occurrence of any common footer marker
+    # 2. Strip technical footers
     footers = [
         "...Please see www.spc.noaa.gov",
         "ATTN...WFO",
         "LAT...LON",
     ]
-    
-    lowest_idx = len(clean)
-    found_footer = False
-    
     for footer in footers:
         idx = clean.find(footer)
-        if idx != -1 and idx < lowest_idx:
-            lowest_idx = idx
-            found_footer = True
-            
-    if found_footer:
-        clean = clean[:lowest_idx].strip()
+        if idx != -1:
+            clean = clean[:idx].strip()
+
+    # 3. Strip redundant top header (everything before 'Areas affected' or 'Concerning')
+    # This removes the "Discussion 0XXX", "Norman OK", and "Timestamp" lines.
+    markers = ["Areas affected...", "Concerning...", "Valid ", "SUMMARY..."]
+    for marker in markers:
+        idx = clean.find(marker)
+        if idx != -1:
+            clean = clean[idx:].strip()
+            break
 
     return clean
+
+
+def clean_md_text_for_discord(text: str) -> str:
+    """Un-wraps SPC's hard-wrapped lines to save vertical space in Discord."""
+    if not text:
+        return ""
+    
+    lines = text.splitlines()
+    cleaned_lines = []
+    
+    current_para = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            if current_para:
+                cleaned_lines.append(" ".join(current_para))
+                current_para = []
+            continue
+        
+        # If it looks like a label (e.g., SUMMARY...), make it bold and start a new line
+        if stripped.endswith("...") and any(stripped.startswith(m) for m in ["SUMMARY", "DISCUSSION", "Concerning", "Areas affected", "Valid"]):
+            if current_para:
+                cleaned_lines.append(" ".join(current_para))
+                current_para = []
+            cleaned_lines.append(f"**{stripped}**")
+        else:
+            current_para.append(stripped)
+            
+    if current_para:
+        cleaned_lines.append(" ".join(current_para))
+        
+    return "\n\n".join(cleaned_lines)
 
 
 def chunk_md_text(text: str, max_chars: int = EMBED_BODY_LIMIT) -> List[str]:
