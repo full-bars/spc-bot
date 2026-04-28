@@ -178,7 +178,7 @@ _DESCRIPTION_LIMIT = 4000
 
 
 def iem_autoplot_url(vtec: dict) -> str:
-    """Return the IEM Autoplot URL (#208 for VTEC, #20 for SPS/summary)."""
+    """Return the IEM Autoplot #208 URL for a given VTEC dict."""
     office = vtec["office"]
     phenom = vtec["phenom"]
     sig = vtec["sig"]
@@ -195,20 +195,11 @@ def iem_autoplot_url(vtec: dict) -> str:
     if office.startswith("K") and len(office) == 4:
         office = office[1:]
 
-    # Autoplot 208 is superior for specific VTEC events (has polygon, counties, etc.)
-    # Autoplot 20 is better for SPS (which often lack ETN/polygons in the API)
-    if etn == "0" or phenom == "SPS":
-        return (
-            f"https://mesonet.agron.iastate.edu/plotting/auto/plot/20/"
-            f"wfo:{office}::phenomena:{phenom}::significance:{sig}::etn:{etn}::"
-            f"year:{year}.png"
-        )
-
     return (
         f"https://mesonet.agron.iastate.edu/plotting/auto/plot/208/"
         f"network:WFO::wfo:{office}::year:{year}::"
         f"phenomenav:{phenom}::significancev:{sig}::"
-        f"etn:{etn.lstrip('0')}.png"
+        f"etn:{etn.lstrip('0') or '0'}.png"
     )
 
 
