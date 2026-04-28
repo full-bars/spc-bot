@@ -524,137 +524,76 @@ class MesoscaleCog(commands.Cog):
         message: discord.Message,
         full_text: Optional[str],
     ):
-        """Poll for the MD graphic and body text, editing the message
-        as either becomes available.
-
-        Two separate things can be missing when the iembot fast-path
-        fires: the SPC graphic (slow CDN), and/or the SPC HTML body
-        text (404 until SPC publishes the discussion). Each tick we try
-        to recover whichever is still missing and edit the message
-        immediately on improvement, so the user never sits looking at
-        an empty embed for the full poll window. Stops once we have
-        both the graphic and the body text.
-        """
         image_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.png"
-        filename = f"mcd_{md_num}.png"
+        filename = f"md_{md_num}.png"
         cache_path: Optional[str] = None
 
         async def _push_edit():
-            embeds = build_md_embeds(
-                md_num, full_text,
-                image_filename=filename if cache_path else None,
-            )
+            md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
+            img_embed = discord.Embed(title=f"🌩️ SPC Mesoscale Discussion #{int(md_num)}", url=md_page_url, color=discord.Color.dark_orange())
+            files = []
+            if cache_path:
+                files.append(discord.File(cache_path, filename=filename))
+                img_embed.set_image(url=f"attachment://{filename}")
+
+            cleaned_text = clean_md_text_for_discord(full_text)
+            text_embed = discord.Embed(description=cleaned_text[:4090] if cleaned_text else "Fetching discussion text...", color=discord.Color.dark_orange())
+            text_embed.set_footer(text="SPC MD Monitor")
             try:
-                if cache_path:
-                    await message.edit(
-                        embeds=embeds,
-                        attachments=[discord.File(cache_path, filename=filename)],
-                    )
-                else:
-                    await message.edit(embeds=embeds)
+                await message.edit(embeds=[img_embed, text_embed], attachments=files)
                 return True
-            except discord.HTTPException as e:
-                logger.warning(f"[MD] Failed to edit MD message for #{md_num}: {e}")
-                return False
+            except Exception: return False
 
-        for attempt in range(10):
+        for attempt in range(20):
             await asyncio.sleep(30)
-
-            text_recovered = False
+            changed = False
             if not full_text:
-                try:
-                    _, _, _, raw = await fetch_md_details(md_num)
-                    recovered = extract_md_body(raw)
-                    if recovered:
-                        full_text = recovered
-                        text_recovered = True
-                        logger.info(
-                            f"[MD] Recovered body text for #{md_num} during upgrade"
-                        )
-                except Exception as e:
-                    logger.debug(f"[MD] Body recovery failed for #{md_num}: {e}")
-
-            image_recovered = False
+                _, _, _, raw = await fetch_md_details(md_num)
+                recovered = extract_md_body(raw)
+                if recovered:
+                    full_text = recovered
+                    changed = True
+                    logger.info(f"[MD] Recovered text for #{md_num}")
             if not cache_path:
-                try:
-                    cp, _, _ = await download_single_image(
-                        image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
-                    )
-                    if cp:
-                        cache_path = cp
-                        image_recovered = True
-                except Exception as e:
-                    logger.debug(f"[MD] Upgrade poll error for #{md_num}: {e}")
-
-            if text_recovered or image_recovered:
-                ok = await _push_edit()
-                if not ok:
-                    break
-                if image_recovered:
-                    logger.info(f"[MD] Upgraded MD #{md_num} with graphic")
-
-            if cache_path and full_text:
-                # We've got both — nothing left to backfill.
-                break
-
+                cp, _, _ = await download_single_image(image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache)
+                if cp:
+                    cache_path = cp
+                    changed = True
+                    logger.info(f"[MD] Recovered image for #{md_num}")
+            if changed: await _push_edit()
+            if cache_path and full_text: break
     async def post_md_now(self, md_num: str):
-        """
-        Immediately post a specific MD if it hasn't been posted yet.
-        Called by IEMBotCog when it detects a new MD from the real-time feed.
-        """
         md_num = md_num.zfill(4)
-        if md_num in self.bot.state.posted_mds:
-            return
+        if md_num in self.bot.state.posted_mds: return
         channel = self.bot.get_channel(SPC_CHANNEL_ID)
-        if not channel:
-            return
-
+        if not channel: return
         logger.info(f"[MD] iembot-triggered post for #{md_num}")
         image_url, summary, from_cache, raw_text = await fetch_md_details(md_num)
-
-        if raw_text:
-            asyncio.create_task(self._check_prewarm(md_num, raw_text))
-
+        if raw_text: asyncio.create_task(self._check_prewarm(md_num, raw_text))
         full_text = extract_md_body(raw_text)
-
         cache_path = None
         if image_url:
-            cache_path, _, _ = await download_single_image(
-                image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
-            )
-        else:
-            logger.info(
-                f"[MD] iembot trigger: no image yet for #{md_num} — "
-                f"posting text and backfilling graphic"
-            )
-
-        filename = f"mcd_{md_num}.png"
-        embeds = build_md_embeds(
-            md_num, full_text, image_filename=filename if cache_path else None
-        )
-
+            cache_path, _, _ = await download_single_image(image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache)
+        md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
+        img_embed = discord.Embed(title=f"🌩️ SPC Mesoscale Discussion #{int(md_num)}", url=md_page_url, color=discord.Color.dark_orange())
+        filename = f"md_{md_num}.png"
+        files = []
+        if cache_path:
+            files.append(discord.File(cache_path, filename=filename))
+            img_embed.set_image(url=f"attachment://{filename}")
+        cleaned_text = clean_md_text_for_discord(full_text)
+        text_embed = discord.Embed(description=cleaned_text[:4090] if cleaned_text else "Fetching discussion text...", color=discord.Color.dark_orange())
+        text_embed.set_footer(text="SPC MD Monitor")
         try:
-            if cache_path:
-                msg = await channel.send(
-                    embeds=embeds,
-                    files=[discord.File(cache_path, filename=filename)],
-                )
-            else:
-                msg = await channel.send(embeds=embeds)
-                # Graphic missing (SPC index lag or 403); backfill once SPC catches up
-                asyncio.create_task(
-                    self._upgrade_md_message(md_num, msg, full_text)
-                )
-
+            msg = await channel.send(embeds=[img_embed, text_embed], files=files)
             self.bot.state.active_mds.add(md_num)
             self.bot.state.posted_mds.add(md_num)
             await add_posted_md(str(md_num))
-            await prune_posted_mds()
             self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
+            if not cache_path or not full_text:
+                asyncio.create_task(self._upgrade_md_message(md_num, msg, full_text))
             logger.info(f"[MD] iembot-triggered: posted MD #{md_num}")
-        except discord.HTTPException as e:
-            logger.exception(f"[MD] iembot-triggered send failed for #{md_num}: {e}")
-
+        except Exception as e: logger.exception(f"[MD] iembot send failed: {e}")
     @tasks.loop(seconds=30)
     async def auto_post_md(self):
         try:
@@ -740,35 +679,26 @@ class MesoscaleCog(commands.Cog):
                     image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
                 )
 
-                filename = f"mcd_{md_num}.png"
-                embeds = build_md_embeds(
-                    md_num, full_text,
-                    image_filename=filename if cache_path else None,
-                )
-
+                filename = f"md_{md_num}.png"
+                md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
+                img_embed = discord.Embed(title=f"🌩️ SPC Mesoscale Discussion #{int(md_num)}", url=md_page_url, color=discord.Color.dark_orange())
+                files = []
+                if cache_path:
+                    files.append(discord.File(cache_path, filename=filename))
+                    img_embed.set_image(url=f"attachment://{filename}")
+                cleaned_text = clean_md_text_for_discord(full_text)
+                text_embed = discord.Embed(description=cleaned_text[:4090] if cleaned_text else "Fetching discussion text...", color=discord.Color.dark_orange())
+                text_embed.set_footer(text="SPC MD Monitor")
                 try:
-                    if cache_path:
-                        msg = await channel.send(
-                            embeds=embeds,
-                            files=[discord.File(cache_path, filename=filename)],
-                        )
-                    else:
-                        msg = await channel.send(embeds=embeds)
-                        # Graphic missing (likely 403), try to fetch it later
-                        asyncio.create_task(
-                            self._upgrade_md_message(md_num, msg, full_text)
-                        )
-
+                    msg = await channel.send(embeds=[img_embed, text_embed], files=files)
+                    if not cache_path or not full_text:
+                        asyncio.create_task(self._upgrade_md_message(md_num, msg, full_text))
                     self.bot.state.posted_mds.add(md_num)
                     await add_posted_md(str(md_num))
                     await prune_posted_mds()
                     self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
                     logger.info(f"[MD] Posted MD #{md_num}")
-                except discord.HTTPException as e:
-                    logger.exception(
-                        f"[MD] Discord send failed for MD #{md_num}: {e}"
-                    )
-            
+                except Exception: pass
             self._md_backoff.success()
 
         except Exception as e:
