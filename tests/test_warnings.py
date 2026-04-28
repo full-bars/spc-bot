@@ -270,7 +270,8 @@ async def test_handle_cancellation_edits_message(monkeypatch):
     
     # Verify embed was modified
     edited_embed = mock_msg.edit.call_args[1]["embeds"][0]
-    assert "~~Heavy rain~~" in edited_embed.description
+    assert "Cancelled" in edited_embed.footer.text
+    assert edited_embed.color == discord.Color.green()
 
 
 @pytest.mark.asyncio

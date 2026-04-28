@@ -263,20 +263,25 @@ def build_concise_warning_text(
     if feature:
         area = feature.get("properties", {}).get("areaDesc", area)
     elif raw_text:
-        # SPS/Warning county list parsing. 
-        # Match: "* CountyName County" or "* CountyName Counties"
-        counties = re.findall(r"(?m)^\s*\*\s+(.+?)\s+Count[iy]", raw_text, re.I)
-        if not counties:
-             # Try header-style lists: "...Statement for...\n  County1...\n  County2...\n  Counties."
-             m_header = re.search(r"Statement for\.\.\.\n(.*?)(?=\n\s*\*|\n\s*[A-Z]|$)", raw_text, re.I | re.DOTALL)
-             if m_header:
-                 counties = [c.strip().strip(".") for c in m_header.group(1).splitlines() if c.strip()]
-                 # Remove the word 'Counties' or 'County' if it's the last item
-                 if counties and "COUNT" in counties[-1].upper():
-                     counties.pop()
-        
-        if counties:
-            area = ", ".join(counties)
+        # Better heuristic for warnings/SPS:
+        # Look for the block starting with "Warning for..." or "Statement for..."
+        m_area = re.search(r"(?:Warning for\.\.\.|Statement for\.\.\.)\n(.*?)(?=\n\s*\*|\n\s*[A-Z]|$)", raw_text, re.I | re.DOTALL)
+        if m_area:
+            raw_list = m_area.group(1)
+            # Split by newlines or "..." and clean up
+            parts = re.split(r"\n|\.\.\.", raw_list)
+            counties = []
+            for p in parts:
+                c = p.strip().strip(".")
+                if not c: continue
+                # Remove "in [region] Oklahoma" etc if present
+                c = re.split(r"\s+in\s+", c, flags=re.I)[0]
+                # Remove "County" or "Counties"
+                c = re.sub(r"\s+Count[iy].*$", "", c, flags=re.I)
+                if c and c not in counties and len(c) > 2:
+                    counties.append(c)
+            if counties:
+                area = ", ".join(counties)
 
     # 4. Expiration Time
     # VTEC end: 260428T0530Z
@@ -292,12 +297,14 @@ def build_concise_warning_text(
     # 5. Narrative Bullet
     narrative = ""
     if text_to_search:
-        # Find the "* At ... severe thunderstorm/weather..." line
-        # SPS often has "a strong thunderstorm was located" or similar.
-        m_nat = re.search(r"(?m)^\s*\*\s+At\s+(.+?)(?=\n\s*\*|\n\s*[A-Z]|$)", text_to_search, re.I | re.DOTALL)
+        # Find the paragraph starting with "* At"
+        # It should end when we hit another bullet (*) or a TAG line (ALLCAPS...)
+        # or a line starting with LAT...LON or a blank line.
+        # Fixed: removed [A-Z] from lookahead which was causing truncation at caps on wrapped lines.
+        m_nat = re.search(r"(?m)^\s*\*\s+At\s+(.+?)(?=\n\s*\*|\n\s*[A-Z]{4,}\b\.{3,}|\n\s*\n|$)", text_to_search, re.I | re.DOTALL)
         if m_nat:
             val = re.sub(r"\s+", " ", m_nat.group(1)).strip()
-            # Clean up leading/trailing dots often found in SPS
+            # Clean up leading/trailing dots
             val = val.lstrip(".").strip()
             narrative = f"\n* At {val}"
 
@@ -454,8 +461,6 @@ class WarningsCog(commands.Cog):
             except Exception as e:
                 logger.warning(f"[WARN] Error downloading IEM image: {e}")
 
-            logger.warning(f"[WARN] Error downloading IEM image: {e}")
-
         try:
             msg = await channel.send(embed=embed, files=files)
             logger.info(f"[WARN] Posted (iembot) {event} {vtec_id}")
@@ -503,20 +508,20 @@ class WarningsCog(commands.Cog):
 
             embed = msg.embeds[0]
             # Avoid double-cancellation logic
-            if "✅" in (embed.title or "") or (embed.description and embed.description.startswith("~~")):
+            if "✅" in (embed.title or ""):
                 return
 
-            # Keep it simple: strike through the concise text
-            if embed.description:
-                 embed.description = f"~~{embed.description.strip('~')}~~"
-            
-            # Add status to footer or description
+            # Update title and color
+            embed.title = f"✅ {embed.title or ''} — {reason}"
+            embed.color = discord.Color.green()
+
+            # Add status to footer
             footer = embed.footer.text or ""
             embed.set_footer(text=f"{footer} | {reason}")
-            embed.color = discord.Color.green()
 
             await msg.edit(embeds=msg.embeds)
             logger.info(f"[WARN] Marked {vtec_id} as {reason} in Discord")
+
         except discord.NotFound:
             logger.debug(
                 f"[WARN] Message for {vtec_id} not found, skipping cancel edit"
