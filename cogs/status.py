@@ -23,7 +23,7 @@ from utils.cache import (
     download_single_image,
     format_timedelta,
 )
-from utils.spc_outlook import get_high_risk_polygon, peek_active_labels
+from utils.spc_outlook import get_high_risk_polygon, peek_active_labels, get_current_risk_display
 from utils.spc_urls import get_spc_urls
 
 logger = logging.getLogger("spc_bot")
@@ -517,14 +517,14 @@ class StatusCog(commands.Cog):
             await get_high_risk_polygon()
         except Exception as e:
             logger.debug(f"[STATUS] Outlook peek failed: {e}")
-        active_risk = peek_active_labels()
-        if active_risk:
-            risk_str = "/".join(sorted(active_risk))
-            lines.append(
-                f"SPC Day 1 Risk : {risk_str} ACTIVE — high-risk sounding sweep armed"
-            )
-        else:
-            lines.append("SPC Day 1 Risk : no MDT/HIGH active")
+            
+        risk_label = get_current_risk_display()
+        active_high_risk = peek_active_labels()
+        
+        status_line = f"SPC Day 1 Risk : {risk_label}"
+        if active_high_risk:
+             status_line += " — high-risk sounding sweep armed"
+        lines.append(status_line)
         lines.append("")
 
         lines.append("── Tasks ──────────────────────────────")
