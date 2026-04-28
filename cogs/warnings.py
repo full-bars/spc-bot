@@ -134,7 +134,7 @@ _WARNING_STYLE = {
     "Tornado Warning":             ("🌪️", discord.Color.red()),
     "Severe Thunderstorm Warning": ("⛈️", discord.Color.gold()),
     "Flash Flood Warning":         ("🌊", discord.Color.dark_blue()),
-    "Special Weather Statement":   ("☁️", discord.Color.light_gray()),
+    "Special Weather Statement":   ("☁️", discord.Color.blue()),
 }
 
 def is_severe_sps(text: str) -> bool:
@@ -263,8 +263,18 @@ def build_concise_warning_text(
     if feature:
         area = feature.get("properties", {}).get("areaDesc", area)
     elif raw_text:
-        # Pull county names from "* ... county in ..." lines
-        counties = re.findall(r"(?m)^\s*\*\s+(.+?)\s+County", raw_text, re.I)
+        # SPS/Warning county list parsing. 
+        # Match: "* CountyName County" or "* CountyName Counties"
+        counties = re.findall(r"(?m)^\s*\*\s+(.+?)\s+Count[iy]", raw_text, re.I)
+        if not counties:
+             # Try header-style lists: "...Statement for...\n  County1...\n  County2...\n  Counties."
+             m_header = re.search(r"Statement for\.\.\.\n(.*?)(?=\n\s*\*|\n\s*[A-Z]|$)", raw_text, re.I | re.DOTALL)
+             if m_header:
+                 counties = [c.strip().strip(".") for c in m_header.group(1).splitlines() if c.strip()]
+                 # Remove the word 'Counties' or 'County' if it's the last item
+                 if counties and "COUNT" in counties[-1].upper():
+                     counties.pop()
+        
         if counties:
             area = ", ".join(counties)
 
@@ -282,10 +292,14 @@ def build_concise_warning_text(
     # 5. Narrative Bullet
     narrative = ""
     if text_to_search:
-        # Find the "* At ... severe thunderstorms were located..." line
+        # Find the "* At ... severe thunderstorm/weather..." line
+        # SPS often has "a strong thunderstorm was located" or similar.
         m_nat = re.search(r"(?m)^\s*\*\s+At\s+(.+?)(?=\n\s*\*|\n\s*[A-Z]|$)", text_to_search, re.I | re.DOTALL)
         if m_nat:
-            narrative = f"\n* At {re.sub(r'\s+', ' ', m_nat.group(1)).strip()}"
+            val = re.sub(r"\s+", " ", m_nat.group(1)).strip()
+            # Clean up leading/trailing dots often found in SPS
+            val = val.lstrip(".").strip()
+            narrative = f"\n* At {val}"
 
     return f"{office} {action_verb} {event}{tag_str} for {area}{expires_str}{narrative}"
 
@@ -368,19 +382,28 @@ class WarningsCog(commands.Cog):
         vtec = parse_vtec(raw_text)
         if not vtec:
             if event == "Special Weather Statement":
-                # SPS usually lacks VTEC. Use product_id as the identity.
+                # SPS usually lacks VTEC. Create a mock dict so formatting works.
                 vtec_id = product_id
-                action = "NEW"
                 office = product_id.split("-")[1] if "-" in product_id else "NWS"
+                vtec = {
+                    "vtec_id": vtec_id,
+                    "action": "NEW",
+                    "office": office,
+                    "phenom": "SPS",
+                    "sig": "S",
+                    "etn": "0",
+                    "start": None,
+                    "end": None
+                }
             else:
                 logger.warning(
                     f"[WARN] iembot trigger: no VTEC in {product_id} — skipping"
                 )
                 return
-        else:
-            vtec_id = vtec["vtec_id"]
-            action = vtec["action"]
-            office = vtec["office"]
+
+        vtec_id = vtec["vtec_id"]
+        action = vtec["action"]
+        office = vtec["office"]
 
         # PR F: SPS filter
         if event == "Special Weather Statement":
@@ -415,19 +438,22 @@ class WarningsCog(commands.Cog):
         )
         embed.set_footer(text=f"VTEC {vtec_id}")
 
-        # Download IEM Autoplot image
-        image_url = iem_autoplot_url(vtec)
-        filename = f"warning_{vtec_id.replace('.', '_')}.png"
+        # Download IEM Autoplot image (only if we have a real ETN)
         files = []
-        try:
-            content, status = await http_get_bytes(image_url, retries=2, timeout=15)
-            if content and status == 200:
-                from io import BytesIO
-                files.append(discord.File(BytesIO(content), filename=filename))
-                embed.set_image(url=f"attachment://{filename}")
-            else:
-                logger.warning(f"[WARN] Failed to download IEM image: {image_url} (status={status})")
-        except Exception as e:
+        if vtec.get("etn") and vtec["etn"] != "0":
+            image_url = iem_autoplot_url(vtec)
+            filename = f"warning_{vtec_id.replace('.', '_')}.png"
+            try:
+                content, status = await http_get_bytes(image_url, retries=2, timeout=15)
+                if content and status == 200:
+                    from io import BytesIO
+                    files.append(discord.File(BytesIO(content), filename=filename))
+                    embed.set_image(url=f"attachment://{filename}")
+                else:
+                    logger.warning(f"[WARN] Failed to download IEM image: {image_url} (status={status})")
+            except Exception as e:
+                logger.warning(f"[WARN] Error downloading IEM image: {e}")
+
             logger.warning(f"[WARN] Error downloading IEM image: {e}")
 
         try:
