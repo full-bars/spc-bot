@@ -18,7 +18,7 @@ from typing import Optional
 
 from discord.ext import commands, tasks
 
-from config import IEMBOT_FEED_URL, IEM_NWSTEXT_URL
+from config import IEMBOT_BOTSTALK_URL, IEMBOT_FEED_URL, IEM_NWSTEXT_URL
 from utils.state_store import (
     get_state, set_state, 
     get_product_cache, set_product_cache
@@ -102,17 +102,23 @@ async def _fetch_product_text(product_id: str) -> Optional[str]:
 
 
 class IEMBotCog(commands.Cog):
-    MANAGED_TASK_NAMES = [("poll_iembot_feed", "poll_iembot_feed")]
+    MANAGED_TASK_NAMES = [
+        ("poll_iembot_feed", "poll_iembot_feed"),
+        ("poll_botstalk_feed", "poll_botstalk_feed"),
+    ]
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._seqnum_loaded = False
+        self._botstalk_seqnum_loaded = False
 
     async def cog_load(self):
         self.poll_iembot_feed.start()
+        self.poll_botstalk_feed.start()
 
     def cog_unload(self):
         self.poll_iembot_feed.cancel()
+        self.poll_botstalk_feed.cancel()
 
     @tasks.loop(seconds=15)
     async def poll_iembot_feed(self):
@@ -230,6 +236,139 @@ class IEMBotCog(commands.Cog):
         if exc:
             logger.error(
                 f"[TASK] poll_iembot_feed stopped: {type(exc).__name__}: {exc}",
+                exc_info=exc,
+            )
+
+    # ── botstalk (national) poller — warning fast-path ──────────────────────
+    #
+    # The national ``botstalk`` room aggregates every NWS text product from
+    # every WFO. We use it as the fast-trigger for warnings (TOR/SVR/FFW) so
+    # they hit Discord seconds after issuance, ahead of the 30-second NWS
+    # API loop in WarningsCog. Iembot's botstalk endpoint requires an
+    # explicit seqnum query parameter — calling the bare URL returns the
+    # literal string "ERROR".
+
+    # Match the AFOS PIL embedded in product_id like
+    # ``YYYYMMDDHHMM-OFFICE-WMO-AFOSPIL`` (e.g. ``-SVRIND``, ``-TORHGX``).
+    # The WFO suffix is always 3 letters; the prefix gives us the product
+    # type. Initial issuances are TOR/SVR/FFW; SVS/FFS provide updates/cancels.
+    # SPS products are also tracked and filtered to severe-tagged only in WarningsCog.
+    # Added LSR (Local Storm Report) and PNS (Public Information Statement/Damage Survey).
+    _ISSUANCE_PIL_RE = re.compile(r"-(TOR|SVR|FFW|SVS|FFS|SPS|LSR|PNS)([A-Z]{3})$")
+
+    @tasks.loop(seconds=15)
+    async def poll_botstalk_feed(self):
+        await self.bot.wait_until_ready()
+
+        if not self.bot.state.is_primary:
+            return
+
+        if not self._botstalk_seqnum_loaded:
+            try:
+                val = await get_state("iembot_botstalk_last_seqnum")
+                if val:
+                    self.bot.state.iembot_botstalk_last_seqnum = int(val)
+                    logger.info(
+                        f"[IEMBOT] Resuming botstalk from seqnum "
+                        f"{self.bot.state.iembot_botstalk_last_seqnum}"
+                    )
+            except Exception as e:
+                logger.warning(f"[IEMBOT] Could not load botstalk seqnum: {e}")
+            self._botstalk_seqnum_loaded = True
+
+        try:
+            url = (
+                f"{IEMBOT_BOTSTALK_URL}"
+                f"?seqnum={self.bot.state.iembot_botstalk_last_seqnum}"
+            )
+            content, status = await http_get_bytes(url, retries=2, timeout=10)
+            if not content or status != 200:
+                return
+
+            data = _json.loads(content)
+            messages = data.get("messages", [])
+            if not messages:
+                return
+
+            new_seqnum = self.bot.state.iembot_botstalk_last_seqnum
+            for msg in messages:
+                seqnum = msg.get("seqnum", 0)
+                if seqnum <= self.bot.state.iembot_botstalk_last_seqnum:
+                    continue
+                new_seqnum = max(new_seqnum, seqnum)
+
+                product_id = msg.get("product_id", "")
+                if not product_id:
+                    continue
+
+                pil_match = self._ISSUANCE_PIL_RE.search(product_id)
+                if pil_match:
+                    t = asyncio.create_task(
+                        self._handle_warning(product_id, pil_match.group(1))
+                    )
+                    t.add_done_callback(_log_task_exception)
+
+            if new_seqnum > self.bot.state.iembot_botstalk_last_seqnum:
+                self.bot.state.iembot_botstalk_last_seqnum = new_seqnum
+                await set_state("iembot_botstalk_last_seqnum", str(new_seqnum))
+
+        except Exception as e:
+            logger.warning(f"[IEMBOT] Botstalk poll error: {e}")
+
+    _PIL_TO_EVENT = {
+        "TOR": "Tornado Warning",
+        "SVR": "Severe Thunderstorm Warning",
+        "FFW": "Flash Flood Warning",
+        "SVS": "Severe Weather Statement",
+        "FFS": "Flash Flood Statement",
+        "SPS": "Special Weather Statement",
+        "LSR": "Local Storm Report",
+        "PNS": "Public Information Statement",
+    }
+
+    async def _handle_warning(self, product_id: str, pil_prefix: str):
+        raw = await _fetch_product_text(product_id)
+        if not raw:
+            logger.warning(
+                f"[IEMBOT] Could not fetch warning text for {product_id}"
+            )
+            return
+
+        # Routing logic: Warnings go to WarningsCog, Reports to ReportsCog
+        if pil_prefix in ("LSR", "PNS"):
+            reports_cog = self.bot.cogs.get("ReportsCog")
+            if reports_cog:
+                t = asyncio.create_task(
+                    reports_cog.post_report_now(product_id, raw, pil_prefix)
+                )
+                t.add_done_callback(_log_task_exception)
+            return
+
+        warnings_cog = self.bot.cogs.get("WarningsCog")
+        if not warnings_cog:
+            return
+
+        event = self._PIL_TO_EVENT.get(pil_prefix)
+        if not event:
+            return
+
+        t = asyncio.create_task(
+            warnings_cog.post_warning_now(product_id, raw, event)
+        )
+        t.add_done_callback(_log_task_exception)
+
+    @poll_botstalk_feed.after_loop
+    async def after_botstalk_loop(self):
+        if self.poll_botstalk_feed.is_being_cancelled():
+            return
+        task = self.poll_botstalk_feed.get_task()
+        try:
+            exc = task.exception() if task else None
+        except Exception:
+            exc = None
+        if exc:
+            logger.error(
+                f"[TASK] poll_botstalk_feed stopped: {type(exc).__name__}: {exc}",
                 exc_info=exc,
             )
 

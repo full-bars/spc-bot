@@ -331,12 +331,13 @@ async def test_startup_lease_held_by_other_forces_standby(monkeypatch):
 
 
 async def test_startup_manual_override_for_us_beats_lease(monkeypatch):
-    """/failover set to us: claim the lease even if someone else holds it.
-    This matches the sync_loop manual-override semantics so the boot path
-    doesn't have different rules than steady-state."""
-    mock = _stub_upstash({
+    """/failover set to us: claim the lease even if someone else holds it."""
+    # This matches the sync_loop manual-override semantics so the boot path
+    # doesn't have different rules than steady-state.
+    _stub_upstash({
         "GET": None,  # catch-all; responses dict matches by command name
     })
+
     # Custom per-key response — the stub helper only keys by command, so
     # we roll our own for this case.
     calls = []
