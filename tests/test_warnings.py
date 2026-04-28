@@ -1,16 +1,20 @@
 """Unit tests for cogs.warnings — VTEC and LAT...LON polygon parsers,
 narrative extraction, and the iembot fast-path entry point."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from cogs.warnings import (
     WarningsCog,
     _extract_narrative,
+    _polygon_from_nws_feature,
     parse_vtec,
     parse_warning_polygon,
+    radar_loop_url,
+    resolve_radar_for_polygon,
 )
+from utils import nexrad
 
 
 # Sample raw VTEC product — typical Severe Thunderstorm Warning shape.
@@ -263,6 +267,103 @@ async def test_post_warning_now_skips_non_NEW_actions(monkeypatch):
     )
     cog.bot.get_channel.return_value.send.assert_not_called()
     assert "KOUN.SV.W.0042" not in cog.bot.state.posted_warnings
+
+
+# ── _polygon_from_nws_feature ───────────────────────────────────────────────
+
+
+def test_polygon_from_nws_feature_extracts_polygon():
+    """NWS API gives geometry.type='Polygon' with [lon, lat] tuples;
+    our internal convention is (lat, lon)."""
+    feature = {
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [[
+                [-89.02, 41.19],
+                [-88.45, 41.35],
+                [-88.62, 41.87],
+                [-89.18, 41.73],
+                [-89.02, 41.19],
+            ]],
+        }
+    }
+    coords = _polygon_from_nws_feature(feature)
+    assert coords is not None
+    assert coords[0] == (41.19, -89.02)
+    assert coords[2] == (41.87, -88.62)
+
+
+def test_polygon_from_nws_feature_handles_multipolygon():
+    feature = {
+        "geometry": {
+            "type": "MultiPolygon",
+            "coordinates": [[
+                [[-89.0, 41.0], [-88.0, 41.0], [-88.0, 42.0], [-89.0, 41.0]],
+            ]],
+        }
+    }
+    coords = _polygon_from_nws_feature(feature)
+    assert coords is not None
+    assert coords[0] == (41.0, -89.0)
+
+
+def test_polygon_from_nws_feature_returns_none_for_unknown_geom():
+    """A Point geometry isn't a polygon — radar lookup should fall
+    back gracefully rather than guess."""
+    assert _polygon_from_nws_feature({"geometry": {"type": "Point"}}) is None
+    assert _polygon_from_nws_feature({}) is None
+
+
+# ── radar_loop_url + resolve_radar_for_polygon ───────────────────────────────
+
+
+def test_radar_loop_url_format():
+    """Pin the URL pattern so the live NWS Ridge2 endpoint can be
+    swapped in tests without a hidden type mismatch."""
+    assert radar_loop_url("KTLX") == \
+        "https://radar.weather.gov/ridge/standard/KTLX_loop.gif"
+
+
+@pytest.mark.asyncio
+async def test_resolve_radar_picks_nearest_site(monkeypatch):
+    """Stub the NEXRAD site list with a tiny fixed set and confirm we
+    pick the closest by haversine distance."""
+    fake_sites = [
+        ("KTLX", 35.33, -97.28),  # Norman, OK
+        ("KFWS", 32.57, -97.30),  # Dallas/Ft Worth
+        ("KIND", 39.71, -86.28),  # Indianapolis
+    ]
+
+    async def fake_list():
+        return fake_sites
+
+    nexrad.reset_cache_for_tests()
+    with patch.object(nexrad, "get_nexrad_sites", side_effect=fake_list):
+        # Polygon centered near Norman — should pick KTLX
+        coords = [(35.4, -97.3), (35.4, -97.0), (35.6, -97.1)]
+        icao, dist = await resolve_radar_for_polygon(coords)
+    assert icao == "KTLX"
+    assert dist < 30  # ~0–25 km from Norman
+
+
+@pytest.mark.asyncio
+async def test_resolve_radar_returns_none_for_empty_polygon():
+    icao, dist = await resolve_radar_for_polygon(None)
+    assert icao is None
+    assert dist is None
+    icao, dist = await resolve_radar_for_polygon([])
+    assert icao is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_radar_handles_empty_site_list(monkeypatch):
+    """If the IEM fetch is down on cog_load, we serve the warning
+    without radar rather than refusing to post."""
+    nexrad.reset_cache_for_tests()
+    with patch.object(nexrad, "get_nexrad_sites", AsyncMock(return_value=[])):
+        coords = [(35.4, -97.3), (35.4, -97.0)]
+        icao, dist = await resolve_radar_for_polygon(coords)
+    assert icao is None
 
 
 @pytest.mark.asyncio

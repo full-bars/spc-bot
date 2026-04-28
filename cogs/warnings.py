@@ -28,6 +28,7 @@ from discord.ext import commands, tasks
 from config import NWS_ALERTS_WARNINGS_URL, WARNINGS_CHANNEL_ID
 from utils.backoff import TaskBackoff
 from utils.http import http_get_bytes_conditional
+from utils.nexrad import find_nearest_radar, polygon_centroid
 from utils.state_store import (
     add_posted_warning,
     get_posted_warnings,
@@ -141,6 +142,64 @@ _WARNING_STYLE = {
 _DESCRIPTION_LIMIT = 4000
 
 
+def _polygon_from_nws_feature(
+    feature: dict,
+) -> Optional[List[Tuple[float, float]]]:
+    """Extract the warning polygon from a NWS API GeoJSON feature.
+
+    NWS warning geometries are typically ``Polygon`` with a single
+    outer ring. Coordinates arrive in ``[lon, lat]`` order; we flip to
+    our internal ``(lat, lon)`` convention so the radar lookup, which
+    expects lat-first, can consume the result directly.
+    """
+    geom = feature.get("geometry") or {}
+    gtype = geom.get("type")
+    if gtype == "Polygon":
+        rings = geom.get("coordinates") or []
+        if not rings:
+            return None
+        ring = rings[0]
+    elif gtype == "MultiPolygon":
+        polys = geom.get("coordinates") or []
+        if not polys:
+            return None
+        ring = polys[0][0]
+    else:
+        return None
+    out: List[Tuple[float, float]] = []
+    for pair in ring:
+        try:
+            lon, lat = float(pair[0]), float(pair[1])
+        except (ValueError, TypeError, IndexError):
+            continue
+        out.append((lat, lon))
+    return out or None
+
+
+def radar_loop_url(icao: str) -> str:
+    """Public NWS Ridge2 reflectivity loop GIF URL for a radar site."""
+    return f"https://radar.weather.gov/ridge/standard/{icao}_loop.gif"
+
+
+async def resolve_radar_for_polygon(
+    coords: Optional[List[Tuple[float, float]]],
+) -> Tuple[Optional[str], Optional[float]]:
+    """Pick the nearest WSR-88D site to a warning polygon's centroid.
+
+    Returns ``(icao, distance_km)`` or ``(None, None)`` when the polygon
+    is missing or the NEXRAD site list is unavailable.
+    """
+    if not coords:
+        return None, None
+    centroid = polygon_centroid(coords)
+    if not centroid:
+        return None, None
+    result = await find_nearest_radar(*centroid)
+    if not result:
+        return None, None
+    return result
+
+
 def _extract_narrative(raw: str) -> Optional[str]:
     """Pull the human-readable narrative out of a raw VTEC product.
 
@@ -252,6 +311,13 @@ class WarningsCog(commands.Cog):
             value=vtec["office"],
             inline=True,
         )
+
+        # Iembot path: pull the polygon out of the LAT...LON block
+        # ourselves since NWS API may not have the alert yet. PR D will
+        # backfill higher-fidelity NWS API data via an upgrade poll.
+        coords = parse_warning_polygon(raw_text)
+        await self._attach_radar(embed, coords)
+
         embed.set_footer(text=f"VTEC {vtec_id} (iembot fast-path)")
 
         try:
@@ -397,12 +463,37 @@ class WarningsCog(commands.Cog):
         if area:
             embed.add_field(name="Area", value=area[:1024], inline=False)
 
+        # Pull the polygon from NWS API geometry (already structured)
+        # and attach the nearest radar's loop GIF as the embed image.
+        coords = _polygon_from_nws_feature(feature)
+        await self._attach_radar(embed, coords)
+
         # Footer carries the VTEC ETN so we can correlate Discord posts
         # back to the source alert when reading logs or debugging.
         embed.set_footer(text=f"VTEC {vtec_id}")
 
         await channel.send(embed=embed)
         logger.info(f"[WARN] Posted {event} {vtec_id}")
+
+    async def _attach_radar(
+        self,
+        embed: discord.Embed,
+        coords: Optional[List[Tuple[float, float]]],
+    ) -> None:
+        """Resolve the nearest WSR-88D and set the embed image to its
+        live reflectivity loop GIF. No-op if we can't resolve a site —
+        we'd rather post the warning without radar than skip it."""
+        icao, dist_km = await resolve_radar_for_polygon(coords)
+        if not icao:
+            return
+        embed.set_image(url=radar_loop_url(icao))
+        # Fold the radar attribution into the existing fields rather
+        # than another row to keep the embed compact.
+        embed.add_field(
+            name="Radar",
+            value=f"{icao} ({dist_km:.0f} km)" if dist_km else icao,
+            inline=True,
+        )
 
     @auto_poll_warnings.after_loop
     async def after_loop(self):
