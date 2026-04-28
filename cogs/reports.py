@@ -5,12 +5,13 @@ import re
 from datetime import datetime, timezone
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from config import WARNINGS_CHANNEL_ID
 from utils.http import http_get_bytes
 from utils.state_store import (
     add_posted_survey, 
+    add_significant_event,
     get_posted_surveys, 
     prune_posted_surveys
 )
@@ -23,6 +24,10 @@ class ReportsCog(commands.Cog):
         self.posted_reports = set() # Simple dedup
         self.posted_surveys: set[str] = set()
         self._surveys_loaded = False
+        self.poll_lsrs.start()
+
+    def cog_unload(self):
+        self.poll_lsrs.cancel()
 
     async def _ensure_surveys_loaded(self):
         if not self._surveys_loaded:
@@ -39,6 +44,8 @@ class ReportsCog(commands.Cog):
         
         if pil == "LSR":
             await self._handle_lsr(product_id, raw_text)
+            # Log significant events from LSR text
+            await self._check_and_log_report(product_id, raw_text)
         elif pil == "PNS":
             await self._handle_pns(product_id, raw_text)
 
@@ -224,6 +231,124 @@ class ReportsCog(commands.Cog):
 
         except Exception as e:
             logger.warning(f"[REPORTS] Survey check failed for {event_date}: {e}")
+
+    async def _check_and_log_report(self, product_id: str, raw_text: str):
+        """Parse Local Storm Report text and log significant events."""
+        # Simple extraction for significant events
+        event_type = None
+        if "TORNADO" in raw_text.upper():
+            event_type = "Tornado"
+        elif "HAIL" in raw_text.upper():
+            # Check size >= 3.0
+            m = re.search(r"([\d\.]+)\s*INCH", raw_text, re.I)
+            if m and float(m.group(1)) >= 3.0:
+                event_type = "Hail"
+        elif "WIND" in raw_text.upper() or "TSTM WND" in raw_text.upper():
+            # Check speed >= 80
+            m = re.search(r"([\d\.]+)\s*MPH", raw_text, re.I)
+            if m and float(m.group(1)) >= 80:
+                event_type = "Wind"
+        
+        if not event_type:
+            return
+
+        # Location
+        location = "Unknown"
+        m_loc = re.search(r"\d{4}\s+[AP]M\s+[A-Z\s]+\s+(.{24})", raw_text)
+        if m_loc:
+            location = m_loc.group(1).strip()
+        
+        # Magnitude
+        mag = ""
+        m_mag = re.search(r"([\d\.]+\s*(?:MPH|INCH))", raw_text, re.I)
+        if m_mag:
+            mag = m_mag.group(1)
+
+        # Coords
+        coords = ""
+        m_coords = re.search(r"(\d+\.\d+N\s+\d+\.\d+W)", raw_text)
+        if m_coords:
+            coords = m_coords.group(1)
+
+        # Timestamp from product_id if possible
+        ts = 0.0
+        if product_id and len(product_id) >= 12:
+            try:
+                # 202604281109
+                dt = datetime.strptime(product_id[:12], "%Y%m%d%H%M")
+                ts = dt.replace(tzinfo=timezone.utc).timestamp()
+            except:
+                pass
+
+        await add_significant_event(
+            event_id=f"IEM:LSR:{product_id}",
+            event_type=event_type,
+            location=location,
+            magnitude=mag,
+            coords=coords,
+            timestamp=ts,
+            source=product_id.split("-")[1] if "-" in product_id else "NWS",
+            raw_text=raw_text
+        )
+
+    @tasks.loop(minutes=5)
+    async def poll_lsrs(self):
+        """Poll IEM LSR GeoJSON for recent significant reports."""
+        # Poll last 1 hour of reports
+        url = "https://mesonet.agron.iastate.edu/geojson/lsr.geojson?hours=1"
+        try:
+            content, status = await http_get_bytes(url, retries=1, timeout=15)
+            if not content or status != 200:
+                return
+
+            import json as _json
+            data = _json.loads(content)
+            for feature in data.get("features", []):
+                props = feature.get("properties", {})
+                pid = props.get("product_id")
+                if not pid or pid in self.posted_reports:
+                    continue
+                
+                # Check significance
+                is_sig = False
+                typetext = props.get("typetext", "").upper()
+                mag = props.get("magf", 0)
+                
+                if typetext == "TORNADO":
+                    is_sig = True
+                elif typetext == "HAIL" and mag >= 3.0:
+                    is_sig = True
+                elif "WIND" in typetext and mag >= 80:
+                    is_sig = True
+                
+                if is_sig:
+                    # We found a significant report not seen via iembot fast-path
+                    # Log it
+                    valid_str = props.get("valid") # 2026-04-28T11:08:00Z
+                    ts = 0.0
+                    if valid_str:
+                        dt = datetime.strptime(valid_str, "%Y-%m-%dT%H:%M:%SZ")
+                        ts = dt.replace(tzinfo=timezone.utc).timestamp()
+
+                    await add_significant_event(
+                        event_id=f"IEM:LSR:{pid}",
+                        event_type="Tornado" if typetext == "TORNADO" else ("Hail" if typetext == "HAIL" else "Wind"),
+                        location=f"{props.get('city')}, {props.get('state')}",
+                        magnitude=f"{mag} {props.get('unit')}",
+                        coords=f"{props.get('lat')}N {abs(props.get('lon'))}W",
+                        timestamp=ts,
+                        source=props.get("wfo"),
+                        raw_text=props.get("remark")
+                    )
+                    # Add to posted_reports to dedup
+                    self.posted_reports.add(pid)
+
+        except Exception as e:
+            logger.warning(f"[REPORTS] LSR poll failed: {e}")
+
+    @poll_lsrs.before_loop
+    async def before_poll_lsrs(self):
+        await self.bot.wait_until_ready()
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(ReportsCog(bot))

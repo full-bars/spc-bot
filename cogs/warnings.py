@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
 import discord
+from discord import app_commands
 from discord.ext import commands, tasks
 
 from config import NWS_ALERTS_WARNINGS_URL, WARNINGS_CHANNEL_ID
@@ -30,7 +31,9 @@ from utils.backoff import TaskBackoff
 from utils.http import http_get_bytes, http_get_bytes_conditional
 from utils.state_store import (
     add_posted_warning,
+    add_significant_event,
     get_all_posted_warnings,
+    get_recent_significant_events,
     prune_posted_warnings,
 )
 
@@ -441,6 +444,9 @@ class WarningsCog(commands.Cog):
         self.bot.state.posted_warnings[vtec_id] = {} # placeholder
         self.bot.state.active_warnings[vtec_id] = vtec
 
+        # Log significant events (tornadoes, hail, wind) to DB
+        await self._check_and_log_significant_event(event, raw_text, vtec)
+
         concise_text = build_concise_warning_text(event, vtec, raw_text=raw_text)
         title, color = get_warning_style(event, raw_text)
 
@@ -501,6 +507,127 @@ class WarningsCog(commands.Cog):
             await prune_posted_warnings()
         except Exception as e:
             logger.warning(f"[WARN] Failed to persist {vtec_id}: {e}")
+
+    async def _check_and_log_significant_event(self, event: str, raw_text: str, vtec: dict):
+        """Parse warning text for confirmed tornadoes or high-end hail/wind and log to DB."""
+        text_upper = (raw_text or "").upper()
+        vtec_id = vtec.get("vtec_id", "Unknown")
+        
+        # 1. Confirmed Tornado Detection
+        # Check for OBSERVED tag or CONFIRMED wording
+        is_confirmed = False
+        if "TORNADO...OBSERVED" in text_upper or "CONFIRMED TORNADO" in text_upper:
+            is_confirmed = True
+        
+        if event == "Tornado Warning" and is_confirmed:
+            # Extract location (rough approximation from first line of narrative)
+            location = "Unknown Area"
+            m_area = re.search(r"(?:near|over)\s+(.+?)(?:,)", raw_text, re.I)
+            if m_area:
+                location = m_area.group(1).strip()
+            
+            # Extract coords
+            coords = ""
+            m_poly = re.search(r"LAT\.\.\.LON\s+(.+?)(?=\n|\$\$|$)", raw_text, re.DOTALL)
+            if m_poly:
+                coords = m_poly.group(1).replace("\n", " ").strip()
+
+            await add_significant_event(
+                event_id=f"NWS:WARN:{vtec_id}",
+                event_type="Tornado",
+                location=location,
+                magnitude="Confirmed",
+                vtec_id=vtec_id,
+                coords=coords,
+                source=vtec.get("office", "NWS"),
+                raw_text=raw_text
+            )
+            logger.info(f"[WARN] Logged confirmed tornado for {vtec_id}")
+
+        # 2. High-end Hail (>= 3.00 IN)
+        m_hail = re.search(r"HAIL\.\.\.?([\d\.]+)\s*IN", text_upper)
+        if m_hail:
+            try:
+                size = float(m_hail.group(1))
+                if size >= 3.0:
+                    await add_significant_event(
+                        event_id=f"NWS:WARN:HAIL:{vtec_id}",
+                        event_type="Hail",
+                        location="Affected Area",
+                        magnitude=f"{size} IN",
+                        vtec_id=vtec_id,
+                        source=vtec.get("office", "NWS"),
+                        raw_text=raw_text
+                    )
+            except ValueError:
+                pass
+
+        # 3. High-end Wind (>= 80 MPH)
+        m_wind = re.search(r"WIND\.\.\.?([\d\.]+)\s*MPH", text_upper)
+        if m_wind:
+            try:
+                speed = float(m_wind.group(1))
+                if speed >= 80.0:
+                    await add_significant_event(
+                        event_id=f"NWS:WARN:WIND:{vtec_id}",
+                        event_type="Wind",
+                        location="Affected Area",
+                        magnitude=f"{speed} MPH",
+                        vtec_id=vtec_id,
+                        source=vtec.get("office", "NWS"),
+                        raw_text=raw_text
+                    )
+            except ValueError:
+                pass
+
+    @app_commands.command(name="recenttornadoes", description="List confirmed tornadoes from recent warnings and reports")
+    @app_commands.describe(range="Time range to look back")
+    @app_commands.choices(range=[
+        app_commands.Choice(name="Last Hour", value=1),
+        app_commands.Choice(name="Last 3 Hours", value=3),
+        app_commands.Choice(name="Last 6 Hours", value=6),
+        app_commands.Choice(name="Last 12 Hours", value=12),
+        app_commands.Choice(name="Last 24 Hours", value=24),
+        app_commands.Choice(name="Last 48 Hours", value=48),
+        app_commands.Choice(name="Last 72 Hours", value=72),
+        app_commands.Choice(name="Last 7 Days (Week)", value=168),
+        app_commands.Choice(name="Last 30 Days (Month)", value=720),
+    ])
+    async def recent_tornadoes(self, interaction: discord.Interaction, range: int = 24):
+        await interaction.response.defer()
+        
+        events = await get_recent_significant_events(event_type="Tornado", since_hours=range)
+        if not events:
+            await interaction.followup.send(f"No confirmed tornadoes logged in the requested time frame.")
+            return
+
+        embed = discord.Embed(
+            title=f"🌪️ Confirmed Tornadoes (Last {range}h)",
+            color=discord.Color.red(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        
+        # Sort by timestamp DESC just in case
+        events.sort(key=lambda x: x["timestamp"], reverse=True)
+        
+        for e in events[:10]: # Limit to 10 for the embed
+            rel_time = f"<t:{int(e['timestamp'])}:R>"
+            mag_str = f" ({e['magnitude']})" if e['magnitude'] and e['magnitude'] != "Confirmed" else ""
+            
+            val = (
+                f"**Location:** {e['location']}\n"
+                f"**Office:** {e['source']}\n"
+                f"**Time:** {rel_time}\n"
+            )
+            if e.get("vtec_id"):
+                val += f"**VTEC:** `{e['vtec_id']}`"
+            
+            embed.add_field(name=f"Tornado{mag_str}", value=val, inline=False)
+
+        if len(events) > 10:
+            embed.set_footer(text=f"Showing 10 of {len(events)} events.")
+
+        await interaction.followup.send(embed=embed)
 
     async def _handle_cancellation(
         self, vtec_id: str, reason: str = "Expired / Cancelled", vtec: dict | None = None
@@ -691,6 +818,9 @@ class WarningsCog(commands.Cog):
         vtec_id = vtec["vtec_id"]
 
         concise_text = build_concise_warning_text(event, vtec, feature=feature)
+
+        # Log significant events (tornadoes, hail, wind) to DB
+        await self._check_and_log_significant_event(event, description, vtec)
 
         embed = discord.Embed(
             title=title,

@@ -133,6 +133,18 @@ async def _create_tables(db: aiosqlite.Connection):
             posted_at REAL NOT NULL DEFAULT 0
         );
 
+        CREATE TABLE IF NOT EXISTS significant_events (
+            event_id    TEXT PRIMARY KEY,
+            event_type  TEXT NOT NULL,
+            location    TEXT NOT NULL,
+            magnitude   TEXT,
+            vtec_id     TEXT,
+            coords      TEXT,
+            timestamp   REAL NOT NULL,
+            source      TEXT NOT NULL,
+            raw_text    TEXT
+        );
+
         CREATE TABLE IF NOT EXISTS posted_warnings (
             vtec_id    TEXT PRIMARY KEY,
             message_id INTEGER NOT NULL DEFAULT 0,
@@ -371,6 +383,63 @@ async def prune_posted_surveys(max_size: int = 100):
         (max_size,),
         "prune_posted_surveys",
     )
+
+
+# ── Significant Events (Tornadoes, etc.) ────────────────────────────────────
+
+async def add_significant_event(
+    event_id: str,
+    event_type: str,
+    location: str,
+    magnitude: str = "",
+    vtec_id: str = "",
+    coords: str = "",
+    timestamp: float = 0.0,
+    source: str = "",
+    raw_text: str = ""
+):
+    """Log a significant weather event (Confirmed Tornado, Giant Hail, etc.)."""
+    await _write(
+        """INSERT INTO significant_events 
+           (event_id, event_type, location, magnitude, vtec_id, coords, timestamp, source, raw_text)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(event_id) DO UPDATE SET
+             magnitude=excluded.magnitude,
+             location=excluded.location,
+             coords=excluded.coords,
+             raw_text=excluded.raw_text""",
+        (event_id, event_type, location, magnitude, vtec_id, coords, timestamp or time.time(), source, raw_text),
+        f"add_significant_event({event_id})",
+    )
+
+
+async def get_recent_significant_events(
+    event_type: Optional[str] = None,
+    since_hours: int = 24,
+    limit: int = 50
+) -> list:
+    """Retrieve recent significant events."""
+    try:
+        db = await get_db()
+        now = time.time()
+        start_ts = now - (since_hours * 3600)
+        
+        sql = "SELECT * FROM significant_events WHERE timestamp >= ?"
+        params = [start_ts]
+        
+        if event_type:
+            sql += " AND event_type = ?"
+            params.append(event_type)
+            
+        sql += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+        
+        async with db.execute(sql, tuple(params)) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+    except Exception as e:
+        logger.warning(f"[DB] get_recent_significant_events failed: {e}")
+        return []
 
 
 # ── Posted warnings ───────────────────────────────────────────────────────────
