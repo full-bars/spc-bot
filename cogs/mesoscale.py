@@ -311,7 +311,11 @@ def extract_md_body(raw_text: Optional[str]) -> Optional[str]:
 
 
 def clean_md_text_for_discord(text: str) -> str:
-    """Un-wraps SPC's hard-wrapped lines and tightens spacing with consistent bolding."""
+    """Un-wraps SPC's hard-wrapped lines and tightens spacing with consistent bolding.
+    
+    Handles hard-wrapped header lines (e.g. 'Areas affected...') by merging 
+    continuation lines into the bolded block.
+    """
     if not text:
         return ""
     
@@ -319,34 +323,44 @@ def clean_md_text_for_discord(text: str) -> str:
     cleaned_lines = []
     
     current_para = []
+    # Tracks if we are currently inside a multi-line bold header (Areas affected, Concerning, etc.)
+    in_top_header = False
+
     for line in lines:
         stripped = line.strip()
         if not stripped:
             if current_para:
                 cleaned_lines.append(" ".join(current_para))
                 current_para = []
+            in_top_header = False
             continue
         
-        # 1. Detect "Top Headers" (Short lines that should be entirely bold)
+        # 1. Detect "Top Headers" (Lines that should be entirely bold)
         top_headers = ["Concerning", "Areas affected", "Valid", "Probability"]
         # 2. Detect "Paragraph Headers" (Labels that start a block of text)
         para_headers = ["SUMMARY", "DISCUSSION"]
         
-        is_top = any(stripped.startswith(m) for m in top_headers)
-        is_para = any(stripped.startswith(m) for m in para_headers)
+        is_top_start = any(stripped.startswith(m) for m in top_headers)
+        is_para_start = any(stripped.startswith(m) for m in para_headers)
         
-        if is_top:
-            # Flush previous paragraph if any
+        if is_top_start:
             if current_para:
                 cleaned_lines.append(" ".join(current_para))
                 current_para = []
-            cleaned_lines.append(f"**{stripped}**")
-        elif is_para:
-            # Flush previous paragraph if any
+            # Start a new bold block
+            current_para.append(f"**{stripped}")
+            in_top_header = True
+        elif in_top_header:
+            # Continue the bold block (handle hard-wrapped location lists)
+            current_para.append(stripped)
+        elif is_para_start:
             if current_para:
                 cleaned_lines.append(" ".join(current_para))
                 current_para = []
             
+            # Close header state
+            in_top_header = False
+
             # Bold only the label part (up to the dots)
             if "..." in stripped:
                 idx = stripped.find("...") + 3
@@ -358,10 +372,18 @@ def clean_md_text_for_discord(text: str) -> str:
             else:
                 cleaned_lines.append(f"**{stripped}**")
         else:
-            current_para.append(stripped)
+            # Regular paragraph text
+            if in_top_header:
+                # If we were in a header but this line doesn't look like one, close it
+                cleaned_lines.append(" ".join(current_para) + "**")
+                current_para = [stripped]
+                in_top_header = False
+            else:
+                current_para.append(stripped)
             
     if current_para:
-        cleaned_lines.append(" ".join(current_para))
+        suffix = "**" if in_top_header else ""
+        cleaned_lines.append(" ".join(current_para) + suffix)
         
     return "\n".join(cleaned_lines)
 
