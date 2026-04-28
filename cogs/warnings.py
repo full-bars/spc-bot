@@ -264,8 +264,9 @@ def build_concise_warning_text(
         area = feature.get("properties", {}).get("areaDesc", area)
     elif raw_text:
         # Better heuristic for warnings/SPS:
-        # Look for the block starting with "Warning for..." or "Statement for..." or a bulleted list of counties
-        m_area = re.search(r"(?:Warning for\.\.\.|Statement for\.\.\.|\*\s+Locations? affected\s+include\.\.\.)\n(.*?)(?=\n\s*\*|\n\s*[A-Z]|$)", raw_text, re.I | re.DOTALL)
+        # Look for the block starting with "Warning for...", "Statement for...", 
+        # or the common SPS "IMPACT PORTIONS OF" phrasing.
+        m_area = re.search(r"(?:Warning for\.\.\.|Statement for\.\.\.|\*\s+Locations? affected\s+include\.\.\.|IMPACT\s+PORTIONS?\s+OF\.\.\.)\n(.*?)(?=\n\s*\*|\n\s*[A-Z]|$)", raw_text, re.I | re.DOTALL)
         if m_area:
             raw_list = m_area.group(1)
             # Split by newlines or "..." and clean up
@@ -444,6 +445,7 @@ class WarningsCog(commands.Cog):
         title, color = get_warning_style(event, raw_text)
 
         embed = discord.Embed(
+            title=title,
             description=concise_text,
             color=color,
             timestamp=datetime.now(timezone.utc),
@@ -672,6 +674,7 @@ class WarningsCog(commands.Cog):
         concise_text = build_concise_warning_text(event, vtec, feature=feature)
 
         embed = discord.Embed(
+            title=title,
             description=concise_text,
             color=color,
             timestamp=datetime.now(timezone.utc),
