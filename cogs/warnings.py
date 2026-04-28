@@ -178,8 +178,11 @@ _DESCRIPTION_LIMIT = 4000
 
 
 def iem_autoplot_url(vtec: dict) -> str:
-    """Return the IEM Autoplot #208 URL for a given VTEC dict."""
+    """Return the IEM Autoplot URL (#208 for VTEC, #20 for SPS/summary)."""
     office = vtec["office"]
+    phenom = vtec["phenom"]
+    sig = vtec["sig"]
+    etn = vtec["etn"]
     year = datetime.now(timezone.utc).year
     if vtec.get("start"):
         try:
@@ -189,15 +192,23 @@ def iem_autoplot_url(vtec: dict) -> str:
 
     # IEM expectations:
     # 1. 3-letter SID for the WFO (e.g. KOUN -> OUN)
-    # 2. ETN 0 is NOT valid for Autoplot 208 (it's for individual VTEC events)
     if office.startswith("K") and len(office) == 4:
         office = office[1:]
+
+    # Autoplot 208 is superior for specific VTEC events (has polygon, counties, etc.)
+    # Autoplot 20 is better for SPS (which often lack ETN/polygons in the API)
+    if etn == "0" or phenom == "SPS":
+        return (
+            f"https://mesonet.agron.iastate.edu/plotting/auto/plot/20/"
+            f"wfo:{office}::phenomena:{phenom}::significance:{sig}::etn:{etn}::"
+            f"year:{year}.png"
+        )
 
     return (
         f"https://mesonet.agron.iastate.edu/plotting/auto/plot/208/"
         f"network:WFO::wfo:{office}::year:{year}::"
-        f"phenomenav:{vtec['phenom']}::significancev:{vtec['sig']}::"
-        f"etn:{vtec['etn'].lstrip('0')}.png"
+        f"phenomenav:{phenom}::significancev:{sig}::"
+        f"etn:{etn.lstrip('0')}.png"
     )
 
 
@@ -291,9 +302,9 @@ def build_concise_warning_text(
     # 5. Narrative Bullet
     narrative = ""
     if text_to_search:
-        # Find the paragraph starting with "* At"
+        # Find the paragraph starting with "At" (optional bullet *)
         # Refined lookahead to stop at CAPS... tags or next bullet.
-        m_nat = re.search(r"\*\s+At\s+(.+?)(?=\n\s*\*|\n\s*LAT\.\.\.LON|\n[A-Z]{4,}\b\.{3,}|$)", text_to_search, re.I | re.DOTALL)
+        m_nat = re.search(r"(?:\*\s*)?At\s+(.+?)(?=\n\s*\*|\n\s*LAT\.\.\.LON|\n[A-Z]{4,}\b\.{3,}|$)", text_to_search, re.I | re.DOTALL)
         if m_nat:
             val = m_nat.group(1).strip()
             # Bold the NWS tags (HAZARD, SOURCE, IMPACT, etc.)
@@ -439,21 +450,32 @@ class WarningsCog(commands.Cog):
         )
         embed.set_footer(text=f"VTEC {vtec_id}")
 
-        # Download IEM Autoplot image (only if we have a real ETN)
+        # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS)
         files = []
-        if vtec.get("etn") and vtec["etn"] != "0":
+        if (vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS":
             image_url = iem_autoplot_url(vtec)
             filename = f"warning_{vtec_id.replace('.', '_')}.png"
-            try:
-                content, status = await http_get_bytes(image_url, retries=2, timeout=15)
-                if content and status == 200:
-                    from io import BytesIO
-                    files.append(discord.File(BytesIO(content), filename=filename))
-                    embed.set_image(url=f"attachment://{filename}")
-                else:
+            # IEM maps can take a few seconds to generate after a NEW issuance.
+            # Retry on 404 with a small delay.
+            for attempt in range(3):
+                try:
+                    content, status = await http_get_bytes(image_url, retries=1, timeout=15)
+                    if content and status == 200:
+                        from io import BytesIO
+                        files.append(discord.File(BytesIO(content), filename=filename))
+                        embed.set_image(url=f"attachment://{filename}")
+                        break
+                    elif status == 404:
+                        if attempt < 2:
+                            await asyncio.sleep(5)
+                            continue
                     logger.warning(f"[WARN] Failed to download IEM image: {image_url} (status={status})")
-            except Exception as e:
-                logger.warning(f"[WARN] Error downloading IEM image: {e}")
+                except Exception as e:
+                    logger.warning(f"[WARN] Error downloading IEM image: {e}")
+                    if attempt < 2:
+                        await asyncio.sleep(2)
+                        continue
+                    break
 
         try:
             msg = await channel.send(embed=embed, files=files)
@@ -515,7 +537,7 @@ class WarningsCog(commands.Cog):
 
             # Try to fetch updated IEM image for the cancellation
             files = []
-            if vtec and vtec.get("etn") and vtec["etn"] != "0":
+            if vtec and ((vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS"):
                 image_url = iem_autoplot_url(vtec)
                 filename = f"cancel_{vtec_id.replace('.', '_')}.png"
                 try:
@@ -641,10 +663,14 @@ class WarningsCog(commands.Cog):
         # Detect disappeared warnings (cancellations/expirations)
         disappeared = set(self.bot.state.active_warnings.keys()) - current_vtec_ids
         for vtec_id in disappeared:
+            # SPS are often absent from the NWS API poll but shouldn't be auto-cancelled
+            if ".SPS." in vtec_id or vtec_id.startswith("20"):
+                continue
+
             # Prefer the vtec context from the current poll features list if it's there
             # (e.g. it's in the list as CAN/EXP), otherwise fallback to our cache
             vtec_context = current_vtec_data.get(vtec_id) or self.bot.state.active_warnings.get(vtec_id)
-            await self._handle_cancellation(vtec_id, vtec=vtec_context)
+            await self._handle_cancellation(vtec_id, reason="Expired", vtec=vtec_context)
             self.bot.state.active_warnings.pop(vtec_id, None)
 
         self._backoff.success()
@@ -672,19 +698,32 @@ class WarningsCog(commands.Cog):
         )
         embed.set_footer(text=f"VTEC {vtec_id}")
 
-        # Download IEM Autoplot image
-        image_url = iem_autoplot_url(vtec)
-        filename = f"warning_{vtec_id.replace('.', '_')}.png"
+        # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS)
         files = []
-        try:
-            content, status = await http_get_bytes(image_url, retries=2, timeout=15)
-            if content and status == 200:
-                files.append(discord.File(BytesIO(content), filename=filename))
-                embed.set_image(url=f"attachment://{filename}")
-            else:
-                logger.warning(f"[WARN] Failed to download IEM image: {image_url} (status={status})")
-        except Exception as e:
-            logger.warning(f"[WARN] Error downloading IEM image: {e}")
+        if (vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS":
+            image_url = iem_autoplot_url(vtec)
+            filename = f"warning_{vtec_id.replace('.', '_')}.png"
+            # IEM maps can take a few seconds to generate after a NEW issuance.
+            # Retry on 404 with a small delay.
+            for attempt in range(3):
+                try:
+                    content, status = await http_get_bytes(image_url, retries=1, timeout=15)
+                    if content and status == 200:
+                        from io import BytesIO
+                        files.append(discord.File(BytesIO(content), filename=filename))
+                        embed.set_image(url=f"attachment://{filename}")
+                        break
+                    elif status == 404:
+                        if attempt < 2:
+                            await asyncio.sleep(5)
+                            continue
+                    logger.warning(f"[WARN] Failed to download IEM image: {image_url} (status={status})")
+                except Exception as e:
+                    logger.warning(f"[WARN] Error downloading IEM image: {e}")
+                    if attempt < 2:
+                        await asyncio.sleep(2)
+                        continue
+                    break
 
         msg = await channel.send(embed=embed, files=files)
         logger.info(f"[WARN] Posted {event} {vtec_id}")
