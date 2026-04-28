@@ -311,7 +311,7 @@ def extract_md_body(raw_text: Optional[str]) -> Optional[str]:
 
 
 def clean_md_text_for_discord(text: str) -> str:
-    """Un-wraps SPC's hard-wrapped lines and tightens spacing."""
+    """Un-wraps SPC's hard-wrapped lines and tightens spacing with consistent bolding."""
     if not text:
         return ""
     
@@ -327,24 +327,42 @@ def clean_md_text_for_discord(text: str) -> str:
                 current_para = []
             continue
         
-        # Detect headers like SUMMARY... or DISCUSSION...
-        is_header = stripped.endswith("...") and any(
-            stripped.startswith(m) for m in ["SUMMARY", "DISCUSSION", "Concerning", "Areas affected", "Valid", "Probability"]
-        )
+        # 1. Detect "Top Headers" (Short lines that should be entirely bold)
+        top_headers = ["Concerning", "Areas affected", "Valid", "Probability"]
+        # 2. Detect "Paragraph Headers" (Labels that start a block of text)
+        para_headers = ["SUMMARY", "DISCUSSION"]
         
-        if is_header:
+        is_top = any(stripped.startswith(m) for m in top_headers)
+        is_para = any(stripped.startswith(m) for m in para_headers)
+        
+        if is_top:
+            # Flush previous paragraph if any
             if current_para:
                 cleaned_lines.append(" ".join(current_para))
                 current_para = []
-            # Bold the header but don't add a newline yet, so the text can follow it
             cleaned_lines.append(f"**{stripped}**")
+        elif is_para:
+            # Flush previous paragraph if any
+            if current_para:
+                cleaned_lines.append(" ".join(current_para))
+                current_para = []
+            
+            # Bold only the label part (up to the dots)
+            if "..." in stripped:
+                idx = stripped.find("...") + 3
+                label = stripped[:idx]
+                rest = stripped[idx:].strip()
+                current_para.append(f"**{label}**")
+                if rest:
+                    current_para.append(rest)
+            else:
+                cleaned_lines.append(f"**{stripped}**")
         else:
             current_para.append(stripped)
             
     if current_para:
         cleaned_lines.append(" ".join(current_para))
         
-    # Join with single newline for maximum vertical compactness
     return "\n".join(cleaned_lines)
 
 
