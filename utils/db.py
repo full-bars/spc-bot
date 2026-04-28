@@ -128,6 +128,11 @@ async def _create_tables(db: aiosqlite.Connection):
             watch_number TEXT PRIMARY KEY
         );
 
+        CREATE TABLE IF NOT EXISTS posted_surveys (
+            dat_guid TEXT PRIMARY KEY,
+            posted_at REAL NOT NULL DEFAULT 0
+        );
+
         CREATE TABLE IF NOT EXISTS posted_warnings (
             vtec_id    TEXT PRIMARY KEY,
             message_id INTEGER NOT NULL DEFAULT 0,
@@ -328,6 +333,43 @@ async def prune_posted_watches(max_size: int = 200):
            )""",
         (max_size,),
         "prune_posted_watches",
+    )
+
+
+# ── Posted surveys (DAT tracks) ──────────────────────────────────────────────
+
+async def get_posted_surveys() -> set:
+    """Get all posted DAT survey GUIDs."""
+    try:
+        db = await get_db()
+        async with db.execute("SELECT dat_guid FROM posted_surveys") as cursor:
+            rows = await cursor.fetchall()
+            return {row["dat_guid"] for row in rows}
+    except Exception as e:
+        logger.warning(f"[DB] get_posted_surveys failed: {e}")
+        return set()
+
+
+async def add_posted_survey(dat_guid: str, posted_at: float = 0.0):
+    """Mark a DAT survey as posted."""
+    await _write(
+        "INSERT OR IGNORE INTO posted_surveys (dat_guid, posted_at) VALUES (?, ?)",
+        (dat_guid, posted_at or time.time()),
+        f"add_posted_survey({dat_guid})",
+    )
+
+
+async def prune_posted_surveys(max_size: int = 100):
+    """Keep only the most recent DAT survey GUIDs."""
+    await _write(
+        """DELETE FROM posted_surveys
+           WHERE dat_guid NOT IN (
+               SELECT dat_guid FROM posted_surveys
+               ORDER BY posted_at DESC
+               LIMIT ?
+           )""",
+        (max_size,),
+        "prune_posted_surveys",
     )
 
 

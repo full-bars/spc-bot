@@ -131,6 +131,10 @@ def _k_posted_watches() -> str:
     return f"{_PREFIX}:posted_watches"
 
 
+def _k_posted_surveys() -> str:
+    return f"{_PREFIX}:posted_surveys"
+
+
 def _k_posted_warnings() -> str:
     return f"{_PREFIX}:posted_warnings"
 
@@ -322,6 +326,9 @@ async def _replay(op: str, args: tuple) -> None:
     elif op == "add_posted_watch":
         (watch_number,) = args
         await _upstash_cmd("SADD", _k_posted_watches(), watch_number)
+    elif op == "add_posted_survey":
+        (dat_guid,) = args
+        await _upstash_cmd("SADD", _k_posted_surveys(), dat_guid)
     elif op == "add_posted_warning":
         vtec_id, message_id, channel_id, _ = args
         data = {"message_id": message_id, "channel_id": channel_id}
@@ -558,6 +565,40 @@ async def prune_posted_watches(max_size: int = 200) -> None:
     _cache_invalidate("posted_watches")
 
 
+# ── Posted surveys ───────────────────────────────────────────────────────────
+
+async def get_posted_surveys() -> Set[str]:
+    cache_key = "posted_surveys"
+    hit, val = _cache_get(cache_key)
+    if hit:
+        return set(val)
+    try:
+        result = await _upstash_cmd("SMEMBERS", _k_posted_surveys())
+        members = set(result or [])
+        _cache_set(cache_key, members)
+        return set(members)
+    except _UpstashUnavailable as e:
+        logger.debug(f"[STATE] get_posted_surveys falling back to SQLite: {e}")
+        val = await sqlite_backend.get_posted_surveys()
+        _cache_set(cache_key, val, ttl=CACHE_TTL_SECONDS / 2)
+        return val
+
+
+async def add_posted_survey(dat_guid: str) -> None:
+    _cache_invalidate("posted_surveys")
+    await sqlite_backend.add_posted_survey(dat_guid)
+    try:
+        await _upstash_cmd("SADD", _k_posted_surveys(), dat_guid)
+    except _UpstashUnavailable as e:
+        logger.warning(f"[STATE] add_posted_survey({dat_guid}) queued: {e}")
+        await _enqueue_dirty("add_posted_survey", (dat_guid,))
+
+
+async def prune_posted_surveys(max_size: int = 100) -> None:
+    await sqlite_backend.prune_posted_surveys(max_size)
+    _cache_invalidate("posted_surveys")
+
+
 # ── Posted warnings ──────────────────────────────────────────────────────────
 
 async def get_all_posted_warnings() -> Dict[str, dict]:
@@ -730,7 +771,7 @@ async def resync_to_upstash() -> Dict[str, int]:
     dirty list) still make it up. Returns counts of items pushed per
     category for logging.
     """
-    counts = {"hashes": 0, "posted_mds": 0, "posted_watches": 0, "state": 0, "urls": 0}
+    counts = {"hashes": 0, "posted_mds": 0, "posted_watches": 0, "posted_surveys": 0, "state": 0, "urls": 0}
     try:
         for cache_type in ("auto", "manual"):
             hashes = await sqlite_backend.get_all_hashes(cache_type)
@@ -751,6 +792,11 @@ async def resync_to_upstash() -> Dict[str, int]:
         if watches:
             await _upstash_cmd("SADD", _k_posted_watches(), *watches)
             counts["posted_watches"] = len(watches)
+
+        surveys = await sqlite_backend.get_posted_surveys()
+        if surveys:
+            await _upstash_cmd("SADD", _k_posted_surveys(), *surveys)
+            counts["posted_surveys"] = len(surveys)
 
         states = await sqlite_backend.get_all_state()
         if states:
