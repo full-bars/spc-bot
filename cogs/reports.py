@@ -44,8 +44,6 @@ class ReportsCog(commands.Cog):
         
         if pil == "LSR":
             await self._handle_lsr(product_id, raw_text)
-            # Log significant events from LSR text
-            await self._check_and_log_report(product_id, raw_text)
         elif pil == "PNS":
             await self._handle_pns(product_id, raw_text)
 
@@ -121,6 +119,65 @@ class ReportsCog(commands.Cog):
             
             await channel.send(embed=embed)
             self.posted_reports.add(product_id)
+
+            # Log significant events using the already-parsed event_type and city.
+            # Magnitude line directly follows the header: M<value> or E<value>.
+            lsr_ts = datetime.now(timezone.utc).timestamp()
+            if product_id and len(product_id) >= 12:
+                try:
+                    lsr_ts = datetime.strptime(product_id[:12], "%Y%m%d%H%M").replace(tzinfo=timezone.utc).timestamp()
+                except Exception:
+                    pass
+
+            event_upper = event_type.upper()
+            if "TORNADO" in event_upper:
+                # Dedup already happened above; if we reach here it's a new tornado
+                await add_significant_event(
+                    event_id=f"IEM:LSR:{product_id}",
+                    event_type="Tornado",
+                    location=city,
+                    magnitude="Confirmed",
+                    coords=coords,
+                    timestamp=lsr_ts,
+                    source=office,
+                    raw_text=remarks,
+                )
+            elif "HAIL" in event_upper:
+                m_mag = re.search(r"[ME]([\d.]+)", r)
+                if m_mag:
+                    try:
+                        size = float(m_mag.group(1))
+                        if size >= 3.0:
+                            await add_significant_event(
+                                event_id=f"IEM:LSR:{product_id}:hail",
+                                event_type="Hail",
+                                location=city,
+                                magnitude=f"{size:.2f} Inch",
+                                coords=coords,
+                                timestamp=lsr_ts,
+                                source=office,
+                                raw_text=remarks,
+                            )
+                    except ValueError:
+                        pass
+            elif "WND" in event_upper or "WIND" in event_upper:
+                m_mag = re.search(r"[ME]([\d]+)", r)
+                if m_mag:
+                    try:
+                        speed = int(m_mag.group(1))
+                        if speed >= 80:
+                            await add_significant_event(
+                                event_id=f"IEM:LSR:{product_id}:wind",
+                                event_type="Wind",
+                                location=city,
+                                magnitude=f"{speed} MPH",
+                                coords=coords,
+                                timestamp=lsr_ts,
+                                source=office,
+                                raw_text=remarks,
+                            )
+                    except ValueError:
+                        pass
 
     async def _handle_pns(self, product_id: str, raw_text: str):
         # Public Information Statement - Damage Survey
@@ -291,77 +348,6 @@ class ReportsCog(commands.Cog):
 
         except Exception as e:
             logger.warning(f"[REPORTS] Survey check failed for {event_date}: {e}")
-
-    async def _check_and_log_report(self, product_id: str, raw_text: str):
-        """Parse Local Storm Report text and log significant events."""
-        # Simple extraction for significant events
-        event_type = None
-        if "TORNADO" in raw_text.upper():
-            event_type = "Tornado"
-        elif "HAIL" in raw_text.upper():
-            # Check size >= 3.0
-            m = re.search(r"([\d\.]+)\s*INCH", raw_text, re.I)
-            if m and float(m.group(1)) >= 3.0:
-                event_type = "Hail"
-        elif "WIND" in raw_text.upper() or "TSTM WND" in raw_text.upper():
-            # Check speed >= 80
-            m = re.search(r"([\d\.]+)\s*MPH", raw_text, re.I)
-            if m and float(m.group(1)) >= 80:
-                event_type = "Wind"
-        
-        if not event_type:
-            return
-
-        # Location
-        location = "Unknown"
-        m_loc = re.search(r"\d{4}\s+[AP]M\s+[A-Z\s]+\s+(.{24})", raw_text)
-        if m_loc:
-            location = m_loc.group(1).strip()
-        
-        # Magnitude
-        mag = ""
-        m_mag = re.search(r"([\d\.]+\s*(?:MPH|INCH))", raw_text, re.I)
-        if m_mag:
-            mag = m_mag.group(1)
-
-        # Coords
-        coords = ""
-        m_coords = re.search(r"(\d+\.\d+N\s+\d+\.\d+W)", raw_text)
-        if m_coords:
-            coords = m_coords.group(1)
-
-        # Timestamp from product_id if possible
-        ts = 0.0
-        if product_id and len(product_id) >= 12:
-            try:
-                # 202604281109
-                dt = datetime.strptime(product_id[:12], "%Y%m%d%H%M")
-                ts = dt.replace(tzinfo=timezone.utc).timestamp()
-            except:
-                ts = datetime.now(timezone.utc).timestamp()
-        else:
-            ts = datetime.now(timezone.utc).timestamp()
-
-        office = product_id.split("-")[1] if "-" in product_id else "NWS"
-
-        # Dedup check for Tornadoes
-        if event_type == "Tornado":
-            from utils.state_store import find_matching_tornado
-            match_id = await find_matching_tornado(office, ts, location)
-            if match_id:
-                logger.info(f"[REPORTS] Skipping DB log for LSR {product_id}, matches existing {match_id}")
-                return
-
-        await add_significant_event(
-            event_id=f"IEM:LSR:{product_id}",
-            event_type=event_type,
-            location=location,
-            magnitude=mag or ("Confirmed" if event_type == "Tornado" else ""),
-            coords=coords,
-            timestamp=ts,
-            source=office,
-            raw_text=raw_text
-        )
 
     @tasks.loop(minutes=5)
     async def poll_lsrs(self):
