@@ -14,6 +14,7 @@ This is the v1 baseline. Subsequent PRs add:
 """
 from __future__ import annotations
 
+from io import BytesIO
 import asyncio  # noqa: F401  # used by future PRs
 import json as _json
 import logging
@@ -27,8 +28,7 @@ from discord.ext import commands, tasks
 
 from config import NWS_ALERTS_WARNINGS_URL, WARNINGS_CHANNEL_ID
 from utils.backoff import TaskBackoff
-from utils.http import http_get_bytes_conditional
-from utils.nexrad import find_nearest_radar, polygon_centroid
+from utils.http import http_get_bytes, http_get_bytes_conditional
 from utils.state_store import (
     add_posted_warning,
     get_all_posted_warnings,
@@ -187,62 +187,107 @@ def get_warning_style(event: str, text: str, params: dict = None) -> Tuple[str, 
 _DESCRIPTION_LIMIT = 4000
 
 
-def _polygon_from_nws_feature(
-    feature: dict,
-) -> Optional[List[Tuple[float, float]]]:
-    """Extract the warning polygon from a NWS API GeoJSON feature.
-
-    NWS warning geometries are typically ``Polygon`` with a single
-    outer ring. Coordinates arrive in ``[lon, lat]`` order; we flip to
-    our internal ``(lat, lon)`` convention so the radar lookup, which
-    expects lat-first, can consume the result directly.
-    """
-    geom = feature.get("geometry") or {}
-    gtype = geom.get("type")
-    if gtype == "Polygon":
-        rings = geom.get("coordinates") or []
-        if not rings:
-            return None
-        ring = rings[0]
-    elif gtype == "MultiPolygon":
-        polys = geom.get("coordinates") or []
-        if not polys:
-            return None
-        ring = polys[0][0]
-    else:
-        return None
-    out: List[Tuple[float, float]] = []
-    for pair in ring:
+def iem_autoplot_url(vtec: dict) -> str:
+    """Return the IEM Autoplot #208 URL for a given VTEC dict."""
+    # VTEC timestamps are like 260428T0428Z; extract the year
+    # or just use the current year as a fallback.
+    year = datetime.now(timezone.utc).year
+    if vtec.get("start"):
         try:
-            lon, lat = float(pair[0]), float(pair[1])
-        except (ValueError, TypeError, IndexError):
-            continue
-        out.append((lat, lon))
-    return out or None
+             year = 2000 + int(vtec["start"][:2])
+        except (ValueError, IndexError):
+             pass
+
+    office = vtec["office"]
+    # IEM expects the 3-letter SID for Autoplot 208 if it's a standard WFO.
+    # KOUN -> OUN, KIND -> IND.
+    if office.startswith("K") and len(office) == 4:
+        office = office[1:]
+
+    return (
+        f"https://mesonet.agron.iastate.edu/plotting/auto/plot/208/"
+        f"network:WFO::wfo:{office}::year:{year}::"
+        f"phenomenav:{vtec['phenom']}::significancev:{vtec['sig']}::"
+        f"etn:{vtec['etn'].lstrip('0')}.png"
+    )
 
 
-def radar_loop_url(icao: str) -> str:
-    """Public NWS Ridge2 reflectivity loop GIF URL for a radar site."""
-    return f"https://radar.weather.gov/ridge/standard/{icao}_loop.gif"
+def build_concise_warning_text(
+    event: str, 
+    vtec: dict, 
+    raw_text: Optional[str] = None, 
+    feature: Optional[dict] = None
+) -> str:
+    """Generate a one-liner warning summary."""
+    # 1. Action & Office
+    office = vtec["office"]
+    if office.startswith("K") and len(office) == 4:
+        office = office[1:]
+    
+    action_map = {
+        "NEW": "issues",
+        "CON": "continues",
+        "CAN": "cancels",
+        "EXP": "expired",
+        "UPG": "upgrades",
+    }
+    action_verb = action_map.get(vtec["action"], "updates")
+    
+    # 2. Extract Tags (tornado, hail, wind)
+    tags = []
+    text_to_search = raw_text or ""
+    if feature:
+        props = feature.get("properties", {})
+        text_to_search += " " + (props.get("description") or "")
+        params = props.get("parameters", {})
+        if params.get("tornadoDetection"):
+             tags.append(f"tornado: {params['tornadoDetection'][0]}")
+        if params.get("maxHailSize"):
+             tags.append(f"hail: {params['maxHailSize'][0]} IN")
+        if params.get("maxWindGust"):
+             tags.append(f"wind: {params['maxWindGust'][0]}")
+    
+    if not tags and text_to_search:
+        # Regex fallback for iembot path
+        m_tor = re.search(r"TORNADO\.\.\.(.+?)(?:\n|$)", text_to_search, re.I)
+        if m_tor: tags.append(f"tornado: {m_tor.group(1).strip()}")
+        m_hail = re.search(r"HAIL\.\.\.(.+?)(?:\n|$)", text_to_search, re.I)
+        if m_hail: tags.append(f"hail: {m_hail.group(1).strip()}")
+        m_wind = re.search(r"WIND\.\.\.(.+?)(?:\n|$)", text_to_search, re.I)
+        if m_wind: tags.append(f"wind: {m_wind.group(1).strip()}")
 
+    tag_str = f" [{', '.join(tags)}]" if tags else ""
 
-async def resolve_radar_for_polygon(
-    coords: Optional[List[Tuple[float, float]]],
-) -> Tuple[Optional[str], Optional[float]]:
-    """Pick the nearest WSR-88D site to a warning polygon's centroid.
+    # 3. Affected Area
+    area = "affected area"
+    if feature:
+        area = feature.get("properties", {}).get("areaDesc", area)
+    elif raw_text:
+        # Pull county names from "* ... county in ..." lines
+        counties = re.findall(r"(?m)^\s*\*\s+(.+?)\s+County", raw_text, re.I)
+        if counties:
+            area = ", ".join(counties)
 
-    Returns ``(icao, distance_km)`` or ``(None, None)`` when the polygon
-    is missing or the NEXRAD site list is unavailable.
-    """
-    if not coords:
-        return None, None
-    centroid = polygon_centroid(coords)
-    if not centroid:
-        return None, None
-    result = await find_nearest_radar(*centroid)
-    if not result:
-        return None, None
-    return result
+    # 4. Expiration Time
+    # VTEC end: 260428T0530Z
+    expires_str = ""
+    if vtec.get("end"):
+        try:
+            # Simple conversion to "till HH:MMZ"
+            z_time = vtec["end"].split("T")[1] # e.g. 0530Z
+            expires_str = f" till {z_time[:2]}:{z_time[2:4]}Z"
+        except (IndexError, ValueError):
+            pass
+
+    # 5. Narrative Bullet
+    narrative = ""
+    if text_to_search:
+        # Find the "* At ... severe thunderstorms were located..." line
+        m_nat = re.search(r"(?m)^\s*\*\s+At\s+(.+?)(?=\n\s*\*|\n\s*[A-Z]|$)", text_to_search, re.I | re.DOTALL)
+        if m_nat:
+            narrative = f"\n* At {re.sub(r'\s+', ' ', m_nat.group(1)).strip()}"
+
+    return f"{office} {action_verb} {event}{tag_str} for {area}{expires_str}{narrative}"
 
 
 def _extract_narrative(raw: str) -> Optional[str]:
@@ -360,35 +405,33 @@ class WarningsCog(commands.Cog):
         self.bot.state.posted_warnings[vtec_id] = {} # placeholder
         self.bot.state.active_warnings.add(vtec_id)
 
-        narrative = _extract_narrative(raw_text)
+        concise_text = build_concise_warning_text(event, vtec, raw_text=raw_text)
         title, color = get_warning_style(event, raw_text)
 
-        body = narrative or ""
-        if len(body) > _DESCRIPTION_LIMIT:
-            body = body[:_DESCRIPTION_LIMIT].rstrip() + "\n..."
-
         embed = discord.Embed(
-            title=title,
-            description=f"```\n{body}\n```" if body else None,
+            description=concise_text,
             color=color,
             timestamp=datetime.now(timezone.utc),
         )
-        embed.add_field(
-            name="Office",
-            value=office,
-            inline=True,
-        )
+        embed.set_footer(text=f"VTEC {vtec_id}")
 
-        # Iembot path: pull the polygon out of the LAT...LON block
-        # ourselves since NWS API may not have the alert yet. PR D will
-        # backfill higher-fidelity NWS API data via an upgrade poll.
-        coords = parse_warning_polygon(raw_text)
-        await self._attach_radar(embed, coords)
-
-        embed.set_footer(text=f"VTEC {vtec_id} (iembot fast-path)")
+        # Download IEM Autoplot image
+        image_url = iem_autoplot_url(vtec)
+        filename = f"warning_{vtec_id.replace('.', '_')}.png"
+        files = []
+        try:
+            content, status = await http_get_bytes(image_url, retries=2, timeout=15)
+            if content and status == 200:
+                from io import BytesIO
+                files.append(discord.File(BytesIO(content), filename=filename))
+                embed.set_image(url=f"attachment://{filename}")
+            else:
+                logger.warning(f"[WARN] Failed to download IEM image: {image_url} (status={status})")
+        except Exception as e:
+            logger.warning(f"[WARN] Error downloading IEM image: {e}")
 
         try:
-            msg = await channel.send(embed=embed)
+            msg = await channel.send(embed=embed, files=files)
             logger.info(f"[WARN] Posted (iembot) {event} {vtec_id}")
             # Update the in-memory mapping with the message info
             self.bot.state.posted_warnings[vtec_id] = {
@@ -434,17 +477,19 @@ class WarningsCog(commands.Cog):
 
             embed = msg.embeds[0]
             # Avoid double-cancellation logic
-            if "—" in (embed.title or ""):
+            if "✅" in (embed.title or "") or (embed.description and embed.description.startswith("~~")):
                 return
 
-            embed.title = f"✅ {embed.title} — {reason}"
+            # Keep it simple: strike through the concise text
+            if embed.description:
+                 embed.description = f"~~{embed.description.strip('~')}~~"
+            
+            # Add status to footer or description
+            footer = embed.footer.text or ""
+            embed.set_footer(text=f"{footer} | {reason}")
             embed.color = discord.Color.green()
-            if embed.description and not embed.description.startswith("~~"):
-                # Wrap description in strikethrough (fences are outside)
-                desc = embed.description.strip("`").strip()
-                embed.description = f"```\n~~{desc}~~\n```"
 
-            await msg.edit(embeds=msg.embeds)  # Re-use all embeds, just update the first one
+            await msg.edit(embeds=msg.embeds)
             logger.info(f"[WARN] Marked {vtec_id} as {reason} in Discord")
         except discord.NotFound:
             logger.debug(
@@ -507,15 +552,16 @@ class WarningsCog(commands.Cog):
                 continue
 
             vtec_list = props.get("parameters", {}).get("VTEC", []) or []
-            issuance_id: Optional[str] = None
+            vtec_dict: Optional[dict] = None
             for v in vtec_list:
                 parsed = parse_vtec(v)
                 if parsed and parsed["action"] == "NEW":
-                    issuance_id = parsed["vtec_id"]
+                    vtec_dict = parsed
                     break
-            if not issuance_id:
+            if not vtec_dict:
                 continue
             
+            issuance_id = vtec_dict["vtec_id"]
             current_vtec_ids.add(issuance_id)
 
             if issuance_id in self.bot.state.posted_warnings:
@@ -524,7 +570,7 @@ class WarningsCog(commands.Cog):
                 continue
 
             try:
-                msg = await self._post_warning(feature, channel, issuance_id, event)
+                msg = await self._post_warning(feature, channel, vtec_dict, event)
             except discord.HTTPException as e:
                 logger.exception(f"[WARN] Send failed for {issuance_id}: {e}")
                 continue
@@ -554,76 +600,41 @@ class WarningsCog(commands.Cog):
         self,
         feature: dict,
         channel: discord.abc.Messageable,
-        vtec_id: str,
+        vtec: dict,
         event: str,
     ) -> discord.Message:
         props = feature.get("properties", {}) or {}
         description = props.get("description", "") or ""
         params = props.get("parameters", {})
         title, color = get_warning_style(event, description, params)
+        vtec_id = vtec["vtec_id"]
 
-        if len(description) > _DESCRIPTION_LIMIT:
-            description = description[:_DESCRIPTION_LIMIT].rstrip() + "\n..."
+        concise_text = build_concise_warning_text(event, vtec, feature=feature)
 
         embed = discord.Embed(
-            title=title,
-            description=f"```\n{description}\n```" if description else None,
+            description=concise_text,
             color=color,
             timestamp=datetime.now(timezone.utc),
         )
-
-        sender = props.get("senderName", "")
-        if sender:
-            embed.add_field(name="Office", value=sender, inline=True)
-
-        expires = props.get("expires") or props.get("ends")
-        if expires:
-            try:
-                exp_dt = datetime.fromisoformat(expires).astimezone(timezone.utc)
-                embed.add_field(
-                    name="Expires",
-                    value=exp_dt.strftime("%H:%MZ %m/%d"),
-                    inline=True,
-                )
-            except (ValueError, TypeError):
-                pass
-
-        area = props.get("areaDesc", "")
-        if area:
-            embed.add_field(name="Area", value=area[:1024], inline=False)
-
-        # Pull the polygon from NWS API geometry (already structured)
-        # and attach the nearest radar's loop GIF as the embed image.
-        coords = _polygon_from_nws_feature(feature)
-        await self._attach_radar(embed, coords)
-
-        # Footer carries the VTEC ETN so we can correlate Discord posts
-        # back to the source alert when reading logs or debugging.
         embed.set_footer(text=f"VTEC {vtec_id}")
 
-        msg = await channel.send(embed=embed)
+        # Download IEM Autoplot image
+        image_url = iem_autoplot_url(vtec)
+        filename = f"warning_{vtec_id.replace('.', '_')}.png"
+        files = []
+        try:
+            content, status = await http_get_bytes(image_url, retries=2, timeout=15)
+            if content and status == 200:
+                files.append(discord.File(BytesIO(content), filename=filename))
+                embed.set_image(url=f"attachment://{filename}")
+            else:
+                logger.warning(f"[WARN] Failed to download IEM image: {image_url} (status={status})")
+        except Exception as e:
+            logger.warning(f"[WARN] Error downloading IEM image: {e}")
+
+        msg = await channel.send(embed=embed, files=files)
         logger.info(f"[WARN] Posted {event} {vtec_id}")
         return msg
-
-    async def _attach_radar(
-        self,
-        embed: discord.Embed,
-        coords: Optional[List[Tuple[float, float]]],
-    ) -> None:
-        """Resolve the nearest WSR-88D and set the embed image to its
-        live reflectivity loop GIF. No-op if we can't resolve a site —
-        we'd rather post the warning without radar than skip it."""
-        icao, dist_km = await resolve_radar_for_polygon(coords)
-        if not icao:
-            return
-        embed.set_image(url=radar_loop_url(icao))
-        # Fold the radar attribution into the existing fields rather
-        # than another row to keep the embed compact.
-        embed.add_field(
-            name="Radar",
-            value=f"{icao} ({dist_km:.0f} km)" if dist_km else icao,
-            inline=True,
-        )
 
     @auto_poll_warnings.after_loop
     async def after_loop(self):
