@@ -50,17 +50,27 @@ def test_extract_md_body_from_spc_html():
     )
     body = extract_md_body(html)
     assert body is not None
-    assert "Mesoscale Discussion 0579" in body
+    # Header lines are now trimmed — body starts at the first content
+    # marker (\"Concerning\" here).
+    assert body.startswith("Concerning")
     assert "<b>" not in body, "HTML tags must be stripped"
     assert "AT&T" in body, "entities must be decoded"
     assert "Concerning...Tornado Watch 162..." in body
 
 
-def test_extract_md_body_passes_plain_text_through():
-    """IEM gives us already-plain text — no HTML; we shouldn't try to
-    parse a <pre> block that doesn't exist."""
+def test_extract_md_body_trims_header_on_plain_text():
+    """IEM gives us already-plain text — no HTML — but the redundant
+    top header (issuance metadata) is stripped so the embed leads with
+    the meat of the discussion (\"Areas affected\" / \"Concerning\").
+    The footer/LAT...LON section is also dropped."""
     body = extract_md_body(SAMPLE_MD)
-    assert body == SAMPLE_MD.strip()
+    assert body is not None
+    # Header lines are dropped — body starts at the first content marker.
+    assert body.startswith("Areas affected")
+    assert "NWS Storm Prediction Center" not in body
+    # Substantive content is preserved.
+    assert "Concerning...Tornado Watch 162..." in body
+    assert "DISCUSSION" in body
 
 
 def test_extract_md_body_returns_none_for_empty_input():

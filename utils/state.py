@@ -43,17 +43,24 @@ class PostingLog:
     __slots__ = (
         "posted_mds",
         "posted_watches",
+        "posted_warnings",
         "csu_posted",
         "active_mds",
         "active_watches",
+        "active_warnings",
     )
 
     def __init__(self):
         self.posted_mds: Set[str] = set()
         self.posted_watches: Set[str] = set()
+        # Posted NWS warnings keyed by VTEC ETN (e.g. "KOUN.TO.W.0042").
+        # Maps ETN -> {'message_id': int, 'channel_id': int}
+        self.posted_warnings: Dict[str, dict] = {}
         self.csu_posted: Set[str] = set()
         self.active_mds: Set[str] = set()
         self.active_watches: Dict[str, dict] = {}
+        # Currently-active VTEC IDs mapping to their latest vtec metadata dict
+        self.active_warnings: Dict[str, dict] = {}
 
 
 class TimingTracker:
@@ -102,6 +109,11 @@ class BotState:
     def __init__(self):
         self.is_primary: bool = True  # overridden by IS_PRIMARY env var in main.py
         self.iembot_last_seqnum: int = 0
+        # Separate seqnum tracker for the iembot ``botstalk`` national
+        # room — this is the warning-product fast-path. Tracked
+        # independently from the spcchat seqnum so a stall in one feed
+        # can't make us replay the other on restart.
+        self.iembot_botstalk_last_seqnum: int = 0
         self.bot_start_time: Optional[datetime] = None
 
         self.hashes = HashStore()
@@ -115,9 +127,11 @@ class BotState:
 
     posted_mds = _delegate("posting", "posted_mds")
     posted_watches = _delegate("posting", "posted_watches")
+    posted_warnings = _delegate("posting", "posted_warnings")
     csu_posted = _delegate("posting", "csu_posted")
     active_mds = _delegate("posting", "active_mds")
     active_watches = _delegate("posting", "active_watches")
+    active_warnings = _delegate("posting", "active_warnings")
 
     last_post_times = _delegate("timing", "last_post_times")
     last_posted_urls = _delegate("timing", "last_posted_urls")
@@ -132,8 +146,11 @@ class BotState:
             "manual_cache": self.manual_cache,
             "posted_mds": list(self.posted_mds),
             "posted_watches": list(self.posted_watches),
+            "posted_warnings": self.posted_warnings,
             "csu_posted": list(self.csu_posted),
+            "active_warnings": list(self.active_warnings.keys()),
             "active_watches": {
+
                 k: {
                     "type": v.get("type"),
                     "expires": v["expires"].isoformat() if v.get("expires") else None,

@@ -131,6 +131,14 @@ def _k_posted_watches() -> str:
     return f"{_PREFIX}:posted_watches"
 
 
+def _k_posted_surveys() -> str:
+    return f"{_PREFIX}:posted_surveys"
+
+
+def _k_posted_warnings() -> str:
+    return f"{_PREFIX}:posted_warnings"
+
+
 def _k_state(key: str) -> str:
     return f"{_PREFIX}:state:{key}"
 
@@ -240,7 +248,7 @@ def invalidate_all_caches() -> None:
 # ── Reconciler (dirty-key retry) ─────────────────────────────────────────────
 
 # Each entry describes an Upstash write that needs to be retried. `op`
-# is one of: "set_hash", "add_posted_md", "add_posted_watch",
+# is one of: "set_hash", "add_posted_md", "add_posted_watch", "add_posted_warning",
 # "set_state", "delete_state", "set_posted_urls", "set_product_cache".
 # `args` are the user-facing arguments to the corresponding public
 # function (NOT the Upstash command args) so the reconciler replays
@@ -318,6 +326,13 @@ async def _replay(op: str, args: tuple) -> None:
     elif op == "add_posted_watch":
         (watch_number,) = args
         await _upstash_cmd("SADD", _k_posted_watches(), watch_number)
+    elif op == "add_posted_survey":
+        (dat_guid,) = args
+        await _upstash_cmd("SADD", _k_posted_surveys(), dat_guid)
+    elif op == "add_posted_warning":
+        vtec_id, message_id, channel_id, _ = args
+        data = {"message_id": message_id, "channel_id": channel_id}
+        await _upstash_cmd("HSET", _k_posted_warnings(), vtec_id, json.dumps(data))
     elif op == "set_state":
         key, value = args
         await _upstash_cmd("SET", _k_state(key), value)
@@ -550,6 +565,86 @@ async def prune_posted_watches(max_size: int = 200) -> None:
     _cache_invalidate("posted_watches")
 
 
+# ── Posted surveys ───────────────────────────────────────────────────────────
+
+async def get_posted_surveys() -> Set[str]:
+    cache_key = "posted_surveys"
+    hit, val = _cache_get(cache_key)
+    if hit:
+        return set(val)
+    try:
+        result = await _upstash_cmd("SMEMBERS", _k_posted_surveys())
+        members = set(result or [])
+        _cache_set(cache_key, members)
+        return set(members)
+    except _UpstashUnavailable as e:
+        logger.debug(f"[STATE] get_posted_surveys falling back to SQLite: {e}")
+        val = await sqlite_backend.get_posted_surveys()
+        _cache_set(cache_key, val, ttl=CACHE_TTL_SECONDS / 2)
+        return val
+
+
+async def add_posted_survey(dat_guid: str) -> None:
+    _cache_invalidate("posted_surveys")
+    await sqlite_backend.add_posted_survey(dat_guid)
+    try:
+        await _upstash_cmd("SADD", _k_posted_surveys(), dat_guid)
+    except _UpstashUnavailable as e:
+        logger.warning(f"[STATE] add_posted_survey({dat_guid}) queued: {e}")
+        await _enqueue_dirty("add_posted_survey", (dat_guid,))
+
+
+async def prune_posted_surveys(max_size: int = 100) -> None:
+    await sqlite_backend.prune_posted_surveys(max_size)
+    _cache_invalidate("posted_surveys")
+
+
+# ── Posted warnings ──────────────────────────────────────────────────────────
+
+async def get_all_posted_warnings() -> Dict[str, dict]:
+    cache_key = "posted_warnings"
+    hit, val = _cache_get(cache_key)
+    if hit:
+        return dict(val)
+    try:
+        # We store as a hash in Upstash: {vtec_id -> JSON string}
+        result = await _upstash_cmd("HGETALL", _k_posted_warnings())
+        # HGETALL returns [k1, v1, k2, v2, ...]
+        mapping = {}
+        if result:
+            for i in range(0, len(result), 2):
+                vtec_id = result[i]
+                try:
+                    mapping[vtec_id] = json.loads(result[i + 1])
+                except json.JSONDecodeError:
+                    continue
+        _cache_set(cache_key, mapping)
+        return dict(mapping)
+    except _UpstashUnavailable as e:
+        logger.debug(f"[STATE] get_all_posted_warnings falling back to SQLite: {e}")
+        val = await sqlite_backend.get_all_posted_warnings()
+        _cache_set(cache_key, val, ttl=CACHE_TTL_SECONDS / 2)
+        return val
+
+
+async def add_posted_warning(
+    vtec_id: str, message_id: int, channel_id: int, posted_at: float = 0.0
+) -> None:
+    _cache_invalidate("posted_warnings")
+    await sqlite_backend.add_posted_warning(vtec_id, message_id, channel_id, posted_at)
+    data = {"message_id": message_id, "channel_id": channel_id}
+    try:
+        await _upstash_cmd("HSET", _k_posted_warnings(), vtec_id, json.dumps(data))
+    except _UpstashUnavailable as e:
+        logger.warning(f"[STATE] add_posted_warning({vtec_id}) queued: {e}")
+        await _enqueue_dirty("add_posted_warning", (vtec_id, message_id, channel_id, posted_at))
+
+
+async def prune_posted_warnings(max_size: int = 500) -> None:
+    await sqlite_backend.prune_posted_warnings(max_size)
+    _cache_invalidate("posted_warnings")
+
+
 # ── Key/value state ──────────────────────────────────────────────────────────
 
 async def get_state(key: str) -> Optional[str]:
@@ -676,7 +771,7 @@ async def resync_to_upstash() -> Dict[str, int]:
     dirty list) still make it up. Returns counts of items pushed per
     category for logging.
     """
-    counts = {"hashes": 0, "posted_mds": 0, "posted_watches": 0, "state": 0, "urls": 0}
+    counts = {"hashes": 0, "posted_mds": 0, "posted_watches": 0, "posted_surveys": 0, "state": 0, "urls": 0}
     try:
         for cache_type in ("auto", "manual"):
             hashes = await sqlite_backend.get_all_hashes(cache_type)
@@ -697,6 +792,11 @@ async def resync_to_upstash() -> Dict[str, int]:
         if watches:
             await _upstash_cmd("SADD", _k_posted_watches(), *watches)
             counts["posted_watches"] = len(watches)
+
+        surveys = await sqlite_backend.get_posted_surveys()
+        if surveys:
+            await _upstash_cmd("SADD", _k_posted_surveys(), *surveys)
+            counts["posted_surveys"] = len(surveys)
 
         states = await sqlite_backend.get_all_state()
         if states:

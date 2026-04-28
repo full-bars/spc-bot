@@ -10,6 +10,9 @@ A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks
 * NIU/Gensini CFSv2/GEFS supercell composite parameter (SCP) graphics, twice daily
 * CSU-MLP machine learning severe weather forecasts (Days 1-8 + 6-panel summaries), auto-posted daily with `/csu` slash command (interactive dropdown)
 * NCAR WxNext2 Mean AI convective hazard forecast (Days 1-8), auto-posted daily with `/wxnext` slash command
+* **Real-time NWS Warnings**: Immediate posting of Tornado, Severe Tstorm, and Flash Flood warnings via iembot fast-path with map mapping (IEM Autoplot 208)
+* **Tornado Damage Surveys**: Automatic detection of DAMAGE SURVEY reports via PNS; polls for and posts **Autoplot 253 (Tornado Tracks + Lead Time)** maps as soon as they are finalized
+* **Enhanced SPS Handling**: Special Weather Statements include geographic maps (Autoplot 217) and refined narrative extraction
 * Observed RAOB sounding plots via SounderPy with `/sounding` — supports city names, radar site codes, and station IDs with interactive station and time selection
 * Auto-posts soundings for RAOB stations near active SPC watches — immediately on watch issuance (any hour via IEM) and at 00z/12z synoptic cycles
 * On SPC Day 1 **Moderate** or **High** Risk days, sweeps every RAOB station and ACARS airport inside the categorical polygon (100 km buffer) and posts every new sounding as it arrives — runs alongside the watch-driven path with shared dedup
@@ -96,6 +99,8 @@ spc-bot/
 │   ├── mesoscale.py         # SPC MD monitoring with watch probability detection and IEM fallbacks
 │   ├── iembot.py            # IEM iembot feed poller with persistent text-product caching
 │   ├── watches.py           # SPC watch monitoring via NWS API (stores affected_zones)
+│   ├── warnings.py          # NWS VTEC warning monitoring (SVR, TOR, FFW) with map mapping
+│   ├── reports.py           # LSR and PNS monitoring; triggers Autoplot 253 tornado track posts
 │   ├── scp.py               # NIU/Gensini SCP graphics, twice daily
 │   ├── csu_mlp.py           # CSU-MLP consolidated /csu command with Choice dropdown
 │   ├── ncar.py              # NCAR WxNext2 AI severe weather forecast
@@ -119,11 +124,13 @@ spc-bot/
 │       ├── wsr88d.py        # Radar site info and filename utilities
 │       ├── asos.py          # ASOS surface wind fetching
 │       └── utils.py         # Shared exception types
-└── tests/                   # pytest suite (169+ tests, see CONTRIBUTING.md)
+└── tests/                   # pytest suite (170+ tests, see CONTRIBUTING.md)
     ├── conftest.py          # Fixtures: fake_bot (real BotState), isolated_db, opt-in patches
     ├── test_fixtures.py     # Fixture invariants
     ├── test_utils.py        # Utility and sounding parsing
     ├── test_watches.py      # Watch VTEC parsing
+    ├── test_warnings.py     # Warning VTEC and LAT...LON polygon parsing
+    ├── test_surveys.py      # PNS date extraction and Autoplot 253 polling
     ├── test_integration.py  # BotState, cog instantiation, function signatures
     ├── test_state_split.py  # HashStore / PostingLog / TimingTracker delegation
     ├── test_state_store.py  # Upstash-backed state store (cache, reconciler, SQLite fallback)
