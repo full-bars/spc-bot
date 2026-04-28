@@ -120,29 +120,32 @@ class MDPaginatorView(discord.ui.View):
         from_cache = data["from_cache"]
         cache_path = data["cache_path"]
 
-        # Clean and un-wrap the text for compact regular display
-        cleaned_text = clean_md_text_for_discord(raw_text)
-        content = f"🌩️ **SPC Mesoscale Discussion #{int(md_num)}**\n\n{cleaned_text}"
-        if len(content) > 2000:
-            content = content[:1990] + "..."
-
-        # Simpler embed just for the image
+        # 1. First embed: The Image (on top)
         md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
-        embed = discord.Embed(
+        img_embed = discord.Embed(
+            title=f"🌩️ SPC Mesoscale Discussion #{int(md_num)}",
             url=md_page_url,
             color=discord.Color.dark_orange(),
         )
-        footer_text = f"MD {self.index + 1} of {len(self.md_data)}"
-        if from_cache:
-            footer_text = f"⚠️ SPC website unreachable — image served from cache | {footer_text}"
-        embed.set_footer(text=footer_text)
-
+        
         files = []
         if cache_path:
             files.append(discord.File(cache_path, filename=f"md_{md_num}.png"))
-            embed.set_image(url=f"attachment://md_{md_num}.png")
+            img_embed.set_image(url=f"attachment://md_{md_num}.png")
+
+        # 2. Second embed: The Text (below image)
+        cleaned_text = clean_md_text_for_discord(raw_text)
+        text_embed = discord.Embed(
+            description=cleaned_text[:4090], # Stay under Discord embed limit
+            color=discord.Color.dark_orange(),
+        )
         
-        return content, [embed], files
+        footer_text = f"MD {self.index + 1} of {len(self.md_data)}"
+        if from_cache:
+            footer_text = f"⚠️ SPC website unreachable — image served from cache | {footer_text}"
+        text_embed.set_footer(text=footer_text)
+        
+        return None, [img_embed, text_embed], files
 
     @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary)
     async def prev_btn(

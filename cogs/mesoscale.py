@@ -311,7 +311,7 @@ def extract_md_body(raw_text: Optional[str]) -> Optional[str]:
 
 
 def clean_md_text_for_discord(text: str) -> str:
-    """Un-wraps SPC's hard-wrapped lines to save vertical space in Discord."""
+    """Un-wraps SPC's hard-wrapped lines and tightens spacing."""
     if not text:
         return ""
     
@@ -327,11 +327,16 @@ def clean_md_text_for_discord(text: str) -> str:
                 current_para = []
             continue
         
-        # If it looks like a label (e.g., SUMMARY...), make it bold and start a new line
-        if stripped.endswith("...") and any(stripped.startswith(m) for m in ["SUMMARY", "DISCUSSION", "Concerning", "Areas affected", "Valid"]):
+        # Detect headers like SUMMARY... or DISCUSSION...
+        is_header = stripped.endswith("...") and any(
+            stripped.startswith(m) for m in ["SUMMARY", "DISCUSSION", "Concerning", "Areas affected", "Valid", "Probability"]
+        )
+        
+        if is_header:
             if current_para:
                 cleaned_lines.append(" ".join(current_para))
                 current_para = []
+            # Bold the header but don't add a newline yet, so the text can follow it
             cleaned_lines.append(f"**{stripped}**")
         else:
             current_para.append(stripped)
@@ -339,7 +344,8 @@ def clean_md_text_for_discord(text: str) -> str:
     if current_para:
         cleaned_lines.append(" ".join(current_para))
         
-    return "\n\n".join(cleaned_lines)
+    # Join with single newline for maximum vertical compactness
+    return "\n".join(cleaned_lines)
 
 
 def chunk_md_text(text: str, max_chars: int = EMBED_BODY_LIMIT) -> List[str]:
