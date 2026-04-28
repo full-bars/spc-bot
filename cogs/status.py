@@ -113,8 +113,10 @@ class MDPaginatorView(discord.ui.View):
         from_cache = data["from_cache"]
         cache_path = data["cache_path"]
 
+        logger.info(f"[/md] Building embeds for #{md_num} (text length: {len(raw_text) if raw_text else 0})")
         image_filename = f"md_{md_num}.png" if cache_path else None
         embeds = build_md_embeds(md_num, raw_text, image_filename)
+        logger.info(f"[/md] Built {len(embeds)} embeds for #{md_num}")
 
         footer_text = f"MD {self.index + 1} of {len(self.md_data)}"
         if from_cache:
@@ -407,6 +409,7 @@ class StatusCog(commands.Cog):
                     cache_path, _, _ = await download_single_image(
                         image_url, MANUAL_CACHE_FILE, self.bot.state.manual_cache
                     )
+                    logger.info(f"[/md] Finished image download for #{md_num} (path: {cache_path})")
                 return {
                     "num": md_num,
                     "summary": summary,
