@@ -263,26 +263,51 @@ EMBED_BODY_LIMIT = 4000
 def extract_md_body(raw_text: Optional[str]) -> Optional[str]:
     """Return the plain-text MD body from the SPC HTML page or IEM text.
 
-    If HTML is provided, we pull the contents of the <pre> block, 
-    strip remaining tags, and decode HTML entities.
+    Truncates at common footer blocks (LAT...LON, ATTN, etc.) to keep
+    only the summary, discussion, and signature.
     """
     if not raw_text:
         return None
     
-    # If it's already plain text (no tags), just return it
-    if "<pre" not in raw_text.lower() and "<p>" not in raw_text.lower():
-        return raw_text.strip()
+    # 1. Extraction from HTML if needed
+    clean = None
+    if "<pre" in raw_text.lower() or "<p>" in raw_text.lower():
+        text_blocks = re.findall(
+            r"<pre[^>]*>(.*?)</pre>", raw_text, re.DOTALL | re.IGNORECASE
+        )
+        for block in text_blocks:
+            candidate = re.sub(r"<[^>]+>", "", block)
+            candidate = _html.unescape(candidate).strip()
+            if "MESOSCALE DISCUSSION" in candidate.upper() or "PROBABILITY OF WATCH ISSUANCE" in candidate.upper():
+                clean = candidate
+                break
+    else:
+        clean = raw_text.strip()
 
-    text_blocks = re.findall(
-        r"<pre[^>]*>(.*?)</pre>", raw_text, re.DOTALL | re.IGNORECASE
-    )
-    for block in text_blocks:
-        clean = re.sub(r"<[^>]+>", "", block)
-        clean = _html.unescape(clean).strip()
-        # Actual MDs usually start with "MESOSCALE DISCUSSION"
-        if "MESOSCALE DISCUSSION" in clean.upper() or "PROBABILITY OF WATCH ISSUANCE" in clean.upper():
-            return clean
-    return None
+    if not clean:
+        return None
+
+    # 2. Truncation at technical footers
+    # We look for the first occurrence of any common footer marker
+    footers = [
+        "...Please see www.spc.noaa.gov",
+        "ATTN...WFO",
+        "LAT...LON",
+    ]
+    
+    lowest_idx = len(clean)
+    found_footer = False
+    
+    for footer in footers:
+        idx = clean.find(footer)
+        if idx != -1 and idx < lowest_idx:
+            lowest_idx = idx
+            found_footer = True
+            
+    if found_footer:
+        clean = clean[:lowest_idx].strip()
+
+    return clean
 
 
 def chunk_md_text(text: str, max_chars: int = EMBED_BODY_LIMIT) -> List[str]:
