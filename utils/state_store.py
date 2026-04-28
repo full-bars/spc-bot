@@ -135,6 +135,10 @@ def _k_posted_surveys() -> str:
     return f"{_PREFIX}:posted_surveys"
 
 
+def _k_significant_events() -> str:
+    return f"{_PREFIX}:significant_events"
+
+
 def _k_posted_warnings() -> str:
     return f"{_PREFIX}:posted_warnings"
 
@@ -329,6 +333,14 @@ async def _replay(op: str, args: tuple) -> None:
     elif op == "add_posted_survey":
         (dat_guid,) = args
         await _upstash_cmd("SADD", _k_posted_surveys(), dat_guid)
+    elif op == "add_significant_event":
+        event_id, event_type, location, magnitude, vtec_id, coords, ts, source, raw = args
+        data = {
+            "event_type": event_type, "location": location, "magnitude": magnitude,
+            "vtec_id": vtec_id, "coords": coords, "timestamp": ts, "source": source,
+            "raw_text": raw
+        }
+        await _upstash_cmd("HSET", _k_significant_events(), event_id, json.dumps(data))
     elif op == "add_posted_warning":
         vtec_id, message_id, channel_id, _ = args
         data = {"message_id": message_id, "channel_id": channel_id}
@@ -597,6 +609,60 @@ async def add_posted_survey(dat_guid: str) -> None:
 async def prune_posted_surveys(max_size: int = 100) -> None:
     await sqlite_backend.prune_posted_surveys(max_size)
     _cache_invalidate("posted_surveys")
+
+
+# ── Significant events ───────────────────────────────────────────────────────
+
+async def add_significant_event(
+    event_id: str,
+    event_type: str,
+    location: str,
+    magnitude: str = "",
+    vtec_id: str = "",
+    coords: str = "",
+    timestamp: float = 0.0,
+    source: str = "",
+    raw_text: str = ""
+) -> None:
+    """Log a significant weather event. Cache + Upstash + SQLite."""
+    # SQLite first
+    await sqlite_backend.add_significant_event(
+        event_id, event_type, location, magnitude, vtec_id, coords, timestamp, source, raw_text
+    )
+    
+    # Then Upstash
+    try:
+        data = {
+            "event_type": event_type, "location": location, "magnitude": magnitude,
+            "vtec_id": vtec_id, "coords": coords, "timestamp": timestamp or time.time(),
+            "source": source, "raw_text": raw_text
+        }
+        await _upstash_cmd("HSET", _k_significant_events(), event_id, json.dumps(data))
+    except _UpstashUnavailable as e:
+        logger.warning(f"[STATE] add_significant_event({event_id}) queued: {e}")
+        await _enqueue_dirty("add_significant_event", (
+            event_id, event_type, location, magnitude, vtec_id, coords, timestamp, source, raw_text
+        ))
+
+
+async def get_recent_significant_events(
+    event_type: Optional[str] = None,
+    since_hours: int = 24,
+    limit: int = 50
+) -> List[dict]:
+    """Retrieve recent significant events. Always hits SQLite for now
+    to avoid heavy Redis HGETALL/SCAN and complex filtering."""
+    return await sqlite_backend.get_recent_significant_events(event_type, since_hours, limit)
+
+
+async def find_matching_tornado(
+    source: str,
+    timestamp: float,
+    location_query: str,
+    window_hours: float = 12.0
+) -> Optional[str]:
+    """Find a matching tornado in the local DB."""
+    return await sqlite_backend.find_matching_tornado(source, timestamp, location_query, window_hours)
 
 
 # ── Posted warnings ──────────────────────────────────────────────────────────

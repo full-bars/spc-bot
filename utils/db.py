@@ -133,6 +133,18 @@ async def _create_tables(db: aiosqlite.Connection):
             posted_at REAL NOT NULL DEFAULT 0
         );
 
+        CREATE TABLE IF NOT EXISTS significant_events (
+            event_id    TEXT PRIMARY KEY,
+            event_type  TEXT NOT NULL,
+            location    TEXT NOT NULL,
+            magnitude   TEXT,
+            vtec_id     TEXT,
+            coords      TEXT,
+            timestamp   REAL NOT NULL,
+            source      TEXT NOT NULL,
+            raw_text    TEXT
+        );
+
         CREATE TABLE IF NOT EXISTS posted_warnings (
             vtec_id    TEXT PRIMARY KEY,
             message_id INTEGER NOT NULL DEFAULT 0,
@@ -371,6 +383,111 @@ async def prune_posted_surveys(max_size: int = 100):
         (max_size,),
         "prune_posted_surveys",
     )
+
+
+# ── Significant Events (Tornadoes, etc.) ────────────────────────────────────
+
+async def add_significant_event(
+    event_id: str,
+    event_type: str,
+    location: str,
+    magnitude: str = "",
+    vtec_id: str = "",
+    coords: str = "",
+    timestamp: float = 0.0,
+    source: str = "",
+    raw_text: str = ""
+):
+    """Log a significant weather event (Confirmed Tornado, Giant Hail, etc.)."""
+    await _write(
+        """INSERT INTO significant_events 
+           (event_id, event_type, location, magnitude, vtec_id, coords, timestamp, source, raw_text)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(event_id) DO UPDATE SET
+             magnitude=excluded.magnitude,
+             location=excluded.location,
+             coords=excluded.coords,
+             raw_text=excluded.raw_text""",
+        (event_id, event_type, location, magnitude, vtec_id, coords, timestamp or time.time(), source, raw_text),
+        f"add_significant_event({event_id})",
+    )
+
+
+async def get_recent_significant_events(
+    event_type: Optional[str] = None,
+    since_hours: int = 24,
+    limit: int = 50
+) -> list:
+    """Retrieve recent significant events."""
+    try:
+        db = await get_db()
+        now = time.time()
+        start_ts = now - (since_hours * 3600)
+        
+        sql = "SELECT * FROM significant_events WHERE timestamp >= ?"
+        params = [start_ts]
+        
+        if event_type:
+            sql += " AND event_type = ?"
+            params.append(event_type)
+            
+        sql += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+        
+        async with db.execute(sql, tuple(params)) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+    except Exception as e:
+        logger.warning(f"[DB] get_recent_significant_events failed: {e}")
+        return []
+
+
+async def find_matching_tornado(
+    source: str, timestamp: float, location_query: str, window_hours: float = 12.0
+) -> Optional[str]:
+    """Attempt to find an existing Tornado event ID that matches a survey or another LSR.
+    Matches by WFO (source) and a configurable time window, then fuzzy location.
+    """
+    try:
+        db = await get_db()
+        # Look +/- window_hours from the detected timestamp
+        window_seconds = window_hours * 3600
+        start_ts = timestamp - window_seconds
+        end_ts = timestamp + window_seconds
+        
+        sql = """
+            SELECT event_id, location FROM significant_events 
+            WHERE event_type = 'Tornado' 
+              AND source = ? 
+              AND timestamp BETWEEN ? AND ?
+        """
+        async with db.execute(sql, (source, start_ts, end_ts)) as cursor:
+            rows = await cursor.fetchall()
+            
+        if not rows:
+            return None
+        
+        # Simple fuzzy match on location: if survey location is in LSR location or vice versa
+        if len(rows) == 1:
+            return rows[0]["event_id"]
+        
+        # If multiple, try matching location words
+        import re as _re
+        query_words = set(_re.findall(r"\w+", location_query.upper()))
+        best_id = None
+        best_score = -1
+        
+        for row in rows:
+            loc_words = set(_re.findall(r"\w+", row["location"].upper()))
+            overlap = len(query_words.intersection(loc_words))
+            if overlap > best_score:
+                best_score = overlap
+                best_id = row["event_id"]
+                
+        return best_id
+    except Exception as e:
+        logger.warning(f"[DB] find_matching_tornado failed: {e}")
+        return None
 
 
 # ── Posted warnings ───────────────────────────────────────────────────────────

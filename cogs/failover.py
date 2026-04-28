@@ -80,13 +80,15 @@ def _require_failover_token() -> str:
 _PROCESS_UUID = uuid.uuid4().hex[:8]
 
 
-def _node_identity() -> str:
+def _node_identity(is_primary: bool) -> str:
     """Per-process identifier used as the lease value.
 
-    Includes a random suffix so two processes on the same host have
-    distinct identities and won't silently share a lease.
+    Includes a role prefix ('P' for configured primary, 'S' for standby)
+    so that a rebooting primary can identify if the current lease holder
+    is just a promoted standby and pre-empt it.
     """
-    return f"{socket.gethostname()}:{_PROCESS_UUID}"
+    role = "P" if is_primary else "S"
+    return f"{role}:{socket.gethostname()}:{_PROCESS_UUID}"
 
 
 class FailoverCog(commands.Cog):
@@ -95,7 +97,9 @@ class FailoverCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self._primary_failures = 0
-        self._identity = _node_identity()
+        # Store the INITIAL configured identity. This doesn't change
+        # when promoted — it represents the node's hard-coded intent.
+        self._identity = _node_identity(bot.state.is_primary)
         self._cog_load_monotonic: float | None = None
         # Dedicated session for leader-election traffic, kept separate from
         # utils.http.http_session so lease operations don't interfere (and
@@ -152,17 +156,24 @@ class FailoverCog(commands.Cog):
 
         holder = await self._read_lease_holder()
         if holder and holder != self._identity:
-            logger.warning(
-                f"[FAILOVER] Startup: lease held by '{holder}' — booting as "
-                f"STANDBY regardless of IS_PRIMARY env"
-            )
-            self.bot.state.is_primary = False
-            return False
+            # Pre-emption logic: if WE are a configured primary, and the current
+            # holder is a standby (prefixed with 'S:'), we take the lease.
+            if self._identity.startswith("P:") and holder.startswith("S:"):
+                logger.warning(
+                    f"[FAILOVER] Startup: lease held by Standby node '{holder}'. "
+                    f"We are configured Primary — pre-empting."
+                )
+                # Proceed to claim lease below
+            else:
+                logger.warning(
+                    f"[FAILOVER] Startup: lease held by '{holder}' — booting as "
+                    f"STANDBY regardless of IS_PRIMARY env"
+                )
+                self.bot.state.is_primary = False
+                return False
 
-        # Lease is free or already ours. Safe to boot as primary if that's
-        # what we were configured as. If IS_PRIMARY=false (dedicated
-        # standby), stay standby and let the sync_loop promote us later if
-        # the primary actually dies.
+        # Lease is free, already ours, or we are pre-empting a standby.
+        # Safe to boot as primary if that's what we were configured as.
         if not self.bot.state.is_primary:
             logger.info(
                 "[FAILOVER] Startup: lease is free but node configured as "
@@ -305,6 +316,16 @@ class FailoverCog(commands.Cog):
     async def _standby_cycle(self) -> None:
         holder = await self._read_lease_holder()
         if holder:
+            # Pre-emption logic: if WE are a configured primary, and the current
+            # holder is a standby (prefixed with 'S:'), we take the lease.
+            if self._identity.startswith("P:") and holder.startswith("S:"):
+                 logger.warning(
+                     f"[FAILOVER] Standby Primary detected promoted Standby node "
+                     f"'{holder}' holding lease. Reclaiming."
+                 )
+                 await self._promote()
+                 return
+
             if self._primary_failures > 0:
                 logger.info(
                     f"[FAILOVER] Primary lease held by {holder}; clearing "
