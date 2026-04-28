@@ -14,7 +14,9 @@ The following variables are required or optional in `.env`:
 | `GUILD_ID` | The Discord Server (Guild) ID where the bot should register its commands. |
 | `SPC_CHANNEL_ID` | Receives all severe weather alerts — SPC outlooks (Days 1–3), Day 4–8 outlooks, mesoscale discussions, watch alerts and cancellations, and bot health alerts from the watchdog |
 | `MODELS_CHANNEL_ID` | Receives model/forecast graphics — SCP twice-daily posts, CSU-MLP daily forecasts, and NCAR WxNext2 daily forecasts |
+| `WARNINGS_CHANNEL_ID` | (Optional) Receives real-time NWS warning embeds (TOR, SVR, FFW, SPS) and damage survey posts. Defaults to `SPC_CHANNEL_ID` if not set. |
 | `SOUNDING_CHANNEL_ID` | (Optional) Receives auto-posted sounding plots near active watches. Defaults to `SPC_CHANNEL_ID` if not set. |
+| `HEALTH_CHANNEL_ID` | (Optional) Receives bot health alerts (watchdog degraded, task failures). Defaults to `SPC_CHANNEL_ID` if not set. |
 
 Slash commands can be used from any channel — they always respond ephemerally
 or inline where invoked, not into the configured channels.
@@ -31,12 +33,14 @@ or inline where invoked, not into the configured channels.
 | `/spc3` | Fetch and display the latest SPC Day 3 outlook graphics. Optional `fresh:True` bypasses cache. |
 | `/spc48` | Fetch and display the latest SPC Day 4–8 outlook graphics |
 
-### Watches & Mesoscale Discussions
+### Watches, Warnings & Mesoscale Discussions
 | Command | Description |
 |---|---|
 | `/watches` | Show all currently active SPC watches with details and probabilities |
 | `/ww` | Alias for `/watches` |
 | `/md` | Show the latest active SPC mesoscale discussion |
+| `/significantwx` | View recent significant weather events (EF1+ tornadoes, significant hail/wind) from today's warnings and storm reports |
+| `/recenttornadoes` | List confirmed tornadoes from recent warnings and reports |
 
 ### Model Forecasts
 | Command | Description |
@@ -51,16 +55,19 @@ or inline where invoked, not into the configured channels.
 |---|---|
 | `/sounding` | Plot an observed sounding — accepts city names, radar site codes (e.g. `KTLX`), or RAOB station IDs. Optional `time` (MM-DD-YYYY HHz, any hour supported via IEM) and `dark` (saves preference) parameters. Shows nearest RAOB stations with available times discovered via IEM, plus nearby ACARS aircraft profiles. |
 
-### Radar
+### Radar & Hodograph
 | Command | Description |
 |---|---|
 | `/download` | Open the NEXRAD Level 2 radar downloader UI. Optional `sites` (space or comma separated codes e.g. `KICT KUEX`), `time` (Last 1h/2h/3h/4h), and `count` (number of most recent files) for quick-start without interactive flow. |
 | `/downloaderstatus` | Check AWS downloader and S3 latency |
+| `/hodograph` | Generate a VWP hodograph for any NEXRAD or TDWR site. Accepts a 4-letter site ID (e.g. `KTLX`). Includes auto ASOS surface wind and storm parameter table. |
 
-### Status
+### Status & Admin
 | Command | Description |
 |---|---|
 | `/status` | Show bot health: node role (Primary/Standby), task states, last auto-post times, partial update state, tracked MD/watch counts. Ephemeral. |
+| `/help` | Show all available weather and bot commands. |
+| `/failover` | (Admin only) Manually designate the Primary node. Requires `ADMIN_USER_ID` to be set in `.env`. |
 
 ---
 
@@ -115,6 +122,23 @@ source. The return value has three distinct states:
 
 If the NWS API returns `None`, the `/watches` slash command falls back to
 scraping the SPC watch index HTML directly.
+
+### NWS Warnings (TOR / SVR / FFW / SPS)
+
+`WarningsCog` runs two parallel paths:
+
+**iembot fast-trigger** — the `IEMBotCog` WebSocket feed fires within seconds of issuance. A new `WEA` (warning) product in the feed causes an immediate embed post to `WARNINGS_CHANNEL_ID` before the NWS API has the product indexed.
+
+**`auto_poll_warnings` (every 2 minutes)** — calls the NWS Alerts API (`/alerts/active?event=...`) for Tornado Warnings, Severe Thunderstorm Warnings, Flash Flood Warnings, and Special Weather Statements. Each new VTEC ID is posted as a rich embed containing:
+- Nearest-NEXRAD radar GIF (IEM Autoplot)
+- IEM Autoplot polygon map (208 for TOR/SVR/FFW, 217 for SPS)
+- Affected counties / zones
+- Wind, hail, and tornado tags where applicable
+- PDS and Tornado Emergency labels when present
+
+**Lifecycle tracking** — when a warning expires, is cancelled, or receives a statement of no activity, the cog edits the original Discord embed in place with a timestamp and updated status. VTEC context (including the Autoplot image URL) is cached at post time so the edit can attach the correct graphic.
+
+**Damage surveys** — `ReportsCog` polls for PNS products flagged as `DAMAGE SURVEY`. Once the NWS survey is finalized, it fetches and posts an IEM Autoplot 253 tornado track map for that event.
 
 ### IEMBot Real-Time Feed
 
@@ -212,6 +236,8 @@ python -m pytest tests/ \
     --cov=cogs --cov=utils --cov=config --cov=main \
     --cov-report=term-missing
 ```
+
+The suite currently collects **255 tests**.
 
 Lint (same selection CI uses):
 
