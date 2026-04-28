@@ -47,9 +47,21 @@ _PLOT_EXECUTOR_WORKERS = min(3, (os.cpu_count() or 2))
 
 def _plot_worker_init():
     """Pre-import sounderpy/matplotlib in each worker so the first plot call
-    doesn't pay cold-import overhead (~2s)."""
+    doesn't pay cold-import overhead (~2s).
+
+    Also clears inherited logging handlers to prevent duplicate log entries
+    from child processes writing to the same file/stderr as the primary."""
     import io as _io
+    import logging as _logging
     import sys as _sys
+
+    # Silent inherited loggers
+    for name in ("spc_bot", None):  # spc_bot and root
+        l = _logging.getLogger(name)
+        for h in l.handlers[:]:
+            l.removeHandler(h)
+    _logging.getLogger().setLevel(_logging.WARNING)
+
     import matplotlib as _mpl
     _mpl.use("Agg")
     _stdout = _sys.stdout

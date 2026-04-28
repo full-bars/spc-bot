@@ -1,4 +1,5 @@
 # cogs/csu_mlp.py
+import asyncio
 import json
 import logging
 from datetime import datetime, timedelta, timezone
@@ -292,15 +293,28 @@ class CSUMLPCog(commands.Cog):
 
             try:
                 day_range = "Medium Range " if day >= 4 else ""
-                await channel.send(
-                    f"**CSU-MLP {day_range}Day {day} Severe Weather Forecast**"
-                    f" (init: {label})",
-                    files=[discord.File(cache_path)],
-                )
+                # Simple retry logic for transient network/Discord issues
+                for attempt in range(3):
+                    try:
+                        await channel.send(
+                            f"**CSU-MLP {day_range}Day {day} Severe Weather Forecast**"
+                            f" (init: {label})",
+                            files=[discord.File(cache_path)],
+                        )
+                        break # Success
+                    except (discord.DiscordServerError, discord.HTTPException) as e:
+                        if attempt < 2:
+                            logger.warning(f"[CSU-MLP] Retrying Day {day} (attempt {attempt+2}) after error: {e}")
+                            await asyncio.sleep(2 * (attempt + 1))
+                        else: raise
+
                 self.bot.state.csu_posted.add(str(day))
                 await _save_posted_today(self.bot.state.csu_posted)
                 self.bot.state.last_post_times[f"csu_day{day}"] = now_utc
                 logger.info(f"[CSU-MLP] Auto-posted Day {day} ({label})")
+                
+                # Small pause to avoid hammering Discord API/local networking stack
+                await asyncio.sleep(1.0)
             except Exception as e:
                 logger.exception(
                     f"[CSU-MLP] Failed to post Day {day}: {e}"
@@ -325,14 +339,27 @@ class CSUMLPCog(commands.Cog):
                 logger.warning(f"[CSU-MLP] Download failed for {label_name}")
                 continue
             try:
-                await channel.send(
-                    f"**CSU-MLP {label_name}** (init: {label})",
-                    files=[discord.File(cache_path)]
-                )
+                # Simple retry logic for transient network/Discord issues
+                for attempt in range(3):
+                    try:
+                        await channel.send(
+                            f"**CSU-MLP {label_name}** (init: {label})",
+                            files=[discord.File(cache_path)]
+                        )
+                        break # Success
+                    except (discord.DiscordServerError, discord.HTTPException) as e:
+                        if attempt < 2:
+                            logger.warning(f"[CSU-MLP] Retrying {label_name} (attempt {attempt+2}) after error: {e}")
+                            await asyncio.sleep(2 * (attempt + 1))
+                        else: raise
+
                 self.bot.state.csu_posted.add(state_key)
                 await _save_posted_today(self.bot.state.csu_posted)
                 self.bot.state.last_post_times[f"csu_{state_key}"] = now_utc
                 logger.info(f"[CSU-MLP] Auto-posted {label_name} ({label})")
+                
+                # Small pause to avoid hammering Discord API/local networking stack
+                await asyncio.sleep(1.0)
             except Exception as e:
                 logger.exception(f"[CSU-MLP] Failed to post {label_name}: {e}")
 
