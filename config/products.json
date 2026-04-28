@@ -44,6 +44,7 @@
   "nws_alerts_url": "https://api.weather.gov/alerts/active?event=Severe%20Thunderstorm%20Watch,Tornado%20Watch&status=actual",
   "nws_alerts_warnings_url": "https://api.weather.gov/alerts/active?event=Tornado%20Warning,Severe%20Thunderstorm%20Warning,Flash%20Flood%20Warning&status=actual",
   "iembot_feed_url": "https://weather.im/iembot-json/room/spcchat",
+  "iembot_botstalk_url": "https://weather.im/iembot-json/room/botstalk",
   "iem_nwstext_url": "https://mesonet.agron.iastate.edu/api/1/nwstext/{product_id}",
   "wxnext_base_url": "https://www2.mmm.ucar.edu/projects/ncar_ensemble/ainwp/img",
   "wxnext_page_url": "https://www2.mmm.ucar.edu/projects/ncar_ensemble/ainwp/",

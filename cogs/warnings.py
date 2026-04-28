@@ -141,6 +141,37 @@ _WARNING_STYLE = {
 _DESCRIPTION_LIMIT = 4000
 
 
+def _extract_narrative(raw: str) -> Optional[str]:
+    """Pull the human-readable narrative out of a raw VTEC product.
+
+    The narrative is the section after the bulletin headers and before
+    the boilerplate footer (LAT...LON, ATTN, $$). Used by the iembot
+    fast-path when we don't yet have NWS API's pre-formatted description.
+    """
+    if not raw:
+        return None
+
+    text = raw
+    # Drop the WMO header / AFOS header / VTEC line block at the top so
+    # we lead with the substantive narrative rather than transmission
+    # metadata. Heuristic: find the line that begins "BULLETIN -" or
+    # the first line starting with "The National Weather Service in".
+    nws_idx = re.search(
+        r"(?m)^(?:BULLETIN.*|The National Weather Service\b.*)$", text
+    )
+    if nws_idx:
+        text = text[nws_idx.start():]
+
+    # Trim known footers — order matters because LAT...LON usually
+    # precedes ATTN.
+    for footer in ("LAT...LON", "ATTN...WFO", "TIME...MOT...LOC", "$$"):
+        m = re.search(re.escape(footer), text, re.IGNORECASE)
+        if m:
+            text = text[: m.start()]
+    text = text.strip()
+    return text or None
+
+
 class WarningsCog(commands.Cog):
     MANAGED_TASK_NAMES = [("auto_poll_warnings", "auto_poll_warnings")]
 
@@ -165,6 +196,81 @@ class WarningsCog(commands.Cog):
 
     def cog_unload(self):
         self.auto_poll_warnings.cancel()
+
+    # ── iembot fast-trigger path ───────────────────────────────────────────
+    #
+    # IEMBotCog calls this when a TOR/SVR/FFW product hits the botstalk
+    # seqnum stream. Latency is typically 5-15s vs. the 30s NWS API
+    # poll, so for severe wx the iembot path is the one that lands first.
+    # We dedup against the same posted_warnings set as the NWS API
+    # path; whichever fires first wins, the other is a no-op.
+
+    async def post_warning_now(
+        self, product_id: str, raw_text: str, event: str
+    ):
+        """Post a warning triggered by iembot. ``raw_text`` is the full
+        VTEC product as plain text from the IEM nwstext API."""
+        if not self.bot.state.is_primary:
+            return
+        channel = self.bot.get_channel(WARNINGS_CHANNEL_ID)
+        if not channel:
+            return
+
+        vtec = parse_vtec(raw_text)
+        if not vtec:
+            logger.warning(
+                f"[WARN] iembot trigger: no VTEC in {product_id} — skipping"
+            )
+            return
+        # PR B only handles the initial NEW issuance. SVS/FFS updates and
+        # cancellations land in PR D.
+        if vtec["action"] != "NEW":
+            return
+
+        vtec_id = vtec["vtec_id"]
+        if vtec_id in self.bot.state.posted_warnings:
+            return
+        # Claim the dedup key BEFORE the (possibly slow) Discord send so
+        # a concurrent NWS API poll can't double-post.
+        self.bot.state.posted_warnings.add(vtec_id)
+
+        narrative = _extract_narrative(raw_text)
+        emoji, color = _WARNING_STYLE.get(event, ("⚠️", discord.Color.orange()))
+
+        body = narrative or ""
+        if len(body) > _DESCRIPTION_LIMIT:
+            body = body[:_DESCRIPTION_LIMIT].rstrip() + "\n..."
+
+        embed = discord.Embed(
+            title=f"{emoji} {event}",
+            description=f"```\n{body}\n```" if body else None,
+            color=color,
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.add_field(
+            name="Office",
+            value=vtec["office"],
+            inline=True,
+        )
+        embed.set_footer(text=f"VTEC {vtec_id} (iembot fast-path)")
+
+        try:
+            await channel.send(embed=embed)
+            logger.info(f"[WARN] Posted (iembot) {event} {vtec_id}")
+        except discord.HTTPException as e:
+            # Roll back the dedup claim on a hard send failure so the
+            # NWS API path or the next iembot retrigger can try again.
+            self.bot.state.posted_warnings.discard(vtec_id)
+            logger.exception(
+                f"[WARN] iembot send failed for {vtec_id}: {e}"
+            )
+            return
+
+        try:
+            await add_posted_warning(vtec_id, time.time())
+            await prune_posted_warnings()
+        except Exception as e:
+            logger.warning(f"[WARN] Failed to persist {vtec_id}: {e}")
 
     @tasks.loop(seconds=30)
     async def auto_poll_warnings(self):

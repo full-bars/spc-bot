@@ -108,6 +108,11 @@ class BotState:
     def __init__(self):
         self.is_primary: bool = True  # overridden by IS_PRIMARY env var in main.py
         self.iembot_last_seqnum: int = 0
+        # Separate seqnum tracker for the iembot ``botstalk`` national
+        # room — this is the warning-product fast-path. Tracked
+        # independently from the spcchat seqnum so a stall in one feed
+        # can't make us replay the other on restart.
+        self.iembot_botstalk_last_seqnum: int = 0
         self.bot_start_time: Optional[datetime] = None
 
         self.hashes = HashStore()
