@@ -44,19 +44,17 @@ def _build_panel_url(product: str, init_date: datetime) -> str:
 
 
 async def _resolve_panel_url(product: str) -> tuple[str | None, str]:
-    """Resolve best available 6-panel URL. 00z only, tries today then yesterday."""
+    """Resolve today's 6-panel URL. 00z only."""
     now_utc = datetime.now(timezone.utc)
     today = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
-    candidates = [
-        (today, "00z"),
-        (today - timedelta(days=1), "yesterday 00z"),
-    ]
-    for init_date, label in candidates:
-        url = _build_panel_url(product, init_date)
-        if await _url_is_image(url):
-            logger.debug(f"[CSU-MLP] {product}: resolved {label} -> {url}")
-            return url, label
-    logger.warning(f"[CSU-MLP] {product}: no URL available")
+    
+    # Strictly today only
+    url = _build_panel_url(product, today)
+    if await _url_is_image(url):
+        logger.debug(f"[CSU-MLP] {product}: resolved 00z -> {url}")
+        return url, "00z"
+
+    logger.warning(f"[CSU-MLP] {product}: no today's URL available")
     return None, ""
 
 
@@ -77,8 +75,8 @@ async def _url_is_image(url: str) -> bool:
 
 async def _resolve_best_url(day: int) -> tuple[str | None, str]:
     """
-    Try 12z init first for days 1-3 (if likely ready), always 00z for days 4-8.
-    Falls back to yesterday's init as last resort.
+    Try latest runs first (strictly today).
+    Days 1-3 have 12z and 00z. Days 4-8 only 00z.
     Returns (url, label) or (None, "").
     """
     now_utc = datetime.now(timezone.utc)
@@ -86,15 +84,15 @@ async def _resolve_best_url(day: int) -> tuple[str | None, str]:
 
     candidates = []
     if day <= 3:
-        # 12z init only available for days 1-3, try after 18 UTC
+        # Latest possible is today 12z (available after ~18 UTC)
         if now_utc.hour >= 18:
             candidates.append((today, "12", "12z"))
+        
+        # Then today 00z
         candidates.append((today, "00", "00z"))
-        candidates.append((today - timedelta(days=1), "12", "yesterday 12z"))
     else:
         # Days 4-8: 00z only
         candidates.append((today, "00", "00z"))
-        candidates.append((today - timedelta(days=1), "00", "yesterday 00z"))
 
     for init_date, init_hour, label in candidates:
         url = _build_url(day, init_date, init_hour)
@@ -102,7 +100,7 @@ async def _resolve_best_url(day: int) -> tuple[str | None, str]:
             logger.debug(f"[CSU-MLP] Day {day}: resolved {label} -> {url}")
             return url, label
 
-    logger.warning(f"[CSU-MLP] Day {day}: no URL available")
+    logger.warning(f"[CSU-MLP] Day {day}: no today's URL available")
     return None, ""
 
 
