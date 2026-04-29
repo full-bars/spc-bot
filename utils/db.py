@@ -133,6 +133,11 @@ async def _create_tables(db: aiosqlite.Connection):
             posted_at REAL NOT NULL DEFAULT 0
         );
 
+        CREATE TABLE IF NOT EXISTS posted_reports (
+            product_id TEXT PRIMARY KEY,
+            posted_at REAL NOT NULL DEFAULT 0
+        );
+
         CREATE TABLE IF NOT EXISTS posted_warnings (
             vtec_id    TEXT PRIMARY KEY,
             message_id INTEGER NOT NULL DEFAULT 0,
@@ -370,6 +375,43 @@ async def prune_posted_surveys(max_size: int = 100):
            )""",
         (max_size,),
         "prune_posted_surveys",
+    )
+
+
+# ── Posted reports (LSRs) ────────────────────────────────────────────────────
+
+async def get_posted_reports() -> set:
+    """Get all posted LSR product IDs."""
+    try:
+        db = await get_db()
+        async with db.execute("SELECT product_id FROM posted_reports") as cursor:
+            rows = await cursor.fetchall()
+            return {row["product_id"] for row in rows}
+    except Exception as e:
+        logger.warning(f"[DB] get_posted_reports failed: {e}")
+        return set()
+
+
+async def add_posted_report(product_id: str, posted_at: float = 0.0):
+    """Mark an LSR as posted."""
+    await _write(
+        "INSERT OR IGNORE INTO posted_reports (product_id, posted_at) VALUES (?, ?)",
+        (product_id, posted_at or time.time()),
+        f"add_posted_report({product_id})",
+    )
+
+
+async def prune_posted_reports(max_size: int = 500):
+    """Keep only the most recent LSR product IDs."""
+    await _write(
+        """DELETE FROM posted_reports
+           WHERE product_id NOT IN (
+               SELECT product_id FROM posted_reports
+               ORDER BY posted_at DESC
+               LIMIT ?
+           )""",
+        (max_size,),
+        "prune_posted_reports",
     )
 
 

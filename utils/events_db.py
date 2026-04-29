@@ -186,7 +186,7 @@ def restore_from_sync() -> None:
     try:
         os.makedirs(os.path.dirname(_EVENTS_DB_PATH), exist_ok=True)
         shutil.copy2(_SYNC_PATH, _EVENTS_DB_PATH)
-        logger.info(f"[EVENTS-DB] Restored events.db from sync snapshot")
+        logger.info("[EVENTS-DB] Restored events.db from sync snapshot")
     except Exception as e:
         logger.warning(f"[EVENTS-DB] Restore from sync failed: {e}")
 

@@ -135,6 +135,8 @@ def _k_posted_surveys() -> str:
     return f"{_PREFIX}:posted_surveys"
 
 
+def _k_posted_reports() -> str:
+    return f"{_PREFIX}:posted_reports"
 
 
 def _k_posted_warnings() -> str:
@@ -331,6 +333,9 @@ async def _replay(op: str, args: tuple) -> None:
     elif op == "add_posted_survey":
         (dat_guid,) = args
         await _upstash_cmd("SADD", _k_posted_surveys(), dat_guid)
+    elif op == "add_posted_report":
+        (product_id,) = args
+        await _upstash_cmd("SADD", _k_posted_reports(), product_id)
     elif op == "add_posted_warning":
         vtec_id, message_id, channel_id, _ = args
         data = {"message_id": message_id, "channel_id": channel_id}
@@ -601,6 +606,40 @@ async def prune_posted_surveys(max_size: int = 100) -> None:
     _cache_invalidate("posted_surveys")
 
 
+# ── Posted reports (LSRs) ────────────────────────────────────────────────────
+
+async def get_posted_reports() -> Set[str]:
+    cache_key = "posted_reports"
+    hit, val = _cache_get(cache_key)
+    if hit:
+        return set(val)
+    try:
+        result = await _upstash_cmd("SMEMBERS", _k_posted_reports())
+        members = set(result or [])
+        _cache_set(cache_key, members)
+        return set(members)
+    except _UpstashUnavailable as e:
+        logger.debug(f"[STATE] get_posted_reports falling back to SQLite: {e}")
+        val = await sqlite_backend.get_posted_reports()
+        _cache_set(cache_key, val, ttl=CACHE_TTL_SECONDS / 2)
+        return val
+
+
+async def add_posted_report(product_id: str) -> None:
+    _cache_invalidate("posted_reports")
+    await sqlite_backend.add_posted_report(product_id)
+    try:
+        await _upstash_cmd("SADD", _k_posted_reports(), product_id)
+    except _UpstashUnavailable as e:
+        logger.warning(f"[STATE] add_posted_report({product_id}) queued: {e}")
+        await _enqueue_dirty("add_posted_report", (product_id,))
+
+
+async def prune_posted_reports(max_size: int = 500) -> None:
+    await sqlite_backend.prune_posted_reports(max_size)
+    _cache_invalidate("posted_reports")
+
+
 # ── Significant events — routed to events_db, not Upstash ───────────────────
 
 async def add_significant_event(
@@ -809,7 +848,7 @@ async def resync_to_upstash() -> Dict[str, int]:
     dirty list) still make it up. Returns counts of items pushed per
     category for logging.
     """
-    counts = {"hashes": 0, "posted_mds": 0, "posted_watches": 0, "posted_surveys": 0, "state": 0, "urls": 0}
+    counts = {"hashes": 0, "posted_mds": 0, "posted_watches": 0, "posted_surveys": 0, "posted_reports": 0, "state": 0, "urls": 0}
     try:
         for cache_type in ("auto", "manual"):
             hashes = await sqlite_backend.get_all_hashes(cache_type)
@@ -835,6 +874,11 @@ async def resync_to_upstash() -> Dict[str, int]:
         if surveys:
             await _upstash_cmd("SADD", _k_posted_surveys(), *surveys)
             counts["posted_surveys"] = len(surveys)
+
+        reports = await sqlite_backend.get_posted_reports()
+        if reports:
+            await _upstash_cmd("SADD", _k_posted_reports(), *reports)
+            counts["posted_reports"] = len(reports)
 
         states = await sqlite_backend.get_all_state()
         if states:

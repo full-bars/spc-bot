@@ -17,6 +17,7 @@ from utils.http import CircuitOpenError
 from utils.state_store import (
     check_integrity, close_db, get_db,
     get_all_hashes, get_posted_urls, get_posted_mds, get_posted_watches,
+    get_posted_reports,
     get_state,
 )
 from utils.cache import hydrate_validators_from_store
@@ -70,6 +71,7 @@ async def setup_hook():
         get_all_hashes("manual"),
         get_posted_mds(),
         get_posted_watches(),
+        get_posted_reports(),
         get_state("csu_mlp_posted"),
         get_posted_urls("day1"),
         get_posted_urls("day2"),
@@ -78,7 +80,7 @@ async def setup_hook():
         return_exceptions=True
     )
     
-    db_auto, db_manual, db_mds, db_watches, csu_raw, d1_urls, d2_urls, d3_urls, last_seq = results
+    db_auto, db_manual, db_mds, db_watches, db_reports, csu_raw, d1_urls, d2_urls, d3_urls, last_seq = results
 
     if isinstance(last_seq, str):
         bot.state.iembot_last_seqnum = int(last_seq)
@@ -99,6 +101,10 @@ async def setup_hook():
     if isinstance(db_watches, (set, list)):
         bot.state.posted_watches.update(db_watches)
         logger.info(f"[DB] Loaded {len(db_watches)} posted watches into cache")
+
+    if isinstance(db_reports, (set, list)):
+        bot.state.posted_reports.update(db_reports)
+        logger.info(f"[DB] Loaded {len(db_reports)} posted reports into cache")
 
     # CSU state
     if isinstance(csu_raw, str):
