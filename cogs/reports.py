@@ -92,7 +92,8 @@ class ReportsCog(commands.Cog):
                 if product_id and len(product_id) >= 12:
                     try:
                         lsr_ts = datetime.strptime(product_id[:12], "%Y%m%d%H%M").replace(tzinfo=timezone.utc).timestamp()
-                    except: pass
+                    except Exception as e:
+                        logger.warning(f"Failed to parse LSR timestamp '{product_id}': {e}")
                 
                 from utils.state_store import find_matching_tornado
                 match_id = await find_matching_tornado(office, lsr_ts, city, window_hours=1.0)
@@ -247,7 +248,8 @@ class ReportsCog(commands.Cog):
             event_date = f"{m_num.group(3)}-{m_num.group(1).zfill(2)}-{m_num.group(2).zfill(2)}"
             try:
                 event_ts = datetime.strptime(event_date, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp()
-            except: pass
+            except Exception as e:
+                logger.warning(f"Failed to parse event date '{event_date}': {e}")
         else:
             # Narrative: MAY 21 2024
             months = "JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC"
@@ -258,7 +260,8 @@ class ReportsCog(commands.Cog):
                 event_date = f"{m_narr.group(3)}-{str(m_idx).zfill(2)}-{m_narr.group(2).zfill(2)}"
                 try:
                     event_ts = datetime.strptime(event_date, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp()
-                except: pass
+                except Exception as e:
+                    logger.warning(f"Failed to parse event date '{event_date}': {e}")
 
         # Coords
         coords = ""

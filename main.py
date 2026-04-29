@@ -171,8 +171,17 @@ async def send_bot_alert(
     try:
         channel = bot.get_channel(HEALTH_CHANNEL_ID)
         if not channel:
+            try:
+                channel = await bot.fetch_channel(HEALTH_CHANNEL_ID)
+            except discord.HTTPException as e:
+                logger.error(
+                    f"[ALERT] Could not fetch health channel to send alert '{title}': {e}"
+                )
+                return
+
+        if not channel:
             logger.error(
-                f"[ALERT] Could not find health channel to send alert: {title}"
+                f"[ALERT] Health channel not found after fetch for alert: {title}"
             )
             return
         color = discord.Color.red() if critical else discord.Color.orange()
