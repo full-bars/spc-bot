@@ -11,7 +11,6 @@ Sync snapshot:  cache/events_sync/events.db  — written every snapshot cycle,
                 watched by Syncthing for cross-node replication.
 """
 
-import asyncio
 import logging
 import os
 import re
@@ -28,26 +27,22 @@ _SYNC_DIR = os.getenv("EVENTS_SYNC_DIR", "cache/events_sync")
 _SYNC_PATH = os.path.join(_SYNC_DIR, "events.db")
 
 _db: Optional[aiosqlite.Connection] = None
-_db_lock = asyncio.Lock()
 
 
 async def get_events_db() -> aiosqlite.Connection:
     global _db
     if _db is not None:
         return _db
-    async with _db_lock:
-        if _db is not None:
-            return _db
-        os.makedirs(os.path.dirname(_EVENTS_DB_PATH), exist_ok=True)
-        conn = await aiosqlite.connect(_EVENTS_DB_PATH)
-        conn.row_factory = aiosqlite.Row
-        await conn.execute("PRAGMA journal_mode=WAL")
-        await conn.execute("PRAGMA busy_timeout=5000")
-        await _create_tables(conn)
-        await conn.commit()
-        _db = conn
-        logger.info(f"[EVENTS-DB] Connected to {_EVENTS_DB_PATH}")
-        return _db
+    os.makedirs(os.path.dirname(_EVENTS_DB_PATH), exist_ok=True)
+    conn = await aiosqlite.connect(_EVENTS_DB_PATH)
+    conn.row_factory = aiosqlite.Row
+    await conn.execute("PRAGMA journal_mode=WAL")
+    await conn.execute("PRAGMA busy_timeout=5000")
+    await _create_tables(conn)
+    await conn.commit()
+    _db = conn
+    logger.info(f"[EVENTS-DB] Connected to {_EVENTS_DB_PATH}")
+    return _db
 
 
 async def close_events_db() -> None:
