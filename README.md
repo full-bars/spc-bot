@@ -4,23 +4,37 @@ A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks
 
 ## Features
 
-* SPC convective outlooks (Day 1, 2, 3, Day 4-8) with dynamic URL resolution
-* SPC mesoscale discussions with cancellation tracking and **high-probability watch detection for proactive sounding pre-warming**
-* Tornado and severe thunderstorm watch alerts via NWS API with IEM iembot real-time feed for sub-second text **delivery via persistent database-backed pre-caching**
-* NIU/Gensini CFSv2/GEFS supercell composite parameter (SCP) graphics, twice daily
-* CSU-MLP machine learning severe weather forecasts (Days 1-8 + 6-panel summaries), auto-posted daily with `/csu` slash command (interactive dropdown)
-* NCAR WxNext2 Mean AI convective hazard forecast (Days 1-8), auto-posted daily with `/wxnext` slash command
-* **Real-time NWS Warnings**: Immediate posting of Tornado, Severe Tstorm, and Flash Flood warnings via iembot fast-path with map mapping (IEM Autoplot 208)
-* **Tornado Damage Surveys**: Automatic detection of DAMAGE SURVEY reports via PNS; polls for and posts **Autoplot 253 (Tornado Tracks + Lead Time)** maps as soon as they are finalized
-* **Enhanced SPS Handling**: Special Weather Statements include geographic maps (Autoplot 217) and refined narrative extraction
-* Observed RAOB sounding plots via SounderPy with `/sounding` — supports city names, radar site codes, and station IDs with interactive station and time selection
-* Auto-posts soundings for RAOB stations near active SPC watches — immediately on watch issuance (any hour via IEM) and at 00z/12z synoptic cycles
-* On SPC Day 1 **Moderate** or **High** Risk days, sweeps every RAOB station and ACARS airport inside the categorical polygon (100 km buffer) and posts every new sounding as it arrives — runs alongside the watch-driven path with shared dedup
-* VWP hodograph generation for any NEXRAD or TDWR site (200 sites) via `/hodograph`, with auto ASOS surface wind and storm parameter table
-* NEXRAD Level 2 radar downloader from NOAA AWS S3
-  * Single or multi-site downloads with per-site ZIP packaging
-  * Z-to-Z range, start+duration, explicit datetime, or N most recent files
-* **Enhanced Observability**: Detailed `/status` dashboard showing node roles (Primary/Standby), real-time task health, RSS memory usage, and feed synchronization state
+### SPC Products
+| Feature | Details |
+|---|---|
+| Convective Outlooks | Day 1, 2, 3 and Day 4–8 with dynamic URL resolution |
+| Mesoscale Discussions | Cancellation tracking, high-probability watch detection, proactive sounding pre-warming |
+| SCP Graphics | NIU/Gensini CFSv2/GEFS supercell composite parameter maps, twice daily |
+| CSU-MLP Forecasts | Days 1–8 + 6-panel summaries, auto-posted daily; `/csu` slash command with interactive dropdown |
+| NCAR WxNext2 AI | Mean AI convective hazard Days 1–8, auto-posted daily; `/wxnext` slash command |
+
+### Real-time Alerts
+| Feature | Details |
+|---|---|
+| Watch Alerts | Tornado and severe thunderstorm watches via NWS API; IEM iembot fast-path for sub-second text delivery with persistent DB-backed pre-caching |
+| NWS Warnings | Immediate Tornado, Severe Tstorm, and Flash Flood warning posts with IEM Autoplot 208 maps |
+| Special Statements | SPS posts include geographic maps (Autoplot 217) and refined narrative extraction |
+| Tornado Surveys | DAMAGE SURVEY PNS detection; Autoplot 253 tornado-track maps posted as soon as they are finalized |
+
+### Soundings & Radar
+| Feature | Details |
+|---|---|
+| `/sounding` | Observed RAOB plots via SounderPy; supports city names, radar codes, and station IDs with interactive time selection |
+| Watch-triggered soundings | Auto-posts soundings for RAOB stations near active watches — on issuance (any hour via IEM) and at 00z/12z synoptic cycles |
+| MDT/HIGH risk sweep | On Moderate or High Risk days sweeps every RAOB station and ACARS airport inside the categorical polygon (100 km buffer) as new soundings arrive |
+| `/hodograph` | VWP hodograph for any of 200 NEXRAD/TDWR sites; auto ASOS surface wind and storm parameter table |
+| Radar Downloader | NEXRAD Level 2 from NOAA AWS S3 — single or multi-site ZIPs; Z-to-Z range, start+duration, explicit datetime, or N most recent files |
+
+### System
+| Feature | Details |
+|---|---|
+| `/status` | Node roles (Primary/Standby), real-time task health, RSS memory usage, feed sync state |
+| High availability | Leader election via Upstash lease; automatic Primary/Standby failover with no HTTP tunnel required |
 
 ## Prerequisites
 
@@ -126,8 +140,8 @@ spc-bot/
 │       ├── wsr88d.py        # Radar site info and filename utilities
 │       ├── asos.py          # ASOS surface wind fetching
 │       └── utils.py         # Shared exception types
-└── tests/                   # pytest suite (255 tests, see CONTRIBUTING.md)
-    ├── conftest.py          # Fixtures: fake_bot (real BotState), isolated_db, opt-in patches
+└── tests/                   # pytest suite (290 tests, see CONTRIBUTING.md)
+    ├── conftest.py          # Fixtures: fake_bot (real BotState), isolated_db, global patches
     ├── test_fixtures.py     # Fixture invariants
     ├── test_utils.py        # Utility and sounding parsing
     ├── test_watches.py      # Watch VTEC parsing
@@ -144,7 +158,9 @@ spc-bot/
     ├── test_failover_coverage.py  # Lease election, promotion, demotion
     ├── test_hodograph.py    # Hodograph cog
     ├── test_iem_races.py    # IEM/SPC race logic and watch-triggered soundings
-    └── test_spc_outlook.py  # Day 1 categorical polygon parsing + geodesic buffer
+    ├── test_spc_outlook.py  # Day 1 categorical polygon parsing + geodesic buffer
+    ├── test_iembot.py       # IEMBotCog seqnum persistence, feed filtering, dispatch paths
+    └── test_mesoscale.py    # MesoscaleCog MD cancellation, lag protection, year wraparound
 ```
 
 ## Status
