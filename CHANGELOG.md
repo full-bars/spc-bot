@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.5.0] — 2026-04-29
+
+### Added
+- **Persistent Dirty Write Queue.** Failed Upstash writes are now stored in SQLite (`dirty_writes` table) instead of an in-memory list, ensuring synchronization consistency across restarts.
+- **Failover State Mirroring.** Standby nodes now pull authoritative state from Upstash (`mirror_to_sqlite`) when promoted to Primary, ensuring local SQLite is fresh before taking new writes.
+
+### Changed
+- **Refined Circuit Breaker.** The HTTP circuit breaker now ignores `404 Not Found` responses and only trips on connection errors, timeouts, `429`, or `5xx` server errors.
+- **Improved Sync Logic.** `resync_to_upstash` is now surgical, only pushing entries in the `dirty_writes` table by default.
+- **SoundingCog Lifecycle.** Moved task loop starts to `cog_load` to prevent race conditions during bot startup.
+
+### Fixed
+- **Database Snapshot Integrity.** Added WAL checkpoints (`wal_checkpoint(RESTART)`) before DB snapshots to ensure consistency during Syncthing replication.
+
 ## [5.4.1] — 2026-04-29
 
 ### Fixed
