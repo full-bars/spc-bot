@@ -41,7 +41,7 @@ A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks
 * Python 3.12+ (matches the Dockerfile; 3.10/3.11 may still work but CI runs on 3.12)
 * A Discord bot token and application ([Discord Developer Portal](https://discord.com/developers/applications))
 * Channel IDs and Guild ID for where the bot should post
-* An [Upstash Redis](https://upstash.com/) instance (free tier is sufficient) — shared state for the primary/standby pair
+* An [Upstash Redis](https://upstash.com/) instance *(optional, free tier is sufficient)* — only required for Primary/Standby failover. The bot runs fine on a single node without it.
 
 ## Setup
 
