@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from cogs.reports import ReportsCog
 
 @pytest.mark.asyncio
-async def test_pns_triggers_survey_check():
+async def test_pns_triggers_survey_check(isolated_events_db):
     bot = MagicMock()
     bot.get_channel.return_value = AsyncMock()
     cog = ReportsCog(bot)
