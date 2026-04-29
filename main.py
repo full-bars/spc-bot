@@ -212,6 +212,8 @@ async def on_ready():
         logger.info("All tasks started. Bot is ready.")
         if not periodic_sync.is_running():
             periodic_sync.start()
+        if not snapshot_events_task.is_running():
+            snapshot_events_task.start()
     except Exception as e:
         logger.exception(f"[on_ready] Unhandled error: {e}")
 
@@ -368,6 +370,15 @@ async def watchdog_task():
                 )
 
 
+# ── Events DB snapshot (every 5 min, Primary only) ───────────────────────────
+@tasks.loop(minutes=5)
+async def snapshot_events_task():
+    if not bot.state.is_primary:
+        return
+    from utils.events_db import snapshot_for_sync  # noqa: PLC0415
+    await snapshot_for_sync()
+
+
 # ── Graceful shutdown ────────────────────────────────────────────────────────
 _shutting_down = False
 
@@ -391,6 +402,8 @@ async def _shutdown():
     watchdog_task.cancel()
     if periodic_sync.is_running():
         periodic_sync.cancel()
+    if snapshot_events_task.is_running():
+        snapshot_events_task.cancel()
 
     # 2. Close DB, HTTP session, and plot worker pool
     try:
@@ -399,8 +412,9 @@ async def _shutdown():
     except Exception:
         pass
     try:
+        from utils.events_db import close_events_db  # noqa: PLC0415
         await asyncio.wait_for(
-            asyncio.gather(utils.http.close_session(), close_db(), return_exceptions=True),
+            asyncio.gather(utils.http.close_session(), close_db(), close_events_db(), return_exceptions=True),
             timeout=3.0,
         )
     except asyncio.TimeoutError:

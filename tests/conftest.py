@@ -134,3 +134,21 @@ async def isolated_db(tmp_path, monkeypatch):
     yield conn
 
     await db_mod.close_db()
+
+
+@pytest.fixture
+async def isolated_events_db(tmp_path, monkeypatch):
+    """Point `utils.events_db` at a fresh SQLite file for one test."""
+    from utils import events_db as edb_mod
+
+    if edb_mod._db is not None:
+        await edb_mod.close_events_db()
+
+    db_file = tmp_path / "test_events.db"
+    monkeypatch.setattr(edb_mod, "_EVENTS_DB_PATH", str(db_file))
+    monkeypatch.setattr(edb_mod, "_SYNC_PATH", str(tmp_path / "events_sync.db"))
+
+    conn = await edb_mod.get_events_db()
+    yield conn
+
+    await edb_mod.close_events_db()
