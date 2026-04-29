@@ -152,3 +152,22 @@ async def isolated_events_db(tmp_path, monkeypatch):
     yield conn
 
     await edb_mod.close_events_db()
+
+
+@pytest.fixture(autouse=True, scope="session")
+def close_events_db_after_session():
+    """Ensure the events_db connection is closed at end of session.
+
+    Without this, aiosqlite's worker thread keeps the process alive after
+    pytest completes, causing CI to hang indefinitely.
+    """
+    yield
+    import asyncio
+    from utils import events_db as edb_mod
+    if edb_mod._db is not None:
+        try:
+            loop = asyncio.new_event_loop()
+            loop.run_until_complete(edb_mod.close_events_db())
+            loop.close()
+        except Exception:
+            pass
