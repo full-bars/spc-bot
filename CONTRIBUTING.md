@@ -301,3 +301,27 @@ Older versions (≤ v4) shipped state between the two nodes via an HTTP endpoint
 ### No `cloudflared` dependency
 
 `deploy.sh` and the Dockerfile used to install cloudflared for the tunnel. Neither does as of v5 — if you're upgrading from an older install, the binary can be removed (`sudo rm /usr/local/bin/cloudflared`) but leaving it installed is harmless.
+
+---
+
+## Events Archive (v5.3.2+)
+
+Significant weather events (confirmed tornadoes, hail ≥ 3 in, wind ≥ 80 mph) are written to a dedicated **`cache/events.db`** SQLite file that is entirely separate from `bot_state.db` and never touches Upstash Redis. This keeps the free-tier budget free for operational state (hashes, watches, MDs) while the event archive grows unboundedly.
+
+### Path configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `EVENTS_DB_PATH` | `cache/events.db` | Path to the events archive database |
+| `EVENTS_SYNC_DIR` | `cache/events_sync` | Directory watched by Syncthing for cross-node replication |
+
+### Syncthing cross-node replication (optional)
+
+The Primary snapshots `events.db` into `EVENTS_SYNC_DIR/events.db` every 5 minutes. Install Syncthing on both nodes, create a shared folder with the folder ID below, and the bot handles the rest.
+
+| Variable | Purpose |
+|---|---|
+| `SYNCTHING_API_KEY` | Local node's Syncthing REST API key (`/home/user/.local/state/syncthing/config.xml`) |
+| `SYNCTHING_FOLDER_ID` | Shared folder ID — must match on both nodes (default: `spcbot-events`) |
+
+On promotion the bot restores from the sync snapshot and flips the folder to `sendonly`. On demotion it flips back to `receiveonly`. Set `SYNCTHING_FOLDER_ID=spcbot-events` on both nodes when creating the shared folder.

@@ -90,6 +90,8 @@ spc-bot/
 │   ├── state.py             # BotState — HashStore + PostingLog + TimingTracker sub-stores
 │   ├── state_store.py       # Upstash Redis facade: read-through cache → Upstash → SQLite fallback;
 │   │                        # double-writes both backends, retries failed Upstash writes via a reconciler
+│   ├── events_db.py         # Standalone SQLite archive for significant events (tornadoes, hail, wind);
+│   │                        # separate from bot_state.db, never synced to Upstash
 │   ├── spc_urls.py          # SPC outlook URL resolution
 │   ├── spc_outlook.py       # SPC Day 1 categorical polygon (MDT/HIGH) with geodesic buffer
 │   ├── backoff.py           # Exponential backoff tracker for task loops
