@@ -616,25 +616,30 @@ class MesoscaleCog(commands.Cog):
 
             md_numbers = await fetch_latest_md_numbers()
             current_mds = set(md_numbers)
+            # -1 sentinel disables lag-protection when the index is empty
+            # (nothing to compare against, so all active MDs can be cancelled).
+            current_max = max((int(m) for m in current_mds), default=-1)
 
-            # ── MD cancellations ───────────────────────────────────────────
-            if current_mds:
-                current_max = max(int(m) for m in current_mds)
-                for md_num in list(self.bot.state.active_mds):
+            # ── MD cancellations ─────────────────────────────────────────────
+            # Run even when current_mds is empty — a successful empty response
+            # means no MDs are active and anything in active_mds should be
+            # cancelled. The previous `if current_mds:` guard silently skipped
+            # cancellations on quiet days when the last MD expired.
+            for md_num in list(self.bot.state.active_mds):
                     if md_num not in current_mds:
-                        # Protect against index lag: if the active MD is newer than
-                        # anything on the index, it means the index hasn't caught up.
-                        num_int = int(md_num)
-                        # Handle year wraparound (e.g. 0001 is newer than 9999)
-                        is_newer = (num_int > current_max and num_int - current_max < 1000) or \
-                                   (num_int < current_max and current_max - num_int > 8000)
-                        
-                        if is_newer:
-                            logger.info(
-                                f"[MD] Index lagging (highest is {current_max:04d}) — "
-                                f"sparing #{md_num} from cancellation"
-                            )
-                            continue
+                        # Protect against index lag only when there are active MDs
+                        # to compare against.
+                        if current_max >= 0:
+                            num_int = int(md_num)
+                            # Handle year wraparound (e.g. 0001 is newer than 9999)
+                            is_newer = (num_int > current_max and num_int - current_max < 1000) or \
+                                       (num_int < current_max and current_max - num_int > 8000)
+                            if is_newer:
+                                logger.info(
+                                    f"[MD] Index lagging (highest is {current_max:04d}) — "
+                                    f"sparing #{md_num} from cancellation"
+                                )
+                                continue
 
                         self.bot.state.active_mds.discard(md_num)
                         logger.info(
