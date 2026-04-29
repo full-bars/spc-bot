@@ -8,10 +8,12 @@ from datetime import datetime, timezone
 
 import aiohttp
 import discord
+import discord.app_commands
 from discord.ext import commands, tasks
 
 from config import CACHE_DIR, CONFIG, HEALTH_CHANNEL_ID, TOKEN
 import utils.http
+from utils.http import CircuitOpenError
 from utils.state_store import (
     check_integrity, close_db, get_db,
     get_all_hashes, get_posted_urls, get_posted_mds, get_posted_watches,
@@ -240,6 +242,23 @@ async def on_command_error(ctx, error):
         return
     logger.error(f"Command error: {error}")
     raise error
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
+    original = getattr(error, 'original', error)
+    if isinstance(original, CircuitOpenError):
+        msg = f"⚠️ The upstream API ({str(original).split('for')[-1].strip()}) is currently degraded or offline. Please try again later."
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
+    else:
+        logger.error(f"AppCommand error: {error}")
+        msg = "⚠️ An unexpected error occurred while processing this command."
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
 
 
 # ── Watchdog ─────────────────────────────────────────────────────────────────

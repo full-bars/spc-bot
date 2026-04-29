@@ -21,6 +21,8 @@ class _MockResponse:
         self.status = status
         self._body = body
         self.headers = headers or {}
+        self.request_info = MagicMock()
+        self.history = ()
 
     async def __aenter__(self):
         return self
@@ -30,6 +32,15 @@ class _MockResponse:
 
     async def read(self):
         return self._body
+
+    def raise_for_status(self):
+        if self.status >= 400:
+            raise aiohttp.ClientResponseError(
+                self.request_info,
+                self.history,
+                status=self.status,
+                message="Mocked HTTP Error"
+            )
 
 
 def _session_returning(*responses):
