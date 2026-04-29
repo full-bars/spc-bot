@@ -403,11 +403,18 @@ class ReportsCog(commands.Cog):
                             self.posted_reports.add(pid)
                             continue
 
+                    if event_type == "Tornado":
+                        magnitude = "Confirmed"
+                    elif event_type == "Hail":
+                        magnitude = f"{mag:.2f} Inch" if mag else ""
+                    else:
+                        magnitude = f"{int(mag)} MPH" if mag else ""
+
                     await add_significant_event(
                         event_id=f"IEM:LSR:{pid}",
                         event_type=event_type,
                         location=location,
-                        magnitude=f"{mag} {props.get('unit')}",
+                        magnitude=magnitude,
                         coords=f"{props.get('lat')}N {abs(props.get('lon'))}W",
                         timestamp=ts,
                         source=office,
