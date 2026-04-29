@@ -199,6 +199,11 @@ async def on_ready():
     # Slash command sync
     try:
         if bot.state.is_primary:
+            # Ensure Syncthing folder is in send-only mode on every Primary boot.
+            # _promote() handles this for Standby→Primary transitions; this covers
+            # nodes that start directly as Primary (IS_PRIMARY=true).
+            from utils.events_db import set_syncthing_folder_mode  # noqa: PLC0415
+            await set_syncthing_folder_mode("sendonly")
             try:
                 logger.info("Syncing command tree globally...")
                 synced = await bot.tree.sync()
