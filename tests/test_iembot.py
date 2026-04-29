@@ -4,7 +4,7 @@ Tests for cogs/iembot.py — seqnum persistence, feed filtering, and text parsin
 
 import json
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from cogs.iembot import (
     IEMBotCog,
