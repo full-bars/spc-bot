@@ -4,6 +4,66 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.4.0] — 2026-04-29
+
+### Added
+- **Global circuit breaker and retry middleware.** All outbound HTTP calls now
+  go through a unified retry layer (`tenacity` exponential backoff) and a
+  per-host circuit breaker that fails fast when NWS/SPC/IEM APIs are degraded,
+  preventing cascading delays from one unreachable upstream from blocking the
+  entire poll cycle.
+- **Pydantic models for NWS Alerts API.** Strict schema validation at the API
+  boundary replaces unsafe `dict.get()` traversal throughout the warnings
+  pipeline. Malformed responses now raise immediately rather than propagating
+  `None` values deep into embed-building logic.
+- **Automated cache and artifact lifecycle manager.** New `cogs/maintenance.py`
+  runs a daily background task that prunes map image files and temporary
+  download artifacts older than 48 hours, keeping the cache directory bounded.
+
+### Performance
+- **VAD/Hodograph plotter migrated to `ProcessPoolExecutor`.** Hodograph
+  generation now uses the same pre-warmed worker pool as sounding plots,
+  eliminating the ~1.5 s cold-import penalty (sounderpy, matplotlib) on the
+  first radar request after a restart.
+- **Multi-stage Docker build.** Wheel builder pattern strips build tools from
+  the final runtime image — smaller container, reduced attack surface.
+
+### Fixed
+- **`send_bot_alert` health channel now falls back to `fetch_channel`.**
+  Previously `bot.get_channel()` returned `None` during a Discord reconnect
+  (cache not yet populated) and the health alert was silently dropped. Now
+  falls back to `await bot.fetch_channel()` before giving up.
+- **Bare `except: pass` blocks removed from the reporting pipeline.** Silent
+  failures in timestamp parsing and magnitude extraction in `cogs/reports.py`
+  now log at DEBUG level so anomalies are visible in logs.
+- **Persistent LSR deduplication.** `posted_reports` moved from an in-memory
+  set to SQLite + Upstash state — LSR dedup now survives bot restarts.
+  Hail/wind `event_id` generation standardized between the iembot fast-path
+  and GeoJSON poll path so the poll path correctly triggers `ON CONFLICT UPDATE`
+  rather than inserting a duplicate row.
+- **Atomic LSR event logging.** `add_significant_event()` is now called before
+  `channel.send()` in `_handle_lsr`, closing the window where a crash between
+  Discord send and DB write could cause the same tornado to repost.
+- **MD cancellation fires on quiet days.** The cancellation detection loop was
+  guarded by `if current_mds:` — when the SPC index returned an empty list
+  (normal on days with no active MDs), all cancellations were silently skipped.
+  MDs now receive cancellation embeds correctly regardless of index state.
+- **`_dirty_queue` capped at 5 000 entries.** During extended Upstash outages
+  with active severe weather the reconciler queue could grow unboundedly in RAM.
+  Oldest entries are dropped with a warning on overflow.
+- **CSU-MLP double-reset on late restart fixed.** `_last_reset_date` is now
+  pre-set to today on cog startup when the bot restarts after 15 UTC, preventing
+  a second reset that would clear products already posted in the 15:00–restart
+  window.
+- **Failover dual-primary window reduced.** A 2-second sleep after writing the
+  Upstash lease in `_promote()` gives the outgoing Primary's next sync cycle
+  time to demote before cogs start posting, shrinking the window where both
+  nodes are simultaneously active.
+- **WAL checkpoint before Syncthing snapshot.** `PRAGMA wal_checkpoint(RESTART)`
+  is now issued before `db.backup()` so the snapshot Syncthing replicates to the
+  Standby includes all committed writes, not just pages already flushed to the
+  main database file.
+
 ## [5.3.0] — 2026-04-28
 
 ### Added
