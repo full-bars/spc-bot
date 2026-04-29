@@ -12,3 +12,4 @@ aioboto3>=15.5.0
 shapely>=2.0
 pyproj>=3.6
 tenacity>=8.3.0
+pydantic>=2.7.0
