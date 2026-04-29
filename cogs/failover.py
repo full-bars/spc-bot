@@ -400,6 +400,7 @@ class FailoverCog(commands.Cog):
         st.manual_cache = await state_store.get_all_hashes("manual")
         st.posted_mds = await state_store.get_posted_mds()
         st.posted_watches = await state_store.get_posted_watches()
+        st.posted_reports = await state_store.get_posted_reports()
 
         last_seq = await state_store.get_state("iembot_last_seqnum")
         if isinstance(last_seq, str) and last_seq.isdigit():

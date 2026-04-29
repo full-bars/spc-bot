@@ -57,9 +57,9 @@ def _plot_worker_init():
 
     # Silent inherited loggers
     for name in ("spc_bot", None):  # spc_bot and root
-        l = _logging.getLogger(name)
-        for h in l.handlers[:]:
-            l.removeHandler(h)
+        log_obj = _logging.getLogger(name)
+        for h in log_obj.handlers[:]:
+            log_obj.removeHandler(h)
     _logging.getLogger().setLevel(_logging.WARNING)
 
     import matplotlib as _mpl

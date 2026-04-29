@@ -315,7 +315,8 @@ class CSUMLPCog(commands.Cog):
                         if attempt < 2:
                             logger.warning(f"[CSU-MLP] Retrying Day {day} (attempt {attempt+2}) after error: {e}")
                             await asyncio.sleep(2 * (attempt + 1))
-                        else: raise
+                        else:
+                            raise
 
                 self.bot.state.csu_posted.add(str(day))
                 await _save_posted_today(self.bot.state.csu_posted)
@@ -360,7 +361,8 @@ class CSUMLPCog(commands.Cog):
                         if attempt < 2:
                             logger.warning(f"[CSU-MLP] Retrying {label_name} (attempt {attempt+2}) after error: {e}")
                             await asyncio.sleep(2 * (attempt + 1))
-                        else: raise
+                        else:
+                            raise
 
                 self.bot.state.csu_posted.add(state_key)
                 await _save_posted_today(self.bot.state.csu_posted)

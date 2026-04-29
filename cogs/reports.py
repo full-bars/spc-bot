@@ -10,9 +10,11 @@ from discord.ext import commands, tasks
 from config import WARNINGS_CHANNEL_ID
 from utils.http import http_get_bytes
 from utils.state_store import (
+    add_posted_report,
     add_posted_survey, 
     add_significant_event,
     get_posted_surveys, 
+    prune_posted_reports,
     prune_posted_surveys
 )
 
@@ -21,7 +23,6 @@ logger = logging.getLogger("spc_bot")
 class ReportsCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.posted_reports = set() # Simple dedup
         self.posted_surveys: set[str] = set()
         self._surveys_loaded = False
         self.poll_lsrs.start()
@@ -39,7 +40,7 @@ class ReportsCog(commands.Cog):
 
     async def post_report_now(self, product_id: str, raw_text: str, pil: str):
         """Handle LSR or PNS damage survey posts."""
-        if product_id in self.posted_reports:
+        if product_id in self.bot.state.posted_reports:
             return
         
         if pil == "LSR":
@@ -124,21 +125,14 @@ class ReportsCog(commands.Cog):
             )
             embed.set_footer(text=f"{office} LSR | {time_str} | {coords}")
             
-            await channel.send(embed=embed)
-            self.posted_reports.add(product_id)
+            # --- Persist State Before Sending ---
+            self.bot.state.posted_reports.add(product_id)
+            await add_posted_report(product_id)
+            await prune_posted_reports()
 
-            # Log significant events using the already-parsed event_type and city.
-            # Magnitude line directly follows the header: M<value> or E<value>.
-            lsr_ts = datetime.now(timezone.utc).timestamp()
-            if product_id and len(product_id) >= 12:
-                try:
-                    lsr_ts = datetime.strptime(product_id[:12], "%Y%m%d%H%M").replace(tzinfo=timezone.utc).timestamp()
-                except Exception:
-                    pass
-
+            # Log significant events to DB
             event_upper = event_type.upper()
             if "TORNADO" in event_upper:
-                # Dedup already happened above; if we reach here it's a new tornado
                 await add_significant_event(
                     event_id=f"IEM:LSR:{product_id}",
                     event_type="Tornado",
@@ -168,10 +162,10 @@ class ReportsCog(commands.Cog):
                     except ValueError:
                         pass
             elif "WND" in event_upper or "WIND" in event_upper:
-                m_mag = re.search(r"[ME]([\d]+)", r)
+                m_mag = re.search(r"[ME]([\d.]+)", r)
                 if m_mag:
                     try:
-                        speed = int(m_mag.group(1))
+                        speed = float(m_mag.group(1))
                         if speed >= 80:
                             await add_significant_event(
                                 event_id=f"IEM:LSR:{product_id}:wind",
@@ -185,6 +179,8 @@ class ReportsCog(commands.Cog):
                             )
                     except ValueError:
                         pass
+
+            await channel.send(embed=embed)
 
     async def _handle_pns(self, product_id: str, raw_text: str):
         # Public Information Statement - Damage Survey
@@ -234,7 +230,9 @@ class ReportsCog(commands.Cog):
         embed.set_footer(text=f"{office} PNS | {product_id}")
         
         await channel.send(embed=embed)
-        self.posted_reports.add(product_id)
+        self.bot.state.posted_reports.add(product_id)
+        await add_posted_report(product_id)
+        await prune_posted_reports()
 
         # --- DB Logging & Matching ---
         # Try to find a date in the text to poll for Autoplot 253 tracks.
@@ -373,7 +371,7 @@ class ReportsCog(commands.Cog):
             for feature in data.get("features", []):
                 props = feature.get("properties", {})
                 pid = props.get("product_id")
-                if not pid or pid in self.posted_reports:
+                if not pid or pid in self.bot.state.posted_reports:
                     continue
                 
                 # Check significance
@@ -394,28 +392,37 @@ class ReportsCog(commands.Cog):
                     valid_str = props.get("valid") # 2026-04-28T11:08:00Z
                     ts = 0.0
                     if valid_str:
-                        dt = datetime.strptime(valid_str, "%Y-%m-%dT%H:%M:%SZ")
-                        ts = dt.replace(tzinfo=timezone.utc).timestamp()
-                    else:
+                        try:
+                            dt = datetime.strptime(valid_str, "%Y-%m-%dT%H:%M:%SZ")
+                            ts = dt.replace(tzinfo=timezone.utc).timestamp()
+                        except Exception as e:
+                            logger.warning(f"Failed to parse poll LSR timestamp '{valid_str}': {e}")
+
+                    if ts == 0.0:
                         ts = datetime.now(timezone.utc).timestamp()
 
                     office = props.get("wfo")
                     location = f"{props.get('city')}, {props.get('state')}"
-                    event_type = "Tornado" if typetext == "TORNADO" else ("Hail" if typetext == "HAIL" else "Wind")
-
-                    if event_type == "Tornado":
+                    
+                    if typetext == "TORNADO":
+                        event_type = "Tornado"
                         magnitude = "Confirmed"
-                    elif event_type == "Hail":
-                        magnitude = f"{mag:.2f} Inch" if mag else ""
+                        event_id = f"IEM:LSR:{pid}"
+                    elif typetext == "HAIL":
+                        event_type = "Hail"
+                        magnitude = f"{mag:.2f} Inch"
+                        event_id = f"IEM:LSR:{pid}:hail"
                     else:
-                        magnitude = f"{int(mag)} MPH" if mag else ""
+                        event_type = "Wind"
+                        magnitude = f"{int(mag)} MPH"
+                        event_id = f"IEM:LSR:{pid}:wind"
 
                     # Dedup for tornadoes: if the iembot fast-path already logged
                     # this event, update that entry with the cleaner GeoJSON
                     # location ("City, ST") rather than skipping entirely.
                     if event_type == "Tornado":
                         from utils.state_store import find_matching_tornado  # noqa: PLC0415
-                        match_id = await find_matching_tornado(office, ts, location)
+                        match_id = await find_matching_tornado(office, ts, location, window_hours=1.0)
                         if match_id:
                             await add_significant_event(
                                 event_id=match_id,
@@ -428,11 +435,12 @@ class ReportsCog(commands.Cog):
                                 raw_text=props.get("remark"),
                             )
                             logger.debug(f"[REPORTS] Updated location for {match_id} → {location!r}")
-                            self.posted_reports.add(pid)
+                            self.bot.state.posted_reports.add(pid)
+                            await add_posted_report(pid)
                             continue
 
                     await add_significant_event(
-                        event_id=f"IEM:LSR:{pid}",
+                        event_id=event_id,
                         event_type=event_type,
                         location=location,
                         magnitude=magnitude,
@@ -441,8 +449,10 @@ class ReportsCog(commands.Cog):
                         source=office,
                         raw_text=props.get("remark"),
                     )
-                    # Add to posted_reports to dedup
-                    self.posted_reports.add(pid)
+                    # Persist dedup
+                    self.bot.state.posted_reports.add(pid)
+                    await add_posted_report(pid)
+                    await prune_posted_reports()
 
         except Exception as e:
             logger.warning(f"[REPORTS] LSR poll failed: {e}")
