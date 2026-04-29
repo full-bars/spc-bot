@@ -91,7 +91,7 @@ info "Dependencies installed."
 # ── Interactive .env setup ────────────────────────────────────────────────────
 ENV_FILE="${INSTALL_DIR}/.env"
 if [ -f "$ENV_FILE" ]; then
-    warn ".env already exists — skipping interactive setup."
+    warn ".env already exists — skipping required-field setup."
 else
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -113,6 +113,70 @@ MODELS_CHANNEL_ID=${MODELS_CHANNEL_ID}
 GUILD_ID=${GUILD_ID}
 EOF
     info ".env created."
+fi
+
+# ── Optional: Failover setup ──────────────────────────────────────────────────
+if ! grep -q "^UPSTASH_REDIS_REST_URL=" "$ENV_FILE" 2>/dev/null; then
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  High Availability (optional)"
+    echo "  Requires an Upstash Redis instance."
+    echo "  Skip this for single-node installs."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    read -rp "  Set up Primary/Standby failover? [y/N] " _setup_failover
+    if [[ "$_setup_failover" =~ ^[Yy]$ ]]; then
+        echo ""
+        read -rp  "  Upstash Redis REST URL:   " _upstash_url
+        read -rsp "  Upstash Redis REST Token: " _upstash_token
+        echo ""
+        read -rsp "  Shared failover secret:   " _failover_token
+        echo ""
+        read -rp  "  Your Discord User ID (for /failover): " _admin_id
+        read -rp  "  Is this the Primary node? [Y/n] " _is_primary_input
+        [[ "$_is_primary_input" =~ ^[Nn]$ ]] && _is_primary=false || _is_primary=true
+        echo ""
+
+        cat >> "$ENV_FILE" << EOF
+
+# Failover — Upstash Redis + leader election
+UPSTASH_REDIS_REST_URL=${_upstash_url}
+UPSTASH_REDIS_REST_TOKEN=${_upstash_token}
+FAILOVER_TOKEN=${_failover_token}
+ADMIN_USER_ID=${_admin_id}
+IS_PRIMARY=${_is_primary}
+EOF
+        info "Failover configuration written to .env."
+    else
+        info "Skipping failover setup — bot will run as a single node."
+    fi
+fi
+
+# ── Optional: Syncthing setup ─────────────────────────────────────────────────
+if ! grep -q "^SYNCTHING_API_KEY=" "$ENV_FILE" 2>/dev/null; then
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Syncthing Events Archive Sync (optional)"
+    echo "  Replicates events.db across nodes."
+    echo "  Only useful alongside failover setup."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    read -rp "  Set up Syncthing integration? [y/N] " _setup_syncthing
+    if [[ "$_setup_syncthing" =~ ^[Yy]$ ]]; then
+        echo ""
+        read -rsp "  Syncthing API Key:  " _syncthing_key
+        echo ""
+        read -rp  "  Syncthing Folder ID: " _syncthing_folder
+        echo ""
+
+        cat >> "$ENV_FILE" << EOF
+
+# Syncthing — events.db cross-node replication
+SYNCTHING_API_KEY=${_syncthing_key}
+SYNCTHING_FOLDER_ID=${_syncthing_folder}
+EOF
+        info "Syncthing configuration written to .env."
+    else
+        info "Skipping Syncthing setup."
+    fi
 fi
 
 # ── Permissions ───────────────────────────────────────────────────────────────
