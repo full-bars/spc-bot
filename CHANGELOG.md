@@ -41,42 +41,25 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.3.2] — 2026-04-29
+
 ### Added
-- **Tornado Database and EF Rating Tracking.** Significant weather events (Confirmed Tornadoes, Giant Hail ≥ 3", Wind ≥ 80mph) are now logged to a persistent SQLite database. The bot automatically updates tornado entries with EF ratings when Damage Survey (PNS) products are published later.
-- **`/recenttornadoes` and `/significantwx` Slash Commands.** New commands to view recent logged events with configurable time ranges (1h to 30 days). `/recenttornadoes` focuses on confirmed tornadoes (including surveys), while `/significantwx` provides a broader view of severe reports.
-- **Discord-side LSR Deduplication.** Implemented a 1-hour "per-tornado" cooldown to reduce noise in the warnings channel when multiple Local Storm Reports (LSRs) are issued for the same physical tornado.
-- **Significant Event Persistence.** Added `significant_events` table to SQLite to keep a permanent log of high-impact events.
+- **Tornado Database and EF Rating Tracking.** Significant weather events (confirmed tornadoes, hail ≥ 3 in, wind ≥ 80 mph) are now logged to a dedicated `cache/events.db` SQLite file — completely separate from the operational `bot_state.db` and never synced to Upstash Redis. EF ratings are backfilled automatically when NWS damage survey (PNS) products are published.
+- **`/recenttornadoes` and `/significantwx` Slash Commands.** Query the event archive with configurable time ranges (1 h – 30 days). `/recenttornadoes` shows confirmed tornadoes; `/significantwx` shows the full significant-weather picture (tornadoes + giant hail + high-end wind).
+- **Syncthing cross-node replication for `events.db`.** The Primary snapshots `events.db` into a Syncthing-watched directory every 5 minutes. On failover promotion the Standby restores from the latest snapshot before loading cogs. Folder mode (`sendonly` / `receiveonly`) is flipped automatically via the Syncthing REST API on promotion and demotion. Opt-in via `SYNCTHING_API_KEY` and `SYNCTHING_FOLDER_ID` in `.env`.
+- **High-risk-day sounding sweep.** On SPC Day 1 Moderate or High Risk days, every RAOB station and ACARS airport inside the categorical polygon (100 km geodesic buffer) is swept for new soundings and posted as they arrive. New module `utils/spc_outlook.py`; `shapely` and `pyproj` added as runtime dependencies.
 
 ### Fixed
-- **Failover Pre-emption Logic.** Fixed a split-brain scenario where a rebooting Primary node could be stuck in Standby if a promoted Standby held the lease; the Primary now correctly pre-empts the lease if configured as the explicit manual primary.
-- **High-risk sounding captions match the active risk level.** When
-  only MDT is active the prefix is now `MDT-Risk Sounding` /
-  `MDT-Risk ACARS` instead of misleadingly saying `High-Risk`. HIGH
-  (alone or alongside MDT) still uses `High-Risk` since HIGH is the
-  dominant level.
+- **LSR event-type misclassification.** The iembot-path significance logger (`_check_and_log_report`) used a naive `"TORNADO" in raw_text` check that tagged any LSR mentioning an active tornado watch as a tornado event. Replaced with a parser that uses the already-correct event type from the fixed-width LSR header column.
+- **LSR `None None` magnitude.** The GeoJSON poll path stored `f"{mag} {unit}"` for tornadoes where `magf` is null, producing `"None None"`. Tornadoes now always store `"Confirmed"`; hail and wind use formatted inch/mph strings.
+- **LSR location quality.** The iembot path now appends the state code from the county/date line that follows each LSR header entry. The GeoJSON poll path, when finding a duplicate tornado, updates the existing DB entry with the cleaner `"City, ST"` location instead of skipping — self-healing abbreviated entries within one poll cycle (~5 min).
+- **Duplicate log entries eliminated.** `logger.propagate = False` prevents root-level handlers added by libraries at runtime from double-emitting every `spc_bot` record. Sounding plot workers also have inherited handlers cleared on startup.
+- **Failover pre-emption.** A rebooting Primary no longer stays stuck in Standby when a promoted Standby holds the lease; it correctly pre-empts and reclaims the Primary role.
+- **High-risk sounding captions.** MDT-only days now show `MDT-Risk Sounding` / `MDT-Risk ACARS` instead of `High-Risk`.
 
 ### Changed
-- **MD posts now include the full discussion text.** SPC mesoscale
-  discussions are posted as a Discord embed whose title links to the
-  SPC page and whose description carries the full MD body in a code
-  block (preserves SPC's column-aligned "Areas affected" / "SUMMARY"
-  formatting). Discussions over 4000 characters split across multiple
-  embeds with `(N/M)` pagination on the title; the graphic stays on
-  the first embed. Previously the post was just the header and the
-  "Concerning" line. The graphic-backfill path (`_upgrade_md_message`)
-  rebuilds the same embed structure when SPC catches up.
-
-### Added
-- **High-risk-day sounding sweep.** New `monitor_high_risk_soundings`
-  task on `SoundingCog` (15-minute cadence). On SPC Day 1 **Moderate**
-  or **High** Risk days, it pulls the categorical GeoJSON
-  (`day1otlk_cat.nolyr.geojson`), unions the MDT/HIGH polygons, applies
-  a geodesic 100 km buffer (CONUS Albers Equal Area, EPSG:5070), and
-  posts every new RAOB sounding and ACARS profile inside the area as
-  soon as IEM publishes it. Shared dedup keys with the watch-driven
-  paths prevent duplicate posts. Skips immediately when no MDT/HIGH is
-  active. New module `utils/spc_outlook.py`; `shapely` and `pyproj`
-  added as explicit runtime dependencies.
+- **MD posts now include the full discussion text.** SPC mesoscale discussions are posted with the complete body text in the embed (paginated with `(N/M)` titles for long discussions). The graphic-backfill path rebuilds the same structure when SPC catches up.
+- **`events.db` separated from Upstash budget.** Significant events were previously double-written to Upstash Redis on every insert, eating into the free-tier daily command budget. The archive now lives solely in `cache/events.db` with no Redis involvement.
 
 ## [5.2.6] — 2026-04-27
 
