@@ -81,6 +81,45 @@ spclog50     # show last 50 log lines
 spcupdate    # pull latest code and restart
 ```
 
+## High Availability (optional)
+
+The bot supports an active/standby failover pair using Upstash Redis as a shared lease store. This section is only relevant if you want to run two nodes — a single install needs none of this.
+
+### How it works
+
+One node holds the Upstash lease and runs as **Primary** (posts to Discord, polls all feeds). The other runs as **Standby** (holds no lease, all cogs idle). If the Primary crashes or goes offline, the Standby detects the expired lease on its next heartbeat and promotes itself automatically — no manual intervention, no HTTP tunnel between nodes.
+
+### Failover setup
+
+1. **Create an Upstash Redis database** (free tier is enough) and note the REST URL and token.
+2. **Set the following on both nodes** in `.env`:
+   ```env
+   UPSTASH_REDIS_REST_URL=https://your-upstash-url.upstash.io
+   UPSTASH_REDIS_REST_TOKEN=your-upstash-token
+   FAILOVER_TOKEN=some-long-random-shared-secret
+   ADMIN_USER_ID=your_discord_user_id
+   ```
+3. **Set the initial role** on each node:
+   ```env
+   IS_PRIMARY=true   # on the Primary
+   IS_PRIMARY=false  # on the Standby
+   ```
+   The bot uses leader election on every heartbeat regardless, so `IS_PRIMARY` only controls which cogs load at startup — it doesn't hard-lock a node to a role.
+4. Start both nodes. Use `/failover` in Discord (restricted to `ADMIN_USER_ID`) to trigger a manual role swap at any time.
+
+### Syncthing — events archive sync (optional)
+
+The significant-weather events archive (`cache/events.db`) is a standalone SQLite file that never syncs to Upstash. To replicate it across nodes so the Standby has a current copy if it promotes:
+
+1. **Install [Syncthing](https://syncthing.net/)** on both nodes and pair them.
+2. **Create a shared folder** pointing to the `cache/events_sync/` directory on each node. Note the folder ID Syncthing assigns.
+3. **Add to `.env`** on both nodes:
+   ```env
+   SYNCTHING_API_KEY=your_local_syncthing_api_key
+   SYNCTHING_FOLDER_ID=your-folder-id
+   ```
+4. The bot manages folder mode automatically — it sets the folder to **send-only** on the Primary and **receive-only** on the Standby, and flips the mode on promotion/demotion. No manual Syncthing configuration beyond pairing is required.
+
 ## Project Structure
 
 ```
