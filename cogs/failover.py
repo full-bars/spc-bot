@@ -345,6 +345,11 @@ class FailoverCog(commands.Cog):
         logger.warning("[FAILOVER] !!! PROMOTING TO PRIMARY !!!")
         self.bot.state.is_primary = True
 
+        # Restore events.db from Syncthing snapshot before cogs load.
+        from utils.events_db import restore_from_sync, set_syncthing_folder_mode  # noqa: PLC0415
+        restore_from_sync()
+        await set_syncthing_folder_mode("sendonly")
+
         # Drop stale cache so fresh reads re-hit Upstash.
         state_store.invalidate_all_caches()
 
@@ -424,6 +429,8 @@ class FailoverCog(commands.Cog):
     async def _demote(self) -> None:
         logger.info("[FAILOVER] Demoting to STANDBY")
         self.bot.state.is_primary = False
+        from utils.events_db import set_syncthing_folder_mode  # noqa: PLC0415
+        await set_syncthing_folder_mode("receiveonly")
         failed = []
         for ext in ALL_EXTENSIONS:
             try:
