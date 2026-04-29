@@ -72,7 +72,13 @@ class ReportsCog(commands.Cog):
             time_str, event_type, city, coords = m_header.groups()
             event_type = event_type.strip()
             city = city.strip()
-            
+
+            # Append state from the county/date line that follows the header:
+            # "04/29/2026                   Madison           MO   Public"
+            m_state = re.search(r"^\d{2}/\d{2}/\d{4}\s+.{10,}\s([A-Z]{2})\s", r, re.M)
+            if m_state:
+                city = f"{city}, {m_state.group(1)}"
+
             # Remarks
             m_remarks = re.search(r"REMARKS\s*\.\.\.\s*(.*?)(?=\n\s*\n|\$\$|$)", r, re.I | re.DOTALL)
             remarks = m_remarks.group(1).replace("\n", " ").strip() if m_remarks else ""
@@ -394,21 +400,33 @@ class ReportsCog(commands.Cog):
                     location = f"{props.get('city')}, {props.get('state')}"
                     event_type = "Tornado" if typetext == "TORNADO" else ("Hail" if typetext == "HAIL" else "Wind")
 
-                    # Dedup check for Tornadoes
-                    if event_type == "Tornado":
-                        from utils.state_store import find_matching_tornado
-                        match_id = await find_matching_tornado(office, ts, location)
-                        if match_id:
-                            logger.info(f"[REPORTS] Skipping poll log for LSR {pid}, matches existing {match_id}")
-                            self.posted_reports.add(pid)
-                            continue
-
                     if event_type == "Tornado":
                         magnitude = "Confirmed"
                     elif event_type == "Hail":
                         magnitude = f"{mag:.2f} Inch" if mag else ""
                     else:
                         magnitude = f"{int(mag)} MPH" if mag else ""
+
+                    # Dedup for tornadoes: if the iembot fast-path already logged
+                    # this event, update that entry with the cleaner GeoJSON
+                    # location ("City, ST") rather than skipping entirely.
+                    if event_type == "Tornado":
+                        from utils.state_store import find_matching_tornado  # noqa: PLC0415
+                        match_id = await find_matching_tornado(office, ts, location)
+                        if match_id:
+                            await add_significant_event(
+                                event_id=match_id,
+                                event_type="Tornado",
+                                location=location,
+                                magnitude=magnitude,
+                                coords=f"{props.get('lat')}N {abs(props.get('lon'))}W",
+                                timestamp=ts,
+                                source=office,
+                                raw_text=props.get("remark"),
+                            )
+                            logger.debug(f"[REPORTS] Updated location for {match_id} → {location!r}")
+                            self.posted_reports.add(pid)
+                            continue
 
                     await add_significant_event(
                         event_id=f"IEM:LSR:{pid}",
@@ -418,7 +436,7 @@ class ReportsCog(commands.Cog):
                         coords=f"{props.get('lat')}N {abs(props.get('lon'))}W",
                         timestamp=ts,
                         source=office,
-                        raw_text=props.get("remark")
+                        raw_text=props.get("remark"),
                     )
                     # Add to posted_reports to dedup
                     self.posted_reports.add(pid)
