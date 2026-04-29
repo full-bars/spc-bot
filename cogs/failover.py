@@ -35,6 +35,7 @@ from.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import socket
@@ -356,6 +357,12 @@ class FailoverCog(commands.Cog):
         # Claim the lease immediately (before loading cogs so there's no
         # window where another watcher sees the key missing).
         await self._write_lease()
+
+        # Brief pause so the outgoing Primary's next sync cycle can detect
+        # the new lease holder and demote before we start posting. Keeps the
+        # dual-primary window under one sync interval (~30 s) in normal cases
+        # and under a few seconds in the common pre-emption path.
+        await asyncio.sleep(2.0)
 
         # Refresh the in-process BotState mirrors. Cogs still read
         # `bot.state.posted_mds`, `bot.state.auto_cache`, etc. as local
