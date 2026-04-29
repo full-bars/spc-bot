@@ -19,6 +19,8 @@ class SCPCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._next_post_time: datetime | None = None
+
+    async def cog_load(self):
         self.auto_post_scp.start()
 
     def cog_unload(self):

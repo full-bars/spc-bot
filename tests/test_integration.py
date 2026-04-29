@@ -29,13 +29,6 @@ def make_mock_interaction(bot):
     return interaction
 
 
-@pytest.fixture(autouse=True)
-def global_create_task_patch():
-    """Aggressively patch create_task to prevent any background tasks from hanging integration tests."""
-    with patch("asyncio.create_task", return_value=MagicMock()):
-        yield
-
-
 # ── BotState ─────────────────────────────────────────────────────────────────
 
 class TestBotStateInit:

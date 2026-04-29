@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.4.1] — 2026-04-29
+
+### Fixed
+- **`SCPCog` task started in `cog_load` instead of `__init__`.** Moving
+  `auto_post_scp.start()` out of `__init__` prevents the loop from firing
+  before the bot is fully ready, matching the discord.py lifecycle contract.
+
+### Tests
+- **`tests/test_iembot.py`** — 26 new unit tests covering `IEMBotCog` seqnum
+  persistence, feed filtering, product dispatch, and `_handle_watch` /
+  `_handle_md` paths.
+- **`tests/test_mesoscale.py`** — 9 new unit tests covering MD cancellation
+  (including the empty-index regression from #171), lag protection, year
+  wraparound, standby guard, and Discord send failure rollback.
+- **`suppress_create_task` fixture promoted to autouse** in `conftest.py`,
+  removing the need to opt-in per test and eliminating the duplicate fixture
+  that lived in `test_integration.py`.
+
 ## [5.4.0] — 2026-04-29
 
 ### Added
