@@ -604,7 +604,7 @@ class WarningsCog(commands.Cog):
         
         events = await get_recent_significant_events(event_type="Tornado", since_hours=range)
         if not events:
-            await interaction.followup.send(f"No confirmed tornadoes logged in the requested time frame.")
+            await interaction.followup.send("No confirmed tornadoes logged in the requested time frame.")
             return
 
         embed = discord.Embed(
@@ -655,7 +655,7 @@ class WarningsCog(commands.Cog):
         
         events = tornadoes + hail + wind
         if not events:
-            await interaction.followup.send(f"No significant weather events logged in the requested time frame.")
+            await interaction.followup.send("No significant weather events logged in the requested time frame.")
             return
 
         # Sort by timestamp DESC
@@ -671,8 +671,10 @@ class WarningsCog(commands.Cog):
             rel_time = f"<t:{int(e['timestamp'])}:R>"
             
             emoji = "🌪️"
-            if e["event_type"] == "Hail": emoji = "🧊"
-            elif e["event_type"] == "Wind": emoji = "🌬️"
+            if e["event_type"] == "Hail":
+                emoji = "🧊"
+            elif e["event_type"] == "Wind":
+                emoji = "🌬️"
             
             mag_str = f" ({e['magnitude']})" if e['magnitude'] else ""
             
@@ -789,19 +791,21 @@ class WarningsCog(commands.Cog):
 
         try:
             data = _json.loads(content)
+            from models.nws import NWSAlertResponse
+            alert_response = NWSAlertResponse.model_validate(data)
         except Exception as e:
-            logger.warning(f"[WARN] JSON parse failed: {e}")
+            logger.warning(f"[WARN] JSON/Pydantic parse failed: {e}")
             return
 
         current_vtec_data = {}
         current_vtec_ids = set()
-        for feature in data.get("features", []) or []:
-            props = feature.get("properties", {}) or {}
-            event = props.get("event", "")
+        for feature in alert_response.features:
+            props = feature.properties
+            event = props.event
             if event not in _WARNING_STYLE:
                 continue
 
-            vtec_list = props.get("parameters", {}).get("VTEC", []) or []
+            vtec_list = props.parameters.VTEC if props.parameters else []
             vtec_dict: Optional[dict] = None
             for v in vtec_list:
                 parsed = parse_vtec(v)
@@ -865,18 +869,18 @@ class WarningsCog(commands.Cog):
 
     async def _post_warning(
         self,
-        feature: dict,
+        feature,
         channel: discord.abc.Messageable,
         vtec: dict,
         event: str,
     ) -> discord.Message:
-        props = feature.get("properties", {}) or {}
-        description = props.get("description", "") or ""
-        params = props.get("parameters", {})
+        props = feature.properties
+        description = props.description or ""
+        params = props.parameters.model_dump() if props.parameters else {}
         title, color = get_warning_style(event, description, params)
         vtec_id = vtec["vtec_id"]
 
-        concise_text = build_concise_warning_text(event, vtec, feature=feature)
+        concise_text = build_concise_warning_text(event, vtec, feature=feature.model_dump())
 
         # Log significant events (tornadoes, hail, wind) to DB
         await self._check_and_log_significant_event(event, description, vtec)
