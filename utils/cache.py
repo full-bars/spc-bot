@@ -147,8 +147,8 @@ async def should_use_cache_for_manual(urls: List[str]) -> bool:
         return False
     now = datetime.now()
     ages = [now - datetime.fromtimestamp(m) for m in mtimes]
-    if ages and min(ages) > timedelta(days=3):
-        logger.info("[CACHE] Cached files are older than 3 days; refreshing")
+    if ages and min(ages) > timedelta(hours=3):
+        logger.info("[CACHE] Cached files are older than 3 hours; refreshing")
         return False
     logger.debug(f"[CACHE] Using cached files for Day {day} (min age: {min(ages)})")
     return True

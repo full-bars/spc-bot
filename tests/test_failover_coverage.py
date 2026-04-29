@@ -235,6 +235,53 @@ async def test_primary_demotes_when_other_holder_wins(monkeypatch):
     FailoverCog._demote.assert_awaited_once()
 
 
+async def test_primary_reclaims_expired_lease_with_nx(monkeypatch):
+    """When read returns None (key missing), primary uses SET NX to reclaim."""
+    cog = FailoverCog(_make_bot(is_primary=True))
+    cog._identity = "me"
+
+    # First GET returns None (key expired), SET NX returns "OK", no re-read needed.
+    responses = {"GET": None, "SET": "OK"}
+    mock = _stub_upstash(responses)
+    monkeypatch.setattr(FailoverCog, "_upstash", mock)
+    monkeypatch.setattr(FailoverCog, "_demote", AsyncMock())
+
+    await cog._primary_cycle()
+
+    # Must NOT have demoted.
+    FailoverCog._demote.assert_not_awaited()
+    # SET call must include NX flag.
+    set_calls = [c for c in mock.calls if c[0] == "SET"]
+    assert set_calls, "expected a SET call"
+    assert "NX" in set_calls[0], "SET must use NX when read returned None"
+
+
+async def test_primary_demotes_when_nx_write_blocked_by_standby(monkeypatch):
+    """When read returns None but NX write fails (standby holds key), primary demotes."""
+    cog = FailoverCog(_make_bot(is_primary=True))
+    cog._identity = "me"
+
+    call_count = {"n": 0}
+
+    async def _resp(*args):
+        cmd = args[0] if args else ""
+        if cmd == "GET":
+            call_count["n"] += 1
+            # First read (holder check): None — key looks missing.
+            # Second read (post-NX re-check): standby is now visible.
+            return None if call_count["n"] == 1 else "S:standby:abc"
+        if cmd == "SET":
+            return None  # NX write blocked — key exists
+        return None
+
+    monkeypatch.setattr(FailoverCog, "_upstash", AsyncMock(side_effect=_resp))
+    monkeypatch.setattr(FailoverCog, "_demote", AsyncMock())
+
+    await cog._primary_cycle()
+
+    FailoverCog._demote.assert_awaited_once()
+
+
 # ── Promotion / demotion ────────────────────────────────────────────────────
 
 async def test_promote_sets_flag_invalidates_cache_loads_cogs(monkeypatch):

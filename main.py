@@ -260,20 +260,28 @@ async def on_command_error(ctx, error):
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
+    # Standby nodes have no cogs loaded, so they receive CommandNotFound for
+    # every slash command dispatched to them by Discord. Responding here would
+    # pre-acknowledge the interaction and cause the primary's defer() to fail
+    # with 40060 "already acknowledged". Swallow silently.
+    if isinstance(error, discord.app_commands.CommandNotFound):
+        logger.debug(f"AppCommand not found (standby or unknown): {error}")
+        return
+
     original = getattr(error, 'original', error)
     if isinstance(original, CircuitOpenError):
         msg = f"⚠️ The upstream API ({str(original).split('for')[-1].strip()}) is currently degraded or offline. Please try again later."
-        if interaction.response.is_done():
-            await interaction.followup.send(msg, ephemeral=True)
-        else:
-            await interaction.response.send_message(msg, ephemeral=True)
     else:
         logger.error(f"AppCommand error: {error}")
         msg = "⚠️ An unexpected error occurred while processing this command."
+
+    try:
         if interaction.response.is_done():
             await interaction.followup.send(msg, ephemeral=True)
         else:
             await interaction.response.send_message(msg, ephemeral=True)
+    except discord.HTTPException as e:
+        logger.debug(f"AppCommand error reply failed (interaction expired or already acknowledged): {e}")
 
 
 # ── Watchdog ─────────────────────────────────────────────────────────────────
