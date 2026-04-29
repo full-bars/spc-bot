@@ -263,9 +263,16 @@ _dirty_lock = asyncio.Lock()
 _reconciler_task: Optional[asyncio.Task] = None
 
 
+_DIRTY_MAX = 5_000  # cap prevents unbounded RAM growth during extended Upstash outages
+
 async def _enqueue_dirty(op: str, args: tuple) -> None:
     """Remember a write that failed to reach Upstash."""
     async with _dirty_lock:
+        if len(_dirty) >= _DIRTY_MAX:
+            logger.warning(
+                f"[STATE] Dirty queue at {_DIRTY_MAX} entries — dropping oldest to stay bounded"
+            )
+            _dirty.pop(0)
         _dirty.append((op, args))
     _start_reconciler_if_needed()
 

@@ -138,7 +138,12 @@ class CSUMLPCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self._last_reset_date: str = ""
+        # Pre-set to today if we're already past the reset hour so a restart
+        # after 15 UTC doesn't trigger a second reset on the same day.
+        now_utc = datetime.now(timezone.utc)
+        self._last_reset_date: str = (
+            now_utc.strftime("%Y-%m-%d") if now_utc.hour >= 15 else ""
+        )
         self.csu_mlp_daily_poll.start()
 
     def cog_unload(self):
