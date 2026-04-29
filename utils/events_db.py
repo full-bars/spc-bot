@@ -168,6 +168,11 @@ async def snapshot_for_sync() -> None:
     try:
         os.makedirs(_SYNC_DIR, exist_ok=True)
         db = await get_events_db()
+        # Flush the WAL into the main database file before backup so the
+        # snapshot is consistent with all committed writes, not just the
+        # pages that happened to be in the main file at backup time.
+        await db.execute("PRAGMA wal_checkpoint(RESTART)")
+        await db.commit()
         tmp = _SYNC_PATH + ".tmp"
         async with aiosqlite.connect(tmp) as dst:
             await db.backup(dst)
