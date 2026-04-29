@@ -1,10 +1,12 @@
 # utils/http.py
 import asyncio
 import logging
-import random
+import time
 from typing import Dict, Optional, Tuple
+from urllib.parse import urlparse
 
 import aiohttp
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 logger = logging.getLogger("spc_bot")
 
@@ -12,11 +14,47 @@ http_session: Optional[aiohttp.ClientSession] = None
 _session_lock = asyncio.Lock()
 
 
+class CircuitOpenError(Exception):
+    """Raised when the circuit breaker is open for a host."""
+    pass
+
+
+class CircuitBreaker:
+    def __init__(self, failure_threshold: int = 5, recovery_timeout: float = 60.0):
+        self.failure_threshold = failure_threshold
+        self.recovery_timeout = recovery_timeout
+        self.failures: Dict[str, int] = {}
+        self.last_failure_time: Dict[str, float] = {}
+
+    def record_success(self, host: str):
+        if host in self.failures:
+            logger.info(f"[CIRCUIT] {host} recovered. Closing circuit.")
+            self.failures.pop(host, None)
+            self.last_failure_time.pop(host, None)
+
+    def record_failure(self, host: str):
+        self.failures[host] = self.failures.get(host, 0) + 1
+        self.last_failure_time[host] = time.time()
+        if self.failures[host] == self.failure_threshold:
+            logger.warning(f"[CIRCUIT] {host} reached {self.failure_threshold} failures. Circuit OPEN.")
+
+    def is_open(self, host: str) -> bool:
+        failures = self.failures.get(host, 0)
+        if failures >= self.failure_threshold:
+            # Check if recovery timeout has passed
+            if time.time() - self.last_failure_time.get(host, 0) > self.recovery_timeout:
+                logger.info(f"[CIRCUIT] {host} recovery timeout elapsed. Half-open circuit.")
+                # Half-open: allow one request through to test
+                self.failures[host] = self.failure_threshold - 1
+                return False
+            return True
+        return False
+
+# Global circuit breaker
+circuit_breaker = CircuitBreaker()
+
+
 def _default_user_agent() -> str:
-    # NWS/SPC require an identifying UA with contact info. Pulling the
-    # version here keeps the string aligned with the release tag.
-    # Local import with try/except: falls back to "dev" if config
-    # import fails (e.g. during test collection without env vars).
     try:
         from config import __version__  # noqa: PLC0415
     except Exception:
@@ -29,9 +67,6 @@ async def ensure_session() -> aiohttp.ClientSession:
     global http_session
     async with _session_lock:
         if http_session is None or http_session.closed:
-            # ttl_dns_cache avoids re-resolving the same handful of NWS/SPC
-            # hosts on every request; keepalive_timeout holds TCP/TLS
-            # connections open across the 30s–2min poll cadence.
             connector = aiohttp.TCPConnector(
                 limit=20,
                 limit_per_host=10,
@@ -58,17 +93,7 @@ async def close_session():
             http_session = None
 
 
-def _backoff_delay(attempt: int) -> float:
-    """Exponential backoff with jitter.
-
-    Parallel fetches that all 429 at once would otherwise retry in lockstep
-    and re-trigger the rate limit. Full jitter spreads them out.
-    """
-    return random.uniform(0, 2 ** attempt)
-
-
 def _get_retry_after(response: aiohttp.ClientResponse) -> Optional[float]:
-    """Extract Retry-After from response headers, if present."""
     val = response.headers.get("Retry-After")
     if val is None:
         return None
@@ -84,8 +109,6 @@ async def http_get_bytes(
     timeout: int = 30,
     headers: Optional[Dict[str, str]] = None,
 ) -> Tuple[Optional[bytes], Optional[int]]:
-    """Unconditional GET. Thin wrapper over the conditional variant with
-    no validators passed in, so the server cannot 304."""
     content, status, _ = await http_get_bytes_conditional(
         url,
         etag=None,
@@ -105,95 +128,126 @@ async def http_get_bytes_conditional(
     timeout: int = 30,
     extra_headers: Optional[Dict[str, str]] = None,
 ) -> Tuple[Optional[bytes], Optional[int], Optional[Dict[str, str]]]:
-    """Conditional GET. Returns (content, status, validators).
+    parsed = urlparse(url)
+    host = parsed.netloc
 
-    - If the server returns 304, content is None and validators carries the
-      prior values so callers can keep them.
-    - On 200, validators carries the fresh ETag / Last-Modified for storage.
-    """
+    if circuit_breaker.is_open(host):
+        logger.warning(f"[HTTP] Circuit open for {host}, failing fast: {url}")
+        raise CircuitOpenError(f"Circuit breaker is open for {host}")
+
     headers: Dict[str, str] = dict(extra_headers) if extra_headers else {}
     if etag:
         headers["If-None-Match"] = etag
     if last_modified:
         headers["If-Modified-Since"] = last_modified
 
-    for attempt in range(retries):
-        try:
-            session = await ensure_session()
-            async with session.get(
-                url,
-                timeout=aiohttp.ClientTimeout(total=timeout),
-                headers=headers or None,
-            ) as response:
-                if response.status in (429, 503):
-                    retry_after = _get_retry_after(response) or _backoff_delay(attempt)
-                    retry_after = min(retry_after, 60)
-                    logger.warning(
-                        f"Rate limited on {url} (status={response.status}), "
-                        f"waiting {retry_after:.1f}s (attempt {attempt + 1}/{retries})"
-                    )
-                    if attempt == retries - 1:
-                        return None, response.status, None
-                    await asyncio.sleep(retry_after)
-                    continue
+    # Use tenacity for retries
+    retry_decorator = retry(
+        stop=stop_after_attempt(retries),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((aiohttp.ClientError, asyncio.TimeoutError)),
+        reraise=True
+    )
 
-                if attempt > 0:
-                    logger.info(f"Successfully recovered {url} after {attempt} failure(s)")
+    async def _do_request():
+        session = await ensure_session()
+        async with session.get(
+            url,
+            timeout=aiohttp.ClientTimeout(total=timeout),
+            headers=headers or None,
+        ) as response:
+            if response.status in (429, 503, 502, 504):
+                # We could raise a custom error here to let tenacity retry it, 
+                # but we'll manually handle rate limits
+                retry_after = _get_retry_after(response)
+                if retry_after:
+                    await asyncio.sleep(min(retry_after, 60))
+                raise aiohttp.ClientResponseError(
+                    response.request_info,
+                    response.history,
+                    status=response.status,
+                    message="Server returned retryable error"
+                )
+            
+            if response.status == 304:
+                return None, 304, {"etag": etag or "", "last_modified": last_modified or ""}
+                
+            response.raise_for_status() # Raise for 4xx/5xx to let tenacity retry if applicable
+            
+            content = await response.read()
+            validators = {
+                "etag": response.headers.get("ETag", ""),
+                "last_modified": response.headers.get("Last-Modified", ""),
+            }
+            return content, response.status, validators
 
-                if response.status == 304:
-                    return None, 304, {"etag": etag or "", "last_modified": last_modified or ""}
-                content = await response.read()
-                validators = {
-                    "etag": response.headers.get("ETag", ""),
-                    "last_modified": response.headers.get("Last-Modified", ""),
-                }
-                return content, response.status, validators
-        except Exception as e:
-            logger.warning(
-                f"Error fetching {url} (attempt {attempt + 1}/{retries}): "
-                f"{type(e).__name__}: {e}"
-            )
-            if attempt == retries - 1:
-                break
-            await asyncio.sleep(_backoff_delay(attempt))
-    return None, None, None
+    try:
+        result = await retry_decorator(_do_request)()
+        circuit_breaker.record_success(host)
+        return result
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        circuit_breaker.record_failure(host)
+        logger.warning(f"[HTTP] Request failed for {url} after {retries} retries: {e}")
+        return None, getattr(e, 'status', None), None
 
 
 async def http_get_text(
     url: str, retries: int = 3, timeout: int = 30
 ) -> Optional[str]:
-    content, status = await http_get_bytes(url, retries=retries, timeout=timeout)
-    if content and status == 200:
-        return content.decode("utf-8", errors="ignore")
+    try:
+        content, status = await http_get_bytes(url, retries=retries, timeout=timeout)
+        if content and status == 200:
+            return content.decode("utf-8", errors="ignore")
+    except CircuitOpenError:
+        # Pass exception up so commands can catch it
+        raise
     return None
 
 
 async def http_head_ok(url: str, timeout: int = 20) -> bool:
-    """Cheap liveness check. HEAD only; no full-GET fallback (that defeats the point)."""
+    parsed = urlparse(url)
+    host = parsed.netloc
+    if circuit_breaker.is_open(host):
+        return False
+        
     try:
         session = await ensure_session()
         async with session.head(
             url, timeout=aiohttp.ClientTimeout(total=timeout)
         ) as r:
-            return r.status == 200
+            success = r.status == 200
+            if success:
+                circuit_breaker.record_success(host)
+            else:
+                circuit_breaker.record_failure(host)
+            return success
     except Exception as e:
+        circuit_breaker.record_failure(host)
         logger.warning(f"HEAD check failed for {url}: {type(e).__name__}: {e}")
         return False
 
 
 async def http_head_meta(url: str, timeout: int = 20) -> Optional[Dict[str, str]]:
+    parsed = urlparse(url)
+    host = parsed.netloc
+    if circuit_breaker.is_open(host):
+        return None
+
     try:
         session = await ensure_session()
         async with session.head(
             url, timeout=aiohttp.ClientTimeout(total=timeout)
         ) as r:
             if r.status != 200:
+                circuit_breaker.record_failure(host)
                 return None
+            circuit_breaker.record_success(host)
             return {
                 "etag": r.headers.get("ETag", ""),
                 "last_modified": r.headers.get("Last-Modified", ""),
                 "content_length": r.headers.get("Content-Length", ""),
             }
     except Exception as e:
+        circuit_breaker.record_failure(host)
         logger.warning(f"HEAD meta failed for {url}: {type(e).__name__}: {e}")
         return None
