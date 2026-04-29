@@ -13,20 +13,32 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from utils import state_store
+from utils import state_store, db as sqlite_backend
 
 
 @pytest.fixture(autouse=True)
-def _reset_module_state():
+async def _reset_module_state():
     """Wipe the cache and dirty queue between tests."""
     state_store._cache.clear()
-    state_store._dirty.clear()
+    
+    # Truncate the dirty_writes table in SQLite
+    db = await sqlite_backend.get_db()
+    async with sqlite_backend._LOCK:
+        await db.execute("DELETE FROM dirty_writes")
+        await db.commit()
+    
     if state_store._reconciler_task is not None:
         state_store._reconciler_task.cancel()
     state_store._reconciler_task = None
     yield
     state_store._cache.clear()
-    state_store._dirty.clear()
+    
+    # Repeat cleanup after test
+    db = await sqlite_backend.get_db()
+    async with sqlite_backend._LOCK:
+        await db.execute("DELETE FROM dirty_writes")
+        await db.commit()
+
     if state_store._reconciler_task is not None:
         state_store._reconciler_task.cancel()
     state_store._reconciler_task = None
@@ -129,7 +141,6 @@ async def test_read_falls_back_to_sqlite_when_upstash_down(isolated_db, monkeypa
 
     monkeypatch.setattr(state_store, "_upstash_cmd", _raise)
 
-    from utils import db as sqlite_backend
     await sqlite_backend.set_state("k", "sqlite-only")
 
     assert await state_store.get_state("k") == "sqlite-only"
@@ -145,13 +156,12 @@ async def test_write_during_outage_enqueues_for_reconcile(
     monkeypatch.setattr(state_store, "_upstash_cmd", _raise)
 
     await state_store.set_state("k", "v")
-    assert len(state_store._dirty) == 1
-    op, args = state_store._dirty[0]
-    assert op == "set_state"
-    assert args == ("k", "v")
+    dirty = await sqlite_backend.get_dirty_writes()
+    assert len(dirty) == 1
+    assert dirty[0]["op"] == "set_state"
+    assert dirty[0]["args"] == ["k", "v"]
 
     # SQLite still has it.
-    from utils import db as sqlite_backend
     assert await sqlite_backend.get_state("k") == "v"
 
 
@@ -168,7 +178,10 @@ async def test_reconciler_drains_queue_when_upstash_recovers(
 
     monkeypatch.setattr(state_store, "_upstash_cmd", _fail)
     await state_store.set_state("k", "v")
-    assert len(state_store._dirty) == 1
+    dirty = await sqlite_backend.get_dirty_writes()
+    assert len(dirty) == 1
+    assert dirty[0]["op"] == "set_state"
+    assert dirty[0]["args"] == ["k", "v"]
 
     # Restore Upstash.
     calls: list = []
@@ -182,10 +195,12 @@ async def test_reconciler_drains_queue_when_upstash_recovers(
     # Give the reconciler up to 1 s to catch up.
     for _ in range(20):
         await asyncio.sleep(0.06)
-        if not state_store._dirty:
+        dirty = await sqlite_backend.get_dirty_writes()
+        if not dirty:
             break
 
-    assert state_store._dirty == []
+    dirty = await sqlite_backend.get_dirty_writes()
+    assert dirty == []
     assert any(c[0] == "SET" for c in calls), "reconciler should have SET the key"
 
 
@@ -249,8 +264,6 @@ async def test_posted_urls_roundtrip(isolated_db, monkeypatch):
 # ── Resync ──────────────────────────────────────────────────────────────────
 
 async def test_resync_pushes_sqlite_contents_to_upstash(isolated_db, monkeypatch):
-    from utils import db as sqlite_backend
-
     await sqlite_backend.add_posted_md("0100")
     await sqlite_backend.add_posted_watch("0200")
     await sqlite_backend.set_hash("https://x/a.png", "h1", "auto")
@@ -263,12 +276,12 @@ async def test_resync_pushes_sqlite_contents_to_upstash(isolated_db, monkeypatch
 
     monkeypatch.setattr(state_store, "_upstash_cmd", _cmd)
 
-    counts = await state_store.resync_to_upstash()
+    counts = await state_store.resync_to_upstash(force_full=True)
 
     assert counts["posted_mds"] == 1
     assert counts["posted_watches"] == 1
     assert counts["hashes"] == 1
-    # SADD for mds, SADD for watches, HSET for hashes — at minimum.
+    
     cmds = [c[0] for c in calls]
     assert "SADD" in cmds
     assert "HSET" in cmds

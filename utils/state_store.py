@@ -257,23 +257,14 @@ def invalidate_all_caches() -> None:
 # `args` are the user-facing arguments to the corresponding public
 # function (NOT the Upstash command args) so the reconciler replays
 # through the normal write path.
-_Dirty = Tuple[str, tuple]
-_dirty: List[_Dirty] = []
-_dirty_lock = asyncio.Lock()
 _reconciler_task: Optional[asyncio.Task] = None
 
 
-_DIRTY_MAX = 5_000  # cap prevents unbounded RAM growth during extended Upstash outages
-
 async def _enqueue_dirty(op: str, args: tuple) -> None:
-    """Remember a write that failed to reach Upstash."""
-    async with _dirty_lock:
-        if len(_dirty) >= _DIRTY_MAX:
-            logger.warning(
-                f"[STATE] Dirty queue at {_DIRTY_MAX} entries — dropping oldest to stay bounded"
-            )
-            _dirty.pop(0)
-        _dirty.append((op, args))
+    """Remember a write that failed to reach Upstash. Persists to SQLite
+    so it survives restarts and prevents standby nodes from overwriting
+    Upstash with stale data on promotion."""
+    await sqlite_backend.add_dirty_write(op, args)
     _start_reconciler_if_needed()
 
 
@@ -293,33 +284,33 @@ async def _reconciler_loop() -> None:
     while True:
         try:
             await asyncio.sleep(RECONCILER_INTERVAL_SECONDS)
-            async with _dirty_lock:
-                if not _dirty:
-                    return  # exit; re-start on next _enqueue_dirty
-                pending = list(_dirty)
-                _dirty.clear()
+            pending = await sqlite_backend.get_dirty_writes()
+            if not pending:
+                return  # exit; re-start on next _enqueue_dirty
 
-            still_dirty: List[_Dirty] = []
-            for op, args in pending:
+            ids_to_delete = []
+            for item in pending:
+                op, args, write_id = item["op"], item["args"], item["id"]
                 try:
-                    await _replay(op, args)
+                    # Re-pack list args into tuple as expected by _replay
+                    await _replay(op, tuple(args))
+                    ids_to_delete.append(write_id)
                 except _UpstashUnavailable:
-                    still_dirty.append((op, args))
+                    # Upstash still down; stop this batch and wait for next interval
+                    break
                 except Exception as e:
                     logger.exception(
                         f"[STATE] Reconciler dropped write {op}{args}: {e}"
                     )
+                    ids_to_delete.append(write_id)
 
-            async with _dirty_lock:
-                _dirty[0:0] = still_dirty
-                if still_dirty:
-                    logger.info(
-                        f"[STATE] Reconciler: {len(still_dirty)} writes "
-                        f"still pending"
-                    )
-                else:
-                    logger.info("[STATE] Reconciler: all writes caught up")
-                    return
+            if ids_to_delete:
+                await sqlite_backend.delete_dirty_writes_batch(ids_to_delete)
+                logger.info(
+                    f"[STATE] Reconciler: caught up {len(ids_to_delete)} writes"
+                )
+
+            # If we didn't finish everything, we'll hit it next interval.
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -847,14 +838,93 @@ async def set_validators(url: str, etag: str, last_modified: str) -> None:
 
 # ── Startup resync ───────────────────────────────────────────────────────────
 
-async def resync_to_upstash() -> Dict[str, int]:
-    """Push everything SQLite has to Upstash.
+async def resync_to_upstash(force_full: bool = False) -> Dict[str, int]:
+    """Push pending writes from SQLite to Upstash.
 
-    Intended for process-startup so that any writes that happened during
-    an Upstash outage (and were queued only in the now-lost in-memory
-    dirty list) still make it up. Returns counts of items pushed per
-    category for logging.
+    By default, only pushes items that were explicitly marked as 'dirty'
+    (failed to reach Upstash). This ensures that a standby node being
+    promoted doesn't overwrite Upstash with its stale SQLite data.
+
+    If force_full=True, every record in SQLite is pushed. Use only for
+    initial migration or disaster recovery, as it can be expensive.
     """
+    if force_full:
+        return await _resync_full()
+
+    # Normal case: only push dirty items
+    pending = await sqlite_backend.get_dirty_writes()
+    if not pending:
+        logger.info("[STATE] Startup resync: no dirty writes found")
+        return {"dirty": 0}
+
+    ids_to_delete = []
+    for item in pending:
+        try:
+            await _replay(item["op"], tuple(item["args"]))
+            ids_to_delete.append(item["id"])
+        except _UpstashUnavailable:
+            break
+        except Exception as e:
+            logger.exception(f"[STATE] Resync dropped {item['op']}: {e}")
+            ids_to_delete.append(item["id"])
+
+    if ids_to_delete:
+        await sqlite_backend.delete_dirty_writes_batch(ids_to_delete)
+        logger.info(f"[STATE] Startup resync: caught up {len(ids_to_delete)} writes")
+
+    return {"dirty": len(ids_to_delete)}
+
+
+async def mirror_to_sqlite() -> None:
+    """Pull authoritative state from Upstash and update the local SQLite mirror.
+    Used on promotion so the standby node's local DB matches reality before
+    it starts taking new writes."""
+    try:
+        logger.info("[STATE] Mirroring Upstash → SQLite...")
+        
+        # 1. Hashes
+        for ct in ("auto", "manual"):
+            h = await get_all_hashes(ct)
+            if h:
+                await sqlite_backend.set_hashes_batch(h, ct)
+        
+        # 2. Posted collections
+        mds = await get_posted_mds()
+        for m in mds: await sqlite_backend.add_posted_md(m)
+        
+        watches = await get_posted_watches()
+        for w in watches: await sqlite_backend.add_posted_watch(w)
+        
+        reports = await get_posted_reports()
+        for r in reports: await sqlite_backend.add_posted_report(r)
+        
+        # 3. State
+        states_scan = await _upstash_cmd("SCAN", 0, "MATCH", f"{_k_state('*')}")
+        if states_scan and isinstance(states_scan, list) and len(states_scan) >= 2:
+            keys = states_scan[1]
+            if keys:
+                # Upstash MGET returns a list of values in the same order as keys
+                values = await _upstash_cmd("MGET", *keys)
+                if values:
+                    for k, val in zip(keys, values):
+                        if val:
+                            # Strip prefix
+                            base_key = k.replace(f"{_k_state('')}", "")
+                            await sqlite_backend.set_state(base_key, val)
+        
+        # 4. Posted URLs
+        for day in ("day1", "day2", "day3"):
+            urls = await get_posted_urls(day)
+            if urls:
+                await sqlite_backend.set_posted_urls(day, urls)
+        
+        logger.info("[STATE] Mirroring complete")
+    except Exception as e:
+        logger.warning(f"[STATE] Mirroring failed: {e}")
+
+
+async def _resync_full() -> Dict[str, int]:
+    """Push everything SQLite has to Upstash. Internal helper for force_full=True."""
     counts = {"hashes": 0, "posted_mds": 0, "posted_watches": 0, "posted_surveys": 0, "posted_reports": 0, "state": 0, "urls": 0}
     try:
         for cache_type in ("auto", "manual"):

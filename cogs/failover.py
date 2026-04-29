@@ -358,6 +358,13 @@ class FailoverCog(commands.Cog):
         # window where another watcher sees the key missing).
         await self._write_lease()
 
+        # Update local SQLite mirror from Upstash so this node's durable
+        # store is fresh before it starts taking new writes.
+        try:
+            await state_store.mirror_to_sqlite()
+        except Exception as e:
+            logger.exception(f"[FAILOVER] Mirroring on promotion failed: {e}")
+
         # Brief pause so the outgoing Primary's next sync cycle can detect
         # the new lease holder and demote before we start posting. Keeps the
         # dual-primary window under one sync interval (~30 s) in normal cases

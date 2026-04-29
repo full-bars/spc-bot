@@ -157,11 +157,7 @@ async def http_get_bytes_conditional(
             headers=headers or None,
         ) as response:
             if response.status in (429, 503, 502, 504):
-                # We could raise a custom error here to let tenacity retry it, 
-                # but we'll manually handle rate limits
-                retry_after = _get_retry_after(response)
-                if retry_after:
-                    await asyncio.sleep(min(retry_after, 60))
+                # Tenacity handles the backoff/retry; we just signal the failure
                 raise aiohttp.ClientResponseError(
                     response.request_info,
                     response.history,
@@ -172,7 +168,7 @@ async def http_get_bytes_conditional(
             if response.status == 304:
                 return None, 304, {"etag": etag or "", "last_modified": last_modified or ""}
                 
-            response.raise_for_status() # Raise for 4xx/5xx to let tenacity retry if applicable
+            response.raise_for_status() # Raise for 4xx/5xx
             
             content = await response.read()
             validators = {
@@ -186,9 +182,15 @@ async def http_get_bytes_conditional(
         circuit_breaker.record_success(host)
         return result
     except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-        circuit_breaker.record_failure(host)
+        # Only record failure in the circuit breaker if it's a "hard" failure
+        # (connection/timeout) or a server-side/rate-limit error (5xx, 429).
+        # We DON'T trip the circuit on 404s or other user-side 4xx errors.
+        status = getattr(e, 'status', None)
+        if status is None or status >= 500 or status == 429:
+            circuit_breaker.record_failure(host)
+            
         logger.warning(f"[HTTP] Request failed for {url} after {retries} retries: {e}")
-        return None, getattr(e, 'status', None), None
+        return None, status, None
 
 
 async def http_get_text(
@@ -218,10 +220,11 @@ async def http_head_ok(url: str, timeout: int = 20) -> bool:
             success = r.status == 200
             if success:
                 circuit_breaker.record_success(host)
-            else:
+            elif r.status >= 500 or r.status == 429:
                 circuit_breaker.record_failure(host)
             return success
     except Exception as e:
+        # Standard exceptions (timeout, conn error) always count as failure
         circuit_breaker.record_failure(host)
         logger.warning(f"HEAD check failed for {url}: {type(e).__name__}: {e}")
         return False
@@ -239,7 +242,8 @@ async def http_head_meta(url: str, timeout: int = 20) -> Optional[Dict[str, str]
             url, timeout=aiohttp.ClientTimeout(total=timeout)
         ) as r:
             if r.status != 200:
-                circuit_breaker.record_failure(host)
+                if r.status >= 500 or r.status == 429:
+                    circuit_breaker.record_failure(host)
                 return None
             circuit_breaker.record_success(host)
             return {

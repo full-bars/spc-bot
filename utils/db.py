@@ -166,6 +166,13 @@ async def _create_tables(db: aiosqlite.Connection):
             etag          TEXT NOT NULL DEFAULT '',
             last_modified TEXT NOT NULL DEFAULT ''
         );
+
+        CREATE TABLE IF NOT EXISTS dirty_writes (
+            id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            op      TEXT NOT NULL,
+            args    TEXT NOT NULL,
+            created REAL NOT NULL
+        );
     """)
 
 
@@ -647,4 +654,52 @@ async def set_product_cache(product_id: str, text: str, ttl: int = 600):
              expires_at=excluded.expires_at""",
         (product_id, text, expires_at),
         f"set_product_cache({product_id})",
+    )
+
+
+# ── Dirty writes (Upstash sync queue) ───────────────────────────────────────
+
+async def add_dirty_write(op: str, args: tuple):
+    """Add a pending Upstash write to the queue."""
+    await _write(
+        "INSERT INTO dirty_writes (op, args, created) VALUES (?, ?, ?)",
+        (op, json.dumps(args), time.time()),
+        f"add_dirty_write({op})",
+    )
+
+
+async def get_dirty_writes() -> list:
+    """Get all pending Upstash writes."""
+    try:
+        db = await get_db()
+        async with db.execute(
+            "SELECT id, op, args FROM dirty_writes ORDER BY created ASC"
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [
+                {"id": r["id"], "op": r["op"], "args": json.loads(r["args"])}
+                for r in rows
+            ]
+    except Exception as e:
+        logger.warning(f"[DB] get_dirty_writes failed: {e}")
+        return []
+
+
+async def delete_dirty_write(write_id: int):
+    """Remove a finished write from the queue."""
+    await _write(
+        "DELETE FROM dirty_writes WHERE id = ?",
+        (write_id,),
+        f"delete_dirty_write({write_id})",
+    )
+
+
+async def delete_dirty_writes_batch(ids: list[int]):
+    """Remove multiple finished writes from the queue."""
+    if not ids:
+        return
+    await _write_many(
+        "DELETE FROM dirty_writes WHERE id = ?",
+        [(i,) for i in ids],
+        "delete_dirty_writes_batch",
     )

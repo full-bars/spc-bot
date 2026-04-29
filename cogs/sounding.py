@@ -76,10 +76,7 @@ class SoundingCog(commands.Cog):
         # restore path never populated the in-memory sets). Every
         # auto-post entry point re-checks this and restores lazily if
         # the initial hook was skipped.
-        self._restore_attempted: bool = False
-        self.auto_sounding_watches.start()
-        self.monitor_special_soundings.start()
-        self.monitor_high_risk_soundings.start()
+        self._restore_attempted = False
 
     async def _ensure_restored(self) -> None:
         """Idempotent restore — safe to call from any auto-post entry
@@ -101,6 +98,11 @@ class SoundingCog(commands.Cog):
         # being called vs. finding an empty payload vs. raising silently.
         self._restore_attempted = True
         logger.info("[SOUNDING-AUTO] cog_load: restoring dedup state from state_store")
+        
+        self.auto_sounding_watches.start()
+        self.monitor_special_soundings.start()
+        self.monitor_high_risk_soundings.start()
+
         try:
             raw = await get_state("posted_watch_soundings")
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")

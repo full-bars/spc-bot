@@ -169,10 +169,11 @@ async def snapshot_for_sync() -> None:
         os.makedirs(_SYNC_DIR, exist_ok=True)
         db = await get_events_db()
         # Flush the WAL into the main database file before backup so the
-        # snapshot is consistent with all committed writes, not just the
-        # pages that happened to be in the main file at backup time.
+        # snapshot is consistent with all committed writes. RESTART ensures
+        # we wait for any readers/writers to finish.
         await db.execute("PRAGMA wal_checkpoint(RESTART)")
         await db.commit()
+        
         tmp = _SYNC_PATH + ".tmp"
         async with aiosqlite.connect(tmp) as dst:
             await db.backup(dst)
@@ -188,8 +189,19 @@ def restore_from_sync() -> None:
     if not os.path.exists(_SYNC_PATH):
         logger.info("[EVENTS-DB] No sync snapshot found — starting fresh events.db")
         return
+    
+    global _db
+    if _db is not None:
+        logger.warning("[EVENTS-DB] Cannot restore while DB is open — close it first")
+        return
+
     try:
         os.makedirs(os.path.dirname(_EVENTS_DB_PATH), exist_ok=True)
+        # Ensure we don't copy over a corrupted or partial sync file
+        if os.path.getsize(_SYNC_PATH) < 4096: # Minimal SQLite file size
+             logger.warning("[EVENTS-DB] Sync snapshot too small, skipping restore")
+             return
+             
         shutil.copy2(_SYNC_PATH, _EVENTS_DB_PATH)
         logger.info("[EVENTS-DB] Restored events.db from sync snapshot")
     except Exception as e:
