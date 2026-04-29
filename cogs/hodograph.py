@@ -3,7 +3,6 @@ import asyncio
 import difflib
 import logging
 import os
-import sys
 
 import discord
 from discord.ext import commands
@@ -18,34 +17,42 @@ VAD_SCRIPT = os.path.join("lib", "vad_plotter", "vad.py")
 
 
 async def generate_hodograph(interaction: discord.Interaction, site: str):
-    """Run vad.py as a subprocess and send the resulting image."""
+    """Run vad.py in a ProcessPoolExecutor and send the resulting image."""
     os.makedirs(HODO_OUTPUT_DIR, exist_ok=True)
     output_path = os.path.join(HODO_OUTPUT_DIR, f"{site.lower()}_hodograph.png")
 
-    cmd = [sys.executable, VAD_SCRIPT, "-f", output_path, site]
-    logger.info(f"[HODO] Generating hodograph for {site}: {' '.join(cmd)}")
+    logger.info(f"[HODO] Generating hodograph for {site} in executor pool")
 
-    process = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-
+    from cogs.sounding_utils import _get_plot_executor
+    from lib.vad_plotter.vad import vad_plotter
+    
+    loop = asyncio.get_running_loop()
     try:
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60)
+        await asyncio.wait_for(
+            loop.run_in_executor(
+                _get_plot_executor(),
+                vad_plotter,
+                site,           # radar_id
+                'right-mover',  # storm_motion
+                None,           # sfc_wind
+                None,           # time
+                output_path,    # fname
+                None,           # local_path
+                None,           # cache_path
+                False,          # web
+                False           # fixed
+            ),
+            timeout=60
+        )
     except asyncio.TimeoutError:
-        process.kill()
-        await process.communicate()
-        logger.exception(f"[HODO] vad.py timed out for {site}")
+        logger.exception(f"[HODO] vad_plotter timed out for {site}")
         await interaction.followup.send(
             f"⏱️ Timed out fetching data for `{site}`. The radar may be offline or have no recent VWP data.",
             ephemeral=True,
         )
         return
-
-    if process.returncode != 0:
-        err = stderr.decode().strip()
-        logger.error(f"[HODO] vad.py failed for {site}: {err}")
+    except Exception as e:
+        logger.error(f"[HODO] vad_plotter failed for {site}: {e}")
         await interaction.followup.send(
             f"⚠️ Could not generate hodograph for `{site}`. The radar may not have recent data.",
             ephemeral=True,
