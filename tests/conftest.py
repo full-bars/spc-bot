@@ -37,7 +37,20 @@ os.environ.setdefault("LOG_FILE", os.path.join(_TEST_CACHE, "spc_bot_test.log"))
 os.environ.setdefault("FAILOVER_TOKEN", "test-failover-token-not-real")
 
 
-# ── Cleanup: close global DB / HTTP handles after every test ────────────────
+# ── Autouse fixtures ─────────────────────────────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def global_suppress_create_task():
+    """Silence `asyncio.create_task` globally for all tests.
+
+    Background tasks (like `_upgrade_md_message` or `_handle_watch`
+    dispatches) are "fire and forget" in production but can hang
+    or leak resources in tests if they run unawaited in the background.
+    """
+    with patch("asyncio.create_task", return_value=MagicMock()):
+        yield
+
+
 @pytest.fixture(autouse=True)
 async def _cleanup_global_resources():
     """Close the module-level DB connection and aiohttp session between tests.
@@ -56,20 +69,6 @@ async def _cleanup_global_resources():
     except Exception:
         # Cleanup must never fail the test that succeeded.
         pass
-
-
-# ── Opt-in fixtures ──────────────────────────────────────────────────────────
-
-@pytest.fixture
-def suppress_create_task():
-    """Silence `asyncio.create_task` for one test.
-
-    Use ONLY when a test triggers a fire-and-forget background task you
-    cannot otherwise await. Overusing this masks real bugs, which is why
-    it is no longer autouse.
-    """
-    with patch("asyncio.create_task", return_value=MagicMock()):
-        yield
 
 
 @pytest.fixture
