@@ -142,7 +142,8 @@ async def _create_tables(db: aiosqlite.Connection):
             vtec_id    TEXT PRIMARY KEY,
             message_id INTEGER NOT NULL DEFAULT 0,
             channel_id INTEGER NOT NULL DEFAULT 0,
-            posted_at  REAL NOT NULL DEFAULT 0
+            posted_at  REAL NOT NULL DEFAULT 0,
+            area       TEXT
         );
 
         CREATE TABLE IF NOT EXISTS bot_state (
@@ -174,6 +175,12 @@ async def _create_tables(db: aiosqlite.Connection):
             created REAL NOT NULL
         );
     """)
+
+    # Migration: add area column if it doesn't exist
+    try:
+        await db.execute("ALTER TABLE posted_warnings ADD COLUMN area TEXT")
+    except Exception:
+        pass # already exists
 
 
 async def close_db():
@@ -425,17 +432,18 @@ async def prune_posted_reports(max_size: int = 500):
 # ── Posted warnings ───────────────────────────────────────────────────────────
 
 async def get_all_posted_warnings() -> dict:
-    """Get all posted warning mappings: {vtec_id: {'message_id': ..., 'channel_id': ...}}."""
+    """Get all posted warning mappings: {vtec_id: {'message_id': ..., 'channel_id': ..., 'area': ...}}."""
     try:
         db = await get_db()
         async with db.execute(
-            "SELECT vtec_id, message_id, channel_id FROM posted_warnings"
+            "SELECT vtec_id, message_id, channel_id, area FROM posted_warnings"
         ) as cursor:
             rows = await cursor.fetchall()
             return {
                 row["vtec_id"]: {
                     "message_id": row["message_id"],
                     "channel_id": row["channel_id"],
+                    "area": row["area"],
                 }
                 for row in rows
             }
@@ -445,18 +453,19 @@ async def get_all_posted_warnings() -> dict:
 
 
 async def add_posted_warning(
-    vtec_id: str, message_id: int, channel_id: int, posted_at: float = 0.0
+    vtec_id: str, message_id: int, channel_id: int, posted_at: float = 0.0, area: str = ""
 ):
     """Mark a warning as posted. ``vtec_id`` is the VTEC event identity
     (office.phenom.sig.etn), which stays stable across the warning's
     lifecycle so it doubles as our dedup key."""
     await _write(
-        """INSERT INTO posted_warnings (vtec_id, message_id, channel_id, posted_at)
-           VALUES (?, ?, ?, ?)
+        """INSERT INTO posted_warnings (vtec_id, message_id, channel_id, posted_at, area)
+           VALUES (?, ?, ?, ?, ?)
            ON CONFLICT(vtec_id) DO UPDATE SET
              message_id=excluded.message_id,
-             channel_id=excluded.channel_id""",
-        (vtec_id, message_id, channel_id, posted_at),
+             channel_id=excluded.channel_id,
+             area=excluded.area""",
+        (vtec_id, message_id, channel_id, posted_at, area),
         f"add_posted_warning({vtec_id})",
     )
 

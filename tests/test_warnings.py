@@ -335,3 +335,44 @@ class TestGetWarningStyle:
             params={"thunderstormDamageThreat": "DESTRUCTIVE"},
         )
         assert "DESTRUCTIVE" in title
+
+
+def test_build_concise_warning_text_updates_format():
+    """Verify that is_update=True produces the detailed 'updates' format."""
+    from cogs.warnings import build_concise_warning_text
+    
+    vtec = {
+        "action": "CON",
+        "office": "KJAN",
+        "phenom": "SV",
+        "sig": "W",
+        "etn": "0001",
+        "start": "260429T2200Z",
+        "end": "260429T2300Z",
+        "vtec_id": "KJAN.SV.W.0001"
+    }
+    
+    # Previous area: Clarke, Jasper, Jones
+    # Current area: Jasper, Jones (Clarke cancelled)
+    prev_area = "Clarke, Jasper, Jones"
+    feature = {
+        "properties": {
+            "areaDesc": "Jasper, Jones",
+            "parameters": {
+                "maxWindGust": ["60 MPH"]
+            }
+        }
+    }
+    
+    text = build_concise_warning_text(
+        "Severe Thunderstorm Warning",
+        vtec,
+        feature=feature,
+        is_update=True,
+        prev_area=prev_area
+    )
+    
+    assert "updates Severe Thunderstorm Warning" in text
+    assert "(**cancels** Clarke, **continues** Jasper, Jones)" in text
+    assert "till 23:00Z." in text
+    assert text.endswith("]") # unix timestamp tag
