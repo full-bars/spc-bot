@@ -161,7 +161,8 @@ async def find_matching_tornado(
         return None
 
 
-# ── Syncthing snapshot ───────────────────────────────────────────────────────
+# ── syncthing snapshot ───────────────────────────────────────────────────────
+
 
 async def snapshot_for_sync() -> None:
     """Copy events.db to the Syncthing-watched directory as a clean snapshot."""

@@ -515,6 +515,63 @@ def _extract_narrative(raw: str) -> Optional[str]:
     return text or None
 
 
+class SignificantEventsPaginatorView(discord.ui.View):
+    def __init__(self, events: list, title: str):
+        super().__init__(timeout=300)
+        self.events = events
+        self.title = title
+        self.page = 0
+        self.per_page = 10
+        self.max_page = (len(events) - 1) // self.per_page
+        self._update_buttons()
+
+    def _update_buttons(self):
+        self.prev_btn.disabled = self.page == 0
+        self.next_btn.disabled = self.page >= self.max_page
+
+    def build_embed(self) -> discord.Embed:
+        start = self.page * self.per_page
+        end = start + self.per_page
+        page_events = self.events[start:end]
+
+        embed = discord.Embed(
+            title=self.title,
+            color=discord.Color.red() if "Tornado" in self.title else discord.Color.dark_red(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        
+        for e in page_events:
+            rel_time = f"<t:{int(e['timestamp'])}:R>"
+            
+            mag = e.get("magnitude", "")
+            # Cleaner rating display: "EF2" or "Confirmed"
+            rating_str = f" ({mag})" if mag and mag != "Confirmed" else ""
+            
+            val = (
+                f"**Location:** {e['location']}\n"
+                f"**Office:** {e['source']} | **Time:** {rel_time}"
+            )
+            if e.get("vtec_id"):
+                val += f"\n**VTEC:** `{e['vtec_id']}`"
+            
+            embed.add_field(name=f"🌪️ Tornado{rating_str}", value=val, inline=False)
+
+        embed.set_footer(text=f"Page {self.page + 1} of {self.max_page + 1} | Showing {start + 1}-{min(end, len(self.events))} of {len(self.events)} events.")
+        return embed
+
+    @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary)
+    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.page = max(0, self.page - 1)
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary)
+    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.page = min(self.max_page, self.page + 1)
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+
 class WarningsCog(commands.Cog):
     MANAGED_TASK_NAMES = [("auto_poll_warnings", "auto_poll_warnings")]
 
@@ -746,88 +803,56 @@ class WarningsCog(commands.Cog):
             await interaction.followup.send("No confirmed tornadoes logged in the requested time frame.")
             return
 
-        embed = discord.Embed(
-            title=f"🌪️ Confirmed Tornadoes (Last {range}h)",
-            color=discord.Color.red(),
-            timestamp=datetime.now(timezone.utc)
-        )
-        
         # Sort by timestamp DESC just in case
         events.sort(key=lambda x: x["timestamp"], reverse=True)
         
-        for e in events[:10]: # Limit to 10 for the embed
-            rel_time = f"<t:{int(e['timestamp'])}:R>"
-            mag_str = f" ({e['magnitude']})" if e['magnitude'] and e['magnitude'] != "Confirmed" else ""
-            
-            val = (
-                f"**Location:** {e['location']}\n"
-                f"**Office:** {e['source']}\n"
-                f"**Time:** {rel_time}\n"
-            )
-            if e.get("vtec_id"):
-                val += f"**VTEC:** `{e['vtec_id']}`"
-            
-            embed.add_field(name=f"Tornado{mag_str}", value=val, inline=False)
+        view = SignificantEventsPaginatorView(events, f"🌪️ Confirmed Tornadoes (Last {range}h)")
+        embed = view.build_embed()
+        
+        await interaction.followup.send(embed=embed, view=view if view.max_page > 0 else None)
 
-        if len(events) > 10:
-            embed.set_footer(text=f"Showing 10 of {len(events)} events.")
-
-        await interaction.followup.send(embed=embed)
-
-    @app_commands.command(name="significantwx", description="View recent significant weather events (Tornado, Giant Hail, Hurricane-force Wind).")
-    @app_commands.describe(range="Time range to look back")
+    @app_commands.command(name="sigtor", description="List significant (EF2+) tornadoes from recent surveys")
+    @app_commands.describe(range="Time range to look back (hours)")
     @app_commands.choices(range=[
-        app_commands.Choice(name="Last 6 Hours", value=6),
-        app_commands.Choice(name="Last 12 Hours", value=12),
         app_commands.Choice(name="Last 24 Hours", value=24),
         app_commands.Choice(name="Last 48 Hours", value=48),
         app_commands.Choice(name="Last 72 Hours", value=72),
         app_commands.Choice(name="Last 7 Days", value=168),
+        app_commands.Choice(name="Last 30 Days", value=720),
     ])
-    async def significant_wx(self, interaction: discord.Interaction, range: int = 24):
+    async def sig_tor(self, interaction: discord.Interaction, range: int = 168):
         await interaction.response.defer()
         
-        # Fetch all types and filter or fetch individually? individually is safer for current API
-        tornadoes = await get_recent_significant_events(event_type="Tornado", since_hours=range)
-        hail = await get_recent_significant_events(event_type="Hail", since_hours=range)
-        wind = await get_recent_significant_events(event_type="Wind", since_hours=range)
-        
-        events = tornadoes + hail + wind
+        events = await get_recent_significant_events(event_type="Tornado", since_hours=range, limit=100)
         if not events:
-            await interaction.followup.send("No significant weather events logged in the requested time frame.")
+            await interaction.followup.send("No confirmed tornadoes logged in the requested time frame.")
+            return
+
+        # Filter for EF2+ or 'Significant' wording
+        sig_events = []
+        for e in events:
+            mag = (e.get("magnitude") or "").upper()
+            is_sig = False
+            # Match EF2, EF3, EF4, EF5
+            if re.search(r"EF[2-5]", mag):
+                is_sig = True
+            elif "SIGNIFICANT" in mag or "PDS" in mag:
+                is_sig = True
+            
+            if is_sig:
+                sig_events.append(e)
+
+        if not sig_events:
+            await interaction.followup.send(f"No significant (EF2+) tornadoes found in the last {range} hours.")
             return
 
         # Sort by timestamp DESC
-        events.sort(key=lambda x: x["timestamp"], reverse=True)
+        sig_events.sort(key=lambda x: x["timestamp"], reverse=True)
         
-        embed = discord.Embed(
-            title=f"⚠️ Significant Weather (Last {range}h)",
-            color=discord.Color.dark_red(),
-            timestamp=datetime.now(timezone.utc)
-        )
+        view = SignificantEventsPaginatorView(sig_events, f"🚨 Significant Tornadoes (Last {range}h)")
+        embed = view.build_embed()
         
-        for e in events[:15]: # Limit to 15
-            rel_time = f"<t:{int(e['timestamp'])}:R>"
-            
-            emoji = "🌪️"
-            if e["event_type"] == "Hail":
-                emoji = "🧊"
-            elif e["event_type"] == "Wind":
-                emoji = "🌬️"
-            
-            mag_str = f" ({e['magnitude']})" if e['magnitude'] else ""
-            
-            val = (
-                f"**Location:** {e['location']}\n"
-                f"**Office:** {e['source']} | **Time:** {rel_time}"
-            )
-            
-            embed.add_field(name=f"{emoji} {e['event_type']}{mag_str}", value=val, inline=False)
-
-        if len(events) > 15:
-            embed.set_footer(text=f"Showing 15 of {len(events)} events.")
-
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, view=view if view.max_page > 0 else None)
 
     # phenom+sig → human-readable event name, for cancellation posts
     _PHENOM_EVENT = {

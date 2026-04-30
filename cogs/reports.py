@@ -272,32 +272,39 @@ class ReportsCog(commands.Cog):
         from utils.state_store import find_matching_tornado
         match_id = await find_matching_tornado(office, event_ts, event_name)
         
-        if match_id:
-            logger.info(f"[REPORTS] Found matching tornado {match_id} for survey, updating rating to {rating}")
-            # Update existing row by using the same event_id
-            await add_significant_event(
-                event_id=match_id,
-                event_type="Tornado",
-                location=event_name,
-                magnitude=rating,
-                vtec_id=None, # Keep existing? add_significant_event in db.py doesn't update vtec_id on conflict yet
-                coords=coords,
-                timestamp=event_ts,
-                source=office,
-                raw_text=raw_text
-            )
+        # Only log to significant events if it's a Tornado survey
+        # (check event_name and rating)
+        is_tornado = "TORNADO" in event_name.upper() or rating.startswith("EF")
+        
+        if is_tornado:
+            if match_id:
+                logger.info(f"[REPORTS] Found matching tornado {match_id} for survey, updating rating to {rating}")
+                # Update existing row by using the same event_id
+                await add_significant_event(
+                    event_id=match_id,
+                    event_type="Tornado",
+                    location=event_name,
+                    magnitude=rating,
+                    vtec_id=None, # Keep existing? add_significant_event in db.py doesn't update vtec_id on conflict yet
+                    coords=coords,
+                    timestamp=event_ts,
+                    source=office,
+                    raw_text=raw_text
+                )
+            else:
+                # Log as a new survey event
+                await add_significant_event(
+                    event_id=f"IEM:PNS:{product_id}",
+                    event_type="Tornado", # Log as Tornado so it shows in /recenttornadoes
+                    location=event_name,
+                    magnitude=rating,
+                    coords=coords,
+                    timestamp=event_ts,
+                    source=office,
+                    raw_text=raw_text
+                )
         else:
-            # Log as a new survey event
-            await add_significant_event(
-                event_id=f"IEM:PNS:{product_id}",
-                event_type="Tornado", # Log as Tornado so it shows in /recenttornadoes
-                location=event_name,
-                magnitude=rating,
-                coords=coords,
-                timestamp=event_ts,
-                source=office,
-                raw_text=raw_text
-            )
+            logger.info(f"[REPORTS] Skipping SignificantEvent log for non-tornado PNS: {event_name}")
 
         if event_date:
             logger.info(f"[REPORTS] Detected event date {event_date} in PNS, checking for tracks")
