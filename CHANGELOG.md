@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.5.6] — 2026-04-30
+
+### Added
+- **Tornado Dashboard.** Replaced the flat paginated list with `TornadoDashboardView`. It acts as a chronological, 'calendar-style' summary dashboard. EF ratings are distinct using color-coded emojis (🟣 EF5, 🔴 EF4, 🟠 EF3, 🟡 EF2, 🟢 EF1, 🔵 EF0). Includes a global button linking directly to the Tornado Archive Data Explorer.
+- **DAT Track Links.** Added `dat_guid` column to `events.db`. The bot now automatically links new official NWS Damage Assessment Toolkit (DAT) tracks to database events and provides a direct hyperlink in the dashboard.
+- **Specialized Warning Footers.** Added IDs (EMERG, PDS, EWX) to the footer of warning and cancellation embeds for downstream filtering.
+
+### Changed
+- **Significant Weather Filtering.** Refined PNS (Damage Survey) parsing to strictly log only tornado-related events (skipping wind-only surveys). Redundant commands `/significantwx` and `/cleartornadoes` removed.
+- **New Command:** `/sigtor` filters the database for high-end (EF2+) or "Significant" tornado events.
+- **Report Formatting.** Modernized LSR and PNS formatting with single-line descriptions, relative timestamps, and explicit `(ASOS)` or `(Automated Station)` tags. Peak wind strings like `PK WND` are extracted automatically.
+- **Partial Cancellations.** Upgraded the warning tick to detect removed counties in `CON` actions, posting an `updates` formatted message showing `**cancels** X, **continues** Y`.
+
+### Fixed
+- **MD Fallback (404s).** Replaced deprecated IEM nwstext API endpoint with `retrieve.py` JSON service to correctly fetch the active MD list when SPC's index is unreachable, preventing false cancellation spam.
+
 ## [5.5.3] — 2026-04-30
 
 ### Fixed
