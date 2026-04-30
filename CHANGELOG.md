@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.6.1] — 2026-04-30
+
+### Fixed
+- **IEM Autoplot Mappings.** Verified all Autoplot numbers against the official IEM catalog and corrected major mapping errors. `/riskmap` now correctly shows SPC outlook frequencies instead of blizzard data, and `/dayssince` pulls the authoritative streak map.
+- **Analytics URL Parameters.** Updated all analytics commands to use verified parameter names (`v1`, `filter`, `sdate`, etc.) required by the IEM API for accurate image generation.
+
 ## [5.6.0] — 2026-04-30
 
 ### Added
