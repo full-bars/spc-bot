@@ -17,9 +17,9 @@ A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks
 | Feature | Details |
 |---|---|
 | Watch Alerts | Tornado and severe thunderstorm watches via NWS API; IEM iembot fast-path for sub-second text delivery with persistent DB-backed pre-caching |
-| NWS Warnings | Immediate Tornado, Severe Tstorm, and Flash Flood warning posts with IEM Autoplot 208 maps |
-| Special Statements | SPS posts include geographic maps (Autoplot 217) and refined narrative extraction |
-| Tornado Surveys | DAMAGE SURVEY PNS detection; Autoplot 253 tornado-track maps posted as soon as they are finalized |
+| NWS Warnings | Immediate Tornado, Severe Tstorm, and Flash Flood warning posts with IEM Autoplot 208 maps; specialized PDS and Emergency formatting |
+| Tornado Dashboard | Chronological, calendar-style dashboard for `/recenttornadoes` and `/sigtor` with EF-rating distinctions and [Tornado Archive](https://tornadoarchive.com/) integration |
+| Tornado Surveys | DAMAGE SURVEY PNS detection; Autoplot 253 tornado-track maps; automatic linking to [NWS Damage Assessment Toolkit (DAT)](https://apps.dat.noaa.gov/stormdamage/damageviewer/) tracks |
 
 ### Soundings & Radar
 | Feature | Details |

@@ -155,7 +155,7 @@ async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> None
 async def get_recent_significant_events(
     event_type: Optional[str] = None,
     since_hours: int = 24,
-    limit: int = 50,
+    limit: int = 1000,
 ) -> list:
     db = await get_events_db()
     try:
