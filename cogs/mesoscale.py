@@ -711,8 +711,8 @@ class MesoscaleCog(commands.Cog):
                     await prune_posted_mds()
                     self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
                     logger.info(f"[MD] Posted MD #{md_num}")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.exception(f"[MD] auto_post_md send failed for #{md_num}: {e}")
             self._md_backoff.success()
 
         except Exception as e:

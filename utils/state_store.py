@@ -767,7 +767,11 @@ async def get_posted_urls(day_key: str) -> List[str]:
         return list(val)
     try:
         result = await _upstash_cmd("GET", _k_posted_urls(day_key))
-        urls = json.loads(result) if result else []
+        try:
+            urls = json.loads(result) if result else []
+        except json.JSONDecodeError:
+            logger.warning(f"[STATE] get_posted_urls({day_key}): malformed Upstash response, falling back to SQLite")
+            urls = await sqlite_backend.get_posted_urls(day_key)
         _cache_set(cache_key, urls)
         return list(urls)
     except _UpstashUnavailable as e:
