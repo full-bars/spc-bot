@@ -304,37 +304,38 @@ class TestGetWarningStyle:
     the key is present with value null, causing 'in None' TypeError."""
 
     def test_null_tornado_damage_threat_does_not_raise(self):
-        title, _ = get_warning_style(
+        _, display_event, _ = get_warning_style(
             "Tornado Warning", "", params={"tornadoDamageThreat": None}
         )
-        assert "Tornado Warning" in title
+        assert "Tornado Warning" in display_event
 
     def test_null_thunderstorm_damage_threat_does_not_raise(self):
-        title, _ = get_warning_style(
+        _, display_event, _ = get_warning_style(
             "Severe Thunderstorm Warning", "", params={"thunderstormDamageThreat": None}
         )
-        assert "Severe Thunderstorm Warning" in title
+        assert "Severe Thunderstorm Warning" in display_event
 
     def test_both_null_does_not_raise(self):
-        title, _ = get_warning_style(
+        emoji, display_event, _ = get_warning_style(
             "Tornado Warning", "",
             params={"tornadoDamageThreat": None, "thunderstormDamageThreat": None},
         )
-        assert title  # just shouldn't raise
+        assert emoji and display_event  # just shouldn't raise
 
     def test_catastrophic_tornado_threat_detected(self):
-        title, _ = get_warning_style(
+        emoji, display_event, color = get_warning_style(
             "Tornado Warning", "",
             params={"tornadoDamageThreat": "CATASTROPHIC"},
         )
-        assert "TORNADO EMERGENCY" in title
+        assert "Tornado Emergency" in display_event
+        assert emoji == "🚨🚨"
 
     def test_destructive_thunderstorm_threat_detected(self):
-        title, _ = get_warning_style(
+        emoji, display_event, _ = get_warning_style(
             "Severe Thunderstorm Warning", "",
             params={"thunderstormDamageThreat": "DESTRUCTIVE"},
         )
-        assert "DESTRUCTIVE" in title
+        assert "DESTRUCTIVE" in display_event
 
 
 def test_build_concise_warning_text_updates_format():

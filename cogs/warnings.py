@@ -141,40 +141,50 @@ _WARNING_STYLE = {
     "Special Weather Statement":   ("☁️", discord.Color.blue()),
 }
 
-def get_warning_style(event: str, text: str, params: dict = None) -> Tuple[str, discord.Color]:
-    """Determine (emoji_prefix, color) based on event type and severity tags."""
-    base_emoji, color = _WARNING_STYLE.get(event, ("⚠️", discord.Color.orange()))
+def get_warning_style(event: str, text: str, params: dict = None) -> Tuple[str, str, discord.Color]:
+    """Determine (emoji, display_event_name, color) based on event type and severity tags."""
+    emoji, color = _WARNING_STYLE.get(event, ("⚠️", discord.Color.orange()))
+    display_event = event
     
     # Text-based detection (works for both iembot and NWS API paths)
     text_upper = (text or "").upper()
     
     if event == "Tornado Warning":
         if "TORNADO EMERGENCY" in text_upper:
-            return "🚨🚨 TORNADO EMERGENCY", discord.Color.from_rgb(139, 0, 0)
+            return "🚨🚨", "Tornado Emergency", discord.Color.from_rgb(139, 0, 0)
         if "PARTICULARLY DANGEROUS SITUATION" in text_upper:
-            return "⚠️ PDS Tornado Warning", discord.Color.red()
+            return "⚠️", "Tornado Warning (PDS)", discord.Color.red()
             
     if event == "Severe Thunderstorm Warning":
         if "THUNDERSTORM DAMAGE THREAT...DESTRUCTIVE" in text_upper:
-             return "🚨 DESTRUCTIVE Severe Tstorm Warning", discord.Color.purple()
+             return "🚨", "DESTRUCTIVE Severe Tstorm Warning", discord.Color.purple()
         if "THUNDERSTORM DAMAGE THREAT...CONSIDERABLE" in text_upper:
-             return "⚠️ CONSIDERABLE Severe Tstorm Warning", discord.Color.gold()
+             return "⚠️", "CONSIDERABLE Severe Tstorm Warning", discord.Color.gold()
+
+    if event == "Flash Flood Warning":
+        if "FLASH FLOOD EMERGENCY" in text_upper:
+            return "🚨🚨", "Flash Flood Emergency", discord.Color.from_rgb(139, 0, 0)
 
     # Param-based detection (NWS API specific)
     if params:
         t_threat = params.get("tornadoDamageThreat") or []
         if "CATASTROPHIC" in t_threat:
-            return "🚨🚨 TORNADO EMERGENCY", discord.Color.from_rgb(139, 0, 0)
+            return "🚨🚨", "Tornado Emergency", discord.Color.from_rgb(139, 0, 0)
         if "CONSIDERABLE" in t_threat:
-            return "⚠️ PDS Tornado Warning", discord.Color.red()
+            # Note: CONSIDERABLE tag for TOR usually means PDS
+            return "⚠️", "Tornado Warning (PDS)", discord.Color.red()
 
         s_threat = params.get("thunderstormDamageThreat") or []
         if "DESTRUCTIVE" in s_threat:
-             return "🚨 DESTRUCTIVE Severe Tstorm Warning", discord.Color.purple()
+             return "🚨", "DESTRUCTIVE Severe Tstorm Warning", discord.Color.purple()
         if "CONSIDERABLE" in s_threat:
-             return "⚠️ CONSIDERABLE Severe Tstorm Warning", discord.Color.gold()
+             return "⚠️", "CONSIDERABLE Severe Tstorm Warning", discord.Color.gold()
+             
+        f_threat = params.get("flashFloodDamageThreat") or []
+        if "CATASTROPHIC" in f_threat:
+            return "🚨🚨", "Flash Flood Emergency", discord.Color.from_rgb(139, 0, 0)
 
-    return f"{base_emoji} {event}", color
+    return emoji, display_event, color
 
 # Hard-cap on the description block we render inside a code-block —
 # Discord embed descriptions cap at 4096 chars total, fences add 8.
@@ -343,30 +353,59 @@ def build_concise_warning_text(
     if is_update:
         action_verb = "updates"
 
-    # 2. Tags (tornado, hail, wind)
+    # 2. Tags (tornado, hail, wind, flash flood)
     tags = []
     text_to_search = raw_text or ""
+    params = {}
     if feature:
         props = feature.get("properties", {})
         text_to_search += " " + (props.get("description") or "")
         params = props.get("parameters", {})
+
+    # Tornado Warning tags: [tornado: RADAR INDICATED, hail: 1.25 IN]
+    if "Tornado" in display_event:
         if params.get("tornadoDetection"):
             tags.append(f"tornado: {params['tornadoDetection'][0]}")
+        if params.get("tornadoDamageThreat"):
+            tags.append(f"damage threat: {params['tornadoDamageThreat'][0]}")
         if params.get("maxHailSize"):
             tags.append(f"hail: {params['maxHailSize'][0]} IN")
-        if params.get("maxWindGust"):
-            tags.append(f"wind: {params['maxWindGust'][0]}")
 
+    # Severe Thunderstorm Warning tags: [wind: 60 MPH (RADAR INDICATED), hail: 1.25 IN (RADAR INDICATED)]
+    elif "Severe Thunderstorm" in display_event:
+        w_method = ""
+        if params.get("windDetection"):
+            w_method = f" ({params['windDetection'][0]})"
+        if params.get("maxWindGust"):
+            tags.append(f"wind: {params['maxWindGust'][0]}{w_method}")
+            
+        h_method = ""
+        if params.get("hailDetection"):
+            h_method = f" ({params['hailDetection'][0]})"
+        if params.get("maxHailSize"):
+            tags.append(f"hail: {params['maxHailSize'][0]} IN{h_method}")
+
+        if params.get("thunderstormDamageThreat"):
+            tags.append(f"damage threat: {params['thunderstormDamageThreat'][0]}")
+
+    # Flash Flood Warning tags: [flash flood: radar indicated] (all lowercase)
+    elif "Flash Flood" in display_event:
+        if params.get("flashFloodDetection"):
+            tags.append(f"flash flood: {params['flashFloodDetection'][0].lower()}")
+        if params.get("flashFloodDamageThreat"):
+            tags.append(f"flash flood damage threat: {params['flashFloodDamageThreat'][0].lower()}")
+
+    # Fallback to regex if no params (iembot path)
     if not tags and text_to_search:
         m_tor = re.search(r"TORNADO\.\.\.(.+?)(?:\n|$)", text_to_search, re.I)
         if m_tor:
-            tags.append(f"tornado: {m_tor.group(1).strip()}")
+            tags.append(f"tornado: {m_tor.group(1).strip().upper()}")
         m_hail = re.search(r"HAIL\.\.\.(.+?)(?:\n|$)", text_to_search, re.I)
         if m_hail:
-            tags.append(f"hail: {m_hail.group(1).strip()}")
+            tags.append(f"hail: {m_hail.group(1).strip().upper()}")
         m_wind = re.search(r"WIND\.\.\.(.+?)(?:\n|$)", text_to_search, re.I)
         if m_wind:
-            tags.append(f"wind: {m_wind.group(1).strip()}")
+            tags.append(f"wind: {m_wind.group(1).strip().upper()}")
 
     tag_str = f" [{', '.join(tags)}]" if tags else ""
 
@@ -442,7 +481,6 @@ def build_concise_warning_text(
     suffix = "." if is_update else ""
 
     return f"{office} {linked_verb}{tag_str}{area_formatted}{expires_str}{suffix}{narrative}\n[<t:{unix_ts}:R>]"
-
 
 
 def _extract_narrative(raw: str) -> Optional[str]:
@@ -569,11 +607,11 @@ class WarningsCog(commands.Cog):
         # Log significant events (tornadoes, hail, wind) to DB
         await self._check_and_log_significant_event(event, raw_text, vtec)
 
-        concise_text = build_concise_warning_text(event, vtec, raw_text=raw_text)
-        title, color = get_warning_style(event, raw_text)
+        emoji, display_event, color = get_warning_style(event, raw_text)
+        concise_text = build_concise_warning_text(display_event, vtec, raw_text=raw_text)
 
         embed = discord.Embed(
-            title=title,
+            title=f"{emoji} {display_event}",
             description=concise_text,
             color=color,
             timestamp=datetime.now(timezone.utc),
@@ -611,9 +649,20 @@ class WarningsCog(commands.Cog):
             msg = await channel.send(embed=embed, files=files)
             logger.info(f"[WARN] Posted (iembot) {event} {vtec_id}")
             # Update the in-memory mapping with the message info
+            area_desc = ""
+            if "properties" in vtec: # iembot path doesn't usually have this
+                 pass # extracted logic needed?
+            # Actually, area_desc was returned by _post_warning in NWS API path.
+            # iembot path is NEW only for now.
+            
+            # Simple area extraction for iembot path persistence
+            area_m = re.search(r"for (.+?) till", concise_text)
+            area_desc = area_m.group(1) if area_m else "affected area"
+
             self.bot.state.posted_warnings[vtec_id] = {
                 "message_id": msg.id,
                 "channel_id": msg.channel.id,
+                "area": area_desc,
             }
         except discord.HTTPException as e:
             # Roll back the dedup claim on a hard send failure
@@ -625,7 +674,7 @@ class WarningsCog(commands.Cog):
             return
 
         try:
-            await add_posted_warning(vtec_id, msg.id, msg.channel.id, time.time())
+            await add_posted_warning(vtec_id, msg.id, msg.channel.id, time.time(), area=area_desc)
             await prune_posted_warnings()
         except Exception as e:
             logger.warning(f"[WARN] Failed to persist {vtec_id}: {e}")
@@ -1048,7 +1097,7 @@ class WarningsCog(commands.Cog):
         props = feature.properties
         description = props.description or ""
         params = props.parameters.model_dump() if props.parameters else {}
-        title, color = get_warning_style(event, description, params)
+        emoji, display_event, color = get_warning_style(event, description, params)
         vtec_id = vtec["vtec_id"]
 
         ugc_codes = (props.geocode.UGC or []) if props.geocode else []
@@ -1059,7 +1108,7 @@ class WarningsCog(commands.Cog):
             prev_area = self.bot.state.posted_warnings.get(vtec_id, {}).get("area", "")
 
         concise_text = build_concise_warning_text(
-            event, vtec, feature=feature.model_dump(), ugc_codes=ugc_codes,
+            display_event, vtec, feature=feature.model_dump(), ugc_codes=ugc_codes,
             is_update=is_update, prev_area=prev_area
         )
 
@@ -1067,7 +1116,7 @@ class WarningsCog(commands.Cog):
         await self._check_and_log_significant_event(event, description, vtec)
 
         embed = discord.Embed(
-            title=title,
+            title=f"{emoji} {display_event}",
             description=concise_text,
             color=color,
             timestamp=datetime.now(timezone.utc),
