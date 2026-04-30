@@ -240,29 +240,37 @@ async def test_post_warning_now_skips_non_NEW_actions(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_handle_cancellation_edits_message(monkeypatch):
-    """Marking a warning as cancelled should fetch the message and
-    edit the embed with a strike-through description."""
+async def test_handle_cancellation_posts_new_message(monkeypatch):
+    """Cancellation must post a NEW message in channel — original post is left untouched."""
     vtec_id = "KOUN.SV.W.0042"
     mapping = {vtec_id: {"message_id": 123, "channel_id": 456}}
+    vtec = {"office": "KOUN", "phenom": "SV", "sig": "W", "etn": "0042", "vtec_id": vtec_id}
     cog = _make_cog(posted=mapping)
-    cog.bot.state.active_warnings = {vtec_id: {"office": "OUN"}}
+    cog.bot.state.active_warnings = {vtec_id: vtec}
 
-    mock_msg = AsyncMock()
-    mock_msg.embeds = [discord.Embed(title="Storm", description="Heavy rain")]
-    cog.bot.get_channel.return_value.fetch_message = AsyncMock(return_value=mock_msg)
+    # Original embed has area in description
+    mock_original = AsyncMock()
+    mock_original.embeds = [discord.Embed(
+        title="⛈️ Severe Thunderstorm Warning",
+        description="OUN issues Severe Thunderstorm Warning for Garfield, Noble till 23:00Z",
+    )]
+    channel = cog.bot.get_channel.return_value
+    channel.fetch_message = AsyncMock(return_value=mock_original)
 
-    await cog._handle_cancellation(vtec_id, reason="Cancelled")
+    monkeypatch.setattr("cogs.warnings.http_get_bytes", AsyncMock(return_value=(None, 404)))
 
-    # Verify message was fetched and edited
-    cog.bot.get_channel.return_value.fetch_message.assert_called_with(123)
-    mock_msg.edit.assert_called_once()
-    
-    # Verify embed was modified
-    # Note: edit is called with embed=embed, attachments=files
-    edited_embed = mock_msg.edit.call_args[1]["embed"]
-    assert "Cancelled" in edited_embed.title
-    assert edited_embed.color == discord.Color.green()
+    await cog._handle_cancellation(vtec_id, reason="Cancelled", vtec=vtec)
+
+    # Original message must NOT be edited
+    mock_original.edit.assert_not_called()
+
+    # A NEW message must be sent
+    channel.send.assert_called_once()
+    sent_embed = channel.send.call_args.kwargs["embed"]
+    assert "cancels" in sent_embed.description
+    assert "Severe Thunderstorm Warning" in sent_embed.description
+    assert "Garfield" in sent_embed.description
+    assert sent_embed.color == discord.Color.dark_gray()
 
 
 @pytest.mark.asyncio

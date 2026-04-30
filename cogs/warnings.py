@@ -690,10 +690,21 @@ class WarningsCog(commands.Cog):
 
         await interaction.followup.send(embed=embed)
 
+    # phenom+sig → human-readable event name, for cancellation posts
+    _PHENOM_EVENT = {
+        ("TO", "W"): "Tornado Warning",
+        ("SV", "W"): "Severe Thunderstorm Warning",
+        ("FF", "W"): "Flash Flood Warning",
+        ("FF", "A"): "Flash Flood Watch",
+        ("TO", "A"): "Tornado Watch",
+        ("SV", "A"): "Severe Thunderstorm Watch",
+        ("SPS", "S"): "Special Weather Statement",
+    }
+
     async def _handle_cancellation(
         self, vtec_id: str, reason: str = "Expired / Cancelled", vtec: dict | None = None
     ):
-        """Edit an existing warning post to mark it as inactive."""
+        """Post a new cancellation notice; leave the original warning post untouched."""
         info = self.bot.state.posted_warnings.get(vtec_id)
         if not info:
             return
@@ -707,47 +718,61 @@ class WarningsCog(commands.Cog):
         if not channel:
             return
 
+        # Build the one-line cancellation description.
+        # Pull area from the original embed description so we don't have to
+        # re-query NWS — the area was already formatted nicely at post time.
+        area = ""
         try:
-            msg = await channel.fetch_message(message_id)
-            if not msg.embeds:
-                return
-
-            embed = msg.embeds[0]
-            # Avoid double-cancellation logic
-            if "✅" in (embed.title or ""):
-                return
-
-            # Update title and color
-            embed.title = f"✅ {embed.title or ''} — {reason}"
-            embed.color = discord.Color.green()
-
-            # Add status to footer
-            footer = embed.footer.text or ""
-            embed.set_footer(text=f"{footer} | {reason}")
-
-            # Try to fetch updated IEM image for the cancellation
-            files = []
-            if vtec and ((vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS"):
-                image_url = iem_autoplot_url(vtec)
-                filename = f"cancel_{vtec_id.replace('.', '_')}.png"
-                try:
-                    content, status = await http_get_bytes(image_url, retries=1, timeout=10)
-                    if content and status == 200:
-                        from io import BytesIO
-                        files.append(discord.File(BytesIO(content), filename=filename))
-                        embed.set_image(url=f"attachment://{filename}")
-                except Exception as e:
-                    logger.debug(f"[WARN] No cancellation image for {vtec_id}: {e}")
-
-            await msg.edit(embed=embed, attachments=files)
-            logger.info(f"[WARN] Marked {vtec_id} as {reason} in Discord")
-
+            original = await channel.fetch_message(message_id)
+            if original.embeds:
+                desc = original.embeds[0].description or ""
+                m = re.search(r"\bfor\b (.+?)(?:\s+till\s+|\s*\n|$)", desc, re.IGNORECASE)
+                if m:
+                    area = m.group(1).strip()
         except discord.NotFound:
-            logger.debug(
-                f"[WARN] Message for {vtec_id} not found, skipping cancel edit"
-            )
+            pass
         except Exception as e:
-            logger.warning(f"[WARN] Failed to cancel {vtec_id}: {e}")
+            logger.debug(f"[WARN] Could not fetch original embed for {vtec_id}: {e}")
+
+        phenom = (vtec or {}).get("phenom", "")
+        sig = (vtec or {}).get("sig", "")
+        office = (vtec or {}).get("office", vtec_id.split(".")[0])
+        if office.startswith("K") and len(office) == 4:
+            office = office[1:]
+
+        event_name = self._PHENOM_EVENT.get((phenom, sig), f"{phenom}.{sig} Warning")
+        action_verb = "cancels" if reason == "Cancelled" else "has expired —"
+        area_str = f" for {area}" if area else ""
+        description = f"**{office} {action_verb} {event_name}**{area_str}"
+
+        # Fetch the IEM Autoplot image — for cancelled events IEM marks it
+        # "Event No Longer Active" automatically.
+        files = []
+        if vtec and ((vtec.get("etn") and vtec["etn"] != "0") or phenom == "SPS"):
+            image_url = iem_autoplot_url(vtec)
+            filename = f"cancel_{vtec_id.replace('.', '_')}.png"
+            try:
+                content, status = await http_get_bytes(image_url, retries=1, timeout=10)
+                if content and status == 200:
+                    from io import BytesIO
+                    files.append(discord.File(BytesIO(content), filename=filename))
+            except Exception as e:
+                logger.debug(f"[WARN] No cancellation image for {vtec_id}: {e}")
+
+        embed = discord.Embed(
+            description=description,
+            color=discord.Color.dark_gray(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        if files:
+            embed.set_image(url=f"attachment://{files[0].filename}")
+        embed.set_footer(text=f"VTEC {vtec_id}")
+
+        try:
+            await channel.send(embed=embed, files=files)
+            logger.info(f"[WARN] Posted cancellation for {vtec_id}")
+        except Exception as e:
+            logger.warning(f"[WARN] Failed to post cancellation for {vtec_id}: {e}")
 
     @tasks.loop(seconds=30)
     async def auto_poll_warnings(self):
