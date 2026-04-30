@@ -1,22 +1,16 @@
 from __future__ import print_function
 import numpy as np
-
 import struct
-from datetime import datetime, timedelta
+import re
+import logging
+import asyncio
+from datetime import datetime, timezone, timedelta
+from io import BytesIO
 
 from lib.vad_plotter.wsr88d import build_has_name
+from utils.http import http_get_bytes, http_get_text
 
-try:
-    from urllib.request import urlopen, URLError
-except ImportError:
-    from urllib2 import urlopen, URLError
-
-try:
-    from io import BytesIO
-except ImportError:
-    from BytesIO import BytesIO
-
-import re
+logger = logging.getLogger("spc_bot")
 
 _base_url = "https://tgftp.nws.noaa.gov/SL.us008001/DF.of/DC.radar/DS.48vwp/"
 
@@ -254,19 +248,25 @@ class VADFile(object):
         for key, val in zip(keys, vals):
             self._data[key] = np.append(val, self._data[key])
 
-def find_file_times(rid):
+async def find_file_times(rid):
     url = "%s/SI.%s/" % (_base_url, rid.lower())
 
-    file_text = urlopen(url).read().decode('utf-8')
+    file_text = await http_get_text(url)
+    if not file_text:
+        return []
+
     file_list = re.findall("([\w]{3} [\d]{1,2} [\d]{2}:[\d]{2}) (sn.[\d]{4})", file_text)
+    if not file_list:
+        return []
+    
     file_times, file_names = list(zip(*file_list))
     file_names = list(file_names)
 
-    year = datetime.utcnow().year
+    year = datetime.now(timezone.utc).year
     file_dts = []
     for ft in file_times:
         ft_dt = datetime.strptime("%d %s" % (year, ft), "%Y %b %d %H:%M")
-        if ft_dt > datetime.utcnow():
+        if ft_dt > datetime.now(timezone.utc):
             ft_dt = datetime.strptime("%d %s" % (year - 1, ft), "%Y %b %d %H:%M")
 
         file_dts.append(ft_dt)
@@ -282,7 +282,7 @@ def find_file_times(rid):
 
     return list(zip(file_names, file_dts))[::-1]
 
-def download_vad(rid, time=None, file_id=None, cache_path=None):
+async def download_vad(rid, time=None, file_id=None, cache_path=None):
     if time is None:
         if file_id is None:
             url = "%s/SI.%s/sn.last" % (_base_url, rid.lower())
@@ -290,7 +290,8 @@ def download_vad(rid, time=None, file_id=None, cache_path=None):
             url = "%s/SI.%s/sn.%04d" % (_base_url, rid.lower(), file_id)
     else:
         file_name = ""
-        for fn, ft in find_file_times(rid):
+        times = await find_file_times(rid)
+        for fn, ft in times:
             if ft <= time:
                 file_name = fn
                 break
@@ -301,18 +302,23 @@ def download_vad(rid, time=None, file_id=None, cache_path=None):
         url = "%s/SI.%s/%s" % (_base_url, rid.lower(), file_name)
 
     try:
-        frem = urlopen(url)
-    except URLError:
-        raise ValueError("Could not find radar site '%s'" % rid.upper())
+        content, status = await http_get_bytes(url, retries=2, timeout=10)
+        if status != 200 or not content:
+            raise ValueError("Could not find radar site '%s' (status %s)" % (rid.upper(), status))
+        
+        frem = BytesIO(content)
+    except Exception as e:
+        if "radar site" in str(e):
+            raise
+        raise ValueError("Could not fetch VAD data for '%s': %s" % (rid.upper(), e))
 
     if cache_path is None:
         vad = VADFile(frem)
     else:
-        bio = BytesIO(frem.read())
-        vad = VADFile(bio)
+        vad = VADFile(frem)
 
         iname = build_has_name(rid, vad['time'])
         with open("%s/%s" % (cache_path, iname), 'wb') as floc:
-            floc.write(bio.getvalue())
+            floc.write(content)
 
     return vad
