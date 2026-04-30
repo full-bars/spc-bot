@@ -66,24 +66,22 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> List[str]:
             logger.warning("[MD] SPC index unreachable — falling back to IEM for active MD list")
             _md_index_unreachable = True
         try:
-            # Use the CGI retrieve service which returns a structure matching our expected parsing
-            content, status = await http_get_bytes(
-                "https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=SWOMCD&limit=40&fmt=json",
+            # Fetch the raw text of the last 10 SWOMCD products
+            text = await http_get_text(
+                "https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=SWOMCD&limit=10",
                 retries=2, timeout=15
             )
-            if content and status == 200:
-                data = json.loads(content)
+            if text:
+                # Find all discussion numbers in the concatenated text block
                 md_nums = set()
-                for entry in data.get("data", []):
-                    m = re.search(r"MESOSCALE DISCUSSION\s+(\d+)", entry.get("data", ""), re.IGNORECASE)
-                    if m:
-                        md_nums.add(m.group(1).zfill(4))
+                matches = re.findall(r"MESOSCALE DISCUSSION\s+(\d+)", text, re.IGNORECASE)
+                for m in matches:
+                    md_nums.add(m.zfill(4))
+                
                 logger.info(f"[MD] IEM fallback returned {len(md_nums)} MDs")
-                # Only return MDs from today/recent hours if possible, 
-                # but for simplicity we'll just return the unique ones in the feed.
                 return sorted(list(md_nums), reverse=True)
             else:
-                logger.warning(f"[MD] IEM fallback failed with status {status}")
+                logger.warning("[MD] IEM fallback returned empty text")
         except Exception as e:
             logger.exception(f"[MD] IEM fallback for index failed: {e}")
         
