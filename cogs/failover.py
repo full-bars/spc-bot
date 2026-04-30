@@ -293,7 +293,28 @@ class FailoverCog(commands.Cog):
             )
             await self._demote()
             return
-        await self._write_lease()
+        if holder is not None:
+            # We hold the lease (or it was empty and readable) — renew normally.
+            await self._write_lease()
+            return
+        # holder is None: either the key expired or Upstash read failed.  A
+        # plain SET here would silently overwrite a standby that promoted during
+        # a connectivity gap.  Use SET NX so we only claim the key if it is
+        # genuinely absent; if another node holds it, the NX write returns null.
+        result = await self._upstash(
+            "SET", LEASE_KEY, self._identity, "NX", "EX", str(HEARTBEAT_TTL)
+        )
+        if result is None:
+            # NX write failed: key already held by another node (or Upstash error).
+            # Re-read to check and demote if necessary.
+            holder = await self._read_lease_holder()
+            if holder and holder != self._identity:
+                logger.warning(
+                    f"[FAILOVER] Another node ({holder}) holds the lease after NX — demoting"
+                )
+                await self._demote()
+            return
+        logger.info("[FAILOVER] Reclaimed expired lease via NX write")
 
     def _in_startup_grace(self) -> bool:
         if self._cog_load_monotonic is None:

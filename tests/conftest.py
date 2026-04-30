@@ -35,20 +35,33 @@ os.environ.setdefault("GUILD_ID", "111222333")
 os.environ.setdefault("CACHE_DIR", _TEST_CACHE)
 os.environ.setdefault("LOG_FILE", os.path.join(_TEST_CACHE, "spc_bot_test.log"))
 os.environ.setdefault("FAILOVER_TOKEN", "test-failover-token-not-real")
+# Force Upstash credentials to empty so load_dotenv() (called by config.py)
+# cannot override them with real values from .env. Without this, every call
+# to get_cached_md_text / get_product_cache makes a live Upstash network
+# request, burning free-tier quota and hanging the event loop on teardown.
+os.environ.setdefault("UPSTASH_REDIS_REST_URL", "")
+os.environ.setdefault("UPSTASH_REDIS_REST_TOKEN", "")
 
 
 # ── Autouse fixtures ─────────────────────────────────────────────────────────
 
 @pytest.fixture(autouse=True)
-def global_suppress_create_task():
+def global_suppress_create_task(request):
     """Silence `asyncio.create_task` globally for all tests.
 
     Background tasks (like `_upgrade_md_message` or `_handle_watch`
     dispatches) are "fire and forget" in production but can hang
     or leak resources in tests if they run unawaited in the background.
+
+    Mark a test with @pytest.mark.real_create_task to opt out — required
+    for tests that call functions which use asyncio.create_task internally
+    as part of their core logic (e.g. fetch_md_details racing SPC vs IEM).
     """
-    with patch("asyncio.create_task", return_value=MagicMock()):
+    if request.node.get_closest_marker("real_create_task"):
         yield
+    else:
+        with patch("asyncio.create_task", return_value=MagicMock()):
+            yield
 
 
 @pytest.fixture(autouse=True)

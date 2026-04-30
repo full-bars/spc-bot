@@ -23,15 +23,11 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
 
     logger.info(f"[HODO] Generating hodograph for {site} in executor pool")
 
-    from cogs.sounding_utils import _get_plot_executor
     from lib.vad_plotter.vad import vad_plotter
-    
-    loop = asyncio.get_running_loop()
+
     try:
         await asyncio.wait_for(
-            loop.run_in_executor(
-                _get_plot_executor(),
-                vad_plotter,
+            vad_plotter(
                 site,           # radar_id
                 'right-mover',  # storm_motion
                 None,           # sfc_wind

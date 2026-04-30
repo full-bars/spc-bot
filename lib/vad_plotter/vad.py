@@ -15,9 +15,13 @@ from lib.vad_plotter.asos import get_asos_surface_wind
 
 import re
 import argparse
+import asyncio
+import logging
 from datetime import datetime, timedelta
 import json
 import glob
+
+logger = logging.getLogger("spc_bot")
 
 """
 vad.py
@@ -57,7 +61,7 @@ def parse_time(time_str):
     return plot_time
 
 
-def vad_plotter(radar_id, storm_motion='right-mover', sfc_wind=None, time=None,
+async def vad_plotter(radar_id, storm_motion='right-mover', sfc_wind=None, time=None,
                 fname=None, local_path=None, cache_path=None, web=False, fixed=False):
     plot_time = None
     if time:
@@ -66,10 +70,10 @@ def vad_plotter(radar_id, storm_motion='right-mover', sfc_wind=None, time=None,
         raise ValueError("'-t' ('--time') argument is required when loading from the local disk.")
 
     if not web:
-        print("Plotting VAD for %s ..." % radar_id)
+        logger.info("Plotting VAD for %s ..." % radar_id)
 
     if local_path is None:
-        vad = download_vad(radar_id, time=plot_time, cache_path=cache_path)
+        vad = await download_vad(radar_id, time=plot_time, cache_path=cache_path)
     else:
         iname = build_has_name(radar_id, plot_time)
         vad = VADFile(open("%s/%s" % (local_path, iname), 'rb'))
@@ -77,7 +81,7 @@ def vad_plotter(radar_id, storm_motion='right-mover', sfc_wind=None, time=None,
     vad.rid = radar_id
 
     if not web:
-        print("Valid time:", vad['time'].strftime("%d %B %Y %H%M UTC"))
+        logger.info("Valid time: %s" % vad['time'].strftime("%d %B %Y %H%M UTC"))
 
     sfc_wind_str = None
     if sfc_wind:
@@ -88,20 +92,27 @@ def vad_plotter(radar_id, storm_motion='right-mover', sfc_wind=None, time=None,
         try:
             radar_lat = vad._radar_latitude
             radar_lon = vad._radar_longitude
-            asos = get_asos_surface_wind(radar_lat, radar_lon, vwp_time=vad['time'])
+            asos = await get_asos_surface_wind(radar_lat, radar_lon, vwp_time=vad['time'])
             if asos is not None:
                 wdir, wspd, sid = asos
                 vad.add_surface_wind((wdir, wspd))
                 sfc_wind_str = "Surface Wind: %03d/%02d (%s)" % (wdir, wspd, sid)
                 if not web:
-                    print(sfc_wind_str)
+                    logger.info(sfc_wind_str)
         except Exception as e:
             if not web:
-                print("Could not fetch ASOS surface wind: %s" % e)
+                logger.warning("Could not fetch ASOS surface wind: %s" % e)
 
     params = compute_parameters(vad, storm_motion)
-    plot_hodograph(vad, params, fname=fname, web=web, fixed=fixed,
-                   archive=(local_path is not None), sfc_wind_str=sfc_wind_str)
+    
+    # Move CPU-bound plotting to an executor to keep the event loop free.
+    # Note: matplotlib is not thread-safe by default, but plot_hodograph 
+    # creates its own figure and closes it, which is usually okay in a 
+    # thread as long as it's not the main GUI thread.
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, 
+        plot_hodograph, vad, params, fname, web, fixed, (local_path is not None), sfc_wind_str
+    )
 
 
 def main():
@@ -120,7 +131,7 @@ def main():
     np.seterr(all='ignore')
 
     try:
-        vad_plotter(args.radar_id,
+        asyncio.run(vad_plotter(args.radar_id,
             storm_motion=args.storm_motion,
             sfc_wind=args.sfc_wind,
             time=args.time,
@@ -129,7 +140,7 @@ def main():
             cache_path=args.cache_path,
             web=args.web,
             fixed=args.fixed
-        )
+        ))
     except Exception:
         if args.web:
             print(json.dumps({'error': 'error'}))

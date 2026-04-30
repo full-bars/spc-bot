@@ -5,7 +5,6 @@ attributes, and broken call signatures that unit tests miss.
 """
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
-import pytest
 from utils.state import BotState
 
 
