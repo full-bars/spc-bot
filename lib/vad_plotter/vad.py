@@ -15,9 +15,13 @@ from lib.vad_plotter.asos import get_asos_surface_wind
 
 import re
 import argparse
+import asyncio
+import logging
 from datetime import datetime, timedelta
 import json
 import glob
+
+logger = logging.getLogger("spc_bot")
 
 """
 vad.py
@@ -127,7 +131,6 @@ def main():
     np.seterr(all='ignore')
 
     try:
-        import asyncio
         asyncio.run(vad_plotter(args.radar_id,
             storm_motion=args.storm_motion,
             sfc_wind=args.sfc_wind,
