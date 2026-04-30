@@ -718,21 +718,8 @@ class WarningsCog(commands.Cog):
         if not channel:
             return
 
-        # Build the one-line cancellation description.
-        # Pull area from the original embed description so we don't have to
-        # re-query NWS — the area was already formatted nicely at post time.
-        area = ""
-        try:
-            original = await channel.fetch_message(message_id)
-            if original.embeds:
-                desc = original.embeds[0].description or ""
-                m = re.search(r"\bfor\b (.+?)(?:\s+till\s+|\s*\n|$)", desc, re.IGNORECASE)
-                if m:
-                    area = m.group(1).strip()
-        except discord.NotFound:
-            pass
-        except Exception as e:
-            logger.debug(f"[WARN] Could not fetch original embed for {vtec_id}: {e}")
+        # Area was stored in posted_warnings when the warning was first posted.
+        area = info.get("area", "")
 
         phenom = (vtec or {}).get("phenom", "")
         sig = (vtec or {}).get("sig", "")
@@ -741,7 +728,7 @@ class WarningsCog(commands.Cog):
             office = office[1:]
 
         event_name = self._PHENOM_EVENT.get((phenom, sig), f"{phenom}.{sig} Warning")
-        action_verb = "cancels" if reason == "Cancelled" else "has expired —"
+        action_verb = "cancels" if reason == "Cancelled" else "expires"
         area_str = f" for {area}" if area else ""
         description = f"**{office} {action_verb} {event_name}**{area_str}"
 

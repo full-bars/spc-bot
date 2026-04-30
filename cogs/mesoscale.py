@@ -492,6 +492,7 @@ class MesoscaleCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._md_backoff = TaskBackoff("auto_post_md")
+        self._cancelled_mds: set = set()  # MDs cancelled this session — never re-activate
 
     async def cog_load(self):
         self.auto_post_md.start()
@@ -657,6 +658,7 @@ class MesoscaleCog(commands.Cog):
                         embed.set_footer(text="SPC MD Monitor")
                         try:
                             await channel.send(embed=embed)
+                            self._cancelled_mds.add(md_num)
                             self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
                             logger.info(
                                 f"[MD] Posted cancellation for #{md_num}"
@@ -670,6 +672,8 @@ class MesoscaleCog(commands.Cog):
 
             # ── New MDs ────────────────────────────────────────────────────
             for md_num in md_numbers:
+                if md_num in self._cancelled_mds:
+                    continue  # SPC index flap — don't re-activate a cancelled MD
                 self.bot.state.active_mds.add(md_num)
                 if md_num in self.bot.state.posted_mds:
                     continue

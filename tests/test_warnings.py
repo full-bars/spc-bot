@@ -243,26 +243,17 @@ async def test_post_warning_now_skips_non_NEW_actions(monkeypatch):
 async def test_handle_cancellation_posts_new_message(monkeypatch):
     """Cancellation must post a NEW message in channel — original post is left untouched."""
     vtec_id = "KOUN.SV.W.0042"
-    mapping = {vtec_id: {"message_id": 123, "channel_id": 456}}
+    # area is now stored in posted_warnings at post time
+    mapping = {vtec_id: {"message_id": 123, "channel_id": 456, "area": "Garfield, Noble"}}
     vtec = {"office": "KOUN", "phenom": "SV", "sig": "W", "etn": "0042", "vtec_id": vtec_id}
     cog = _make_cog(posted=mapping)
     cog.bot.state.active_warnings = {vtec_id: vtec}
 
-    # Original embed has area in description
-    mock_original = AsyncMock()
-    mock_original.embeds = [discord.Embed(
-        title="⛈️ Severe Thunderstorm Warning",
-        description="OUN issues Severe Thunderstorm Warning for Garfield, Noble till 23:00Z",
-    )]
     channel = cog.bot.get_channel.return_value
-    channel.fetch_message = AsyncMock(return_value=mock_original)
 
     monkeypatch.setattr("cogs.warnings.http_get_bytes", AsyncMock(return_value=(None, 404)))
 
     await cog._handle_cancellation(vtec_id, reason="Cancelled", vtec=vtec)
-
-    # Original message must NOT be edited
-    mock_original.edit.assert_not_called()
 
     # A NEW message must be sent
     channel.send.assert_called_once()
