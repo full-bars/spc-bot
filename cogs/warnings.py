@@ -536,7 +536,8 @@ class TornadoDashboardView(discord.ui.View):
         options = [
             discord.SelectOption(label="Summary Dashboard", value="summary", default=True)
         ]
-        for d in self.dates[:24]: # max 25 options total
+        # Only show dates that have actual tornado events
+        for d in self.dates[:24]: # Discord max options is 25
             options.append(discord.SelectOption(label=f"Events for {d}", value=d))
             
         self.select = discord.ui.Select(options=options, custom_id="date_select")
@@ -547,10 +548,19 @@ class TornadoDashboardView(discord.ui.View):
         if events:
             min_ts = min(e['timestamp'] for e in events)
             max_ts = max(e['timestamp'] for e in events)
+            # UTC formatting for TornadoArchive
             min_dt = datetime.fromtimestamp(min_ts, timezone.utc).strftime("%Y-%m-%dT00:00Z")
-            # For end, add 1 day to max_ts to ensure we cover the interval
             max_dt = (datetime.fromtimestamp(max_ts, timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%dT00:00Z")
-            url = f"https://tornadoarchive.com/home/tornado-archive-data-explorer/#interval={min_dt};{max_dt}&map=-97.1249;45.5585;4.01&domain=North%20America&filters=partition|PartitionFilter|f_scale|(E)FU,(E)F0,(E)F1,(E)F2,(E)F3,(E)F4,(E)F5"
+            
+            # The URL needs to be correctly formatted for the fragment-based state
+            # TornadoArchive uses a specific hash structure
+            import urllib.parse
+            fragment = (
+                f"interval={min_dt};{max_dt}&map=-97.1249;45.5585;4.01&domain=North%20America"
+                f"&filters=partition|PartitionFilter|f_scale|(E)FU,(E)F0,(E)F1,(E)F2,(E)F3,(E)F4,(E)F5"
+            )
+            safe_fragment = urllib.parse.quote(fragment, safe="=&;/-|(),")
+            url = f"https://tornadoarchive.com/home/tornado-archive-data-explorer/#{safe_fragment}"
             self.add_item(discord.ui.Button(label="Tornado Archive", url=url, style=discord.ButtonStyle.link))
 
     async def on_select(self, interaction: discord.Interaction):
@@ -582,7 +592,10 @@ class TornadoDashboardView(discord.ui.View):
             timestamp=datetime.now(timezone.utc)
         )
         
-        for date_str in self.dates[:15]: # Display summary for up to 15 days to fit embed limits
+        # Display summary for up to 30 days. If more, they can use the select menu.
+        # Field limits: 25 fields max. We'll group multiple days per field if needed,
+        # or just show the last 25 active days.
+        for date_str in self.dates[:25]: 
             day_events = self.grouped[date_str]
             counts = {"EF5": 0, "EF4": 0, "EF3": 0, "EF2": 0, "EF1": 0, "EF0": 0, "EFU": 0}
             for e in day_events:
@@ -597,18 +610,20 @@ class TornadoDashboardView(discord.ui.View):
                     counts["EFU"] += 1
             
             parts = []
-            if counts["EF5"]: parts.append(f"🟣 {counts['EF5']} EF5")
-            if counts["EF4"]: parts.append(f"🔴 {counts['EF4']} EF4")
-            if counts["EF3"]: parts.append(f"🟠 {counts['EF3']} EF3")
-            if counts["EF2"]: parts.append(f"🟡 {counts['EF2']} EF2")
-            if counts["EF1"]: parts.append(f"🟢 {counts['EF1']} EF1")
-            if counts["EF0"]: parts.append(f"🔵 {counts['EF0']} EF0")
-            if counts["EFU"]: parts.append(f"⚪ {counts['EFU']} Unrated")
+            if counts["EF5"]: parts.append(f"🟣 {counts['EF5']}")
+            if counts["EF4"]: parts.append(f"🔴 {counts['EF4']}")
+            if counts["EF3"]: parts.append(f"🟠 {counts['EF3']}")
+            if counts["EF2"]: parts.append(f"🟡 {counts['EF2']}")
+            if counts["EF1"]: parts.append(f"🟢 {counts['EF1']}")
+            if counts["EF0"]: parts.append(f"🔵 {counts['EF0']}")
+            if counts["EFU"]: parts.append(f"⚪ {counts['EFU']}")
             
-            val = ", ".join(parts) if parts else "No ratings available"
-            embed.add_field(name=f"📅 {date_str} ({len(day_events)} Tornadoes)", value=val, inline=False)
+            val = " ".join(parts) if parts else "Confirmed"
+            embed.add_field(name=f"📅 {date_str} ({len(day_events)})", value=val, inline=True)
             
-        embed.set_footer(text="Select a date from the dropdown to view specific events.")
+        embed.set_footer(
+            text=f"Showing last {min(25, len(self.dates))} active days. Select a date from the dropdown for chronological details."
+        )
         return embed
         
     def build_daily_embed(self, date_str: str) -> discord.Embed:
@@ -897,7 +912,7 @@ class WarningsCog(commands.Cog):
     async def sig_tor(self, interaction: discord.Interaction, range: int = 168):
         await interaction.response.defer()
         
-        events = await get_recent_significant_events(event_type="Tornado", since_hours=range, limit=100)
+        events = await get_recent_significant_events(event_type="Tornado", since_hours=range)
         if not events:
             await interaction.followup.send("No confirmed tornadoes logged in the requested time frame.")
             return
