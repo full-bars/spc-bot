@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.6.3] — 2026-04-30
+
+### Fixed
+- **MD Fallback (Reliability).** Replaced the experimental IEM JSON endpoint with the stable text-based `retrieve.py` service for the active MD list fallback. This resolves the `422 Unprocessable Content` errors seen when the SPC website was slow or unreachable.
+
 ## [5.6.2] — 2026-04-30
 
 ### Fixed
