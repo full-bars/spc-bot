@@ -1213,7 +1213,8 @@ class WarningsCog(commands.Cog):
             # Store the vtec dict so disappeared path can use it for graphics
             current_vtec_data[issuance_id] = vtec_dict
 
-            if vtec_dict["action"] == "NEW":
+            # If it's in the poll at all, it hasn't disappeared.
+            if vtec_dict["action"] in ("NEW", "CON", "EXT", "UPG"):
                 current_vtec_ids.add(issuance_id)
 
             if issuance_id in self.bot.state.posted_warnings:
