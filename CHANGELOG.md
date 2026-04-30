@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.5.2] — 2026-04-30
+
+### Fixed
+- **Warning tick crash on null NWS damage-threat params.** NWS API returns explicit `null` for `tornadoDamageThreat` / `thunderstormDamageThreat` when no threat level is set. `dict.get(key, [])` returns `None` (not the default) when the key exists with value `null`, causing `TypeError: argument of type 'NoneType' is not iterable` and dropping the entire warnings poll cycle. Happened 3× on 2026-04-29. Fixed with `or []` fallback.
+
 ## [5.5.1] — 2026-04-30
 
 ### Fixed
