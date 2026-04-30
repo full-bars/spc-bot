@@ -9,6 +9,7 @@ import pytest
 from cogs.warnings import (
     WarningsCog,
     _extract_narrative,
+    get_warning_style,
     parse_vtec,
     parse_warning_polygon,
 )
@@ -294,3 +295,44 @@ async def test_post_warning_now_claims_key_before_send(monkeypatch):
         "Severe Thunderstorm Warning",
     )
     assert observed == [True], "vtec_id must be claimed before send"
+
+
+# ── get_warning_style ─────────────────────────────────────────────────────────
+
+class TestGetWarningStyle:
+    """NWS API sometimes returns explicit null for damage-threat params.
+    Regression: .get("tornadoDamageThreat", []) returns None (not []) when
+    the key is present with value null, causing 'in None' TypeError."""
+
+    def test_null_tornado_damage_threat_does_not_raise(self):
+        title, _ = get_warning_style(
+            "Tornado Warning", "", params={"tornadoDamageThreat": None}
+        )
+        assert "Tornado Warning" in title
+
+    def test_null_thunderstorm_damage_threat_does_not_raise(self):
+        title, _ = get_warning_style(
+            "Severe Thunderstorm Warning", "", params={"thunderstormDamageThreat": None}
+        )
+        assert "Severe Thunderstorm Warning" in title
+
+    def test_both_null_does_not_raise(self):
+        title, _ = get_warning_style(
+            "Tornado Warning", "",
+            params={"tornadoDamageThreat": None, "thunderstormDamageThreat": None},
+        )
+        assert title  # just shouldn't raise
+
+    def test_catastrophic_tornado_threat_detected(self):
+        title, _ = get_warning_style(
+            "Tornado Warning", "",
+            params={"tornadoDamageThreat": "CATASTROPHIC"},
+        )
+        assert "TORNADO EMERGENCY" in title
+
+    def test_destructive_thunderstorm_threat_detected(self):
+        title, _ = get_warning_style(
+            "Severe Thunderstorm Warning", "",
+            params={"thunderstormDamageThreat": "DESTRUCTIVE"},
+        )
+        assert "DESTRUCTIVE" in title
