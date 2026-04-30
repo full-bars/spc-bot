@@ -59,15 +59,16 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> List[str]:
     html = await http_get_text(SPC_MD_INDEX_URL)
 
     global _md_index_unreachable
-    # If SPC is unreachable, try to scrape from IEM's nwstext API
+    # If SPC is unreachable, try to scrape from IEM
     if not html:
         logger.warning("[MD] SPC index HTML empty/failed, falling back to IEM")
         if not _md_index_unreachable:
             logger.warning("[MD] SPC index unreachable — falling back to IEM for active MD list")
             _md_index_unreachable = True
         try:
+            # Use the CGI retrieve service which returns a structure matching our expected parsing
             content, status = await http_get_bytes(
-                "https://mesonet.agron.iastate.edu/api/1/nwstext.json?product=MCD&limit=40",
+                "https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=SWOMCD&limit=40&fmt=json",
                 retries=2, timeout=15
             )
             if content and status == 200:
@@ -81,9 +82,13 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> List[str]:
                 # Only return MDs from today/recent hours if possible, 
                 # but for simplicity we'll just return the unique ones in the feed.
                 return sorted(list(md_nums), reverse=True)
+            else:
+                logger.warning(f"[MD] IEM fallback failed with status {status}")
         except Exception as e:
             logger.exception(f"[MD] IEM fallback for index failed: {e}")
-        return []
+        
+        # If both failed, return None to signal a fetch failure rather than an empty index
+        return None
 
     if _md_index_unreachable:
         logger.info("[MD] SPC index reachable again")
@@ -616,6 +621,10 @@ class MesoscaleCog(commands.Cog):
                 return
 
             md_numbers = await fetch_latest_md_numbers()
+            if md_numbers is None:
+                # Both SPC and IEM failed - skip this cycle to avoid false cancellations
+                return
+            
             current_mds = set(md_numbers)
             # -1 sentinel disables lag-protection when the index is empty
             # (nothing to compare against, so all active MDs can be cancelled).
