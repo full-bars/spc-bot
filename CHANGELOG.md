@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.5.3] — 2026-04-30
+
+### Fixed
+- **Silent send failure in `auto_post_md`.** `except Exception: pass` around the Discord send / state-write block swallowed all errors without logging; a failed send could cause the same MD to be reposted next cycle. Replaced with `logger.exception(...)`.
+- **Double station-availability lookup in `/sounding`.** `filter_stations_with_data` was called twice — once blocking, then again concurrently with the ACARS fetch. The blocking call's result was immediately discarded. Removed it, halving the API round-trip per `/sounding` invocation.
+- **Unguarded `JSONDecodeError` in `get_posted_urls`.** Malformed JSON from Upstash raised `JSONDecodeError` uncaught (not a subclass of `_UpstashUnavailable`). Added explicit handler that falls back to SQLite.
+- **MD cancellation spam.** SPC index flapping caused the New MDs loop to silently re-add an expired MD to `active_mds` each time it reappeared, posting a fresh "Cancelled" embed every poll cycle. Added `_cancelled_mds` set — once an MD is cancelled it cannot be re-activated by the index in the same session.
+- **Warning null damage-threat params.** `tornadoDamageThreat` / `thunderstormDamageThreat` returned as explicit `null` from NWS API caused `TypeError` in `get_warning_style`, dropping the entire warnings tick. Fixed with `or []` fallback.
+
+### Changed
+- **Warning cancellations post as a new message** instead of editing the original embed in-place. The original post is left untouched; a separate "EWX cancels Severe Thunderstorm Warning" message appears below it.
+- **Warning description format overhauled.** Action verb is now a hyperlink to the IEM VTEC event page. County areas include `[STATE]` abbreviation grouped by state using NWS `geocode.UGC` codes (`Ashley, Chicot [AR] and Washington [MS]`). A relative timestamp `[<t:unix_ts:R>]` on the second line shows "N minutes ago" in Discord. Added `extends time of` verb for EXT VTEC action.
+
+### Tests
+- New coverage for `post_md_now` and `post_watch_now` (iembot fast-path): dedup guard, successful post, no-channel early return, send-failure state invariant, sounding dispatch.
+
 ## [5.5.2] — 2026-04-30
 
 ### Fixed
