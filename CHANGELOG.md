@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.6.2] — 2026-04-30
+
+### Fixed
+- **Cancellation Spam.** Resolved a logic error in the NWS poll loop that caused active warnings (in CON/EXT state) to be incorrectly identified as "disappeared," triggering duplicate cancellation notices every 30 seconds.
+
 ## [5.6.1] — 2026-04-30
 
 ### Fixed
