@@ -16,6 +16,7 @@ import os
 import re
 import shutil
 import time
+from datetime import datetime, timezone
 from typing import Optional
 
 import aiosqlite
@@ -63,11 +64,18 @@ async def _create_tables(db: aiosqlite.Connection) -> None:
             coords      TEXT,
             timestamp   REAL NOT NULL,
             source      TEXT NOT NULL,
-            raw_text    TEXT
+            raw_text    TEXT,
+            dat_guid    TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_sig_events_type_ts
             ON significant_events (event_type, timestamp DESC);
     """)
+
+    # Migration
+    try:
+        await db.execute("ALTER TABLE significant_events ADD COLUMN dat_guid TEXT")
+    except Exception:
+        pass
 
 
 # ── Writes ───────────────────────────────────────────────────────────────────
@@ -82,26 +90,65 @@ async def add_significant_event(
     timestamp: float = 0.0,
     source: str = "",
     raw_text: str = "",
+    dat_guid: str = "",
 ) -> None:
     db = await get_events_db()
     try:
         await db.execute(
             """INSERT INTO significant_events
                (event_id, event_type, location, magnitude, vtec_id, coords,
-                timestamp, source, raw_text)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                timestamp, source, raw_text, dat_guid)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(event_id) DO UPDATE SET
                  magnitude = excluded.magnitude,
                  location  = excluded.location,
                  coords    = excluded.coords,
-                 raw_text  = excluded.raw_text""",
+                 raw_text  = excluded.raw_text,
+                 dat_guid  = CASE WHEN excluded.dat_guid != '' THEN excluded.dat_guid ELSE significant_events.dat_guid END""",
             (event_id, event_type, location, magnitude, vtec_id, coords,
-             timestamp or time.time(), source, raw_text),
+             timestamp or time.time(), source, raw_text, dat_guid),
         )
         await db.commit()
     except Exception as e:
         logger.warning(f"[EVENTS-DB] add_significant_event({event_id}) failed: {e}")
 
+async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> None:
+    """Attempt to link a DAT guid to a tornado based on the label."""
+    db = await get_events_db()
+    try:
+        # Date str is YYYY-MM-DD
+        dt = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        start_ts = dt.timestamp()
+        end_ts = start_ts + 86400
+        
+        async with db.execute(
+            """SELECT event_id, location FROM significant_events
+               WHERE event_type = 'Tornado'
+                 AND timestamp >= ? AND timestamp < ?""",
+            (start_ts - 43200, end_ts + 43200) # Give 12h buffer
+        ) as cur:
+            rows = await cur.fetchall()
+            
+        if not rows:
+            return
+
+        query_words = set(re.findall(r"\w+", label.upper()))
+        best_id, best_score = None, -1
+        for row in rows:
+            overlap = len(query_words & set(re.findall(r"\w+", row["location"].upper())))
+            if overlap > best_score and overlap > 0:
+                best_score, best_id = overlap, row["event_id"]
+                
+        if best_id:
+            await db.execute(
+                "UPDATE significant_events SET dat_guid = ? WHERE event_id = ?",
+                (guid, best_id)
+            )
+            await db.commit()
+            logger.info(f"[EVENTS-DB] Linked DAT {guid} to event {best_id}")
+
+    except Exception as e:
+        logger.warning(f"[EVENTS-DB] link_dat_guid_to_tornado failed: {e}")
 
 # ── Reads ────────────────────────────────────────────────────────────────────
 
