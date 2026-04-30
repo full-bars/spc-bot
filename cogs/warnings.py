@@ -19,7 +19,7 @@ import json as _json
 import logging
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 
 import discord
@@ -515,61 +515,135 @@ def _extract_narrative(raw: str) -> Optional[str]:
     return text or None
 
 
-class SignificantEventsPaginatorView(discord.ui.View):
+class TornadoDashboardView(discord.ui.View):
     def __init__(self, events: list, title: str):
         super().__init__(timeout=300)
         self.events = events
         self.title = title
-        self.page = 0
-        self.per_page = 10
-        self.max_page = (len(events) - 1) // self.per_page
-        self._update_buttons()
+        
+        # Group by date (UTC)
+        self.grouped = {}
+        for e in events:
+            dt = datetime.fromtimestamp(e['timestamp'], timezone.utc)
+            date_str = dt.strftime("%Y-%m-%d")
+            if date_str not in self.grouped:
+                self.grouped[date_str] = []
+            self.grouped[date_str].append(e)
+            
+        self.dates = sorted(list(self.grouped.keys()), reverse=True)
+        
+        # Build select options
+        options = [
+            discord.SelectOption(label="Summary Dashboard", value="summary", default=True)
+        ]
+        for d in self.dates[:24]: # max 25 options total
+            options.append(discord.SelectOption(label=f"Events for {d}", value=d))
+            
+        self.select = discord.ui.Select(options=options, custom_id="date_select")
+        self.select.callback = self.on_select
+        self.add_item(self.select)
+        
+        # Add Tornado Archive link button
+        if events:
+            min_ts = min(e['timestamp'] for e in events)
+            max_ts = max(e['timestamp'] for e in events)
+            min_dt = datetime.fromtimestamp(min_ts, timezone.utc).strftime("%Y-%m-%dT00:00Z")
+            # For end, add 1 day to max_ts to ensure we cover the interval
+            max_dt = (datetime.fromtimestamp(max_ts, timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%dT00:00Z")
+            url = f"https://tornadoarchive.com/home/tornado-archive-data-explorer/#interval={min_dt};{max_dt}&map=-97.1249;45.5585;4.01&domain=North%20America&filters=partition|PartitionFilter|f_scale|(E)FU,(E)F0,(E)F1,(E)F2,(E)F3,(E)F4,(E)F5"
+            self.add_item(discord.ui.Button(label="Tornado Archive", url=url, style=discord.ButtonStyle.link))
 
-    def _update_buttons(self):
-        self.prev_btn.disabled = self.page == 0
-        self.next_btn.disabled = self.page >= self.max_page
+    async def on_select(self, interaction: discord.Interaction):
+        val = self.select.values[0]
+        for opt in self.select.options:
+            opt.default = (opt.value == val)
+            
+        if val == "summary":
+            embed = self.build_summary_embed()
+        else:
+            embed = self.build_daily_embed(val)
+            
+        await interaction.response.edit_message(embed=embed, view=self)
+        
+    def _get_ef_emoji(self, mag: str) -> str:
+        mag = (mag or "").upper()
+        if "EF5" in mag: return "🟣"
+        if "EF4" in mag: return "🔴"
+        if "EF3" in mag: return "🟠"
+        if "EF2" in mag: return "🟡"
+        if "EF1" in mag: return "🟢"
+        if "EF0" in mag: return "🔵"
+        return "⚪"
 
-    def build_embed(self) -> discord.Embed:
-        start = self.page * self.per_page
-        end = start + self.per_page
-        page_events = self.events[start:end]
-
+    def build_summary_embed(self) -> discord.Embed:
         embed = discord.Embed(
             title=self.title,
-            color=discord.Color.red() if "Tornado" in self.title else discord.Color.dark_red(),
+            color=discord.Color.red(),
             timestamp=datetime.now(timezone.utc)
         )
         
-        for e in page_events:
-            rel_time = f"<t:{int(e['timestamp'])}:R>"
+        for date_str in self.dates[:15]: # Display summary for up to 15 days to fit embed limits
+            day_events = self.grouped[date_str]
+            counts = {"EF5": 0, "EF4": 0, "EF3": 0, "EF2": 0, "EF1": 0, "EF0": 0, "EFU": 0}
+            for e in day_events:
+                mag = (e.get("magnitude") or "").upper()
+                matched = False
+                for scale in ["EF5", "EF4", "EF3", "EF2", "EF1", "EF0"]:
+                    if scale in mag:
+                        counts[scale] += 1
+                        matched = True
+                        break
+                if not matched:
+                    counts["EFU"] += 1
             
-            mag = e.get("magnitude", "")
-            # Cleaner rating display: "EF2" or "Confirmed"
-            rating_str = f" ({mag})" if mag and mag != "Confirmed" else ""
+            parts = []
+            if counts["EF5"]: parts.append(f"🟣 {counts['EF5']} EF5")
+            if counts["EF4"]: parts.append(f"🔴 {counts['EF4']} EF4")
+            if counts["EF3"]: parts.append(f"🟠 {counts['EF3']} EF3")
+            if counts["EF2"]: parts.append(f"🟡 {counts['EF2']} EF2")
+            if counts["EF1"]: parts.append(f"🟢 {counts['EF1']} EF1")
+            if counts["EF0"]: parts.append(f"🔵 {counts['EF0']} EF0")
+            if counts["EFU"]: parts.append(f"⚪ {counts['EFU']} Unrated")
             
-            val = (
-                f"**Location:** {e['location']}\n"
-                f"**Office:** {e['source']} | **Time:** {rel_time}"
-            )
-            if e.get("vtec_id"):
-                val += f"\n**VTEC:** `{e['vtec_id']}`"
+            val = ", ".join(parts) if parts else "No ratings available"
+            embed.add_field(name=f"📅 {date_str} ({len(day_events)} Tornadoes)", value=val, inline=False)
             
-            embed.add_field(name=f"🌪️ Tornado{rating_str}", value=val, inline=False)
-
-        embed.set_footer(text=f"Page {self.page + 1} of {self.max_page + 1} | Showing {start + 1}-{min(end, len(self.events))} of {len(self.events)} events.")
+        embed.set_footer(text="Select a date from the dropdown to view specific events.")
         return embed
-
-    @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary)
-    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.page = max(0, self.page - 1)
-        self._update_buttons()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
-
-    @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary)
-    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.page = min(self.max_page, self.page + 1)
-        self._update_buttons()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        
+    def build_daily_embed(self, date_str: str) -> discord.Embed:
+        day_events = self.grouped[date_str]
+        # Sort chronologically for daily view
+        day_events = sorted(day_events, key=lambda x: x["timestamp"])
+        
+        embed = discord.Embed(
+            title=f"🌪️ Tornadoes on {date_str}",
+            color=discord.Color.red(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        
+        for e in day_events[:25]: # Discord max fields is 25
+            rel_time = f"<t:{int(e['timestamp'])}:R>"
+            dt_time = datetime.fromtimestamp(e['timestamp'], timezone.utc).strftime("%H:%MZ")
+            
+            mag = e.get("magnitude", "Confirmed")
+            emoji = self._get_ef_emoji(mag)
+            
+            val = f"**Time:** {dt_time} ({rel_time})\n**Office:** {e['source']}"
+            if e.get("vtec_id"):
+                val += f" | **VTEC:** `{e['vtec_id']}`"
+            
+            if e.get("dat_guid"):
+                val += f"\n[View DAT Track](https://apps.dat.noaa.gov/stormdamage/damageviewer/?datglobalid={e['dat_guid']})"
+            
+            embed.add_field(name=f"{emoji} {e['location']} ({mag})", value=val, inline=False)
+            
+        if len(day_events) > 25:
+            embed.set_footer(text=f"Showing first 25 of {len(day_events)} events for this date.")
+        else:
+            embed.set_footer(text=f"Showing all {len(day_events)} events for this date.")
+            
+        return embed
 
 
 class WarningsCog(commands.Cog):
@@ -806,10 +880,10 @@ class WarningsCog(commands.Cog):
         # Sort by timestamp DESC just in case
         events.sort(key=lambda x: x["timestamp"], reverse=True)
         
-        view = SignificantEventsPaginatorView(events, f"🌪️ Confirmed Tornadoes (Last {range}h)")
-        embed = view.build_embed()
+        view = TornadoDashboardView(events, f"🌪️ Confirmed Tornadoes (Last {range}h)")
+        embed = view.build_summary_embed()
         
-        await interaction.followup.send(embed=embed, view=view if view.max_page > 0 else None)
+        await interaction.followup.send(embed=embed, view=view)
 
     @app_commands.command(name="sigtor", description="List significant (EF2+) tornadoes from recent surveys")
     @app_commands.describe(range="Time range to look back (hours)")
@@ -849,10 +923,10 @@ class WarningsCog(commands.Cog):
         # Sort by timestamp DESC
         sig_events.sort(key=lambda x: x["timestamp"], reverse=True)
         
-        view = SignificantEventsPaginatorView(sig_events, f"🚨 Significant Tornadoes (Last {range}h)")
-        embed = view.build_embed()
+        view = TornadoDashboardView(sig_events, f"🚨 Significant Tornadoes (Last {range}h)")
+        embed = view.build_summary_embed()
         
-        await interaction.followup.send(embed=embed, view=view if view.max_page > 0 else None)
+        await interaction.followup.send(embed=embed, view=view)
 
     # phenom+sig → human-readable event name, for cancellation posts
     _PHENOM_EVENT = {

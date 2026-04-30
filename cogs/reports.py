@@ -361,6 +361,9 @@ class ReportsCog(commands.Cog):
                 await add_posted_survey(guid)
                 await prune_posted_surveys()
                 logger.info(f"[REPORTS] Posted Autoplot 253 for {guid} ({label})")
+                
+                from utils.events_db import link_dat_guid_to_tornado
+                await link_dat_guid_to_tornado(event_date, guid, label)
 
         except Exception as e:
             logger.warning(f"[REPORTS] Survey check failed for {event_date}: {e}")
