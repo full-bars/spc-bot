@@ -12,7 +12,7 @@ class AnalyticsCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="topstats", description="Show leading states or WFOs for tornado counts (IEM Autoplot 92/141)")
+    @app_commands.command(name="topstats", description="Show leading states or WFOs for tornado counts (IEM Autoplot 109/163)")
     @app_commands.describe(
         by="Rank by State or NWS Office (WFO)",
         year="Year to query (default: current year)",
@@ -23,15 +23,15 @@ class AnalyticsCog(commands.Cog):
         app_commands.Choice(name="WFO", value="wfo"),
     ])
     @app_commands.choices(source=[
-        app_commands.Choice(name="Warnings (VTEC)", value="92"),
-        app_commands.Choice(name="Reports (LSR)", value="141"),
+        app_commands.Choice(name="Warnings (VTEC)", value="109"),
+        app_commands.Choice(name="Reports (LSR)", value="163"),
     ])
     async def top_stats(
         self, 
         interaction: discord.Interaction, 
         by: str = "state", 
         year: Optional[int] = None,
-        source: str = "92"
+        source: str = "109"
     ):
         await interaction.response.defer()
         
@@ -39,15 +39,21 @@ class AnalyticsCog(commands.Cog):
         year = year or current_year
         
         # Build URL for IEM Autoplot
-        # #92: v:TO.W (Tornado Warning), s: (state/wfo), year
-        # #141: v:TO (Tornado LSR), s: (state/wfo), year
-        v_param = "TO.W" if source == "92" else "TO"
-        unit_param = "state" if by == "state" else "wfo"
-        
-        url = f"https://mesonet.agron.iastate.edu/plotting/auto/plot/{source}/v:{v_param}::{unit_param}:all::year:{year}.png"
+        if source == "109":
+            # #109: WFO/State VTEC Event Counts
+            # v1: TO.W (Tornado Warning), by: (state/wfo), sdate, edate
+            sdate = f"{year}/01/01 0000"
+            edate = f"{year}/12/31 2359"
+            url = f"https://mesonet.agron.iastate.edu/plotting/auto/plot/109/v1:TO.W::by:{by}::sdate:{sdate}::edate:{edate}.png"
+        else:
+            # #163: Local Storm Reports Issued by WFO/State
+            # filter: TORNADO, by: (state/wfo), sdate, edate
+            sdate = f"{year}/01/01 0000"
+            edate = f"{year}/12/31 2359"
+            url = f"https://mesonet.agron.iastate.edu/plotting/auto/plot/163/filter:TORNADO::by:{by}::sdate:{sdate}::edate:{edate}.png"
         
         embed = discord.Embed(
-            title=f"📊 Top Tornado {'Warnings' if source == '92' else 'Reports'} by {by.upper()} ({year})",
+            title=f"📊 Top Tornado {'Warnings' if source == '109' else 'Reports'} by {by.upper()} ({year})",
             color=discord.Color.blue(),
             timestamp=datetime.now(timezone.utc)
         )
@@ -56,7 +62,7 @@ class AnalyticsCog(commands.Cog):
         
         await interaction.followup.send(embed=embed)
 
-    @app_commands.command(name="dayssince", description="Show the streak since the last Tornado Warning (IEM Autoplot 235)")
+    @app_commands.command(name="dayssince", description="Show the streak since the last Tornado Warning (IEM Autoplot 92)")
     @app_commands.describe(
         wfo="4-letter WFO code (e.g. KOUN, leave blank for national map)",
         state="2-letter State code (e.g. OK, used if WFO is blank)"
@@ -69,16 +75,9 @@ class AnalyticsCog(commands.Cog):
     ):
         await interaction.response.defer()
         
-        param = "national"
-        if wfo:
-            wfo = wfo.upper()
-            if wfo.startswith("K") and len(wfo) == 4:
-                wfo = wfo[1:]
-            param = f"wfo:{wfo}"
-        elif state:
-            param = f"state:{state.upper()}"
-            
-        url = f"https://mesonet.agron.iastate.edu/plotting/auto/plot/235/v:TO.W::{param}.png"
+        # #92: Days since Last Watch/Warning/Advisory by WFO
+        # phenomena: TO, significance: W
+        url = f"https://mesonet.agron.iastate.edu/plotting/auto/plot/92/phenomena:TO::significance:W.png"
         
         embed = discord.Embed(
             title="⏳ Days Since Last Tornado Warning",
@@ -86,7 +85,7 @@ class AnalyticsCog(commands.Cog):
             timestamp=datetime.now(timezone.utc)
         )
         embed.set_image(url=url)
-        embed.set_footer(text="Data provided by IEM Autoplot #235")
+        embed.set_footer(text="Data provided by IEM Autoplot #92")
         
         await interaction.followup.send(embed=embed)
 
@@ -99,7 +98,7 @@ class AnalyticsCog(commands.Cog):
             yesterday = datetime.now(timezone.utc) - timedelta(days=1)
             date = yesterday.strftime("%Y-%m-%d")
             
-        url = f"https://mesonet.agron.iastate.edu/plotting/auto/plot/203/date:{date}::v:TO.W.png"
+        url = f"https://mesonet.agron.iastate.edu/plotting/auto/plot/203/date:{date}::typ:W.png"
         
         embed = discord.Embed(
             title=f"🗺️ Tornado Warning Recap: {date}",
@@ -111,7 +110,7 @@ class AnalyticsCog(commands.Cog):
         
         await interaction.followup.send(embed=embed)
 
-    @app_commands.command(name="tornadoheatmap", description="Generate a density map of tornado reports (IEM Autoplot 108)")
+    @app_commands.command(name="tornadoheatmap", description="Generate a density map of tornado reports (IEM Autoplot 163)")
     @app_commands.describe(
         days="Number of days to look back",
         state="2-letter State code (optional)"
@@ -120,11 +119,15 @@ class AnalyticsCog(commands.Cog):
         await interaction.response.defer()
         
         now = datetime.now(timezone.utc)
-        sts = (now - timedelta(days=days)).strftime("%Y-%m-%d%%200000")
-        ets = now.strftime("%Y-%m-%d%%202359")
+        sdate = (now - timedelta(days=days)).strftime("%Y/%m/%d 0000")
+        edate = now.strftime("%Y/%m/%d 2359")
         
-        state_param = f"::state:{state.upper()}" if state else ""
-        url = f"https://mesonet.agron.iastate.edu/plotting/auto/plot/108/v:TO::sts:{sts}::ets:{ets}{state_param}.png"
+        by_param = "state" if state else "wfo"
+        state_param = f"::csector:{state.upper()}" if state else ""
+        
+        # #163: Local Storm Reports Issued by WFO/State [map]
+        # var: count, filter: TORNADO
+        url = f"https://mesonet.agron.iastate.edu/plotting/auto/plot/163/var:count::filter:TORNADO::by:{by_param}::sdate:{sdate}::edate:{edate}{state_param}.png"
         
         embed = discord.Embed(
             title=f"🔥 Tornado Report Heatmap (Last {days} Days)",
@@ -132,45 +135,48 @@ class AnalyticsCog(commands.Cog):
             timestamp=datetime.now(timezone.utc)
         )
         embed.set_image(url=url)
-        embed.set_footer(text="Data provided by IEM Autoplot #108")
+        embed.set_footer(text="Data provided by IEM Autoplot #163")
         
         await interaction.followup.send(embed=embed)
 
-    @app_commands.command(name="riskmap", description="Visualize historical SPC Day 1 outlook risk frequency (IEM Autoplot 232)")
+    @app_commands.command(name="riskmap", description="Visualize historical SPC Day 1 outlook risk frequency (IEM Autoplot 200)")
     @app_commands.describe(
         threshold="Risk threshold (SLGT, MDT, HIGH)",
         state="2-letter State code (optional)",
         years="Number of years to look back (default: 10)"
     )
     @app_commands.choices(threshold=[
-        app_commands.Choice(name="Slight Risk", value="SLGT"),
-        app_commands.Choice(name="Enhanced Risk", value="ENH"),
-        app_commands.Choice(name="Moderate Risk", value="MDT"),
-        app_commands.Choice(name="High Risk", value="HIGH"),
+        app_commands.Choice(name="Slight Risk", value="CATEGORICAL.SLGT"),
+        app_commands.Choice(name="Enhanced Risk", value="CATEGORICAL.ENH"),
+        app_commands.Choice(name="Moderate Risk", value="CATEGORICAL.MDT"),
+        app_commands.Choice(name="High Risk", value="CATEGORICAL.HIGH"),
     ])
     async def risk_map(
         self, 
         interaction: discord.Interaction, 
-        threshold: str = "SLGT", 
+        threshold: str = "CATEGORICAL.SLGT", 
         state: Optional[str] = None,
         years: int = 10
     ):
         await interaction.response.defer()
         
         now = datetime.now(timezone.utc)
-        sts = (now - timedelta(days=365 * years)).strftime("%Y-%m-%d")
-        ets = now.strftime("%Y-%m-%d")
+        sdate = (now - timedelta(days=365 * years)).strftime("%Y-%m-%d")
+        edate = now.strftime("%Y-%m-%d")
         
-        state_param = f"::state:{state.upper()}" if state else ""
-        url = f"https://mesonet.agron.iastate.edu/plotting/auto/plot/232/t:threshold::threshold:{threshold}::sts:{sts}::ets:{ets}{state_param}.png"
+        # #200: SPC + WPC Outlook Heatmap
+        # p: 1.C.A (Day 1 Convective All Issuances), level: (threshold), t: (state/cwa)
+        t_param = "state" if state else "cwa"
+        state_param = f"::csector:{state.upper()}" if state else ""
+        url = f"https://mesonet.agron.iastate.edu/plotting/auto/plot/200/p:1.C.A::level:{threshold}::t:{t_param}::sdate:{sdate}::edate:{edate}{state_param}.png"
         
         embed = discord.Embed(
-            title=f"📈 Historical {threshold} Risk Frequency (Last {years} Years)",
+            title=f"📈 Historical {threshold.split('.')[-1]} Risk Frequency (Last {years} Years)",
             color=discord.Color.dark_green(),
             timestamp=datetime.now(timezone.utc)
         )
         embed.set_image(url=url)
-        embed.set_footer(text="Data provided by IEM Autoplot #232")
+        embed.set_footer(text="Data provided by IEM Autoplot #200")
         
         await interaction.followup.send(embed=embed)
 
