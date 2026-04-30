@@ -141,50 +141,51 @@ _WARNING_STYLE = {
     "Special Weather Statement":   ("☁️", discord.Color.blue()),
 }
 
-def get_warning_style(event: str, text: str, params: dict = None) -> Tuple[str, str, discord.Color]:
-    """Determine (emoji, display_event_name, color) based on event type and severity tags."""
+def get_warning_style(event: str, text: str, params: dict = None) -> Tuple[str, str, discord.Color, Optional[str]]:
+    """Determine (emoji, display_event_name, color, footer_id) based on event type and severity tags."""
     emoji, color = _WARNING_STYLE.get(event, ("⚠️", discord.Color.orange()))
     display_event = event
+    footer_id = None
     
     # Text-based detection (works for both iembot and NWS API paths)
     text_upper = (text or "").upper()
     
     if event == "Tornado Warning":
         if "TORNADO EMERGENCY" in text_upper:
-            return "🚨🚨", "Tornado Emergency", discord.Color.from_rgb(139, 0, 0)
+            return "🚨🚨", "Tornado Emergency", discord.Color.from_rgb(139, 0, 0), "EMERG"
         if "PARTICULARLY DANGEROUS SITUATION" in text_upper:
-            return "⚠️", "Tornado Warning (PDS)", discord.Color.red()
+            return "⚠️", "Tornado Warning (PDS)", discord.Color.red(), "PDS"
             
     if event == "Severe Thunderstorm Warning":
         if "THUNDERSTORM DAMAGE THREAT...DESTRUCTIVE" in text_upper:
-             return "🚨", "DESTRUCTIVE Severe Tstorm Warning", discord.Color.purple()
+             return "🚨", "DESTRUCTIVE Severe Tstorm Warning", discord.Color.purple(), "EWX"
         if "THUNDERSTORM DAMAGE THREAT...CONSIDERABLE" in text_upper:
-             return "⚠️", "CONSIDERABLE Severe Tstorm Warning", discord.Color.gold()
+             return "⚠️", "CONSIDERABLE Severe Tstorm Warning", discord.Color.gold(), "EWX"
 
     if event == "Flash Flood Warning":
         if "FLASH FLOOD EMERGENCY" in text_upper:
-            return "🚨🚨", "Flash Flood Emergency", discord.Color.from_rgb(139, 0, 0)
+            return "🚨🚨", "Flash Flood Emergency", discord.Color.from_rgb(139, 0, 0), "EMERG"
 
     # Param-based detection (NWS API specific)
     if params:
         t_threat = params.get("tornadoDamageThreat") or []
         if "CATASTROPHIC" in t_threat:
-            return "🚨🚨", "Tornado Emergency", discord.Color.from_rgb(139, 0, 0)
+            return "🚨🚨", "Tornado Emergency", discord.Color.from_rgb(139, 0, 0), "EMERG"
         if "CONSIDERABLE" in t_threat:
             # Note: CONSIDERABLE tag for TOR usually means PDS
-            return "⚠️", "Tornado Warning (PDS)", discord.Color.red()
+            return "⚠️", "Tornado Warning (PDS)", discord.Color.red(), "PDS"
 
         s_threat = params.get("thunderstormDamageThreat") or []
         if "DESTRUCTIVE" in s_threat:
-             return "🚨", "DESTRUCTIVE Severe Tstorm Warning", discord.Color.purple()
+             return "🚨", "DESTRUCTIVE Severe Tstorm Warning", discord.Color.purple(), "EWX"
         if "CONSIDERABLE" in s_threat:
-             return "⚠️", "CONSIDERABLE Severe Tstorm Warning", discord.Color.gold()
+             return "⚠️", "CONSIDERABLE Severe Tstorm Warning", discord.Color.gold(), "EWX"
              
         f_threat = params.get("flashFloodDamageThreat") or []
         if "CATASTROPHIC" in f_threat:
-            return "🚨🚨", "Flash Flood Emergency", discord.Color.from_rgb(139, 0, 0)
+            return "🚨🚨", "Flash Flood Emergency", discord.Color.from_rgb(139, 0, 0), "EMERG"
 
-    return emoji, display_event, color
+    return emoji, display_event, color, footer_id
 
 # Hard-cap on the description block we render inside a code-block —
 # Discord embed descriptions cap at 4096 chars total, fences add 8.
@@ -607,7 +608,7 @@ class WarningsCog(commands.Cog):
         # Log significant events (tornadoes, hail, wind) to DB
         await self._check_and_log_significant_event(event, raw_text, vtec)
 
-        emoji, display_event, color = get_warning_style(event, raw_text)
+        emoji, display_event, color, footer_id = get_warning_style(event, raw_text)
         concise_text = build_concise_warning_text(display_event, vtec, raw_text=raw_text)
 
         embed = discord.Embed(
@@ -616,7 +617,10 @@ class WarningsCog(commands.Cog):
             color=color,
             timestamp=datetime.now(timezone.utc),
         )
-        embed.set_footer(text=f"VTEC {vtec_id}")
+        footer_text = f"VTEC {vtec_id}"
+        if footer_id:
+            footer_text += f" | {footer_id}"
+        embed.set_footer(text=footer_text)
 
         # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS)
         files = []
@@ -898,7 +902,13 @@ class WarningsCog(commands.Cog):
         if office.startswith("K") and len(office) == 4:
             office = office[1:]
 
-        event_name = self._PHENOM_EVENT.get((phenom, sig), f"{phenom}.{sig} Warning")
+        # Use style logic to get display name and footer ID (EMERG, PDS, EWX)
+        # Note: we don't have the raw text here usually, so it falls back to basic name
+        # unless it's a Tornado Warning, but we can't easily distinguish Emergency vs PDS
+        # without the text or params.
+        event_base = self._PHENOM_EVENT.get((phenom, sig), f"{phenom}.{sig} Warning")
+        _, display_event, _, footer_id = get_warning_style(event_base, "")
+        
         action_verb = "cancels" if reason == "Cancelled" else "expires"
         area_str = f" for {area}" if area else ""
 
@@ -912,7 +922,7 @@ class WarningsCog(commands.Cog):
         unix_ts = _vtec_unix_ts(cancel_vtec)
 
         description = (
-            f"{office} [{action_verb} {event_name}]({vtec_link}){area_str}\n"
+            f"{office} [{action_verb} {display_event}]({vtec_link}){area_str}\n"
             f"[<t:{unix_ts}:R>]"
         )
 
@@ -937,7 +947,11 @@ class WarningsCog(commands.Cog):
         )
         if files:
             embed.set_image(url=f"attachment://{files[0].filename}")
-        embed.set_footer(text=f"VTEC {vtec_id}")
+        
+        footer_text = f"VTEC {vtec_id}"
+        if footer_id:
+            footer_text += f" | {footer_id}"
+        embed.set_footer(text=footer_text)
 
         try:
             await channel.send(embed=embed, files=files)
@@ -1097,7 +1111,7 @@ class WarningsCog(commands.Cog):
         props = feature.properties
         description = props.description or ""
         params = props.parameters.model_dump() if props.parameters else {}
-        emoji, display_event, color = get_warning_style(event, description, params)
+        emoji, display_event, color, footer_id = get_warning_style(event, description, params)
         vtec_id = vtec["vtec_id"]
 
         ugc_codes = (props.geocode.UGC or []) if props.geocode else []
@@ -1121,7 +1135,10 @@ class WarningsCog(commands.Cog):
             color=color,
             timestamp=datetime.now(timezone.utc),
         )
-        embed.set_footer(text=f"VTEC {vtec_id}")
+        footer_text = f"VTEC {vtec_id}"
+        if footer_id:
+            footer_text += f" | {footer_id}"
+        embed.set_footer(text=footer_text)
 
         # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS)
         files = []
