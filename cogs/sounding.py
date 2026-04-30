@@ -1068,9 +1068,6 @@ class SoundingCog(commands.Cog):
         await interaction.followup.send(embed=checking_embed)
         status_msg = await interaction.original_response()
 
-        verified = await filter_stations_with_data(candidates)
-        nearest = verified[:3]
-
         # Run RAOB verification and ACARS search concurrently
         acars_task = asyncio.create_task(get_acars_profiles_near(lat, lon, max_dist_km=400))
         verified = await filter_stations_with_data(candidates)

@@ -76,13 +76,15 @@ def parse_vtec(text: str) -> Optional[dict]:
     m = _VTEC_RE.search(text)
     if not m:
         return None
-    action, office, phenom, sig, etn, _start, _end = m.groups()
+    action, office, phenom, sig, etn, start, end = m.groups()
     return {
         "action": action,
         "office": office,
         "phenom": phenom,
         "sig": sig,
         "etn": etn,
+        "start": start,
+        "end": end,
         "vtec_id": f"{office}.{phenom}.{sig}.{etn}",
     }
 
@@ -212,28 +214,132 @@ def iem_autoplot_url(vtec: dict) -> str:
     )
 
 
+def _vtec_url(vtec: dict) -> str:
+    """Build an IEM VTEC event page URL from a parsed vtec dict."""
+    start = vtec.get("start", "")
+    if start and len(start) >= 11:
+        # '260429T0228Z' → '2026-04-29T02:28Z'
+        try:
+            year = 2000 + int(start[:2])
+            iso = f"{year}-{start[2:4]}-{start[4:6]}T{start[7:9]}:{start[9:11]}Z"
+        except (ValueError, IndexError):
+            now = datetime.now(timezone.utc)
+            year = now.year
+            iso = now.strftime("%Y-%m-%dT%H:%MZ")
+    else:
+        now = datetime.now(timezone.utc)
+        year = now.year
+        iso = now.strftime("%Y-%m-%dT%H:%MZ")
+    action = vtec.get("action", "NEW")
+    office = vtec.get("office", "")
+    phenom = vtec.get("phenom", "")
+    sig = vtec.get("sig", "")
+    etn = int(vtec.get("etn", "0") or "0")
+    return (
+        f"https://mesonet.agron.iastate.edu/vtec/f/"
+        f"{year}-O-{action}-{office}-{phenom}-{sig}-{etn:04d}_{iso}"
+    )
+
+
+def _vtec_unix_ts(vtec: dict) -> int:
+    """Return the Unix timestamp for the VTEC start time, or now if unavailable."""
+    start = vtec.get("start", "")
+    if start and len(start) >= 11:
+        try:
+            year = 2000 + int(start[:2])
+            month = int(start[2:4])
+            day = int(start[4:6])
+            hour = int(start[7:9])
+            minute = int(start[9:11])
+            return int(datetime(year, month, day, hour, minute, tzinfo=timezone.utc).timestamp())
+        except (ValueError, IndexError):
+            pass
+    return int(time.time())
+
+
+def _area_with_state(area_desc: str, ugc_codes: List[str]) -> str:
+    """Append [STATE] abbreviations to the area string, grouping counties by state.
+
+    Uses the NWS API geocode.UGC list (e.g. ['MSC023', 'ARC001']) to determine
+    which counties belong to which state, then formats them as:
+        'Clarke, Jasper, Jones [MS]'                         (single state)
+        'Ashley, Chicot [AR] and Washington [MS]'            (two states)
+    County names come from area_desc (already comma/semicolon separated).
+    The UGC ordering matches the area_desc ordering in NWS API responses.
+    """
+    if not ugc_codes:
+        return area_desc
+
+    # Parse county names from areaDesc
+    counties = [c.strip() for c in re.split(r'[;,]\s*', area_desc) if c.strip()]
+    if not counties:
+        return area_desc
+
+    # Group UGC codes by state (first 2 chars), preserving order of first appearance
+    from collections import OrderedDict
+    state_counts: dict = OrderedDict()
+    for ugc in ugc_codes:
+        if len(ugc) >= 2:
+            state = ugc[:2].upper()
+            state_counts[state] = state_counts.get(state, 0) + 1
+
+    if not state_counts:
+        return area_desc
+
+    # Split county list by state group counts
+    parts = []
+    idx = 0
+    for state, count in state_counts.items():
+        group = counties[idx:idx + count]
+        if group:
+            parts.append(f"{', '.join(group)} [{state}]")
+        idx += count
+
+    # Any leftover counties (mismatch in UGC/areaDesc lengths) appended to last group
+    if idx < len(counties):
+        remainder = counties[idx:]
+        if parts:
+            parts[-1] = parts[-1] + f", {', '.join(remainder)}"
+        else:
+            return area_desc
+
+    if len(parts) == 1:
+        return parts[0]
+    elif len(parts) == 2:
+        return f"{parts[0]} and {parts[1]}"
+    else:
+        return ", ".join(parts[:-1]) + f" and {parts[-1]}"
+
+
 def build_concise_warning_text(
     event: str,
     vtec: dict,
     raw_text: Optional[str] = None,
     feature: Optional[dict] = None,
+    ugc_codes: Optional[List[str]] = None,
 ) -> str:
-    """Build a one-line concise warning string for Discord."""
+    """Build the warning description for Discord.
+
+    Format: {office} [{verb} {event}](vtec_url) [{tags}] for {area} [STATE] till HH:MMZ
+            {narrative}
+            [<t:unix_ts:R>]
+    """
     office = vtec["office"]
     if office.startswith("K") and len(office) == 4:
         office = office[1:]
 
-    # 1. Action Verb
+    # 1. Action verb
     action_map = {
         "NEW": "issues",
         "CON": "continues",
         "CAN": "cancels",
-        "EXP": "expired",
+        "EXP": "expires",
+        "EXT": "extends time of",
         "UPG": "upgrades",
     }
     action_verb = action_map.get(vtec["action"], "updates")
-    
-    # 2. Extract Tags (tornado, hail, wind)
+
+    # 2. Tags (tornado, hail, wind)
     tags = []
     text_to_search = raw_text or ""
     if feature:
@@ -241,14 +347,13 @@ def build_concise_warning_text(
         text_to_search += " " + (props.get("description") or "")
         params = props.get("parameters", {})
         if params.get("tornadoDetection"):
-             tags.append(f"tornado: {params['tornadoDetection'][0]}")
+            tags.append(f"tornado: {params['tornadoDetection'][0]}")
         if params.get("maxHailSize"):
-             tags.append(f"hail: {params['maxHailSize'][0]} IN")
+            tags.append(f"hail: {params['maxHailSize'][0]} IN")
         if params.get("maxWindGust"):
-             tags.append(f"wind: {params['maxWindGust'][0]}")
-    
+            tags.append(f"wind: {params['maxWindGust'][0]}")
+
     if not tags and text_to_search:
-        # Regex fallback for iembot path
         m_tor = re.search(r"TORNADO\.\.\.(.+?)(?:\n|$)", text_to_search, re.I)
         if m_tor:
             tags.append(f"tornado: {m_tor.group(1).strip()}")
@@ -261,66 +366,59 @@ def build_concise_warning_text(
 
     tag_str = f" [{', '.join(tags)}]" if tags else ""
 
-    # 3. Area Description
+    # 3. Area (with [STATE] grouping when UGC codes are available)
     area = "affected area"
     if feature:
         area = feature.get("properties", {}).get("areaDesc", area)
     elif raw_text:
-        # Greedy search for the area list between a start keyword and the narrative/bullets
         m_area = re.search(r"(?:Warning for|Statement for|IMPACT)\s+(.+?)(?=\n\s*\*|\n\s*At\s+|$)", raw_text, re.I | re.DOTALL)
         if m_area:
             raw_list = m_area.group(1)
-            # Split by dots, newlines, or " AND "
             parts = re.split(r"\n|\.\.\.|\s+AND\s+", raw_list, flags=re.I)
             counties = []
             for p in parts:
                 c = p.strip().strip(".")
                 if not c or len(c) < 3:
                     continue
-                # Skip common NWS boilerplate and time phrases
-
                 if any(x in c.upper() for x in ["THROUGH", "UNTIL", "PORTIONS", "AM", "PM", "EDT", "CDT", "MDT", "PDT", "HST", "AKDT"]):
                     continue
-                # Remove regional prefixes
                 c = re.sub(r"^(?:Northeastern|Northwestern|Southeastern|Southwestern|Northern|Southern|Eastern|Western|Central)\s+", "", c, flags=re.I)
-                # Remove region/state suffixes
                 c = re.split(r"\s+in\s+", c, flags=re.I)[0]
-                # Remove "County" or "Counties"
                 c = re.sub(r"\s+Count[iy].*$", "", c, flags=re.I)
-                # Final clean and avoid pure direction words
                 c = c.strip()
                 if c and c.upper() not in ["CENTRAL", "NORTH", "SOUTH", "EAST", "WEST"] and c not in counties:
                     counties.append(c)
             if counties:
                 area = ", ".join(counties)
 
-    # 4. Expiration Time
-    # VTEC end: 260428T0530Z
+    area_formatted = _area_with_state(area, ugc_codes or [])
+
+    # 4. Expiration time (VTEC end field: '260428T0530Z')
     expires_str = ""
     if vtec.get("end"):
         try:
-            z_time = vtec["end"].split("T")[1] # e.g. 0530Z
+            z_time = vtec["end"].split("T")[1]
             expires_str = f" till {z_time[:2]}:{z_time[2:4]}Z"
         except (IndexError, ValueError):
             pass
 
-    # 5. Narrative Bullet
+    # 5. Narrative bullet
     narrative = ""
     if text_to_search:
-        # Find the paragraph starting with "At" (optional bullet *)
-        # Refined lookahead to stop at CAPS... tags or next bullet.
         m_nat = re.search(r"(?:\*\s*)?At\s+(.+?)(?=\n\s*\*|\n\s*LAT\.\.\.LON|\n[A-Z]{4,}\b\.{3,}|$)", text_to_search, re.I | re.DOTALL)
         if m_nat:
             val = m_nat.group(1).strip()
-            # Bold the NWS tags (HAZARD, SOURCE, IMPACT, etc.)
             val = re.sub(r"([A-Z]{4,}\b\.{3,})", r"**\1**", val)
             val = re.sub(r"\s+", " ", val).strip()
-            # Clean up leading/trailing dots
             val = val.lstrip(".").strip()
-            # No bullet per user request
             narrative = f"\nAt {val}"
 
-    return f"{office} {action_verb} {event}{tag_str} for {area}{expires_str}{narrative}"
+    # 6. Hyperlinked verb + relative timestamp
+    vtec_link = _vtec_url(vtec)
+    unix_ts = _vtec_unix_ts(vtec)
+    linked_verb = f"[{action_verb} {event}]({vtec_link})"
+
+    return f"{office} {linked_verb}{tag_str} for {area_formatted}{expires_str}{narrative}\n[<t:{unix_ts}:R>]"
 
 
 def _extract_narrative(raw: str) -> Optional[str]:
@@ -690,10 +788,21 @@ class WarningsCog(commands.Cog):
 
         await interaction.followup.send(embed=embed)
 
+    # phenom+sig → human-readable event name, for cancellation posts
+    _PHENOM_EVENT = {
+        ("TO", "W"): "Tornado Warning",
+        ("SV", "W"): "Severe Thunderstorm Warning",
+        ("FF", "W"): "Flash Flood Warning",
+        ("FF", "A"): "Flash Flood Watch",
+        ("TO", "A"): "Tornado Watch",
+        ("SV", "A"): "Severe Thunderstorm Watch",
+        ("SPS", "S"): "Special Weather Statement",
+    }
+
     async def _handle_cancellation(
         self, vtec_id: str, reason: str = "Expired / Cancelled", vtec: dict | None = None
     ):
-        """Edit an existing warning post to mark it as inactive."""
+        """Post a new cancellation notice; leave the original warning post untouched."""
         info = self.bot.state.posted_warnings.get(vtec_id)
         if not info:
             return
@@ -707,47 +816,61 @@ class WarningsCog(commands.Cog):
         if not channel:
             return
 
+        # Area was stored in posted_warnings when the warning was first posted.
+        area = info.get("area", "")
+
+        phenom = (vtec or {}).get("phenom", "")
+        sig = (vtec or {}).get("sig", "")
+        office = (vtec or {}).get("office", vtec_id.split(".")[0])
+        if office.startswith("K") and len(office) == 4:
+            office = office[1:]
+
+        event_name = self._PHENOM_EVENT.get((phenom, sig), f"{phenom}.{sig} Warning")
+        action_verb = "cancels" if reason == "Cancelled" else "expires"
+        area_str = f" for {area}" if area else ""
+
+        # Build a cancellation vtec dict with CAN/EXP action for the URL
+        cancel_vtec = dict(vtec or {})
+        cancel_vtec["action"] = "CAN" if reason == "Cancelled" else "EXP"
+        if not cancel_vtec.get("start"):
+            now = datetime.now(timezone.utc)
+            cancel_vtec["start"] = now.strftime("%y%m%dT%H%MZ")
+        vtec_link = _vtec_url(cancel_vtec)
+        unix_ts = _vtec_unix_ts(cancel_vtec)
+
+        description = (
+            f"{office} [{action_verb} {event_name}]({vtec_link}){area_str}\n"
+            f"[<t:{unix_ts}:R>]"
+        )
+
+        # Fetch the IEM Autoplot image — for cancelled events IEM marks it
+        # "Event No Longer Active" automatically.
+        files = []
+        if vtec and ((vtec.get("etn") and vtec["etn"] != "0") or phenom == "SPS"):
+            image_url = iem_autoplot_url(vtec)
+            filename = f"cancel_{vtec_id.replace('.', '_')}.png"
+            try:
+                content, status = await http_get_bytes(image_url, retries=1, timeout=10)
+                if content and status == 200:
+                    from io import BytesIO
+                    files.append(discord.File(BytesIO(content), filename=filename))
+            except Exception as e:
+                logger.debug(f"[WARN] No cancellation image for {vtec_id}: {e}")
+
+        embed = discord.Embed(
+            description=description,
+            color=discord.Color.dark_gray(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        if files:
+            embed.set_image(url=f"attachment://{files[0].filename}")
+        embed.set_footer(text=f"VTEC {vtec_id}")
+
         try:
-            msg = await channel.fetch_message(message_id)
-            if not msg.embeds:
-                return
-
-            embed = msg.embeds[0]
-            # Avoid double-cancellation logic
-            if "✅" in (embed.title or ""):
-                return
-
-            # Update title and color
-            embed.title = f"✅ {embed.title or ''} — {reason}"
-            embed.color = discord.Color.green()
-
-            # Add status to footer
-            footer = embed.footer.text or ""
-            embed.set_footer(text=f"{footer} | {reason}")
-
-            # Try to fetch updated IEM image for the cancellation
-            files = []
-            if vtec and ((vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS"):
-                image_url = iem_autoplot_url(vtec)
-                filename = f"cancel_{vtec_id.replace('.', '_')}.png"
-                try:
-                    content, status = await http_get_bytes(image_url, retries=1, timeout=10)
-                    if content and status == 200:
-                        from io import BytesIO
-                        files.append(discord.File(BytesIO(content), filename=filename))
-                        embed.set_image(url=f"attachment://{filename}")
-                except Exception as e:
-                    logger.debug(f"[WARN] No cancellation image for {vtec_id}: {e}")
-
-            await msg.edit(embed=embed, attachments=files)
-            logger.info(f"[WARN] Marked {vtec_id} as {reason} in Discord")
-
-        except discord.NotFound:
-            logger.debug(
-                f"[WARN] Message for {vtec_id} not found, skipping cancel edit"
-            )
+            await channel.send(embed=embed, files=files)
+            logger.info(f"[WARN] Posted cancellation for {vtec_id}")
         except Exception as e:
-            logger.warning(f"[WARN] Failed to cancel {vtec_id}: {e}")
+            logger.warning(f"[WARN] Failed to post cancellation for {vtec_id}: {e}")
 
     @tasks.loop(seconds=30)
     async def auto_poll_warnings(self):
@@ -880,7 +1003,11 @@ class WarningsCog(commands.Cog):
         title, color = get_warning_style(event, description, params)
         vtec_id = vtec["vtec_id"]
 
-        concise_text = build_concise_warning_text(event, vtec, feature=feature.model_dump())
+        ugc_codes = (props.geocode.UGC or []) if props.geocode else []
+        area_desc = _area_with_state(props.areaDesc or "", ugc_codes)
+        concise_text = build_concise_warning_text(
+            event, vtec, feature=feature.model_dump(), ugc_codes=ugc_codes
+        )
 
         # Log significant events (tornadoes, hail, wind) to DB
         await self._check_and_log_significant_event(event, description, vtec)
@@ -922,7 +1049,7 @@ class WarningsCog(commands.Cog):
 
         msg = await channel.send(embed=embed, files=files)
         logger.info(f"[WARN] Posted {event} {vtec_id}")
-        return msg
+        return msg, area_desc
 
     @auto_poll_warnings.after_loop
     async def after_loop(self):

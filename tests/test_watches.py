@@ -6,7 +6,7 @@ Run with: python -m pytest tests/ -v
 """
 
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -194,3 +194,95 @@ class TestFetchActiveWatchesNWS:
 
         assert result == {}
         assert result is not None
+
+
+# ── post_watch_now (iembot fast-path) ────────────────────────────────────────
+
+
+def _make_watch_bot(posted_watches=None):
+    bot = MagicMock()
+    bot.state.posted_watches = set(posted_watches or [])
+    bot.state.auto_cache = {}
+    bot.state.last_post_times = {}
+    bot.cogs = {}
+    bot.wait_until_ready = AsyncMock()
+    channel = AsyncMock()
+    bot.get_channel.return_value = channel
+    return bot, channel
+
+
+@pytest.mark.asyncio
+async def test_post_watch_now_dedup_skips_already_posted():
+    """post_watch_now returns immediately if the watch is already posted."""
+    from cogs.watches import WatchesCog
+
+    bot, channel = _make_watch_bot(posted_watches={"0102"})
+    cog = WatchesCog.__new__(WatchesCog)
+    cog.bot = bot
+
+    await cog.post_watch_now("0102", {"type": "SVR", "expires": None, "affected_zones": []})
+
+    channel.send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_post_watch_now_sends_and_marks_posted():
+    """post_watch_now posts an embed and records the watch in state."""
+    from cogs.watches import WatchesCog
+
+    bot, channel = _make_watch_bot()
+    cog = WatchesCog.__new__(WatchesCog)
+    cog.bot = bot
+
+    nws_info = {"type": "SVR", "expires": None, "affected_zones": []}
+
+    with patch("cogs.watches.fetch_watch_details", AsyncMock(return_value=("http://img.png", "summary", None))), \
+         patch("cogs.watches.download_single_image", AsyncMock(return_value=(None, False, None))), \
+         patch("cogs.watches.add_posted_watch", AsyncMock()), \
+         patch("cogs.watches.prune_posted_watches", AsyncMock()):
+        await cog.post_watch_now("0102", nws_info)
+
+    channel.send.assert_called_once()
+    assert "0102" in bot.state.posted_watches
+
+
+@pytest.mark.asyncio
+async def test_post_watch_now_no_channel_returns_early():
+    """post_watch_now silently returns if the channel is not found."""
+    from cogs.watches import WatchesCog
+
+    bot, _ = _make_watch_bot()
+    bot.get_channel.return_value = None
+    cog = WatchesCog.__new__(WatchesCog)
+    cog.bot = bot
+
+    await cog.post_watch_now("0102", {"type": "SVR", "expires": None, "affected_zones": []})
+
+
+@pytest.mark.asyncio
+async def test_post_watch_now_dispatches_to_sounding_cog():
+    """When affected_zones is non-empty, post_soundings_for_watch is scheduled."""
+    from cogs.watches import WatchesCog
+
+    bot, channel = _make_watch_bot()
+    mock_sounding = MagicMock()
+    mock_sounding.post_soundings_for_watch = AsyncMock()
+    bot.cogs["SoundingCog"] = mock_sounding
+
+    nws_info = {
+        "type": "TORNADO",
+        "expires": None,
+        "affected_zones": ["https://api.weather.gov/zones/county/IAC001"],
+    }
+
+    cog = WatchesCog.__new__(WatchesCog)
+    cog.bot = bot
+
+    with patch("cogs.watches.fetch_watch_details", AsyncMock(return_value=(None, None, None))), \
+         patch("cogs.watches.download_single_image", AsyncMock(return_value=(None, False, None))), \
+         patch("cogs.watches.add_posted_watch", AsyncMock()), \
+         patch("cogs.watches.prune_posted_watches", AsyncMock()):
+        await cog.post_watch_now("0102", nws_info)
+
+    # post_soundings_for_watch is called to build the coroutine arg for create_task
+    mock_sounding.post_soundings_for_watch.assert_called_once_with("0102", nws_info, channel)
