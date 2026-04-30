@@ -64,6 +64,10 @@ class MaintenanceCog(commands.Cog):
                 logger.info(f"[MAINTENANCE] Cleanup complete. Removed {deleted_count} files ({mb_freed:.2f} MB freed)")
             else:
                 logger.info("[MAINTENANCE] Cleanup complete. No files needed deletion.")
+
+            # Prune significant_events older than 365 days
+            from utils.events_db import prune_old_significant_events
+            await prune_old_significant_events(days=365)
                 
         except Exception as e:
             logger.exception(f"[MAINTENANCE] Error during cache cleanup: {e}")

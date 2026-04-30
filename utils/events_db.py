@@ -17,7 +17,7 @@ import re
 import shutil
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional, Tuple
 
 import aiosqlite
 
@@ -65,7 +65,8 @@ async def _create_tables(db: aiosqlite.Connection) -> None:
             timestamp   REAL NOT NULL,
             source      TEXT NOT NULL,
             raw_text    TEXT,
-            dat_guid    TEXT
+            dat_guid    TEXT,
+            lead_time   REAL
         );
         CREATE INDEX IF NOT EXISTS idx_sig_events_type_ts
             ON significant_events (event_type, timestamp DESC);
@@ -74,6 +75,11 @@ async def _create_tables(db: aiosqlite.Connection) -> None:
     # Migration
     try:
         await db.execute("ALTER TABLE significant_events ADD COLUMN dat_guid TEXT")
+    except Exception:
+        pass
+
+    try:
+        await db.execute("ALTER TABLE significant_events ADD COLUMN lead_time REAL")
     except Exception:
         pass
 
@@ -91,22 +97,24 @@ async def add_significant_event(
     source: str = "",
     raw_text: str = "",
     dat_guid: str = "",
+    lead_time: float = None,
 ) -> None:
     db = await get_events_db()
     try:
         await db.execute(
             """INSERT INTO significant_events
                (event_id, event_type, location, magnitude, vtec_id, coords,
-                timestamp, source, raw_text, dat_guid)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                timestamp, source, raw_text, dat_guid, lead_time)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(event_id) DO UPDATE SET
                  magnitude = excluded.magnitude,
                  location  = excluded.location,
                  coords    = excluded.coords,
                  raw_text  = excluded.raw_text,
-                 dat_guid  = CASE WHEN excluded.dat_guid != '' THEN excluded.dat_guid ELSE significant_events.dat_guid END""",
+                 dat_guid  = CASE WHEN excluded.dat_guid != '' THEN excluded.dat_guid ELSE significant_events.dat_guid END,
+                 lead_time = CASE WHEN excluded.lead_time IS NOT NULL THEN excluded.lead_time ELSE significant_events.lead_time END""",
             (event_id, event_type, location, magnitude, vtec_id, coords,
-             timestamp or time.time(), source, raw_text, dat_guid),
+             timestamp or time.time(), source, raw_text, dat_guid, lead_time),
         )
         await db.commit()
     except Exception as e:
@@ -150,6 +158,49 @@ async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> None
     except Exception as e:
         logger.warning(f"[EVENTS-DB] link_dat_guid_to_tornado failed: {e}")
 
+async def fetch_dat_photos(guid: str) -> List[str]:
+    """Retrieve damage photo URLs for a given DAT event_id (guid)."""
+    from utils.http import http_get_json
+    
+    # 1. Query Layer 0 (Points) to find ObjectIDs for this event
+    query_url = (
+        "https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/0/query"
+        f"?where=event_id='{guid}'&outFields=objectid&f=json"
+    )
+    
+    data = await http_get_json(query_url)
+    if not data or "features" not in data:
+        return []
+        
+    object_ids = [f["attributes"]["objectid"] for f in data["features"]]
+    if not object_ids:
+        return []
+        
+    # 2. Query Attachments for those ObjectIDs
+    # We can use the /queryAttachments endpoint for bulk lookup
+    ids_str = ",".join(str(i) for i in object_ids[:20]) # Limit to 20 points
+    attach_url = (
+        "https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/0/queryAttachments"
+        f"?objectIds={ids_str}&f=json"
+    )
+    
+    attach_data = await http_get_json(attach_url)
+    if not attach_data or "attachmentGroups" not in attach_data:
+        return []
+        
+    urls = []
+    for group in attach_data["attachmentGroups"]:
+        parent_id = group["parentObjectId"]
+        for info in group["attachmentInfos"]:
+            if info.get("contentType", "").startswith("image/"):
+                attach_id = info["id"]
+                urls.append(
+                    f"https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/0/{parent_id}/attachments/{attach_id}"
+                )
+    
+    return urls
+
+
 # ── Reads ────────────────────────────────────────────────────────────────────
 
 async def get_recent_significant_events(
@@ -173,19 +224,17 @@ async def get_recent_significant_events(
     except Exception as e:
         logger.warning(f"[EVENTS-DB] get_recent_significant_events failed: {e}")
         return []
-
-
 async def find_matching_tornado(
     source: str,
     timestamp: float,
     location_query: str,
     window_hours: float = 12.0,
-) -> Optional[str]:
+) -> Optional[Tuple[str, Optional[str]]]:
     db = await get_events_db()
     try:
         window = window_hours * 3600
         async with db.execute(
-            """SELECT event_id, location FROM significant_events
+            """SELECT event_id, vtec_id, location FROM significant_events
                WHERE event_type = 'Tornado'
                  AND source = ?
                  AND timestamp BETWEEN ? AND ?""",
@@ -194,18 +243,41 @@ async def find_matching_tornado(
             rows = await cur.fetchall()
         if not rows:
             return None
-        if len(rows) == 1:
-            return rows[0]["event_id"]
+
+        # Location-based matching if multiple
         query_words = set(re.findall(r"\w+", location_query.upper()))
-        best_id, best_score = None, -1
+        best_row, best_score = None, -1
         for row in rows:
             overlap = len(query_words & set(re.findall(r"\w+", row["location"].upper())))
             if overlap > best_score:
-                best_score, best_id = overlap, row["event_id"]
-        return best_id
+                best_score, best_row = overlap, row
+
+        if best_row:
+            return best_row["event_id"], best_row["vtec_id"]
+        return None
+
     except Exception as e:
         logger.warning(f"[EVENTS-DB] find_matching_tornado failed: {e}")
         return None
+
+
+async def prune_old_significant_events(days: int = 365) -> int:
+    """Remove events older than N days to keep the database size manageable."""
+    db = await get_events_db()
+    try:
+        cutoff = time.time() - (days * 86400)
+        async with db.execute(
+            "DELETE FROM significant_events WHERE timestamp < ?",
+            (cutoff,)
+        ) as cur:
+            count = cur.rowcount
+        await db.commit()
+        if count > 0:
+            logger.info(f"[EVENTS-DB] Pruned {count} events older than {days} days")
+        return count
+    except Exception as e:
+        logger.warning(f"[EVENTS-DB] Pruning failed: {e}")
+        return 0
 
 
 # ── syncthing snapshot ───────────────────────────────────────────────────────
