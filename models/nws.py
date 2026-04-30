@@ -3,6 +3,11 @@ from datetime import datetime
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
+class NWSAlertGeocode(BaseModel):
+    UGC: Optional[List[str]] = None
+    SAME: Optional[List[str]] = None
+
+
 class NWSAlertParameters(BaseModel):
     VTEC: Optional[List[str]] = None
     maxHailSize: Optional[List[str]] = None
@@ -22,6 +27,7 @@ class NWSAlertProperties(BaseModel):
     instruction: Optional[str] = None
     response: Optional[str] = None
     parameters: Optional[NWSAlertParameters] = None
+    geocode: Optional[NWSAlertGeocode] = None
     effective: Optional[datetime] = None
     onset: Optional[datetime] = None
     expires: Optional[datetime] = None
