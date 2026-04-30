@@ -543,13 +543,9 @@ class SignificantEventsPaginatorView(discord.ui.View):
         for e in page_events:
             rel_time = f"<t:{int(e['timestamp'])}:R>"
             
-            emoji = "🌪️"
-            if e.get("event_type") == "Hail":
-                emoji = "🧊"
-            elif e.get("event_type") == "Wind":
-                emoji = "🌬️"
-            
-            mag_str = f" ({e['magnitude']})" if e['magnitude'] and e['magnitude'] != "Confirmed" else ""
+            mag = e.get("magnitude", "")
+            # Cleaner rating display: "EF2" or "Confirmed"
+            rating_str = f" ({mag})" if mag and mag != "Confirmed" else ""
             
             val = (
                 f"**Location:** {e['location']}\n"
@@ -558,7 +554,7 @@ class SignificantEventsPaginatorView(discord.ui.View):
             if e.get("vtec_id"):
                 val += f"\n**VTEC:** `{e['vtec_id']}`"
             
-            embed.add_field(name=f"{emoji} {e['event_type']}{mag_str}", value=val, inline=False)
+            embed.add_field(name=f"🌪️ Tornado{rating_str}", value=val, inline=False)
 
         embed.set_footer(text=f"Page {self.page + 1} of {self.max_page + 1} | Showing {start + 1}-{min(end, len(self.events))} of {len(self.events)} events.")
         return embed
@@ -815,43 +811,48 @@ class WarningsCog(commands.Cog):
         
         await interaction.followup.send(embed=embed, view=view if view.max_page > 0 else None)
 
-    @app_commands.command(name="significantwx", description="View recent significant weather events (Tornadoes).")
-    @app_commands.describe(range="Time range to look back")
+    @app_commands.command(name="sigtor", description="List significant (EF2+) tornadoes from recent surveys")
+    @app_commands.describe(range="Time range to look back (hours)")
     @app_commands.choices(range=[
-        app_commands.Choice(name="Last 6 Hours", value=6),
-        app_commands.Choice(name="Last 12 Hours", value=12),
         app_commands.Choice(name="Last 24 Hours", value=24),
         app_commands.Choice(name="Last 48 Hours", value=48),
         app_commands.Choice(name="Last 72 Hours", value=72),
         app_commands.Choice(name="Last 7 Days", value=168),
+        app_commands.Choice(name="Last 30 Days", value=720),
     ])
-    async def significant_wx(self, interaction: discord.Interaction, range: int = 24):
+    async def sig_tor(self, interaction: discord.Interaction, range: int = 168):
         await interaction.response.defer()
         
-        events = await get_recent_significant_events(since_hours=range)
+        events = await get_recent_significant_events(event_type="Tornado", since_hours=range, limit=100)
         if not events:
-            await interaction.followup.send("No significant weather events logged in the requested time frame.")
+            await interaction.followup.send("No confirmed tornadoes logged in the requested time frame.")
+            return
+
+        # Filter for EF2+ or 'Significant' wording
+        sig_events = []
+        for e in events:
+            mag = (e.get("magnitude") or "").upper()
+            is_sig = False
+            # Match EF2, EF3, EF4, EF5
+            if re.search(r"EF[2-5]", mag):
+                is_sig = True
+            elif "SIGNIFICANT" in mag or "PDS" in mag:
+                is_sig = True
+            
+            if is_sig:
+                sig_events.append(e)
+
+        if not sig_events:
+            await interaction.followup.send(f"No significant (EF2+) tornadoes found in the last {range} hours.")
             return
 
         # Sort by timestamp DESC
-        events.sort(key=lambda x: x["timestamp"], reverse=True)
+        sig_events.sort(key=lambda x: x["timestamp"], reverse=True)
         
-        view = SignificantEventsPaginatorView(events, f"⚠️ Significant Weather (Last {range}h)")
+        view = SignificantEventsPaginatorView(sig_events, f"🚨 Significant Tornadoes (Last {range}h)")
         embed = view.build_embed()
         
         await interaction.followup.send(embed=embed, view=view if view.max_page > 0 else None)
-
-    @app_commands.command(name="cleartornadoes", description="Clear the historical tornado database (Developer only)")
-    async def clear_tornadoes_cmd(self, interaction: discord.Interaction):
-        # Owner check
-        if not await self.bot.is_owner(interaction.user):
-            await interaction.response.send_message("❌ This command is restricted to the bot owner.", ephemeral=True)
-            return
-            
-        await interaction.response.defer(ephemeral=True)
-        from utils.events_db import clear_significant_events
-        await clear_significant_events()
-        await interaction.followup.send("✅ Tornado database cleared.")
 
     # phenom+sig → human-readable event name, for cancellation posts
     _PHENOM_EVENT = {

@@ -161,17 +161,6 @@ async def find_matching_tornado(
         return None
 
 
-async def clear_significant_events() -> None:
-    """Clear all records from the significant_events table."""
-    db = await get_events_db()
-    try:
-        await db.execute("DELETE FROM significant_events")
-        await db.commit()
-        logger.info("[EVENTS-DB] Cleared significant_events table")
-    except Exception as e:
-        logger.warning(f"[EVENTS-DB] Failed to clear significant_events: {e}")
-
-
 # ── syncthing snapshot ───────────────────────────────────────────────────────
 
 
