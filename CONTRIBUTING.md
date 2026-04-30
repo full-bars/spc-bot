@@ -39,8 +39,8 @@ or inline where invoked, not into the configured channels.
 | `/watches` | Show all currently active SPC watches with details and probabilities |
 | `/ww` | Alias for `/watches` |
 | `/md` | Show the latest active SPC mesoscale discussion |
-| `/significantwx` | View recent significant weather events (EF1+ tornadoes, significant hail/wind) from today's warnings and storm reports |
-| `/recenttornadoes` | List confirmed tornadoes from recent warnings and reports |
+| `/recenttornadoes` | List confirmed tornadoes via an interactive, chronological calendar-style dashboard |
+| `/sigtor` | List significant (EF2+) tornadoes via the interactive dashboard |
 
 ### Model Forecasts
 | Command | Description |
@@ -138,7 +138,7 @@ scraping the SPC watch index HTML directly.
 
 **Lifecycle tracking** — when a warning expires, is cancelled, or receives a statement of no activity, the cog edits the original Discord embed in place with a timestamp and updated status. VTEC context (including the Autoplot image URL) is cached at post time so the edit can attach the correct graphic.
 
-**Damage surveys** — `ReportsCog` polls for PNS products flagged as `DAMAGE SURVEY`. Once the NWS survey is finalized, it fetches and posts an IEM Autoplot 253 tornado track map for that event.
+**Damage surveys** — `ReportsCog` polls for PNS products flagged as `DAMAGE SURVEY`. Once the NWS survey is finalized, it fetches and posts an IEM Autoplot 253 tornado track map. The bot automatically attempts to link these tracks to historical events in the database using the NWS Damage Assessment Toolkit (DAT) API.
 
 ### IEMBot Real-Time Feed
 

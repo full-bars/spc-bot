@@ -24,3 +24,17 @@ analysis tool for Python. J. Open Source Software, 10(112), 8087.
 
 No modifications were made to the SounderPy source code. It is used as a
 dependency via pip.
+
+---
+
+## Data Sources & Acknowledgements
+
+This project relies heavily on the incredible data and services provided by the meteorological community:
+
+- **National Weather Service (NWS)** and **Storm Prediction Center (SPC)**: The foundation of all real-time alerts, convective outlooks, and mesoscale discussions.
+- **Iowa Environmental Mesonet (IEM)**: Provides critical API infrastructure, the `iembot` feed, and the Autoplot services used for warning and track maps.
+- **NWS Damage Assessment Toolkit (DAT)**: The source for official damage survey tracks and EF-rating verification.
+- **Tornado Archive**: Chronological data exploration and historical context are made possible via integration with the [Tornado Archive](https://tornadoarchive.com/) data explorer.
+- **Colorado State University (CSU)**: Severe weather machine learning probabilities (CSU-MLP).
+- **Northern Illinois University (NIU)**: Supercell Composite Parameter (SCP) forecast graphics by Victor Gensini.
+- **National Center for Atmospheric Research (NCAR)**: WxNext2 AI convective hazard guidance.
