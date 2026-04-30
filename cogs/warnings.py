@@ -160,13 +160,13 @@ def get_warning_style(event: str, text: str, params: dict = None) -> Tuple[str, 
 
     # Param-based detection (NWS API specific)
     if params:
-        t_threat = params.get("tornadoDamageThreat", [])
+        t_threat = params.get("tornadoDamageThreat") or []
         if "CATASTROPHIC" in t_threat:
             return "🚨🚨 TORNADO EMERGENCY", discord.Color.from_rgb(139, 0, 0)
         if "CONSIDERABLE" in t_threat:
             return "⚠️ PDS Tornado Warning", discord.Color.red()
-            
-        s_threat = params.get("thunderstormDamageThreat", [])
+
+        s_threat = params.get("thunderstormDamageThreat") or []
         if "DESTRUCTIVE" in s_threat:
              return "🚨 DESTRUCTIVE Severe Tstorm Warning", discord.Color.purple()
         if "CONSIDERABLE" in s_threat:
