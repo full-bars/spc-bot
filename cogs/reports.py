@@ -90,6 +90,22 @@ class ReportsCog(commands.Cog):
             m_remarks = re.search(r"REMARKS\s*\.\.\.\s*(.*?)(?=\n\s*\n|\$\$|$)", r, re.I | re.DOTALL)
             remarks = m_remarks.group(1).replace("\n", " ").strip() if m_remarks else ""
 
+            # Specialized logic for automated stations (ASOS, AWOS, MTR)
+            source_upper = source.upper()
+            is_automated = any(x in source_upper for x in ("ASOS", "AWOS", "MTR"))
+            
+            peak_wind_summary = ""
+            if is_automated:
+                # Extract Peak Wind: PK WND 27045/2220 -> 45kt
+                m_pk = re.search(r"PK WND\s+\d{3}(\d{2,3})/?(\d{4})?", remarks, re.I)
+                if m_pk:
+                    gust_kt = m_pk.group(1).lstrip("0")
+                    time_pk = m_pk.group(2)
+                    peak_wind_summary = f"Peak wind {gust_kt}kt"
+                    if time_pk:
+                        peak_wind_summary += f" at {time_pk[:2]}:{time_pk[2:]}Z"
+                    peak_wind_summary += ". "
+
             office = product_id.split("-")[1] if "-" in product_id else "NWS"
             lsr_url = f"https://mesonet.agron.iastate.edu/p.php?pid={product_id}"
             
@@ -120,10 +136,11 @@ class ReportsCog(commands.Cog):
                 color = discord.Color.dark_blue()
 
             # Format: {location} [{County, STATE}] {source} [reports {event}](url) at {time} -- {remarks}
+            source_display = f"({source})" if is_automated else source
             area_frag = f"{location} [{county}, {state}]" if state else f"{location}"
             desc = (
-                f"{area_frag} {source} [reports {event_type}]({lsr_url}) at {time_str} -- "
-                f"{remarks if remarks else 'No additional remarks.'}\n"
+                f"{area_frag} {source_display} [reports {event_type}]({lsr_url}) at {time_str} -- "
+                f"{peak_wind_summary}{remarks if remarks else 'No additional remarks.'}\n"
                 f"[<t:{int(lsr_ts)}:R>]"
             )
 
