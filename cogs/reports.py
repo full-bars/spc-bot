@@ -109,19 +109,14 @@ class ReportsCog(commands.Cog):
                     logger.info(f"[REPORTS] Skipping Discord post for Tornado LSR {product_id}, matches {match_id}")
                     continue
 
-            emoji = "⚠️"
             color = discord.Color.blue()
             if "TORNADO" in event_type.upper():
-                emoji = "🌪️"
                 color = discord.Color.red()
             elif "WND" in event_type.upper() or "WIND" in event_type.upper():
-                emoji = "🌬️"
                 color = discord.Color.gold()
             elif "HAIL" in event_type.upper():
-                emoji = "🧊"
                 color = discord.Color.light_grey()
             elif "FLOOD" in event_type.upper():
-                emoji = "🌊"
                 color = discord.Color.dark_blue()
 
             # Format: {location} [{County, STATE}] {source} [reports {event}](url) at {time} -- {remarks}
@@ -150,7 +145,7 @@ class ReportsCog(commands.Cog):
                 await add_significant_event(
                     event_id=f"IEM:LSR:{product_id}",
                     event_type="Tornado",
-                    location=city,
+                    location=location,
                     magnitude="Confirmed",
                     coords=coords,
                     timestamp=lsr_ts,
@@ -166,7 +161,7 @@ class ReportsCog(commands.Cog):
                             await add_significant_event(
                                 event_id=f"IEM:LSR:{product_id}:hail",
                                 event_type="Hail",
-                                location=city,
+                                location=location,
                                 magnitude=f"{size:.2f} Inch",
                                 coords=coords,
                                 timestamp=lsr_ts,
@@ -184,7 +179,7 @@ class ReportsCog(commands.Cog):
                             await add_significant_event(
                                 event_id=f"IEM:LSR:{product_id}:wind",
                                 event_type="Wind",
-                                location=city,
+                                location=location,
                                 magnitude=f"{speed} MPH",
                                 coords=coords,
                                 timestamp=lsr_ts,
@@ -212,11 +207,6 @@ class ReportsCog(commands.Cog):
             rating = m_rating.group(1).upper()
         
         # Max Wind
-        winds = "N/A"
-        m_winds = re.search(r"ESTIMATED PEAK WIND:\s*([\d\-]+\s*MPH)", raw_text, re.I)
-        if m_winds:
-            winds = m_winds.group(1)
-
         # Location/Event
         m_event = re.search(r"\.\.\.(.*?)\.\.\.", raw_text)
         event_name = m_event.group(1).strip() if m_event else "NWS Damage Survey"
