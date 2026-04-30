@@ -65,39 +65,46 @@ class ReportsCog(commands.Cog):
             if "LOCAL STORM REPORT" not in r and "EVENT" not in r:
                 continue
             
-            # Match: 0131 AM     TSTM WND DMG     DICKSON                 36.03N 87.39W
-            m_header = re.search(r"^(\d{4}\s+[AP]M)\s+(.{16})\s+(.{24})\s+(\d+\.\d+N\s+\d+\.\d+W)", r, re.M)
-            if not m_header:
+            # Match Line 1: 0131 AM     TSTM WND DMG     DICKSON                 36.03N 87.39W
+            m_l1 = re.search(r"^(\d{4}\s+[AP]M)\s+(.{16})\s+(.{24})\s+(\d+\.\d+N\s+\d+\.\d+W)", r, re.M)
+            if not m_l1:
                 continue
 
-            time_str, event_type, city, coords = m_header.groups()
+            time_str, event_type, location, coords = m_l1.groups()
             event_type = event_type.strip()
-            city = city.strip()
+            location = location.strip()
 
-            # Append state from the county/date line that follows the header:
-            # "04/29/2026                   Madison           MO   Public"
-            m_state = re.search(r"^\d{2}/\d{2}/\d{4}\s+.{10,}\s([A-Z]{2})\s", r, re.M)
-            if m_state:
-                city = f"{city}, {m_state.group(1)}"
+            # Match Line 2: 04/29/2026                   DICKSON            TN   Public
+            # We need to find the line starting with a date after the header
+            m_l2 = re.search(r"^(\d{2}/\d{2}/\d{4})\s+(.{24})\s+([A-Z]{2})\s+(.*)$", r, re.M)
+            county = ""
+            state = ""
+            source = "NWS"
+            if m_l2:
+                _, county, state, source = m_l2.groups()
+                county = county.strip()
+                state = state.strip()
+                source = source.strip()
 
             # Remarks
             m_remarks = re.search(r"REMARKS\s*\.\.\.\s*(.*?)(?=\n\s*\n|\$\$|$)", r, re.I | re.DOTALL)
             remarks = m_remarks.group(1).replace("\n", " ").strip() if m_remarks else ""
 
             office = product_id.split("-")[1] if "-" in product_id else "NWS"
+            lsr_url = f"https://mesonet.agron.iastate.edu/p.php?pid={product_id}"
+            
+            # Approx timestamp for LSR
+            lsr_ts = datetime.now(timezone.utc).timestamp()
+            if product_id and len(product_id) >= 12:
+                try:
+                    lsr_ts = datetime.strptime(product_id[:12], "%Y%m%d%H%M").replace(tzinfo=timezone.utc).timestamp()
+                except Exception:
+                    pass
             
             # Dedup check for Tornadoes (Discord side)
             if "TORNADO" in event_type.upper():
-                # Approx timestamp for LSR
-                lsr_ts = datetime.now(timezone.utc).timestamp()
-                if product_id and len(product_id) >= 12:
-                    try:
-                        lsr_ts = datetime.strptime(product_id[:12], "%Y%m%d%H%M").replace(tzinfo=timezone.utc).timestamp()
-                    except Exception as e:
-                        logger.warning(f"Failed to parse LSR timestamp '{product_id}': {e}")
-                
                 from utils.state_store import find_matching_tornado
-                match_id = await find_matching_tornado(office, lsr_ts, city, window_hours=1.0)
+                match_id = await find_matching_tornado(office, lsr_ts, location, window_hours=1.0)
                 if match_id:
                     logger.info(f"[REPORTS] Skipping Discord post for Tornado LSR {product_id}, matches {match_id}")
                     continue
@@ -117,13 +124,20 @@ class ReportsCog(commands.Cog):
                 emoji = "🌊"
                 color = discord.Color.dark_blue()
 
+            # Format: {location} [{County, STATE}] {source} [reports {event}](url) at {time} -- {remarks}
+            area_frag = f"{location} [{county}, {state}]" if state else f"{location}"
+            desc = (
+                f"{area_frag} {source} [reports {event_type}]({lsr_url}) at {time_str} -- "
+                f"{remarks if remarks else 'No additional remarks.'}\n"
+                f"[<t:{int(lsr_ts)}:R>]"
+            )
+
             embed = discord.Embed(
-                title=f"{emoji} {event_type} - {city}",
-                description=remarks if remarks else "No additional remarks.",
+                description=desc,
                 color=color,
                 timestamp=datetime.now(timezone.utc)
             )
-            embed.set_footer(text=f"{office} LSR | {time_str} | {coords}")
+            embed.set_footer(text=f"{office} LSR | {coords}")
             
             # --- Persist State Before Sending ---
             self.bot.state.posted_reports.add(product_id)
@@ -208,25 +222,42 @@ class ReportsCog(commands.Cog):
         event_name = m_event.group(1).strip() if m_event else "NWS Damage Survey"
 
         office = product_id.split("-")[1] if "-" in product_id else "NWS"
-
-        embed = discord.Embed(
-            title=f"📐 {event_name}",
-            description=f"**Max Rating:** {rating}\n**Peak Winds:** {winds}",
-            color=discord.Color.teal(),
-            timestamp=datetime.now(timezone.utc)
-        )
+        pns_url = f"https://mesonet.agron.iastate.edu/p.php?pid={product_id}"
         
         # Snippet of the summary if available
         m_summary = re.search(r"SUMMARY:\s*(.*?)(?=\n\s*\n|\$\$|$)", raw_text, re.I | re.DOTALL)
-        summary = ""
+        summary_snippet = ""
         if m_summary:
-            summary = m_summary.group(1).replace("\n", " ").strip()
-            if len(summary) > 500:
-                display_summary = summary[:497] + "..."
-            else:
-                display_summary = summary
-            embed.add_field(name="Summary", value=display_summary, inline=False)
+            summary_snippet = m_summary.group(1).replace("\n", " ").strip()
+            if len(summary_snippet) > 200:
+                summary_snippet = summary_snippet[:197] + "..."
 
+        # Time extraction for PNS
+        pns_ts = datetime.now(timezone.utc).timestamp()
+        pns_time_str = "Unknown Time"
+        # Match: 508 PM CDT Wed Apr 29 2026
+        m_time = re.search(r"(\d{1,2}:\d{2}\s+[AP]M\s+[A-Z]{3}.*?202\d)", raw_text, re.I)
+        if m_time:
+            pns_time_str = m_time.group(1).strip()
+        elif product_id and len(product_id) >= 12:
+            try:
+                dt = datetime.strptime(product_id[:12], "%Y%m%d%H%M")
+                pns_ts = dt.replace(tzinfo=timezone.utc).timestamp()
+                pns_time_str = dt.strftime("%b %d, %I:%M %p")
+            except Exception:
+                pass
+
+        desc = (
+            f"{office} issues [Damage Survey PNS]({pns_url}) (Max: {rating}) at {pns_time_str} "
+            f"...{summary_snippet}...\n"
+            f"[<t:{int(pns_ts)}:R>]"
+        )
+
+        embed = discord.Embed(
+            description=desc,
+            color=discord.Color.teal(),
+            timestamp=datetime.now(timezone.utc)
+        )
         embed.set_footer(text=f"{office} PNS | {product_id}")
         
         await channel.send(embed=embed)
