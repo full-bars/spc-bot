@@ -255,3 +255,33 @@ async def http_head_meta(url: str, timeout: int = 20) -> Optional[Dict[str, str]
         circuit_breaker.record_failure(host)
         logger.warning(f"HEAD meta failed for {url}: {type(e).__name__}: {e}")
         return None
+
+
+async def http_get_json(url: str, retries: int = 1, timeout: int = 15) -> Optional[dict]:
+    """Fetch JSON from a URL with retries and circuit breaker."""
+    parsed = urlparse(url)
+    host = parsed.netloc
+    if circuit_breaker.is_open(host):
+        return None
+
+    try:
+        session = await ensure_session()
+        for attempt in range(retries + 1):
+            async with session.get(
+                url, timeout=aiohttp.ClientTimeout(total=timeout)
+            ) as r:
+                if r.status == 200:
+                    circuit_breaker.record_success(host)
+                    return await r.json()
+                if r.status == 429 or r.status >= 500:
+                    if attempt < retries:
+                        await asyncio.sleep(2**attempt)
+                        continue
+                logger.warning(f"JSON fetch failed for {url}: {r.status}")
+                circuit_breaker.record_failure(host)
+                return None
+    except Exception as e:
+        circuit_breaker.record_failure(host)
+        logger.warning(f"JSON fetch error for {url}: {type(e).__name__}: {e}")
+        return None
+    return None

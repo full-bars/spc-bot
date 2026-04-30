@@ -207,9 +207,11 @@ async def test_find_matching_tornado(isolated_events_db):
         event_id="LSR:1", event_type="Tornado", location="3 SE FLORENCE",
         source="HUN", timestamp=now
     )
-    match_id = await events_db.find_matching_tornado(
+    match = await events_db.find_matching_tornado(
         source="HUN", timestamp=now + 600, location_query="LAUDERDALE COUNTY TORNADO"
     )
+    assert match is not None
+    match_id, vtec_id = match
     assert match_id == "LSR:1"
 
     no_match = await events_db.find_matching_tornado(

@@ -119,10 +119,26 @@ class ReportsCog(commands.Cog):
             
             # Dedup check for Tornadoes (Discord side)
             if "TORNADO" in event_type.upper():
-                from utils.state_store import find_matching_tornado
-                match_id = await find_matching_tornado(office, lsr_ts, location, window_hours=1.0)
-                if match_id:
-                    logger.info(f"[REPORTS] Skipping Discord post for Tornado LSR {product_id}, matches {match_id}")
+                from utils.state_store import find_matching_tornado, get_posted_warning_timestamp
+                match = await find_matching_tornado(office, lsr_ts, location, window_hours=1.0)
+                if match:
+                    event_id, vtec_id = match
+                    logger.info(f"[REPORTS] Skipping Discord post for Tornado LSR {product_id}, matches {event_id}")
+                    
+                    # Calculate Lead Time if we have a vtec_id
+                    if vtec_id:
+                        warn_ts = await get_posted_warning_timestamp(vtec_id)
+                        if warn_ts:
+                            lead_time = (lsr_ts - warn_ts) / 60.0
+                            logger.info(f"[REPORTS] Calculated lead time for {event_id}: {lead_time:.1f} min")
+                            from utils.events_db import add_significant_event
+                            # Update existing event with lead time
+                            await add_significant_event(
+                                event_id=event_id,
+                                event_type="Tornado",
+                                location=location,
+                                lead_time=lead_time
+                            )
                     continue
 
             color = discord.Color.blue()
@@ -270,22 +286,22 @@ class ReportsCog(commands.Cog):
             coords = f"{m_latlon.group(1)}N {abs(float(m_latlon.group(2)))}W"
 
         from utils.state_store import find_matching_tornado
-        match_id = await find_matching_tornado(office, event_ts, event_name)
+        match = await find_matching_tornado(office, event_ts, event_name)
         
         # Only log to significant events if it's a Tornado survey
         # (check event_name and rating)
         is_tornado = "TORNADO" in event_name.upper() or rating.startswith("EF")
         
         if is_tornado:
-            if match_id:
-                logger.info(f"[REPORTS] Found matching tornado {match_id} for survey, updating rating to {rating}")
+            if match:
+                event_id, vtec_id = match
+                logger.info(f"[REPORTS] Found matching tornado {event_id} for survey, updating rating to {rating}")
                 # Update existing row by using the same event_id
                 await add_significant_event(
-                    event_id=match_id,
+                    event_id=event_id,
                     event_type="Tornado",
                     location=event_name,
                     magnitude=rating,
-                    vtec_id=None, # Keep existing? add_significant_event in db.py doesn't update vtec_id on conflict yet
                     coords=coords,
                     timestamp=event_ts,
                     source=office,

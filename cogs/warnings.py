@@ -515,13 +515,55 @@ def _extract_narrative(raw: str) -> Optional[str]:
     return text or None
 
 
+class TornadoPhotoView(discord.ui.View):
+    def __init__(self, urls: list, parent_view: discord.ui.View, location: str):
+        super().__init__(timeout=300)
+        self.urls = urls
+        self.parent_view = parent_view
+        self.location = location
+        self.index = 0
+        self._update_buttons()
+
+    def _update_buttons(self):
+        self.prev_btn.disabled = self.index <= 0
+        self.next_btn.disabled = self.index >= len(self.urls) - 1
+
+    def build_embed(self) -> discord.Embed:
+        embed = discord.Embed(
+            title=f"📸 Damage Photos: {self.location}",
+            color=discord.Color.teal(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.set_image(url=self.urls[self.index])
+        embed.set_footer(text=f"Photo {self.index + 1} of {len(self.urls)}")
+        return embed
+
+    @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary)
+    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.index = max(0, self.index - 1)
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary)
+    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.index = min(len(self.urls) - 1, self.index + 1)
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="🔙 Back to Card", style=discord.ButtonStyle.primary)
+    async def back_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(embed=self.parent_view.build_card_embed(), view=self.parent_view)
+
+
 class TornadoDashboardView(discord.ui.View):
-    def __init__(self, events: list, title: str):
+    def __init__(self, events: list, title: str, mode: str = "card"):
         super().__init__(timeout=300)
         self.events = events
         self.title = title
+        self.mode = mode # "summary" or "card"
+        self.index = 0   # Index for card mode
         
-        # Group by date (UTC)
+        # Group by date (UTC) for summary mode
         self.grouped = {}
         for e in events:
             dt = datetime.fromtimestamp(e['timestamp'], timezone.utc)
@@ -531,50 +573,110 @@ class TornadoDashboardView(discord.ui.View):
             self.grouped[date_str].append(e)
             
         self.dates = sorted(list(self.grouped.keys()), reverse=True)
+        self._update_items()
+
+    def _update_items(self):
+        self.clear_items()
         
-        # Build select options
-        options = [
-            discord.SelectOption(label="Summary Dashboard", value="summary", default=True)
-        ]
-        # Only show dates that have actual tornado events
-        for d in self.dates[:24]: # Discord max options is 25
-            options.append(discord.SelectOption(label=f"Events for {d}", value=d))
+        if self.mode == "summary":
+            # Build select options for summary
+            options = [discord.SelectOption(label="Summary Dashboard", value="summary", default=True)]
+            for d in self.dates[:24]:
+                options.append(discord.SelectOption(label=f"Events for {d}", value=d))
             
-        self.select = discord.ui.Select(options=options, custom_id="date_select")
-        self.select.callback = self.on_select
-        self.add_item(self.select)
-        
-        # Add Tornado Archive link button
-        if events:
-            min_ts = min(e['timestamp'] for e in events)
-            max_ts = max(e['timestamp'] for e in events)
-            # UTC formatting for TornadoArchive
-            min_dt = datetime.fromtimestamp(min_ts, timezone.utc).strftime("%Y-%m-%dT00:00Z")
-            max_dt = (datetime.fromtimestamp(max_ts, timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%dT00:00Z")
+            select = discord.ui.Select(options=options, custom_id="date_select")
+            select.callback = self.on_select
+            self.add_item(select)
+        else:
+            # Card mode navigation
+            self.add_item(self.first_btn)
+            self.add_item(self.prev_btn)
+            self.add_item(self.next_btn)
+            self.add_item(self.last_btn)
+            self.add_item(self.summary_btn)
             
-            # The URL needs to be correctly formatted for the fragment-based state
-            # TornadoArchive uses a specific hash structure
-            import urllib.parse
-            fragment = (
-                f"interval={min_dt};{max_dt}&map=-97.1249;45.5585;4.01&domain=North%20America"
-                f"&filters=partition|PartitionFilter|f_scale|(E)FU,(E)F0,(E)F1,(E)F2,(E)F3,(E)F4,(E)F5"
-            )
-            safe_fragment = urllib.parse.quote(fragment, safe="=&;/-|(),")
-            url = f"https://tornadoarchive.com/home/tornado-archive-data-explorer/#{safe_fragment}"
+            # Add Photos button if event has a dat_guid
+            e = self.events[self.index]
+            if e.get("dat_guid"):
+                self.add_item(self.photos_btn)
+            
+            self.first_btn.disabled = self.index <= 0
+            self.prev_btn.disabled = self.index <= 0
+            self.next_btn.disabled = self.index >= len(self.events) - 1
+            self.last_btn.disabled = self.index >= len(self.events) - 1
+
+        # Global Archive Button
+        if self.events:
+            min_ts = min(e['timestamp'] for e in self.events)
+            max_ts = max(e['timestamp'] for e in self.events)
+            min_dt = datetime.fromtimestamp(min_ts, timezone.utc).strftime("%Y-%m-%d")
+            max_dt = (datetime.fromtimestamp(max_ts, timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
+            
+            # Stable URL format using query parameters
+            url = f"https://tornadoarchive.com/explorer/?start={min_dt}&end={max_dt}&domain=north_america"
             self.add_item(discord.ui.Button(label="Tornado Archive", url=url, style=discord.ButtonStyle.link))
 
     async def on_select(self, interaction: discord.Interaction):
-        val = self.select.values[0]
-        for opt in self.select.options:
-            opt.default = (opt.value == val)
-            
+        val = interaction.data["values"][0]
         if val == "summary":
-            embed = self.build_summary_embed()
+            await interaction.response.edit_message(embed=self.build_summary_embed(), view=self)
         else:
-            embed = self.build_daily_embed(val)
-            
-        await interaction.response.edit_message(embed=embed, view=self)
-        
+            # Switch to card mode at the first event of that day
+            day_events = self.grouped[val]
+            first_event = sorted(day_events, key=lambda x: x["timestamp"], reverse=True)[0]
+            self.index = self.events.index(first_event)
+            self.mode = "card"
+            self._update_items()
+            await interaction.response.edit_message(embed=self.build_card_embed(), view=self)
+
+    @discord.ui.button(label="⏮️ First", style=discord.ButtonStyle.secondary)
+    async def first_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.index = 0
+        self._update_items()
+        await interaction.response.edit_message(embed=self.build_card_embed(), view=self)
+
+    @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary)
+    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.index = max(0, self.index - 1)
+        self._update_items()
+        await interaction.response.edit_message(embed=self.build_card_embed(), view=self)
+
+    @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary)
+    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.index = min(len(self.events) - 1, self.index + 1)
+        self._update_items()
+        await interaction.response.edit_message(embed=self.build_card_embed(), view=self)
+
+    @discord.ui.button(label="Last ⏭️", style=discord.ButtonStyle.secondary)
+    async def last_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.index = len(self.events) - 1
+        self._update_items()
+        await interaction.response.edit_message(embed=self.build_card_embed(), view=self)
+
+    @discord.ui.button(label="📋 Summary", style=discord.ButtonStyle.primary)
+    async def summary_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.mode = "summary"
+        self._update_items()
+        await interaction.response.edit_message(embed=self.build_summary_embed(), view=self)
+
+    @discord.ui.button(label="📸 Photos", style=discord.ButtonStyle.success)
+    async def photos_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        e = self.events[self.index]
+        guid = e.get("dat_guid")
+        if not guid:
+            await interaction.response.send_message("No DAT info available for this event.", ephemeral=True)
+            return
+
+        await interaction.response.defer()
+        from utils.events_db import fetch_dat_photos
+        urls = await fetch_dat_photos(guid)
+        if not urls:
+            await interaction.followup.send("No damage photos found in the DAT for this event.", ephemeral=True)
+            return
+
+        photo_view = TornadoPhotoView(urls, self, e["location"])
+        await interaction.edit_original_response(embed=photo_view.build_embed(), view=photo_view)
+
     def _get_ef_emoji(self, mag: str) -> str:
         mag = (mag or "").upper()
         if "EF5" in mag: return "🟣"
@@ -587,14 +689,11 @@ class TornadoDashboardView(discord.ui.View):
 
     def build_summary_embed(self) -> discord.Embed:
         embed = discord.Embed(
-            title=self.title,
+            title=f"{self.title} (Summary)",
             color=discord.Color.red(),
             timestamp=datetime.now(timezone.utc)
         )
         
-        # Display summary for up to 30 days. If more, they can use the select menu.
-        # Field limits: 25 fields max. We'll group multiple days per field if needed,
-        # or just show the last 25 active days.
         for date_str in self.dates[:25]: 
             day_events = self.grouped[date_str]
             counts = {"EF5": 0, "EF4": 0, "EF3": 0, "EF2": 0, "EF1": 0, "EF0": 0, "EFU": 0}
@@ -622,42 +721,47 @@ class TornadoDashboardView(discord.ui.View):
             embed.add_field(name=f"📅 {date_str} ({len(day_events)})", value=val, inline=True)
             
         embed.set_footer(
-            text=f"Showing last {min(25, len(self.dates))} active days. Select a date from the dropdown for chronological details."
+            text=f"Showing last {min(25, len(self.dates))} active days. Use dropdown to pick a day."
         )
         return embed
         
-    def build_daily_embed(self, date_str: str) -> discord.Embed:
-        day_events = self.grouped[date_str]
-        # Sort chronologically for daily view
-        day_events = sorted(day_events, key=lambda x: x["timestamp"])
+    def build_card_embed(self) -> discord.Embed:
+        e = self.events[self.index]
+        dt = datetime.fromtimestamp(e['timestamp'], timezone.utc)
+        date_str = dt.strftime("%Y-%m-%d %H:%MZ")
+        rel_time = f"<t:{int(e['timestamp'])}:R>"
+        
+        mag = e.get("magnitude", "Confirmed")
+        emoji = self._get_ef_emoji(mag)
         
         embed = discord.Embed(
-            title=f"🌪️ Tornadoes on {date_str}",
+            title=f"{emoji} Tornado: {e['location']}",
             color=discord.Color.red(),
             timestamp=datetime.now(timezone.utc)
         )
         
-        for e in day_events[:25]: # Discord max fields is 25
-            rel_time = f"<t:{int(e['timestamp'])}:R>"
-            dt_time = datetime.fromtimestamp(e['timestamp'], timezone.utc).strftime("%H:%MZ")
+        embed.add_field(name="Rating", value=mag, inline=True)
+        embed.add_field(name="Time", value=f"{date_str}\n({rel_time})", inline=True)
+        embed.add_field(name="Office", value=e['source'], inline=True)
+        
+        if e.get("lead_time") is not None:
+             embed.add_field(name="Lead Time", value=f"{e['lead_time']:.1f} min", inline=True)
+        
+        if e.get("vtec_id"):
+            url = f"https://mesonet.agron.iastate.edu/vtec/f/{dt.year}-O-NEW-{e['source']}-TO-W-{e['vtec_id'].split('.')[-1]}_{dt.strftime('%Y-%m-%dT%H:%MZ')}"
+            embed.add_field(name="VTEC ID", value=f"[{e['vtec_id']}]({url})", inline=True)
+
+        if e.get("dat_guid"):
+            dat_url = f"https://apps.dat.noaa.gov/stormdamage/damageviewer/?datglobalid={e['dat_guid']}"
+            embed.add_field(name="NWS DAT", value=f"[View Track]({dat_url})", inline=True)
+
+        if e.get("raw_text"):
+             text = e["raw_text"]
+             if len(text) > 500:
+                  text = text[:497] + "..."
+             embed.add_field(name="Remarks", value=f"```\n{text}\n```", inline=False)
             
-            mag = e.get("magnitude", "Confirmed")
-            emoji = self._get_ef_emoji(mag)
-            
-            val = f"**Time:** {dt_time} ({rel_time})\n**Office:** {e['source']}"
-            if e.get("vtec_id"):
-                val += f" | **VTEC:** `{e['vtec_id']}`"
-            
-            if e.get("dat_guid"):
-                val += f"\n[View DAT Track](https://apps.dat.noaa.gov/stormdamage/damageviewer/?datglobalid={e['dat_guid']})"
-            
-            embed.add_field(name=f"{emoji} {e['location']} ({mag})", value=val, inline=False)
-            
-        if len(day_events) > 25:
-            embed.set_footer(text=f"Showing first 25 of {len(day_events)} events for this date.")
-        else:
-            embed.set_footer(text=f"Showing all {len(day_events)} events for this date.")
-            
+        embed.set_footer(text=f"Event {self.index + 1} of {len(self.events)} | {e['coords']}")
         return embed
 
 

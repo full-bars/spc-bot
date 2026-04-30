@@ -452,6 +452,21 @@ async def get_all_posted_warnings() -> dict:
         return {}
 
 
+async def get_posted_warning_timestamp(vtec_id: str) -> Optional[float]:
+    """Get the posted_at timestamp for a specific VTEC ID."""
+    try:
+        db = await get_db()
+        async with db.execute(
+            "SELECT posted_at FROM posted_warnings WHERE vtec_id = ?",
+            (vtec_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row["posted_at"] if row else None
+    except Exception as e:
+        logger.warning(f"[DB] get_posted_warning_timestamp failed: {e}")
+        return None
+
+
 async def add_posted_warning(
     vtec_id: str, message_id: int, channel_id: int, posted_at: float = 0.0, area: str = ""
 ):

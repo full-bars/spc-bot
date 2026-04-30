@@ -669,7 +669,7 @@ async def find_matching_tornado(
     timestamp: float,
     location_query: str,
     window_hours: float = 12.0,
-) -> Optional[str]:
+) -> Optional[Tuple[str, Optional[str]]]:
     from utils.events_db import find_matching_tornado as _find  # noqa: PLC0415
     return await _find(source, timestamp, location_query, window_hours)
 
