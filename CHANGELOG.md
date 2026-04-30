@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.6.0] — 2026-04-30
+
+### Added
+- **Single-Card Tornado Dashboard.** Overhauled the tornado viewer to use a detailed "Single Card" UI. Navigate chronologically through events using ⏮️ First, ⏭️ Last, and ◀ Prev, Next ▶ buttons.
+- **Damage Photo Carousel.** Integrated a 📸 Photos button that lazy-fetches and displays a scrollable gallery of official NWS DAT damage photos for each matched tornado.
+- **Meteorological Analytics Cog.** A suite of new commands for severe weather data:
+    - `/topstats`: Rank states or WFOs by tornado warning or report counts (Autoplots #92, #141).
+    - `/dayssince`: Track warning-free "streaks" for any state or WFO (Autoplot #235).
+    - `/dailyrecap`: Visual summary maps of all warning polygons for a specific date (Autoplot #203).
+    - `/tornadoheatmap`: Density maps of tornado reports over a custom timeframe (Autoplot #108).
+    - `/riskmap`: Historical frequency maps of SPC Day 1 outlook categories (Autoplot #232).
+    - `/verify`: Detailed storm-based verification metrics (POD, FAR, Lead Time) via the IEM Cow API.
+- **Lead Time Tracking.** The bot now calculates and displays the warning-to-report lead time (in minutes) for confirmed tornadoes.
+
+### Changed
+- **Retention Policy.** Implemented a rolling 365-day retention window for the historical tornado database in the daily maintenance loop to ensure long-term performance.
+- **Improved URL Encoding.** Switched the Tornado Archive link to a more robust query-parameter format for better Discord client compatibility.
+
 ## [5.5.7] — 2026-04-30
 
 ### Fixed
