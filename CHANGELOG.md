@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.5.7] — 2026-04-30
+
+### Fixed
+- **Dashboard Data Completeness.** Increased the internal event retrieval limit from 50 to 1000 to ensure the summary dashboard can display a full month of active tornado data.
+- **Tornado Archive URL Encoding.** Fixed a bug where the dashboard's Tornado Archive button used unencoded URL fragments, causing link failures in some Discord clients.
+- **Summary Dashboard Scannability.** Improved the summary layout to be more compact, allowing for up to 25 days of data to be displayed within Discord's embed field limits.
+
+### Docs
+- Comprehensive updates to `README.md`, `CONTRIBUTING.md`, and `CREDITS.md` to reflect the new Tornado Dashboard, EF rating distinctions, and third-party integrations (IEM, DAT, Tornado Archive).
+
 ## [5.5.6] — 2026-04-30
 
 ### Added
