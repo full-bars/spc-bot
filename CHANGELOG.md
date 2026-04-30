@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.5.1] — 2026-04-30
+
+### Fixed
+- **Split-brain lease reclaim during Upstash reconnect.** `_primary_cycle` used a blind `SET EX` after reads returned `None` (indistinguishable from "key missing" vs "Upstash error"). When a node's connectivity partially returned, it overwrote a legitimate standby-held lease, causing a ~30 s dual-primary window and duplicate posts. Fix: use `SET NX EX` to reclaim only if the key is genuinely absent; re-read and demote if NX is blocked.
+- **Standby pre-acknowledging slash commands.** Both nodes connect with the same Discord token; the standby's `on_app_command_error` was calling `send_message` on `CommandNotFound`, pre-acknowledging the interaction before the primary could `defer()`. Caused `40060` cascades and `Task exception was never retrieved` noise. Fix: drop `CommandNotFound` silently on standby; wrap all error-reply paths in `HTTPException` guard.
+- **Stale manual cache serving yesterday's outlook.** `should_use_cache_for_manual` accepted files up to 3 days old. Reduced to 3 hours — safely within the longest SPC inter-update gap.
+- **Hodograph command always failed.** `vad_plotter` and its I/O stack (`download_vad`, `find_file_times`, `get_asos_surface_wind`) were blocking the event loop with `requests`/`urlopen`. Converted to async using shared `http_get_bytes`/`http_get_text`. Two runtime bugs in the conversion: missing module-level `asyncio` import (`NameError` on every invocation) and naive-vs-aware datetime comparison (`TypeError` in `find_file_times`).
+
+### Tests
+- **CI unblocked** — broken since PR #175 which made `suppress_create_task` global autouse. `asyncio.wait` hung forever waiting on `MagicMock` objects returned by the suppressed `create_task`. Fix: `@pytest.mark.real_create_task` marker opts specific tests out of the suppression.
+- **No live network calls in test suite.** Upstash credentials from `.env` were leaking via `config.py`'s `load_dotenv()`. Blocked with `os.environ.setdefault` in conftest before any project import.
+- **`TestGenerateHodograph`** updated to patch `vad_plotter` directly; previous tests patched `get_running_loop`/`run_in_executor` which no longer exist after the async conversion.
+
 ## [5.5.0] — 2026-04-29
 
 ### Added
