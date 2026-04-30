@@ -327,6 +327,8 @@ def build_concise_warning_text(
     raw_text: Optional[str] = None,
     feature: Optional[dict] = None,
     ugc_codes: Optional[List[str]] = None,
+    is_update: bool = False,
+    prev_area: str = "",
 ) -> str:
     """Build the warning description for Discord.
 
@@ -348,6 +350,8 @@ def build_concise_warning_text(
         "UPG": "upgrades",
     }
     action_verb = action_map.get(vtec["action"], "updates")
+    if is_update:
+        action_verb = "updates"
 
     # 2. Tags (tornado, hail, wind, flash flood)
     tags = []
@@ -430,7 +434,23 @@ def build_concise_warning_text(
             if counties:
                 area = ", ".join(counties)
 
-    area_formatted = _area_with_state(area, ugc_codes or [])
+    if is_update and prev_area:
+        # Calculate cancels/continues
+        prev_parts = [c.strip() for c in re.split(r'[;,]\s*', prev_area) if c.strip()]
+        curr_parts = [c.strip() for c in re.split(r'[;,]\s*', area) if c.strip()]
+        
+        prev_set = set(prev_parts)
+        curr_set = set(curr_parts)
+        
+        cancelled = sorted([c for c in prev_parts if c in (prev_set - curr_set)])
+        continuing = sorted([c for c in curr_parts if c in curr_set])
+        
+        if cancelled:
+            area_formatted = f" (**cancels** {', '.join(cancelled)}, **continues** {', '.join(continuing)})"
+        else:
+            area_formatted = f" for {_area_with_state(area, ugc_codes or [])}"
+    else:
+        area_formatted = f" for {_area_with_state(area, ugc_codes or [])}"
 
     # 4. Expiration time (VTEC end field: '260428T0530Z')
     expires_str = ""
@@ -457,7 +477,10 @@ def build_concise_warning_text(
     unix_ts = _vtec_unix_ts(vtec)
     linked_verb = f"[{action_verb} {display_event}]({vtec_link})"
 
-    return f"{office} {linked_verb}{tag_str} for {area_formatted}{expires_str}{narrative}\n[<t:{unix_ts}:R>]"
+    # Period after area block for updates
+    suffix = "." if is_update else ""
+
+    return f"{office} {linked_verb}{tag_str}{area_formatted}{expires_str}{suffix}{narrative}\n[<t:{unix_ts}:R>]"
 
 
 def _extract_narrative(raw: str) -> Optional[str]:
@@ -626,9 +649,20 @@ class WarningsCog(commands.Cog):
             msg = await channel.send(embed=embed, files=files)
             logger.info(f"[WARN] Posted (iembot) {event} {vtec_id}")
             # Update the in-memory mapping with the message info
+            area_desc = ""
+            if "properties" in vtec: # iembot path doesn't usually have this
+                 pass # extracted logic needed?
+            # Actually, area_desc was returned by _post_warning in NWS API path.
+            # iembot path is NEW only for now.
+            
+            # Simple area extraction for iembot path persistence
+            area_m = re.search(r"for (.+?) till", concise_text)
+            area_desc = area_m.group(1) if area_m else "affected area"
+
             self.bot.state.posted_warnings[vtec_id] = {
                 "message_id": msg.id,
                 "channel_id": msg.channel.id,
+                "area": area_desc,
             }
         except discord.HTTPException as e:
             # Roll back the dedup claim on a hard send failure
@@ -640,7 +674,7 @@ class WarningsCog(commands.Cog):
             return
 
         try:
-            await add_posted_warning(vtec_id, msg.id, msg.channel.id, time.time())
+            await add_posted_warning(vtec_id, msg.id, msg.channel.id, time.time(), area=area_desc)
             await prune_posted_warnings()
         except Exception as e:
             logger.warning(f"[WARN] Failed to persist {vtec_id}: {e}")
@@ -990,6 +1024,28 @@ class WarningsCog(commands.Cog):
                 # Still active, ensures it stays in the active set
                 if issuance_id not in self.bot.state.active_warnings:
                     self.bot.state.active_warnings[issuance_id] = vtec_dict
+                
+                # Check for area change (partial cancellation) on CON products
+                if vtec_dict["action"] == "CON":
+                    stored_info = self.bot.state.posted_warnings[issuance_id]
+                    prev_area = stored_info.get("area", "")
+                    curr_area = props.areaDesc or ""
+                    
+                    if prev_area and curr_area and prev_area != curr_area:
+                        # Area changed - likely a partial cancellation
+                        try:
+                            await self._post_warning(feature, channel, vtec_dict, event, is_update=True)
+                        except discord.HTTPException as e:
+                            logger.exception(f"[WARN] Update send failed for {issuance_id}: {e}")
+                        
+                        # Update stored area so we don't spam updates for every poll
+                        self.bot.state.posted_warnings[issuance_id]["area"] = curr_area
+                        await add_posted_warning(
+                            issuance_id, 
+                            stored_info["message_id"], 
+                            stored_info["channel_id"], 
+                            area=curr_area
+                        )
                 continue
 
             if vtec_dict["action"] != "NEW":
@@ -1005,9 +1061,10 @@ class WarningsCog(commands.Cog):
             self.bot.state.posted_warnings[issuance_id] = {
                 "message_id": msg.id,
                 "channel_id": msg.channel.id,
+                "area": area_desc,
             }
             try:
-                await add_posted_warning(issuance_id, msg.id, msg.channel.id, time.time())
+                await add_posted_warning(issuance_id, msg.id, msg.channel.id, time.time(), area=area_desc)
                 await prune_posted_warnings()
             except Exception as e:
                 logger.warning(
@@ -1035,6 +1092,7 @@ class WarningsCog(commands.Cog):
         channel: discord.abc.Messageable,
         vtec: dict,
         event: str,
+        is_update: bool = False,
     ) -> Tuple[discord.Message, str]:
         props = feature.properties
         description = props.description or ""
@@ -1044,8 +1102,14 @@ class WarningsCog(commands.Cog):
 
         ugc_codes = (props.geocode.UGC or []) if props.geocode else []
         area_desc = _area_with_state(props.areaDesc or "", ugc_codes)
+        
+        prev_area = ""
+        if is_update:
+            prev_area = self.bot.state.posted_warnings.get(vtec_id, {}).get("area", "")
+
         concise_text = build_concise_warning_text(
-            display_event, vtec, feature=feature.model_dump(), ugc_codes=ugc_codes
+            display_event, vtec, feature=feature.model_dump(), ugc_codes=ugc_codes,
+            is_update=is_update, prev_area=prev_area
         )
 
         # Log significant events (tornadoes, hail, wind) to DB
