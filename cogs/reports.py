@@ -169,42 +169,6 @@ class ReportsCog(commands.Cog):
                     source=office,
                     raw_text=remarks,
                 )
-            elif "HAIL" in event_upper:
-                m_mag = re.search(r"[ME]([\d.]+)", r)
-                if m_mag:
-                    try:
-                        size = float(m_mag.group(1))
-                        if size >= 3.0:
-                            await add_significant_event(
-                                event_id=f"IEM:LSR:{product_id}:hail",
-                                event_type="Hail",
-                                location=location,
-                                magnitude=f"{size:.2f} Inch",
-                                coords=coords,
-                                timestamp=lsr_ts,
-                                source=office,
-                                raw_text=remarks,
-                            )
-                    except ValueError:
-                        pass
-            elif "WND" in event_upper or "WIND" in event_upper:
-                m_mag = re.search(r"[ME]([\d.]+)", r)
-                if m_mag:
-                    try:
-                        speed = float(m_mag.group(1))
-                        if speed >= 80:
-                            await add_significant_event(
-                                event_id=f"IEM:LSR:{product_id}:wind",
-                                event_type="Wind",
-                                location=location,
-                                magnitude=f"{speed} MPH",
-                                coords=coords,
-                                timestamp=lsr_ts,
-                                source=office,
-                                raw_text=remarks,
-                            )
-                    except ValueError:
-                        pass
 
             await channel.send(embed=embed)
 
@@ -415,13 +379,8 @@ class ReportsCog(commands.Cog):
                 # Check significance
                 is_sig = False
                 typetext = props.get("typetext", "").upper()
-                mag = props.get("magf", 0)
                 
                 if typetext == "TORNADO":
-                    is_sig = True
-                elif typetext == "HAIL" and mag >= 3.0:
-                    is_sig = True
-                elif "WIND" in typetext and mag >= 80:
                     is_sig = True
                 
                 if is_sig:
@@ -446,19 +405,10 @@ class ReportsCog(commands.Cog):
                         event_type = "Tornado"
                         magnitude = "Confirmed"
                         event_id = f"IEM:LSR:{pid}"
-                    elif typetext == "HAIL":
-                        event_type = "Hail"
-                        magnitude = f"{mag:.2f} Inch"
-                        event_id = f"IEM:LSR:{pid}:hail"
-                    else:
-                        event_type = "Wind"
-                        magnitude = f"{int(mag)} MPH"
-                        event_id = f"IEM:LSR:{pid}:wind"
 
-                    # Dedup for tornadoes: if the iembot fast-path already logged
-                    # this event, update that entry with the cleaner GeoJSON
-                    # location ("City, ST") rather than skipping entirely.
-                    if event_type == "Tornado":
+                        # Dedup for tornadoes: if the iembot fast-path already logged
+                        # this event, update that entry with the cleaner GeoJSON
+                        # location ("City, ST") rather than skipping entirely.
                         from utils.state_store import find_matching_tornado  # noqa: PLC0415
                         match_id = await find_matching_tornado(office, ts, location, window_hours=1.0)
                         if match_id:
@@ -477,20 +427,20 @@ class ReportsCog(commands.Cog):
                             await add_posted_report(pid)
                             continue
 
-                    await add_significant_event(
-                        event_id=event_id,
-                        event_type=event_type,
-                        location=location,
-                        magnitude=magnitude,
-                        coords=f"{props.get('lat')}N {abs(props.get('lon'))}W",
-                        timestamp=ts,
-                        source=office,
-                        raw_text=props.get("remark"),
-                    )
-                    # Persist dedup
-                    self.bot.state.posted_reports.add(pid)
-                    await add_posted_report(pid)
-                    await prune_posted_reports()
+                        await add_significant_event(
+                            event_id=event_id,
+                            event_type=event_type,
+                            location=location,
+                            magnitude=magnitude,
+                            coords=f"{props.get('lat')}N {abs(props.get('lon'))}W",
+                            timestamp=ts,
+                            source=office,
+                            raw_text=props.get("remark"),
+                        )
+                        # Persist dedup
+                        self.bot.state.posted_reports.add(pid)
+                        await add_posted_report(pid)
+                        await prune_posted_reports()
 
         except Exception as e:
             logger.warning(f"[REPORTS] LSR poll failed: {e}")

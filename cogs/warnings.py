@@ -684,7 +684,7 @@ class WarningsCog(commands.Cog):
             logger.warning(f"[WARN] Failed to persist {vtec_id}: {e}")
 
     async def _check_and_log_significant_event(self, event: str, raw_text: str, vtec: dict):
-        """Parse warning text for confirmed tornadoes or high-end hail/wind and log to DB."""
+        """Parse warning text for confirmed tornadoes and log to DB."""
         text_upper = (raw_text or "").upper()
         vtec_id = vtec.get("vtec_id", "Unknown")
         
@@ -724,42 +724,6 @@ class WarningsCog(commands.Cog):
                 raw_text=raw_text
             )
             logger.info(f"[WARN] Logged confirmed tornado for {vtec_id} (match: {match_id is not None})")
-
-        # 2. High-end Hail (>= 3.00 IN)
-        m_hail = re.search(r"HAIL\.\.\.?([\d\.]+)\s*IN", text_upper)
-        if m_hail:
-            try:
-                size = float(m_hail.group(1))
-                if size >= 3.0:
-                    await add_significant_event(
-                        event_id=f"NWS:WARN:HAIL:{vtec_id}",
-                        event_type="Hail",
-                        location="Affected Area",
-                        magnitude=f"{size} IN",
-                        vtec_id=vtec_id,
-                        source=vtec.get("office", "NWS"),
-                        raw_text=raw_text
-                    )
-            except ValueError:
-                pass
-
-        # 3. High-end Wind (>= 80 MPH)
-        m_wind = re.search(r"WIND\.\.\.?([\d\.]+)\s*MPH", text_upper)
-        if m_wind:
-            try:
-                speed = float(m_wind.group(1))
-                if speed >= 80.0:
-                    await add_significant_event(
-                        event_id=f"NWS:WARN:WIND:{vtec_id}",
-                        event_type="Wind",
-                        location="Affected Area",
-                        magnitude=f"{speed} MPH",
-                        vtec_id=vtec_id,
-                        source=vtec.get("office", "NWS"),
-                        raw_text=raw_text
-                    )
-            except ValueError:
-                pass
 
     @app_commands.command(name="recenttornadoes", description="List confirmed tornadoes from recent warnings and reports")
     @app_commands.describe(range="Time range to look back")
