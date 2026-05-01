@@ -680,7 +680,8 @@ class SoundingCog(commands.Cog):
         # ── Phase 1: gather IEM availability for all stations concurrently ──
         async def _check_avail(station):
             sid = station.get("icao") or station.get("wmo")
-            avail = await get_available_sounding_times_iem(sid, hours_back=24, skip_cache=True)
+            # Use skip_cache=False to utilize any data cached by prewarm_soundings_for_md
+            avail = await get_available_sounding_times_iem(sid, hours_back=24, skip_cache=False)
             if not avail:
                 return None
             y, mo, d, h = avail[0]

@@ -36,6 +36,7 @@ finally:
 
 from utils.state_store import get_state, set_state  # noqa: E402  # follows sounderpy import
 from utils.geo import haversine
+from utils.http import http_get_json
 
 # ProcessPoolExecutor for parallel sounding plots. Each worker process gets
 # its own matplotlib instance so plots run concurrently without lock contention.
@@ -517,17 +518,11 @@ async def fetch_iem_sounding(station_id: str, year: str, month: str,
     Falls back to SounderPy (Wyoming) if IEM fails.
     """
     ts = f"{year}-{month}-{day}T{hour}:00:00Z"
+    url = f"{IEM_RAOB_URL}?station={station_id}&ts={ts}"
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                IEM_RAOB_URL,
-                params={"station": station_id, "ts": ts},
-                headers={"User-Agent": USER_AGENT},
-                timeout=aiohttp.ClientTimeout(total=15),
-            ) as resp:
-                if resp.status != 200:
-                    return None
-                data = await resp.json()
+        data = await http_get_json(url, retries=1, timeout=15)
+        if not data:
+            return None
 
         profiles = data.get("profiles", [])
         if not profiles or not profiles[0].get("profile"):
@@ -572,17 +567,11 @@ async def get_available_sounding_times_iem(
 
     async def check_hour(dt: datetime) -> Optional[tuple]:
         ts = dt.strftime("%Y-%m-%dT%H:00:00Z")
+        url = f"{IEM_RAOB_URL}?station={station_id}&ts={ts}"
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    IEM_RAOB_URL,
-                    params={"station": station_id, "ts": ts},
-                    headers={"User-Agent": USER_AGENT},
-                    timeout=aiohttp.ClientTimeout(total=8),
-                ) as resp:
-                    if resp.status != 200:
-                        return None
-                    data = await resp.json()
+            data = await http_get_json(url, retries=1, timeout=8)
+            if not data:
+                return None
             profiles = data.get("profiles", [])
             if profiles and profiles[0].get("profile"):
                 return (
