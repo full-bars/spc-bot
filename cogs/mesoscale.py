@@ -72,13 +72,24 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> List[str]:
                 retries=2, timeout=15
             )
             if text:
-                # Find all discussion numbers in the concatenated text block
+                # Find all discussion numbers that were issued TODAY (UTC)
                 md_nums = set()
-                matches = re.findall(r"MESOSCALE DISCUSSION\s+(\d+)", text, re.IGNORECASE)
-                for m in matches:
-                    md_nums.add(m.zfill(4))
+                # Split by the WMO header (ACUS11 KWNS) which precedes each MD
+                products = re.split(r"(?m)^ACUS11 KWNS\s+\d{6}", text)
                 
-                logger.info(f"[MD] IEM fallback returned {len(md_nums)} MDs")
+                today_utc = datetime.now(timezone.utc).strftime("%d") # e.g. "30"
+                
+                # The regex approach in the previous step was too broad.
+                # Let's find matches and ensure they belong to the current day.
+                # Format: SPC MCD 302047 
+                for p in products:
+                    m_day = re.search(r"SPC MCD (\d{2})\d{4}", p)
+                    if m_day and m_day.group(1) == today_utc:
+                        m_num = re.search(r"MESOSCALE DISCUSSION\s+(\d+)", p, re.I)
+                        if m_num:
+                            md_nums.add(m_num.group(1).zfill(4))
+                
+                logger.info(f"[MD] IEM fallback returned {len(md_nums)} MDs for today (UTC)")
                 return sorted(list(md_nums), reverse=True)
             else:
                 logger.warning("[MD] IEM fallback returned empty text")
