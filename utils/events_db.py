@@ -82,12 +82,12 @@ async def _create_tables(db: aiosqlite.Connection) -> None:
     try:
         await db.execute("ALTER TABLE significant_events ADD COLUMN dat_guid TEXT")
     except Exception:
-        pass
+        logger.debug("Migration already applied: dat_guid column exists")
 
     try:
         await db.execute("ALTER TABLE significant_events ADD COLUMN lead_time REAL")
     except Exception:
-        pass
+        logger.debug("Migration already applied: lead_time column exists")
 
 
 # ── Writes ───────────────────────────────────────────────────────────────────
