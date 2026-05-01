@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.6.5] — 2026-04-30
+
+### Fixed
+- **Midnight Mass Cancellations.** Fixed a logic bug where active MDs from the previous day were suddenly filtered out of the IEM fallback at 00:00 UTC (7:00 PM CDT). The bot now uses a rolling 24-hour lookback to ensure continuity across the midnight flip.
+
 ## [5.6.4] — 2026-04-30
 
 ### Added
