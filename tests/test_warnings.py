@@ -220,15 +220,17 @@ async def test_post_warning_now_dedups_against_posted_set(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_post_warning_now_skips_non_NEW_actions(monkeypatch):
-    """SVS / CON / CAN updates arrive via the same iembot stream but
-    aren't initial issuances — PR B only handles NEW. Updates land in
-    PR D."""
-    cog = _make_cog()
+async def test_post_warning_now_posts_CON_updates(monkeypatch):
+    """SVS / CON / EXT updates arrive via the same iembot stream and
+    should be posted as updates if the original issuance was seen."""
+    vtec_id = "KOUN.SV.W.0042"
+    mapping = {vtec_id: {"message_id": 123, "channel_id": 456, "area": "Noble"}}
+    cog = _make_cog(posted=mapping)
 
     import cogs.warnings as warnings_mod
     monkeypatch.setattr(warnings_mod, "add_posted_warning", AsyncMock())
     monkeypatch.setattr(warnings_mod, "prune_posted_warnings", AsyncMock())
+    monkeypatch.setattr(warnings_mod, "_download_warning_image", AsyncMock(return_value=None))
 
     con_text = SAMPLE_RAW.replace(
         "/O.NEW.KOUN.SV.W.0042.", "/O.CON.KOUN.SV.W.0042."
@@ -238,8 +240,11 @@ async def test_post_warning_now_skips_non_NEW_actions(monkeypatch):
         con_text,
         "Severe Thunderstorm Warning",
     )
-    cog.bot.get_channel.return_value.send.assert_not_called()
-    assert "KOUN.SV.W.0042" not in cog.bot.state.posted_warnings
+    
+    channel = cog.bot.get_channel.return_value
+    channel.send.assert_called_once()
+    embed = channel.send.call_args.kwargs["embed"]
+    assert "updates Severe Thunderstorm Warning" in embed.description
 
 
 @pytest.mark.asyncio

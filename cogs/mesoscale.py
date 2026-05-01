@@ -648,14 +648,19 @@ class MesoscaleCog(commands.Cog):
                 self._missing_confirmation.pop(num, None)
 
             if diff:
-                # Shield 1: If more than 3 disappear at once, it's likely an index sync error
-                if len(diff) > 3:
+                # Update missing confirmations for all vanished MDs
+                for md_num in diff:
+                    self._missing_confirmation[md_num] = self._missing_confirmation.get(md_num, 0) + 1
+
+                # Shield 1: If more than 3 disappear at once, it's likely an index sync error.
+                # Suppress the entire cycle UNLESS they have been missing for 2+ consecutive checks.
+                max_misses = max(self._missing_confirmation.get(md_num, 0) for md_num in diff)
+                if len(diff) > 3 and max_misses < 2:
                     logger.warning(f"[MD] Mass disappearance detected ({len(diff)} MDs) — suppressing as index lag")
                     return
 
                 for md_num in list(diff):
                     # Shield 2: Require 2 consecutive misses before posting cancellation
-                    self._missing_confirmation[md_num] = self._missing_confirmation.get(md_num, 0) + 1
                     if self._missing_confirmation[md_num] < 2:
                         logger.info(f"[MD] MD #{md_num} missing (count {self._missing_confirmation[md_num]}) — awaiting confirmation")
                         continue

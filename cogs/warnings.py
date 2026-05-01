@@ -139,6 +139,8 @@ _WARNING_STYLE = {
     "Tornado Warning":             ("🌪️", discord.Color.red()),
     "Severe Thunderstorm Warning": ("⛈️", discord.Color.gold()),
     "Flash Flood Warning":         ("🌊", discord.Color.dark_blue()),
+    "Severe Weather Statement":    ("⛈️", discord.Color.gold()),
+    "Flash Flood Statement":       ("🌊", discord.Color.dark_blue()),
     "Special Weather Statement":   ("☁️", discord.Color.blue()),
 }
 
@@ -884,21 +886,36 @@ class WarningsCog(commands.Cog):
                 self.bot.state.active_warnings.pop(vtec_id, None)
             return
 
-        if action != "NEW":
+        # ── Pipeline fast-path for updates (CON, EXT, EXA) ─────────────────────
+        is_update = action in ("CON", "EXT", "EXA")
+        
+        # We only treat it as an update if we have actually posted the issuance.
+        # Otherwise (e.g. startup discovery), it proceeds as an issuance.
+        if is_update and vtec_id not in self.bot.state.posted_warnings:
+            is_update = False
+
+        if not is_update and action != "NEW":
             return
 
-        if vtec_id in self.bot.state.posted_warnings:
+        if not is_update and vtec_id in self.bot.state.posted_warnings:
             return
+
         # Claim the dedup key BEFORE the (possibly slow) Discord send so
         # a concurrent NWS API poll can't double-post.
-        self.bot.state.posted_warnings[vtec_id] = {} # placeholder
+        if not is_update:
+            self.bot.state.posted_warnings[vtec_id] = {} # placeholder
+        
         self.bot.state.active_warnings[vtec_id] = vtec
 
         # Log significant events (tornadoes, hail, wind) to DB
         await self._check_and_log_significant_event(event, raw_text, vtec)
 
         emoji, display_event, color, footer_id = get_warning_style(event, raw_text)
-        concise_text = build_concise_warning_text(display_event, vtec, raw_text=raw_text)
+        
+        prev_area = self.bot.state.posted_warnings.get(vtec_id, {}).get("area", "")
+        concise_text = build_concise_warning_text(
+            display_event, vtec, raw_text=raw_text, is_update=is_update, prev_area=prev_area
+        )
 
         embed = discord.Embed(
             title=f"{emoji} {display_event}",
@@ -923,15 +940,9 @@ class WarningsCog(commands.Cog):
 
         try:
             msg = await channel.send(embed=embed, files=files)
-            logger.info(f"[WARN] Posted (iembot) {event} {vtec_id}")
-            # Update the in-memory mapping with the message info
-            area_desc = ""
-            if "properties" in vtec: # iembot path doesn't usually have this
-                 pass # extracted logic needed?
-            # Actually, area_desc was returned by _post_warning in NWS API path.
-            # iembot path is NEW only for now.
+            logger.info(f"[WARN] Posted (iembot) {event} {vtec_id} ({'Update' if is_update else 'Issuance'})")
             
-            # Simple area extraction for iembot path persistence
+            # Simple area extraction for persistence
             area_m = re.search(r"for (.+?) till", concise_text)
             area_desc = area_m.group(1) if area_m else "affected area"
 
@@ -942,7 +953,7 @@ class WarningsCog(commands.Cog):
             }
         except discord.HTTPException as e:
             # Roll back the dedup claim on a hard send failure
-            if vtec_id in self.bot.state.posted_warnings:
+            if not is_update and vtec_id in self.bot.state.posted_warnings:
                 del self.bot.state.posted_warnings[vtec_id]
             logger.exception(
                 f"[WARN] iembot send failed for {vtec_id}: {e}"
