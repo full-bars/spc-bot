@@ -1,7 +1,5 @@
 """Unit tests for cogs.mesoscale — SPC MD monitoring and IEM fallbacks."""
 
-import json as _json
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
