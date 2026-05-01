@@ -5,7 +5,6 @@ Supports city names, radar site codes, and RAOB station IDs.
 """
 
 import asyncio
-import json
 import logging
 import os
 from datetime import datetime, timezone

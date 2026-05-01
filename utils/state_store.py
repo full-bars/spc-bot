@@ -82,7 +82,6 @@ every 5 min, both nodes):
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
 import os
@@ -738,7 +737,7 @@ async def get_posted_soundings() -> Set[str]:
 
 async def add_posted_sounding(pkey: str) -> None:
     """Mark a sounding as posted."""
-    _cache_add_to_set("posted_soundings", pkey)
+    _cache_invalidate("posted_soundings")
     await sqlite_backend.add_posted_sounding(pkey)
     try:
         await _upstash_cmd("SADD", "spcbot:posted_soundings", pkey)
@@ -770,7 +769,7 @@ async def get_sounding_handled_watches() -> Set[str]:
 
 async def add_sounding_handled_watch(watch_number: str) -> None:
     """Mark a watch as having soundings handled."""
-    _cache_add_to_set("sounding_handled_watches", watch_number)
+    _cache_invalidate("sounding_handled_watches")
     await sqlite_backend.add_sounding_handled_watch(watch_number)
     try:
         await _upstash_cmd("SADD", "spcbot:sounding_handled_watches", watch_number)

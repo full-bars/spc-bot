@@ -3,7 +3,7 @@ narrative extraction, the iembot fast-path entry point, and the NWS API
 _tick poll path (disappeared detection, CON area updates, initial discovery)."""
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import discord
 import pytest

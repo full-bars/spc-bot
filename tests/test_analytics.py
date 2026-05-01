@@ -1,6 +1,5 @@
 """Tests for cogs/analytics.py — IEM Autoplot URL construction and /verify."""
 
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timezone, timedelta
 
