@@ -130,24 +130,23 @@ async def fetch_md_details_iem(md_number: str) -> Tuple[Optional[str], Optional[
     summary = None
     raw_text = None
     try:
-        content, status = await http_get_bytes(
-            "https://mesonet.agron.iastate.edu/api/1/nwstext.json?product=MCD&limit=50",
-            retries=2, timeout=15
-        )
-        if content and status == 200:
-            data = json.loads(content)
-            for entry in data.get("data", []):
-                text = entry.get("data", "")
+        url = "https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=SWOMCD&limit=10"
+        text = await http_get_text(url, retries=2, timeout=15)
+        if text:
+            # The text block contains multiple MCDs; find the one we want
+            # Split by the WMO header (ACUS11 KWNS) which precedes each MD
+            products = re.split(r"(?m)^ACUS11 KWNS\s+\d{6}", text)
+            for p in products:
                 if (
-                    f"MESOSCALE DISCUSSION {num_int}" in text.upper()
-                    or f"MESOSCALE DISCUSSION {padded}" in text
+                    f"MESOSCALE DISCUSSION {num_int}" in p.upper()
+                    or f"MESOSCALE DISCUSSION {padded}" in p
                 ):
-                    raw_text = text
-                    concerning = re.search(r"(CONCERNING[^\n<]{10,120})", text, re.IGNORECASE)
+                    raw_text = p
+                    concerning = re.search(r"(CONCERNING[^\n<]{10,120})", p, re.IGNORECASE)
                     if concerning:
                         summary = concerning.group(1).strip()
                     else:
-                        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+                        lines = [ln.strip() for ln in p.splitlines() if ln.strip()]
                         summary = " ".join(lines[:3])[:200]
                     break
     except Exception as e:

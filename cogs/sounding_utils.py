@@ -517,6 +517,10 @@ async def fetch_iem_sounding(station_id: str, year: str, month: str,
     Fetch a sounding from IEM and convert to SounderPy clean_data format.
     Falls back to SounderPy (Wyoming) if IEM fails.
     """
+    # Skip 5-digit WMO IDs as IEM's json/raob.py has a 4-char limit
+    if station_id.isdigit() and len(station_id) > 4:
+        return None
+
     ts = f"{year}-{month}-{day}T{hour}:00:00Z"
     url = f"{IEM_RAOB_URL}?station={station_id}&ts={ts}"
     try:
@@ -566,6 +570,11 @@ async def get_available_sounding_times_iem(
             return cached_result
 
     async def check_hour(dt: datetime) -> Optional[tuple]:
+        # Skip 5-digit WMO IDs as IEM's json/raob.py has a 4-char limit
+        # and auto-prepends 'K' to numeric IDs, triggering 422 errors.
+        if station_id.isdigit() and len(station_id) > 4:
+            return None
+
         ts = dt.strftime("%Y-%m-%dT%H:00:00Z")
         url = f"{IEM_RAOB_URL}?station={station_id}&ts={ts}"
         try:
