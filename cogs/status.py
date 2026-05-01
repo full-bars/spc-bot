@@ -509,6 +509,26 @@ class StatusCog(commands.Cog):
             f"HTTP Session   : {'OK' if session_ok else 'CLOSED/MISSING'}"
         )
 
+        # --- Connectivity Section ---
+        nwws_status = "DISABLED"
+        nwws_cog = self.bot.get_cog("NWWSCog")
+        if nwws_cog and nwws_cog.xmpp_client:
+            xmpp_state = nwws_cog.xmpp_client.state.current
+            nwws_status = xmpp_state.upper()
+        elif nwws_cog:
+            nwws_status = "CONNECTING..." if self.bot.state.is_primary else "STANDBY"
+        
+        # IEMBot status from its task loop
+        iembot_status = "STOPPED"
+        iembot_cog = self.bot.get_cog("IEMBotCog")
+        if iembot_cog and iembot_cog.poll_iembot_feed.is_running():
+            iembot_status = "POLLING"
+        elif iembot_cog:
+            iembot_status = "STANDBY" if not self.bot.state.is_primary else "STOPPED"
+
+        lines.append(f"NWWS-OI (XMPP) : {nwws_status}")
+        lines.append(f"IEMBot Feed    : {iembot_status}")
+
         open_circuits = [
             h for h in _http.circuit_breaker.failures 
             if _http.circuit_breaker.is_open(h)
