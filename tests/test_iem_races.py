@@ -253,56 +253,25 @@ class TestSoundingDedupAcrossWatches:
         assert key_b in cog._posted_watch_soundings
 
     @pytest.mark.asyncio
-    async def test_persist_posted_state_writes_today_payload(self, monkeypatch):
-        """After posts, the dedup set is persisted to Upstash with today's
-        UTC date. On next cog_load we restore only if date matches, so the
-        set survives a restart but auto-resets at UTC rollover."""
-        import json as _json
-        from datetime import datetime, timezone
-        from cogs import sounding as sounding_module
-
-        captured = {}
-
-        async def fake_set_state(key, value):
-            captured["key"] = key
-            captured["value"] = value
-
-        monkeypatch.setattr(sounding_module, "set_state", fake_set_state)
-
-        cog = self._make_cog()
-        cog._posted_watch_soundings = {"raob:KOAX:2026-04-23_00z", "acars:OMA:20260423_20z"}
-        cog._handled_watches = {"0134", "0135"}
-
-        await cog._persist_posted_state()
-
-        assert captured["key"] == "posted_watch_soundings"
-        payload = _json.loads(captured["value"])
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        assert payload["date"] == today
-        assert set(payload["keys"]) == {
-            "raob:KOAX:2026-04-23_00z", "acars:OMA:20260423_20z"
-        }
-        assert set(payload["handled"]) == {"0134", "0135"}
-
-    @pytest.mark.asyncio
     async def test_cog_load_restores_todays_keys(self, monkeypatch):
         """A restart mid-event must restore the dedup set so we don't
         re-post every station that was already covered earlier today."""
-        import json as _json
         from datetime import datetime, timezone
         from cogs import sounding as sounding_module
 
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        payload = _json.dumps({
-            "date": today,
-            "keys": ["raob:KOAX:2026-04-23_00z", "acars:OMA:20260423_20z"],
-            "handled": ["0134", "0135"],
-        })
-
+        
         async def fake_get_state(key):
-            return payload if key == "posted_watch_soundings" else None
+            if key == "sounding_handled_date":
+                return today
+            return None
 
         monkeypatch.setattr(sounding_module, "get_state", fake_get_state)
+        monkeypatch.setattr(sounding_module, "get_posted_soundings", AsyncMock(return_value={
+            "raob:KOAX:2026-04-23_00z", "acars:OMA:20260423_20z"
+        }))
+        monkeypatch.setattr(sounding_module, "get_sounding_handled_watches", AsyncMock(return_value={"0134", "0135"}))
+        monkeypatch.setattr(sounding_module, "prune_posted_soundings", AsyncMock())
 
         cog = self._make_cog()
         await cog.cog_load()
@@ -313,66 +282,40 @@ class TestSoundingDedupAcrossWatches:
         assert cog._handled_watches == {"0134", "0135"}
 
     @pytest.mark.asyncio
-    async def test_cog_load_drops_stale_payload_from_yesterday(self, monkeypatch):
-        """At UTC rollover yesterday's dedup keys should NOT be loaded —
-        today's posts haven't happened yet and restoring them would
-        silently suppress the first real post of each station."""
-        import json as _json
+    async def test_cog_load_clears_stale_watches_on_new_day(self, monkeypatch):
+        """At UTC rollover yesterday's handled watches should be cleared."""
         from cogs import sounding as sounding_module
 
-        stale = _json.dumps({
-            "date": "1999-01-01",
-            "keys": ["raob:KOAX:1999-01-01_00z"],
-            "handled": ["9999"],
-        })
-
         async def fake_get_state(key):
-            return stale
+            if key == "sounding_handled_date":
+                return "1999-01-01"
+            return None
 
+        mock_clear = AsyncMock()
         monkeypatch.setattr(sounding_module, "get_state", fake_get_state)
+        monkeypatch.setattr(sounding_module, "set_state", AsyncMock())
+        monkeypatch.setattr(sounding_module, "clear_sounding_handled_watches", mock_clear)
+        monkeypatch.setattr(sounding_module, "get_posted_soundings", AsyncMock(return_value=set()))
+        monkeypatch.setattr(sounding_module, "get_sounding_handled_watches", AsyncMock(return_value=set()))
+        monkeypatch.setattr(sounding_module, "prune_posted_soundings", AsyncMock())
 
         cog = self._make_cog()
         await cog.cog_load()
 
-        assert cog._posted_watch_soundings == set()
-        assert cog._handled_watches == set()
-
-    @pytest.mark.asyncio
-    async def test_cog_load_tolerates_malformed_payload(self, monkeypatch):
-        """A garbled dedup blob must not crash cog_load."""
-        from cogs import sounding as sounding_module
-
-        async def fake_get_state(key):
-            return "{not valid json"
-
-        monkeypatch.setattr(sounding_module, "get_state", fake_get_state)
-
-        cog = self._make_cog()
-        await cog.cog_load()  # should not raise
-        assert cog._posted_watch_soundings == set()
+        mock_clear.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_ensure_restored_runs_cog_load_if_hook_missed(self, monkeypatch):
-        """v5.2.0 regression: in production the cog_load hook appeared
-        not to populate the sets, even though SQLite/Upstash had today's
-        state. `_ensure_restored` is the belt-and-suspenders that the
-        auto-post entry points call on every invocation so we lazy-load
-        even if discord.py's hook was elided."""
-        import json as _json
+        """Lazy-load state if discord.py's hook was elided."""
         from datetime import datetime, timezone
         from cogs import sounding as sounding_module
 
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        payload = _json.dumps({
-            "date": today,
-            "keys": ["raob:KOAX:2026-04-23_00z"],
-            "handled": ["0134"],
-        })
-
-        async def fake_get_state(key):
-            return payload
-
-        monkeypatch.setattr(sounding_module, "get_state", fake_get_state)
+        
+        monkeypatch.setattr(sounding_module, "get_state", AsyncMock(return_value=today))
+        monkeypatch.setattr(sounding_module, "get_posted_soundings", AsyncMock(return_value={"raob:KOAX:2026-04-23_00z"}))
+        monkeypatch.setattr(sounding_module, "get_sounding_handled_watches", AsyncMock(return_value={"0134"}))
+        monkeypatch.setattr(sounding_module, "prune_posted_soundings", AsyncMock())
 
         cog = self._make_cog()
         cog._restore_attempted = False  # simulate hook never fired
@@ -385,18 +328,14 @@ class TestSoundingDedupAcrossWatches:
 
     @pytest.mark.asyncio
     async def test_ensure_restored_is_idempotent(self, monkeypatch):
-        """Once restored, repeated calls must not re-read state_store.
-        Each `post_soundings_for_watch` call hits `_ensure_restored` so
-        this path runs many times per watch — it needs to be cheap."""
+        """Once restored, repeated calls must not re-read state_store."""
         from cogs import sounding as sounding_module
 
-        calls = {"n": 0}
-
-        async def counting_get_state(key):
-            calls["n"] += 1
-            return None
-
-        monkeypatch.setattr(sounding_module, "get_state", counting_get_state)
+        mock_get = AsyncMock(return_value=set())
+        monkeypatch.setattr(sounding_module, "get_posted_soundings", mock_get)
+        monkeypatch.setattr(sounding_module, "get_sounding_handled_watches", AsyncMock(return_value=set()))
+        monkeypatch.setattr(sounding_module, "get_state", AsyncMock(return_value=None))
+        monkeypatch.setattr(sounding_module, "prune_posted_soundings", AsyncMock())
 
         cog = self._make_cog()
         cog._restore_attempted = False
@@ -405,7 +344,7 @@ class TestSoundingDedupAcrossWatches:
         await cog._ensure_restored()
         await cog._ensure_restored()
 
-        assert calls["n"] == 1
+        assert mock_get.call_count == 1
 
 
 # ── Caption: all applicable active watches ─────────────────────────────────

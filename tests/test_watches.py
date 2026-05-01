@@ -218,6 +218,7 @@ async def test_post_watch_now_dedup_skips_already_posted():
 
     bot, channel = _make_watch_bot(posted_watches={"0102"})
     cog = WatchesCog.__new__(WatchesCog)
+    cog._pending_tasks = set()
     cog.bot = bot
 
     await cog.post_watch_now("0102", {"type": "SVR", "expires": None, "affected_zones": []})
@@ -232,6 +233,7 @@ async def test_post_watch_now_sends_and_marks_posted():
 
     bot, channel = _make_watch_bot()
     cog = WatchesCog.__new__(WatchesCog)
+    cog._pending_tasks = set()
     cog.bot = bot
 
     nws_info = {"type": "SVR", "expires": None, "affected_zones": []}
@@ -254,6 +256,7 @@ async def test_post_watch_now_no_channel_returns_early():
     bot, _ = _make_watch_bot()
     bot.get_channel.return_value = None
     cog = WatchesCog.__new__(WatchesCog)
+    cog._pending_tasks = set()
     cog.bot = bot
 
     await cog.post_watch_now("0102", {"type": "SVR", "expires": None, "affected_zones": []})
@@ -276,6 +279,7 @@ async def test_post_watch_now_dispatches_to_sounding_cog():
     }
 
     cog = WatchesCog.__new__(WatchesCog)
+    cog._pending_tasks = set()
     cog.bot = bot
 
     with patch("cogs.watches.fetch_watch_details", AsyncMock(return_value=(None, None, None))), \

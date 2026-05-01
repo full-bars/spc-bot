@@ -65,6 +65,7 @@ def test_to_dict_output_shape_unchanged():
         "csu_posted",
         "active_watches",
         "active_warnings",
+        "active_mds",
         "last_posted_urls",
 
         "last_post_times",
