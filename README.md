@@ -37,6 +37,7 @@ A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks
 |---|---|
 | `/status` | Node roles (Primary/Standby), real-time task health, RSS memory usage, feed sync state |
 | High availability | Leader election via Upstash lease; automatic Primary/Standby failover with no HTTP tunnel required |
+| Watchdog | Dual-endpoint session probe (`api.weather.gov` + IEM); operator alerts to dev channel at 2/3 failures and on session reset |
 
 ## Prerequisites
 
