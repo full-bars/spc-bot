@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.7.7] — 2026-04-30
+
+### Fixed
+- **CI & Linting (Stability).** Resolved multiple linting errors (unused imports, undefined methods) and repaired the unit test suite to align with the v5.7 persistence model. This ensures a clean green pass for all 339 tests in GitHub Actions.
+
 ## [5.7.6] — 2026-04-30
 
 ### Added
