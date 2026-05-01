@@ -66,30 +66,21 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> List[str]:
             logger.warning("[MD] SPC index unreachable — falling back to IEM for active MD list")
             _md_index_unreachable = True
         try:
-            # Fetch the raw text of the last 10 SWOMCD products
-            text = await http_get_text(
-                "https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=SWOMCD&limit=10",
-                retries=2, timeout=15
-            )
+            # Fetch the raw text of SWOMCD products from the last 24 hours
+            # Format: YYYY-MM-DD HH:MM
+            sts = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M")
+            url = f"https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=SWOMCD&limit=10&sdate={sts}"
+            
+            text = await http_get_text(url, retries=2, timeout=15)
             if text:
-                # Find all discussion numbers that were issued TODAY (UTC)
+                # Find all discussion numbers in the concatenated text block.
+                # Since we filtered by sdate, everything in the response is recent.
                 md_nums = set()
-                # Split by the WMO header (ACUS11 KWNS) which precedes each MD
-                products = re.split(r"(?m)^ACUS11 KWNS\s+\d{6}", text)
+                matches = re.findall(r"MESOSCALE DISCUSSION\s+(\d+)", text, re.IGNORECASE)
+                for m in matches:
+                    md_nums.add(m.zfill(4))
                 
-                today_utc = datetime.now(timezone.utc).strftime("%d") # e.g. "30"
-                
-                # The regex approach in the previous step was too broad.
-                # Let's find matches and ensure they belong to the current day.
-                # Format: SPC MCD 302047 
-                for p in products:
-                    m_day = re.search(r"SPC MCD (\d{2})\d{4}", p)
-                    if m_day and m_day.group(1) == today_utc:
-                        m_num = re.search(r"MESOSCALE DISCUSSION\s+(\d+)", p, re.I)
-                        if m_num:
-                            md_nums.add(m_num.group(1).zfill(4))
-                
-                logger.info(f"[MD] IEM fallback returned {len(md_nums)} MDs for today (UTC)")
+                logger.info(f"[MD] IEM fallback returned {len(md_nums)} MDs from last 24h")
                 return sorted(list(md_nums), reverse=True)
             else:
                 logger.warning("[MD] IEM fallback returned empty text")
