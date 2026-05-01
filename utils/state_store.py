@@ -101,7 +101,6 @@ UPSTASH_URL = os.getenv("UPSTASH_REDIS_REST_URL", "")
 UPSTASH_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
 
 CACHE_TTL_SECONDS = 60.0
-RECONCILER_INTERVAL_SECONDS = 30.0
 UPSTASH_TIMEOUT_SECONDS = 5.0
 
 # Key prefixes — single source of truth. Never construct a key manually;
@@ -241,72 +240,18 @@ def invalidate_all_caches() -> None:
     logger.info("[STATE] Process cache invalidated")
 
 
-# ── Reconciler (dirty-key retry) ─────────────────────────────────────────────
+# ── Dirty queue (promotion/startup sync) ───────────────────────────────────
 
 # Each entry describes an Upstash write that needs to be retried. `op`
 # is one of: "set_hash", "add_posted_md", "add_posted_watch", "add_posted_warning",
 # "set_state", "delete_state", "set_posted_urls", "set_product_cache".
 # `args` are the user-facing arguments to the corresponding public
-# function (NOT the Upstash command args) so the reconciler replays
-# through the normal write path.
-_reconciler_task: Optional[asyncio.Task] = None
-
+# function (NOT the Upstash command args).
 
 async def _enqueue_dirty(op: str, args: tuple) -> None:
     """Remember a write that failed to reach Upstash. Persists to SQLite
-    so it survives restarts and prevents standby nodes from overwriting
-    Upstash with stale data on promotion."""
+    so it survives restarts and can be re-played on next promotion."""
     await sqlite_backend.add_dirty_write(op, args)
-    _start_reconciler_if_needed()
-
-
-def _start_reconciler_if_needed() -> None:
-    global _reconciler_task
-    if _reconciler_task is None or _reconciler_task.done():
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return  # no loop (e.g. during import-time); will start on first await
-        _reconciler_task = loop.create_task(_reconciler_loop())
-        logger.info("[STATE] Reconciler started")
-
-
-async def _reconciler_loop() -> None:
-    """Retry queued dirty writes on a timer until the queue drains."""
-    while True:
-        try:
-            await asyncio.sleep(RECONCILER_INTERVAL_SECONDS)
-            pending = await sqlite_backend.get_dirty_writes()
-            if not pending:
-                return  # exit; re-start on next _enqueue_dirty
-
-            ids_to_delete = []
-            for item in pending:
-                op, args, write_id = item["op"], item["args"], item["id"]
-                try:
-                    # Re-pack list args into tuple as expected by _replay
-                    await _replay(op, tuple(args))
-                    ids_to_delete.append(write_id)
-                except _UpstashUnavailable:
-                    # Upstash still down; stop this batch and wait for next interval
-                    break
-                except Exception as e:
-                    logger.exception(
-                        f"[STATE] Reconciler dropped write {op}{args}: {e}"
-                    )
-                    ids_to_delete.append(write_id)
-
-            if ids_to_delete:
-                await sqlite_backend.delete_dirty_writes_batch(ids_to_delete)
-                logger.info(
-                    f"[STATE] Reconciler: caught up {len(ids_to_delete)} writes"
-                )
-
-            # If we didn't finish everything, we'll hit it next interval.
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            logger.exception(f"[STATE] Reconciler loop error: {e}")
 
 
 async def _replay(op: str, args: tuple) -> None:
@@ -357,9 +302,8 @@ async def _replay(op: str, args: tuple) -> None:
 # ── Internal Upstash helpers (single-purpose wrappers) ───────────────────────
 
 async def _upstash_set_hash(url: str, hash_val: str, cache_type: str) -> None:
-    # We store the hash at a per-url key, and also in a per-type Hash
-    # so get_all_hashes() can bulk-load with a single HGETALL.
-    await _upstash_cmd("HSET", _k_hash_url_lookup(cache_type, url), url, hash_val)
+    # We store the hash in a per-type Hash so get_all_hashes() can bulk-load.
+    await _upstash_cmd("HSET", _k_hash_url_lookup(cache_type, ""), url, hash_val)
 
 
 # ── Public API — drop-in for utils.db ────────────────────────────────────────

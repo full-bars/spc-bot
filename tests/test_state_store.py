@@ -5,7 +5,7 @@ Three behaviours to pin down:
   2. Writes double-write to SQLite and Upstash; SQLite is authoritative
      for durability; Upstash failure does not raise.
   3. When Upstash is unavailable, reads fall back to SQLite and writes
-     enqueue for reconciliation.
+     enqueue for later resync (on startup or promotion).
 """
 
 import asyncio
@@ -27,9 +27,6 @@ async def _reset_module_state():
         await db.execute("DELETE FROM dirty_writes")
         await db.commit()
     
-    if state_store._reconciler_task is not None:
-        state_store._reconciler_task.cancel()
-    state_store._reconciler_task = None
     yield
     state_store._cache.clear()
     
@@ -38,10 +35,6 @@ async def _reset_module_state():
     async with sqlite_backend._LOCK:
         await db.execute("DELETE FROM dirty_writes")
         await db.commit()
-
-    if state_store._reconciler_task is not None:
-        state_store._reconciler_task.cancel()
-    state_store._reconciler_task = None
 
 
 @pytest.fixture
@@ -61,6 +54,7 @@ def upstash_mock(monkeypatch):
 
 # ── Cache semantics ──────────────────────────────────────────────────────────
 
+@pytest.mark.asyncio
 async def test_get_state_cache_hit_skips_upstash(isolated_db, upstash_mock):
     """Second read in the TTL window must not hit Upstash."""
     async def _responder(*args):
@@ -77,6 +71,7 @@ async def test_get_state_cache_hit_skips_upstash(isolated_db, upstash_mock):
     assert after == before, "second read should be served from cache"
 
 
+@pytest.mark.asyncio
 async def test_cache_expires_after_ttl(isolated_db, upstash_mock, monkeypatch):
     """Once the TTL elapses the next read must go to Upstash again."""
     async def _responder(*args):
@@ -93,6 +88,7 @@ async def test_cache_expires_after_ttl(isolated_db, upstash_mock, monkeypatch):
     assert upstash_mock.call_count == 2
 
 
+@pytest.mark.asyncio
 async def test_invalidate_all_caches_wipes_everything(isolated_db, upstash_mock):
     async def _responder(*args):
         return "v"
@@ -106,6 +102,7 @@ async def test_invalidate_all_caches_wipes_everything(isolated_db, upstash_mock)
 
 # ── Writes update cache immediately ──────────────────────────────────────────
 
+@pytest.mark.asyncio
 async def test_set_state_is_visible_locally_before_upstash_ack(
     isolated_db, upstash_mock
 ):
@@ -123,6 +120,7 @@ async def test_set_state_is_visible_locally_before_upstash_ack(
     assert upstash_mock.call_count == before, "cache should satisfy read"
 
 
+@pytest.mark.asyncio
 async def test_set_state_writes_to_sqlite_for_durability(
     isolated_db, upstash_mock
 ):
@@ -135,6 +133,7 @@ async def test_set_state_writes_to_sqlite_for_durability(
 
 # ── Upstash unavailable ──────────────────────────────────────────────────────
 
+@pytest.mark.asyncio
 async def test_read_falls_back_to_sqlite_when_upstash_down(isolated_db, monkeypatch):
     async def _raise(*args):
         raise state_store._UpstashUnavailable("simulated outage")
@@ -146,6 +145,7 @@ async def test_read_falls_back_to_sqlite_when_upstash_down(isolated_db, monkeypa
     assert await state_store.get_state("k") == "sqlite-only"
 
 
+@pytest.mark.asyncio
 async def test_write_during_outage_enqueues_for_reconcile(
     isolated_db, monkeypatch
 ):
@@ -165,47 +165,37 @@ async def test_write_during_outage_enqueues_for_reconcile(
     assert await sqlite_backend.get_state("k") == "v"
 
 
-async def test_reconciler_drains_queue_when_upstash_recovers(
-    isolated_db, monkeypatch
-):
-    """Queue the failure; restore Upstash; reconciler should clear the dirty list."""
-    # Shorten the reconciler tick so the test is fast.
-    monkeypatch.setattr(state_store, "RECONCILER_INTERVAL_SECONDS", 0.05)
-
-    # First write: Upstash down → queued.
+@pytest.mark.asyncio
+async def test_resync_drains_dirty_queue(isolated_db, monkeypatch):
+    """Verify that resync_to_upstash drains the dirty writes created during an outage."""
+    # 1. Simulate outage
     async def _fail(*args):
         raise state_store._UpstashUnavailable("down")
 
     monkeypatch.setattr(state_store, "_upstash_cmd", _fail)
     await state_store.set_state("k", "v")
+    
     dirty = await sqlite_backend.get_dirty_writes()
     assert len(dirty) == 1
-    assert dirty[0]["op"] == "set_state"
-    assert dirty[0]["args"] == ["k", "v"]
 
-    # Restore Upstash.
+    # 2. Upstash recovers; trigger manual resync
     calls: list = []
-
     async def _ok(*args):
         calls.append(args)
         return "OK"
 
     monkeypatch.setattr(state_store, "_upstash_cmd", _ok)
-
-    # Give the reconciler up to 1 s to catch up.
-    for _ in range(20):
-        await asyncio.sleep(0.06)
-        dirty = await sqlite_backend.get_dirty_writes()
-        if not dirty:
-            break
-
+    
+    await state_store.resync_to_upstash()
+    
     dirty = await sqlite_backend.get_dirty_writes()
-    assert dirty == []
-    assert any(c[0] == "SET" for c in calls), "reconciler should have SET the key"
+    assert len(dirty) == 0
+    assert any(c[0] == "SET" and c[2] == "v" for c in calls)
 
 
 # ── Bulk paths ───────────────────────────────────────────────────────────────
 
+@pytest.mark.asyncio
 async def test_get_posted_mds_bulk_load_cached(isolated_db, monkeypatch):
     async def _cmd(*args):
         if args[0] == "SMEMBERS":
@@ -219,6 +209,7 @@ async def test_get_posted_mds_bulk_load_cached(isolated_db, monkeypatch):
     assert first == {"0001", "0002"} == second
 
 
+@pytest.mark.asyncio
 async def test_add_posted_md_invalidates_cache(isolated_db, monkeypatch):
     async def _cmd(*args):
         if args[0] == "SMEMBERS":
@@ -241,6 +232,7 @@ async def test_add_posted_md_invalidates_cache(isolated_db, monkeypatch):
 
 # ── Posted URLs roundtrip ───────────────────────────────────────────────────
 
+@pytest.mark.asyncio
 async def test_posted_urls_roundtrip(isolated_db, monkeypatch):
     storage: dict = {}
 
@@ -263,6 +255,7 @@ async def test_posted_urls_roundtrip(isolated_db, monkeypatch):
 
 # ── Resync ──────────────────────────────────────────────────────────────────
 
+@pytest.mark.asyncio
 async def test_resync_pushes_sqlite_contents_to_upstash(isolated_db, monkeypatch):
     await sqlite_backend.add_posted_md("0100")
     await sqlite_backend.add_posted_watch("0200")
