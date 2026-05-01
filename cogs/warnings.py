@@ -772,6 +772,7 @@ class WarningsCog(commands.Cog):
         self.bot = bot
         self._backoff = TaskBackoff("auto_poll_warnings")
         self._validators = {"etag": "", "last_modified": ""}
+        self._cancelled_warnings: set[str] = set()
 
     async def cog_load(self):
         # Restore the dedup mapping so a restart during active wx doesn't
@@ -1137,8 +1138,10 @@ class WarningsCog(commands.Cog):
 
         try:
             await channel.send(embed=embed, files=files)
+            self._cancelled_warnings.add(vtec_id)
             logger.info(f"[WARN] Posted cancellation for {vtec_id}")
         except Exception as e:
+
             logger.warning(f"[WARN] Failed to post cancellation for {vtec_id}: {e}")
 
     @tasks.loop(seconds=30)
@@ -1217,6 +1220,11 @@ class WarningsCog(commands.Cog):
             if vtec_dict["action"] in ("NEW", "CON", "EXT", "UPG"):
                 current_vtec_ids.add(issuance_id)
 
+            # 1. Skip if we already processed this as cancelled in this session.
+            # This prevents mass-cancellation spam when the NWS index lags.
+            if issuance_id in self._cancelled_warnings:
+                continue
+
             if issuance_id in self.bot.state.posted_warnings:
                 # Still active, ensures it stays in the active set
                 if issuance_id not in self.bot.state.active_warnings:
@@ -1245,7 +1253,10 @@ class WarningsCog(commands.Cog):
                         )
                 continue
 
-            if vtec_dict["action"] != "NEW":
+            # 2. If NOT in posted_warnings, we should post it!
+            # Allow NEW, CON, EXT, and UPG to trigger initial discovery posts.
+            # This ensures we catch warnings issued while the bot was down/starting.
+            if vtec_dict["action"] not in ("NEW", "CON", "EXT", "UPG"):
                 continue
 
             try:
