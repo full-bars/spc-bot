@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.10.0] — 2026-05-01
+
+### Added
+- Watchdog session probe now checks both `api.weather.gov` and `mesonet.agron.iastate.edu`; a failure only counts when both are unreachable, preventing single-endpoint NWS outages from triggering unnecessary session resets.
+- Discord alerts posted to the dev channel at 2/3 probe failures (orange) and on session reset (red), giving operators advance notice before teardown fires.
+
+### Changed
+- `http_get_json` now uses Tenacity exponential backoff for retries, consistent with all other HTTP helpers.
+- Named timeout constants (`TIMEOUT_FAST`, `TIMEOUT_STANDARD`, `TIMEOUT_SLOW`) and circuit breaker params extracted as module-level constants in `utils/http.py`.
+
+### Fixed
+- LSR and PNS timestamp parse failures now log at `DEBUG` instead of silently discarding.
+- Already-applied DB migration steps now log at `DEBUG` instead of bare `pass`.
+
 ## [5.9.2] — 2026-05-01
 
 ### Fixed
