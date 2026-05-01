@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.7.9] — 2026-05-01
+
+### Fixed
+- **MD Mass-Cancellation Shield.** Implemented a multi-cycle verification system for Mesoscale Discussions. An MD must now be absent from the primary index for two consecutive poll cycles before a cancellation is posted. Additionally, any event where more than 3 MDs disappear simultaneously is suppressed as index lag, eliminating mass-cancellation spam during index synchronization flaps.
+
 ## [5.7.8] — 2026-04-30
 
 ### Changed
