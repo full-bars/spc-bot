@@ -327,7 +327,12 @@ async def test_fetch_md_numbers_deduplicates_repeated_numbers():
 
 @pytest.mark.asyncio
 async def test_fetch_md_numbers_spc_path_uses_head_cache():
-    """Unchanged SPC index (HEAD match) returns empty list without full fetch."""
+    """Unchanged SPC index (HEAD match) returns None without full fetch.
+
+    None is the skip-cycle sentinel — the caller treats it the same as both
+    sources failing, so no cancellations and no new-MD scans fire on a
+    no-change cycle.
+    """
     import cogs.mesoscale as md_mod
 
     # Seed a cached HEAD so the comparison can match
@@ -341,7 +346,7 @@ async def test_fetch_md_numbers_spc_path_uses_head_cache():
     })), patch("cogs.mesoscale.http_get_text") as mock_get:
         result, is_fallback = await fetch_latest_md_numbers(fresh=False)
 
-    assert result == []
+    assert result is None
     assert is_fallback is False
     mock_get.assert_not_called()
 
