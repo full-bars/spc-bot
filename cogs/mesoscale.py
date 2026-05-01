@@ -51,7 +51,7 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> Tuple[Optional[List[st
                     checks.append(meta[key] == _md_index_head.get(key))
             if checks and all(checks):
                 logger.debug("[MD] Index unchanged (HEAD match)")
-                return [], False
+                return None, False  # None → caller skips cycle entirely (no cancellations, no new-MD scan)
         if meta:
             _md_index_head.update(meta)
     else:
@@ -696,7 +696,12 @@ class MesoscaleCog(commands.Cog):
             for md_num in md_numbers:
                 if md_num in self._cancelled_mds:
                     continue  # SPC index flap — don't re-activate a cancelled MD
-                self.bot.state.active_mds.add(md_num)
+                # Only mark as active from the authoritative SPC index. IEM fallback
+                # returns historical MDs (up to 24h old) that may already be cancelled;
+                # adding them here poisons active_mds and triggers false cancellations
+                # the moment SPC comes back up.
+                if not is_fallback:
+                    self.bot.state.active_mds.add(md_num)
                 if md_num in self.bot.state.posted_mds:
                     continue
 
@@ -734,6 +739,9 @@ class MesoscaleCog(commands.Cog):
                         t = asyncio.create_task(self._upgrade_md_message(md_num, msg, full_text))
                         self._pending_tasks.add(t)
                         t.add_done_callback(self._pending_tasks.discard)
+                    # Track in active_mds after a successful post regardless of source —
+                    # we genuinely just announced this MD and need to cancel it later.
+                    self.bot.state.active_mds.add(md_num)
                     self.bot.state.posted_mds.add(md_num)
                     await add_posted_md(str(md_num))
                     await prune_posted_mds()
