@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.9.1] — 2026-05-01
+
+### Fixed
+- **MD Cancellation Spam (root cause).** Eliminated two bugs that caused already-cancelled Mesoscale Discussions to be repeatedly re-cancelled on every SPC index outage. The HEAD validator early-return now signals a skip-cycle (`None`) rather than an empty index (`[]`), preventing the cancellation diff from firing against an empty set. The IEM fallback loop no longer adds historical MDs to `active_mds`; only the authoritative SPC index populates that set, with newly posted MDs added to `active_mds` only after a confirmed Discord send.
+
 ## [5.9.0] — 2026-05-01
 
 ### Changed
