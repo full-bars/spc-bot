@@ -20,6 +20,21 @@ from utils.state_store import (
 
 logger = logging.getLogger("spc_bot")
 
+class PNSView(discord.ui.View):
+    def __init__(self, raw_text: str):
+        super().__init__(timeout=86400) # Long timeout for persistent posts
+        self.raw_text = raw_text
+
+    @discord.ui.button(label="📜 View Full Text", style=discord.ButtonStyle.secondary)
+    async def view_text(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Split text if it exceeds 2000 chars (unlikely for most, but just in case)
+        if len(self.raw_text) > 1950:
+            parts = [self.raw_text[i:i+1950] for i in range(0, len(self.raw_text), 1950)]
+            for i, p in enumerate(parts):
+                await interaction.response.send_message(f"```\n{p}\n```", ephemeral=True) if i == 0 else await interaction.followup.send(f"```\n{p}\n```", ephemeral=True)
+        else:
+            await interaction.response.send_message(f"```\n{self.raw_text}\n```", ephemeral=True)
+
 class ReportsCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -197,32 +212,49 @@ class ReportsCog(commands.Cog):
         if not channel:
             return
 
-        # Extract EF Rating
-        rating = "N/A"
-        m_rating = re.search(r"RATING:\s*(EF\-?\d+)", raw_text, re.I)
-        if m_rating:
-            rating = m_rating.group(1).upper()
+        # 1. Strip boilerplate (EF Scale key) to avoid false EF5 matches
+        search_text = raw_text
+        for stop_marker in ("&&", "EF SCALE:", "THE ENHANCED FUJITA SCALE"):
+            m_stop = re.search(re.escape(stop_marker), raw_text, re.I)
+            if m_stop:
+                search_text = raw_text[:m_stop.start()]
+                break
+
+        # 2. Extract All Ratings and find the Max
+        # Strictly match "Rating: EF{N}" to avoid legend matches
+        ratings = re.findall(r"Rating:\s*EF(\d|U)", search_text, re.I)
+        ef_nums = []
+        for r in ratings:
+            if r.upper() == "U":
+                ef_nums.append(-1) # Unknown
+            else:
+                ef_nums.append(int(r))
         
-        # Max Wind
-        # Location/Event
+        max_ef = max(ef_nums) if ef_nums else None
+        rating_str = f"EF{max_ef}" if max_ef is not None and max_ef >= 0 else ("EFU" if max_ef == -1 else "N/A")
+        
+        # 3. Location/Event Name
         m_event = re.search(r"\.\.\.(.*?)\.\.\.", raw_text)
         event_name = m_event.group(1).strip() if m_event else "NWS Damage Survey"
 
         office = product_id.split("-")[1] if "-" in product_id else "NWS"
         pns_url = f"https://mesonet.agron.iastate.edu/p.php?pid={product_id}"
         
+        # 4. Count total events in this product
+        total_tors = len(ef_nums)
+        tor_count_msg = f" ({total_tors} tornadoes)" if total_tors > 1 else ""
+
         # Snippet of the summary if available
-        m_summary = re.search(r"SUMMARY:\s*(.*?)(?=\n\s*\n|\$\$|$)", raw_text, re.I | re.DOTALL)
+        m_summary = re.search(r"SUMMARY:\s*(.*?)(?=\n\s*\n|\$\$|$)", search_text, re.I | re.DOTALL)
         summary_snippet = ""
         if m_summary:
             summary_snippet = m_summary.group(1).replace("\n", " ").strip()
-            if len(summary_snippet) > 200:
-                summary_snippet = summary_snippet[:197] + "..."
+            if len(summary_snippet) > 150:
+                summary_snippet = summary_snippet[:147] + "..."
 
         # Time extraction for PNS
         pns_ts = datetime.now(timezone.utc).timestamp()
         pns_time_str = "Unknown Time"
-        # Match: 508 PM CDT Wed Apr 29 2026
         m_time = re.search(r"(\d{1,2}:\d{2}\s+[AP]M\s+[A-Z]{3}.*?202\d)", raw_text, re.I)
         if m_time:
             pns_time_str = m_time.group(1).strip()
@@ -235,11 +267,12 @@ class ReportsCog(commands.Cog):
                 pass
 
         desc = (
-            f"{office} issues [Damage Survey PNS]({pns_url}) (Max: {rating}) at {pns_time_str} "
-            f"...{summary_snippet}...\n"
+            f"{office} issues [Damage Survey PNS]({pns_url}) (Max: {rating_str}){tor_count_msg} at {pns_time_str}\n"
+            f"> {summary_snippet if summary_snippet else 'Multi-event damage survey summary.'}\n"
             f"[<t:{int(pns_ts)}:R>]"
         )
 
+        view = PNSView(raw_text)
         embed = discord.Embed(
             description=desc,
             color=discord.Color.teal(),
@@ -247,7 +280,8 @@ class ReportsCog(commands.Cog):
         )
         embed.set_footer(text=f"{office} PNS | {product_id}")
         
-        await channel.send(embed=embed)
+        await channel.send(embed=embed, view=view)
+        
         self.bot.state.posted_reports.add(product_id)
         await add_posted_report(product_id)
         await prune_posted_reports()
@@ -290,18 +324,18 @@ class ReportsCog(commands.Cog):
         
         # Only log to significant events if it's a Tornado survey
         # (check event_name and rating)
-        is_tornado = "TORNADO" in event_name.upper() or rating.startswith("EF")
+        is_tornado = "TORNADO" in event_name.upper() or rating_str.startswith("EF")
         
         if is_tornado:
             if match:
                 event_id, vtec_id = match
-                logger.info(f"[REPORTS] Found matching tornado {event_id} for survey, updating rating to {rating}")
+                logger.info(f"[REPORTS] Found matching tornado {event_id} for survey, updating rating to {rating_str}")
                 # Update existing row by using the same event_id
                 await add_significant_event(
                     event_id=event_id,
                     event_type="Tornado",
                     location=event_name,
-                    magnitude=rating,
+                    magnitude=rating_str,
                     coords=coords,
                     timestamp=event_ts,
                     source=office,
@@ -313,7 +347,7 @@ class ReportsCog(commands.Cog):
                     event_id=f"IEM:PNS:{product_id}",
                     event_type="Tornado", # Log as Tornado so it shows in /recenttornadoes
                     location=event_name,
-                    magnitude=rating,
+                    magnitude=rating_str,
                     coords=coords,
                     timestamp=event_ts,
                     source=office,
