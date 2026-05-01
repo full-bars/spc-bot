@@ -60,10 +60,12 @@ class NWWSClient(ClientXMPP):
             if not body:
                 return
             
-            # NWWS-OI specific: product info often embedded in custom XML tags
-            # or in the first line of the body.
-            # Example first line: "TORNADO WARNING...NWS OKLAHOMA CITY OK"
-            # Or AFOS PIL: "TORENC"
+            # --- DEBUG LOGGING: Data Stream Analysis ---
+            # Capture a large sample (500 chars) to verify WMO/PIL headers
+            # and any hidden XML/Metadata.
+            sample = body.replace('\r', '').replace('\n', '\\n')[:500]
+            logger.info(f"[NWWS-DEBUG] RAW INGRESS (len={len(body)}): {sample}...")
+            # -------------------------------------------
             
             # We want to run the processing off the XMPP event loop
             asyncio.create_task(self._process_nwws_message(body))
