@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.6.6] — 2026-04-30
+
+### Fixed
+- **Warning Visibility.** Upgraded the backup poll to allow initial "discovery" posts for warnings that are already active (CON/EXT) if the real-time trigger was missed. This ensures 100% issuance visibility even during connection instability.
+- **Cancellation Spam.** Implemented a `_cancelled_warnings` tracking set to prevent repeated cancellation notices when the NWS API index lags or flaps.
+
 ## [5.6.5] — 2026-04-30
 
 ### Fixed
