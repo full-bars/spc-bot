@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.9.0] — 2026-05-01
+
+### Changed
+- **Sounding API Optimization.** Rewrote `get_available_sounding_times_iem` to use the centralized HTTP session pool. Previously, it spawned 25 separate `aiohttp` sessions per station check, causing massive connection spikes during high-risk sweeps.
+- **Outlook Scraper Optimization.** Updated `get_spc_urls` to cache and reuse `ETag` and `Last-Modified` headers. The bot now relies on HTTP 304 Not Modified responses rather than fully re-downloading and parsing the SPC HTML indices every 30 seconds.
+- **State Store Simplification.** Removed the active background reconciler task and the complex in-memory "dirty queue" from the shared state store. Nodes now employ a more efficient "Resync-on-Promotion" strategy, pushing pending SQLite writes to Upstash only when transitioning from Standby to Primary.
+- **Redundant Task Cleanup.** Removed `check_all_urls_exist_parallel` from the outlook polling loops, as the partial updates system correctly handles 404s natively.
+
+### Fixed
+- **Pre-warming Cache Restored.** Fixed a bug where `post_soundings_for_watch` ignored pre-warmed sounding data by forcing a cache bypass (`skip_cache=True`). It now correctly leverages the data pre-fetched by the mesoscale discussion monitor.
+
 ## [5.8.1] — 2026-05-01
 
 ### Fixed
