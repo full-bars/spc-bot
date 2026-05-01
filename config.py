@@ -27,10 +27,8 @@ CONFIG = {
     "spc_channel_id": _require_int("SPC_CHANNEL_ID"),
     "health_channel_id": int(os.getenv("HEALTH_CHANNEL_ID") or os.getenv("SPC_CHANNEL_ID")),
     "sounding_channel_id": int(os.getenv("SOUNDING_CHANNEL_ID") or os.getenv("SPC_CHANNEL_ID")),
-    # Test channel for warnings during dev. Override via env once we're
-    # ready to point this at production.
-    "warnings_channel_id": int(os.getenv("WARNINGS_CHANNEL_ID") or "1336294580743704607"),
-    "dev_channel_id": int(os.getenv("DEV_CHANNEL_ID") or "1336294580743704607"),
+    "warnings_channel_id": int(os.getenv("WARNINGS_CHANNEL_ID") or os.getenv("SPC_CHANNEL_ID")),
+    "dev_channel_id": int(os.getenv("DEV_CHANNEL_ID") or os.getenv("HEALTH_CHANNEL_ID") or os.getenv("SPC_CHANNEL_ID")),
     "manual_cache_file": os.getenv("MANUAL_CACHE_FILE", "posted_records.json"),
     "auto_cache_file": os.getenv("AUTO_CACHE_FILE", "auto_posted_records.json"),
     "guild_id": _require_int("GUILD_ID"),

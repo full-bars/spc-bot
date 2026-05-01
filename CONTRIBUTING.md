@@ -17,6 +17,7 @@ The following variables are required or optional in `.env`:
 | `WARNINGS_CHANNEL_ID` | (Optional) Receives real-time NWS warning embeds (TOR, SVR, FFW, SPS) and damage survey posts. Defaults to `SPC_CHANNEL_ID` if not set. |
 | `SOUNDING_CHANNEL_ID` | (Optional) Receives auto-posted sounding plots near active watches. Defaults to `SPC_CHANNEL_ID` if not set. |
 | `HEALTH_CHANNEL_ID` | (Optional) Receives bot health alerts (watchdog degraded, task failures). Defaults to `SPC_CHANNEL_ID` if not set. |
+| `DEV_CHANNEL_ID` | (Optional) Receives watchdog probe-degradation alerts (2/3 warning and session-reset confirmation). Defaults to `HEALTH_CHANNEL_ID` if not set. |
 
 Slash commands can be used from any channel — they always respond ephemerally
 or inline where invoked, not into the configured channels.
@@ -169,7 +170,7 @@ The `TaskBackoff` class in `utils/backoff.py` provides per-task exponential back
 
 A `watchdog_task` loop runs every 2 minutes. It:
 
-1. Probes the HTTP session with a lightweight request and recreates it if dead.
+1. Probes the HTTP session using two independent endpoints (`api.weather.gov` and `mesonet.agron.iastate.edu`). A failure only counts when **both** are unreachable — single-endpoint NWS outages are absorbed without action. At 2/3 consecutive dual-failures an orange warning embed is posted to `DEV_CHANNEL_ID`. At 3/3 the session is torn down and recreated, and a red confirmation embed is posted.
 2. Checks every registered task. If a task has stopped, it restarts it.
 3. After a threshold number of failures, posts a health alert embed to
    `SPC_CHANNEL_ID`. Watch and MD task failures are flagged as critical.
@@ -237,7 +238,7 @@ python -m pytest tests/ \
     --cov-report=term-missing
 ```
 
-The suite currently collects **342 tests**.
+The suite currently collects **343 tests**.
 
 Lint (same selection CI uses):
 
