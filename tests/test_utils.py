@@ -143,9 +143,9 @@ class TestSpcUrls:
             b"</script></html>"
         )
         with patch(
-            "utils.spc_urls.http_get_bytes",
+            "utils.spc_urls.http_get_bytes_conditional",
             new_callable=AsyncMock,
-            return_value=(fake_html, 200),
+            return_value=(fake_html, 200, None),
         ):
             urls = await get_spc_urls(1)
 
@@ -165,9 +165,9 @@ class TestSpcUrls:
             b"</script></html>"
         )
         with patch(
-            "utils.spc_urls.http_get_bytes",
+            "utils.spc_urls.http_get_bytes_conditional",
             new_callable=AsyncMock,
-            return_value=(fake_html, 200),
+            return_value=(fake_html, 200, None),
         ):
             urls = await get_spc_urls(3)
 
@@ -179,9 +179,9 @@ class TestSpcUrls:
         from utils.spc_urls import get_spc_urls
 
         with patch(
-            "utils.spc_urls.http_get_bytes",
+            "utils.spc_urls.http_get_bytes_conditional",
             new_callable=AsyncMock,
-            return_value=(None, 500),
+            return_value=(None, 500, None),
         ):
             urls = await get_spc_urls(1)
 
@@ -192,9 +192,9 @@ class TestSpcUrls:
 
         fake_html = b"<html><body>No tabs here</body></html>"
         with patch(
-            "utils.spc_urls.http_get_bytes",
+            "utils.spc_urls.http_get_bytes_conditional",
             new_callable=AsyncMock,
-            return_value=(fake_html, 200),
+            return_value=(fake_html, 200, None),
         ):
             urls = await get_spc_urls(1)
 
