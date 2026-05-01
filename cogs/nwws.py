@@ -182,21 +182,28 @@ class NWWSCog(commands.Cog):
                 self.xmpp_client.disconnect()
             return
 
-        if self.xmpp_client is None or self.xmpp_client.state.current == 'disconnected':
-            logger.info(f"[NWWS] Connecting to {NWWS_SERVER}...")
-            # NWWS-OI requires a plain JID: username@nwws-oi.weather.gov
-            jid = f"{NWWS_USER}@{NWWS_SERVER}"
-            self.xmpp_client = NWWSClient(jid, NWWS_PASSWORD, self.bot)
-            
-            # Connect in a separate thread to avoid blocking the event loop
-            # slixmpp.connect() is synchronous or needs a dedicated loop.
-            # We use use_ssl=True (standard for NWWS-OI).
-            try:
-                self.xmpp_client.connect(address=(NWWS_SERVER, 5222))
-                self.xmpp_client.process(forever=False) # Start the slixmpp loop
-            except Exception as e:
-                logger.error(f"[NWWS] Connection failed: {e}")
-                self.xmpp_client = None
+        # Avoid reconnecting if already connected or connecting
+        if self.xmpp_client is not None:
+            state = self.xmpp_client.state.current
+            if state in ('connected', 'connecting'):
+                return
+            if state != 'disconnected':
+                # Might be in session_start or similar, let it be
+                return
+
+        logger.info(f"[NWWS] Connecting to {NWWS_SERVER}...")
+        # NWWS-OI requires a plain JID: username@nwws-oi.weather.gov
+        jid = f"{NWWS_USER}@{NWWS_SERVER}"
+        self.xmpp_client = NWWSClient(jid, NWWS_PASSWORD, self.bot)
+        
+        # slixmpp.connect() is a synchronous-looking call that starts 
+        # async tasks on the current loop. DO NOT call process() as it 
+        # tries to run the loop again.
+        try:
+            self.xmpp_client.connect(address=(NWWS_SERVER, 5222))
+        except Exception as e:
+            logger.error(f"[NWWS] Connection failed: {e}")
+            self.xmpp_client = None
 
     @monitor_connection.before_loop
     async def before_monitor(self):
