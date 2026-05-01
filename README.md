@@ -16,7 +16,8 @@ A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks
 ### Real-time Alerts
 | Feature | Details |
 |---|---|
-| Watch Alerts | Tornado and severe thunderstorm watches via NWS API; IEM iembot fast-path for sub-second text delivery with persistent DB-backed pre-caching |
+| NWWS-OI (XMPP) | **Gold Standard** authority source; pushes raw NWS text products via XMPP with near-zero latency, beating API polling by up to 60s |
+| Watch Alerts | Tornado and severe thunderstorm watches via NWWS/IEM fast-paths; NWS API backup; persistent DB-backed pre-caching |
 | NWS Warnings | Immediate Tornado, Severe Tstorm, and Flash Flood warning posts with IEM Autoplot 208 maps; specialized PDS and Emergency formatting |
 | Update Pipeline | Real-time tracking of warning status changes (`CON`, `EXT`, `EXA`); automatically posts concise updates for storms changing intensity or moving into new counties; includes full support for Severe Weather Statements (`SVS`) and Flash Flood Statements (`FFS`) |
 | Tornado Dashboard | Single-card, chronological dashboard for `/recenttornadoes` and `/sigtor` with EF-rating distinctions, warning-to-report **Lead Time** tracking, and [Tornado Archive](https://tornadoarchive.com/) integration |

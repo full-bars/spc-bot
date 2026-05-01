@@ -145,6 +145,21 @@ scraping the SPC watch index HTML directly.
 
 `IEMBotCog` polls `weather.im/iembot-json/room/spcchat` every 15 seconds. When a new SEL (watch) or SWOMCD (MD) product appears, the full text is fetched from `mesonet.agron.iastate.edu/api/1/nwstext/{product_id}` and cached via `state_store.set_product_cache` with a 10-minute TTL (written to both Upstash and SQLite). `fetch_watch_details` and `fetch_md_details` check the cache first, so embeds are populated within seconds of issuance — and the Upstash copy means a fresh primary after a failover already has the text. The last-seen seqnum is persisted via `state_store.set_state("iembot_last_seqnum", …)` through the same double-write path.
 
+### NWWS-OI (XMPP) Authority
+
+`NWWSCog` maintains a persistent XMPP connection to `nwws-oi.weather.gov`. This is the bot's highest-authority data source, delivering raw NWS text products via push notification. 
+
+**Application for Access:**
+To use NWWS-OI, you must apply for a user ID and password. The system is intended for "government, emergency management, and weather-sensitive organizations."
+- **Website:** [NOAA Weather Wire Service (NWWS)](https://www.weather.gov/nwws/#NWWS-OI)
+- **Email:** Contact `nws.nwws.ops@noaa.gov` to request credentials for the Open Interface (XMPP).
+
+**Authority Sequence:**
+The bot uses a multi-layered approach to ensure reliability:
+1. **NWWS-OI (Primary):** Immediate push; triggers `post_now` logic in alert cogs.
+2. **IEMBot (Secondary):** 15s poll of IEM's botstalk/spcchat; used if NWWS is disconnected or misses a product.
+3. **NWS API (Tertiary):** 2m poll; provides final polygon/area truth and acts as the ultimate safety net.
+
 ### SCP Graphics
 
 Posted at 6am and 6pm Pacific daily, but only if the images have actually
