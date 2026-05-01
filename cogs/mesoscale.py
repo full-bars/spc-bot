@@ -27,11 +27,14 @@ _md_index_head: Dict[str, str] = {}
 _md_index_unreachable: bool = False
 
 
-async def fetch_latest_md_numbers(fresh: bool = False) -> List[str]:
+async def fetch_latest_md_numbers(fresh: bool = False) -> Tuple[Optional[List[str]], bool]:
     """
     Scrape the SPC MD index page and return a list of current MD number strings.
     Uses a HEAD check first — if the index page hasn't changed since last poll,
     skips the full HTML fetch entirely. Falls back to IEM if SPC is unreachable.
+
+    Returns:
+        (md_numbers, is_fallback)
     """
     global _md_index_head
     logger.debug(f"[MD] Fetching MD numbers (fresh={fresh})")
@@ -48,7 +51,7 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> List[str]:
                     checks.append(meta[key] == _md_index_head.get(key))
             if checks and all(checks):
                 logger.debug("[MD] Index unchanged (HEAD match)")
-                return []
+                return [], False
         if meta:
             _md_index_head.update(meta)
     else:
@@ -81,14 +84,14 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> List[str]:
                     md_nums.add(m.zfill(4))
                 
                 logger.info(f"[MD] IEM fallback returned {len(md_nums)} MDs from last 24h")
-                return sorted(list(md_nums), reverse=True)
+                return sorted(list(md_nums), reverse=True), True
             else:
                 logger.warning("[MD] IEM fallback returned empty text")
         except Exception as e:
             logger.exception(f"[MD] IEM fallback for index failed: {e}")
         
         # If both failed, return None to signal a fetch failure rather than an empty index
-        return None
+        return None, True
 
     if _md_index_unreachable:
         logger.info("[MD] SPC index reachable again")
@@ -105,7 +108,7 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> List[str]:
             result.append(n.zfill(4))
     
     logger.debug(f"[MD] Scraped {len(result)} MD numbers from SPC index")
-    return result
+    return result, False
 
 
 
@@ -499,7 +502,6 @@ class MesoscaleCog(commands.Cog):
         self._md_backoff = TaskBackoff("auto_post_md")
         self._cancelled_mds: set = set()  # MDs cancelled this session — never re-activate
         self._pending_tasks: set[asyncio.Task] = set()
-        self._missing_confirmation: Dict[str, int] = {}  # md_num -> consecutive misses
 
     async def cog_load(self):
         self.auto_post_md.start()
@@ -627,7 +629,7 @@ class MesoscaleCog(commands.Cog):
                 logger.warning("SPC channel not found for auto_post_md")
                 return
 
-            md_numbers = await fetch_latest_md_numbers()
+            md_numbers, is_fallback = await fetch_latest_md_numbers()
             if md_numbers is None:
                 # Both SPC and IEM failed - skip this cycle to avoid false cancellations
                 return
@@ -638,35 +640,14 @@ class MesoscaleCog(commands.Cog):
             current_max = max((int(m) for m in current_mds), default=-1)
 
             # ── MD cancellations ─────────────────────────────────────────────
-            # Run even when current_mds is empty — a successful empty response
-            # means no MDs are active and anything in active_mds should be
-            # cancelled.
-            diff = self.bot.state.active_mds - current_mds
-            
-            # Reset confirmation for anything still on the index
-            for num in current_mds:
-                self._missing_confirmation.pop(num, None)
-
-            if diff:
-                # Update missing confirmations for all vanished MDs
-                for md_num in diff:
-                    self._missing_confirmation[md_num] = self._missing_confirmation.get(md_num, 0) + 1
-
-                # Shield 1: If more than 3 disappear at once, it's likely an index sync error.
-                # Suppress the entire cycle UNLESS they have been missing for 2+ consecutive checks.
-                max_misses = max(self._missing_confirmation.get(md_num, 0) for md_num in diff)
-                if len(diff) > 3 and max_misses < 2:
-                    logger.warning(f"[MD] Mass disappearance detected ({len(diff)} MDs) — suppressing as index lag")
-                    return
-
+            # Run only when NOT in fallback mode. The authoritative source for 
+            # cancellations is the primary SPC index.
+            if not is_fallback:
+                diff = self.bot.state.active_mds - current_mds
                 for md_num in list(diff):
-                    # Shield 2: Require 2 consecutive misses before posting cancellation
-                    if self._missing_confirmation[md_num] < 2:
-                        logger.info(f"[MD] MD #{md_num} missing (count {self._missing_confirmation[md_num]}) — awaiting confirmation")
+                    if md_num in self._cancelled_mds:
+                        self.bot.state.active_mds.discard(md_num)
                         continue
-                    
-                    # Confirmed missing twice
-                    self._missing_confirmation.pop(md_num, None)
 
                     # Protect against index lag only when there are active MDs
                     # to compare against.
@@ -682,7 +663,6 @@ class MesoscaleCog(commands.Cog):
                             )
                             continue
 
-                    self.bot.state.active_mds.discard(md_num)
                     logger.info(
                         f"[MD] MD #{md_num} no longer on index — "
                         f"posting cancellation"
@@ -698,6 +678,7 @@ class MesoscaleCog(commands.Cog):
                     embed.set_footer(text="SPC MD Monitor")
                     try:
                         await channel.send(embed=embed)
+                        self.bot.state.active_mds.discard(md_num)
                         self._cancelled_mds.add(md_num)
                         self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
                         logger.info(
@@ -708,6 +689,8 @@ class MesoscaleCog(commands.Cog):
                             f"[MD] Failed to send cancellation "
                             f"for #{md_num}: {e}"
                         )
+            else:
+                logger.debug("[MD] In fallback mode — skipping cancellation check")
 
             # ── New MDs ────────────────────────────────────────────────────
             for md_num in md_numbers:
