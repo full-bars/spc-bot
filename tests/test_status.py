@@ -41,10 +41,10 @@ async def test_help_contains_new_sections():
     # Check for the new section
     found_section = False
     for field in embed.fields:
-        if "Tornado Tracking & Analytics" in field.name:
+        if "Watches & Tornadoes" in field.name:
             found_section = True
             assert "/recenttornadoes" in field.value
-            assert "/verify" in field.value
+            assert "/sigtor" in field.value
     
     assert found_section
     assert f"v{__version__}" in embed.footer.text

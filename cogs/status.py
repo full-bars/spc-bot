@@ -250,9 +250,9 @@ class StatusCog(commands.Cog):
             color=discord.Color.blue(),
         )
 
-        # Outlooks & SPC
+        # Outlooks & Discussions
         embed.add_field(
-            name="📅 SPC Outlooks",
+            name="📅 Outlooks & Discussions",
             value=(
                 "`/spc1` [fresh] - Day 1 Convective Outlook\n"
                 "`/spc2` [fresh] - Day 2 Convective Outlook\n"
@@ -260,64 +260,46 @@ class StatusCog(commands.Cog):
                 "`/spc48` - Day 4-8 Probability Outlook\n"
                 "`/md` - Show active Mesoscale Discussions"
             ),
-            inline=False,
+            inline=True,
         )
 
-        # Watches
+        # Watches & Tornado Tracking
         embed.add_field(
-            name="⚠️ Watches",
+            name="🚨 Watches & Tornadoes",
             value=(
-                "`/watches`, `/ww` - Show all active SPC watches with overview map\n"
-                "`/md` - Show active Mesoscale Discussions"
+                "`/watches` - Active SPC watches overview\n"
+                "`/recenttornadoes` - List recent confirmed tornadoes\n"
+                "`/sigtor` - List significant (EF2+) tornadoes"
+            ),
+            inline=True,
+        )
+
+        # Analysis & Analytics
+        embed.add_field(
+            name="📊 Analysis & Analytics",
+            value=(
+                "`/sounding` <loc> [time] - Observed soundings\n"
+                "`/hodograph` <site> - Radar VWP plots\n"
+                "`/topstats` [by] [year] - Tornado leaderboards\n"
+                "`/verify` <wfo> [days] - Warning metrics (IEM Cow)\n"
+                "`/riskmap` [days] - Historical risk frequency\n"
+                "`/dayssince` - Streak since last TOR warning\n"
+                "`/dailyrecap` [date] - Daily warning polygon summary\n"
+                "`/tornadoheatmap` [days] - Tornado density map"
             ),
             inline=False,
         )
 
-        # Analysis & Soundings
+        # Models & System
         embed.add_field(
-            name="📊 Analysis Tools",
+            name="🧪 Models & System",
             value=(
-                "`/sounding` <loc> [time] - Plot observed RAOB/ACARS soundings\n"
-                "`/hodograph` <site> - Plot NEXRAD/TDWR VWP radar hodograph"
-            ),
-            inline=False,
-        )
-
-        # Tornado Tracking & Analytics
-        embed.add_field(
-            name="🌪️ Tornado Tracking & Analytics",
-            value=(
-                "`/recenttornadoes` [range] - List recent confirmed tornadoes\n"
-                "`/sigtor` [range] - List significant (EF2+) tornadoes\n"
-                "`/topstats` [by] [year] - Leading states/WFOs for tornado counts\n"
-                "`/verify` <wfo> [days] - Warning verification metrics (IEM Cow)\n"
-                "`/riskmap` [days] - Historical Day 1 risk frequency map\n"
-                "`/dayssince` - Current streak since last Tornado Warning\n"
-                "`/dailyrecap` [date] - Visual summary of a day's warning polygons\n"
-                "`/tornadoheatmap` [days] - Tornado report density map"
-            ),
-            inline=False,
-        )
-
-        # Experimental & Models
-        embed.add_field(
-            name="🧪 Experimental & Models",
-            value=(
-                "`/csu` <product> - CSU-MLP Machine Learning forecasts\n"
-                "`/wxnext` - NCAR WxNext2 Mean AI severe forecasts\n"
-                "`/scp` [fresh] - Supercell Composite (NIU/Gensini CFSv2)\n"
-                "`/wpc` - WPC Excessive Rainfall (Flash Flood) Outlooks"
-            ),
-            inline=False,
-        )
-
-        # Radar & System
-        embed.add_field(
-            name="⚙️ System & Radar",
-            value=(
-                "`/status` - Detailed bot health and task status\n"
-                "`/download` <site> - Fetch latest raw NEXRAD Level 2 radar data\n"
-                "`/help` - Show this help menu"
+                "`/csu` <product> - CSU-MLP ML forecasts\n"
+                "`/wxnext` - NCAR WxNext2 AI forecasts\n"
+                "`/scp` - NIU Supercell Composite\n"
+                "`/wpc` - WPC Flash Flood Outlooks\n"
+                "`/download` <site> - Raw Level 2 Radar data\n"
+                "`/status` - Bot health & circuit status"
             ),
             inline=False,
         )

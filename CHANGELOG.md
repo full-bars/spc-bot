@@ -7,11 +7,11 @@ version numbers follow [SemVer](https://semver.org/).
 ## [5.7.8] — 2026-04-30
 
 ### Changed
-- **Help Menu Overhaul.** Updated the `/help` command to include the full suite of analytics and tornado tracking tools added in v5.6 (e.g., `/recenttornadoes`, `/verify`, `/topstats`).
-- **Enhanced Status Reporting.** The `/status` command now includes the bot's version number and a list of currently open HTTP circuit breakers for better diagnostic visibility.
+- **Help Menu Redesign.** Reorganized and polished the `/help` command to eliminate redundant entries and improve readability. Commands are now logically grouped into higher-density categories (Outlooks, Watches & Tornadoes, Analysis & Analytics, and Models & System).
+- **Enhanced Status Reporting.** The `/status` command now includes the bot's version number and a real-time list of open HTTP circuit breakers for improved diagnostic visibility.
 
 ### Added
-- **Status & Help Tests.** Implemented new unit tests in `tests/test_status.py` to verify command outputs and health reporting logic.
+- **Status & Help Tests.** Implemented unit tests in `tests/test_status.py` to verify command outputs and health reporting integrity.
 
 ## [5.7.7] — 2026-04-30
 
