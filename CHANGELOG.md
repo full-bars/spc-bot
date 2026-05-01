@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.7.6] — 2026-04-30
+
+### Added
+- **Sounding State Persistence.** Migrated `SoundingCog` deduplication state to dedicated persistent SQLite tables (`posted_soundings`, `sounding_handled_watches`). This ensures that soundings are not re-posted across bot restarts or failover events.
+- **Improved Failover State.** Added `active_mds` to the state serialization (`to_dict`), ensuring that the standby node has a complete picture of active discussions upon promotion.
+
+### Changed
+- **Syncthing Snapshot Optimization.** Gated the periodic `events.db` snapshot task on a dirty flag. Snapshots are now only performed if a write operation (new event, DAT link, or prune) has occurred, significantly reducing disk I/O on idle nodes.
+
+## [5.7.5] — 2026-04-30
+
+### Added
+- **Comprehensive Test Coverage.** Implemented extensive unit and integration tests for the core alerting pipelines:
+  - `tests/test_reports.py`: Full coverage for LSR/PNS parsing, tornado deduplication, lead-time calculation, and DAT track integration.
+  - `tests/test_analytics.py`: Coverage for all six analytics slash commands (/topstats, /verify, /riskmap, etc.) and Autoplot URL construction.
+  - `tests/test_warnings.py`: Added coverage for the NWS API `_tick` path, including disappeared warning detection, CON area updates, and initial discovery of active warnings.
+  - `tests/test_mesoscale.py`: Added coverage for the IEM fallback parsing logic used during SPC index outages.
+
 ## [5.7.4] — 2026-04-30
 
 ### Changed
