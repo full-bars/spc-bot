@@ -34,6 +34,7 @@ class NWWSClient(ClientXMPP):
     def __init__(self, jid, password, bot):
         super().__init__(jid, password)
         self.bot = bot
+        self.is_connected = False
         self.add_event_handler("session_start", self.session_start)
         self.add_event_handler("message", self.message)
         self.add_event_handler("disconnected", self.on_disconnect)
@@ -41,6 +42,7 @@ class NWWSClient(ClientXMPP):
         # Auto-reconnect is handled by slixmpp by default, but we'll monitor it.
 
     async def session_start(self, event):
+        self.is_connected = True
         self.send_presence()
         try:
             await self.get_roster()
@@ -49,6 +51,7 @@ class NWWSClient(ClientXMPP):
         logger.info(f"[NWWS] XMPP Session Started as {self.boundjid}")
 
     def on_disconnect(self, event):
+        self.is_connected = False
         logger.warning("[NWWS] XMPP Disconnected")
 
     def message(self, msg):
@@ -177,32 +180,43 @@ class NWWSCog(commands.Cog):
     async def monitor_connection(self):
         """Maintain persistent connection to NWWS-OI."""
         if not self.bot.state.is_primary or not self._should_be_connected:
-            if self.xmpp_client and self.xmpp_client.state.current != 'disconnected':
+            if self.xmpp_client and self.xmpp_client.is_connected:
                 logger.info("[NWWS] Node is Standby — disconnecting NWWS")
                 self.xmpp_client.disconnect()
             return
 
-        # Avoid reconnecting if already connected or connecting
+        # Check existing client state
         if self.xmpp_client is not None:
-            state = self.xmpp_client.state.current
-            if state in ('connected', 'connecting'):
+            if self.xmpp_client.is_connected:
                 return
-            if state != 'disconnected':
-                # Might be in session_start or similar, let it be
+            
+            # If we're here, we aren't connected yet. 
+            # slixmpp handles auto-reconnect, but if it takes too long
+            # or the transport is dead, we'll recreate.
+            if self.xmpp_client.transport is not None:
+                # Still in flight
                 return
+
+            # Clean up before retrying.
+            self.xmpp_client.disconnect()
+            self.xmpp_client = None
 
         logger.info(f"[NWWS] Connecting to {NWWS_SERVER}...")
         # NWWS-OI requires a plain JID: username@nwws-oi.weather.gov
         jid = f"{NWWS_USER}@{NWWS_SERVER}"
         self.xmpp_client = NWWSClient(jid, NWWS_PASSWORD, self.bot)
         
-        # slixmpp.connect() is a synchronous-looking call that starts 
-        # async tasks on the current loop. DO NOT call process() as it 
-        # tries to run the loop again.
+        # NWWS-OI specific connectivity tweaks
+        self.xmpp_client.use_ipv6 = False
+        # Enable auto-reconnect at the slixmpp level
+        self.xmpp_client.reconnect = True
+
         try:
+            # connect() is an async-safe call that registers tasks on the current loop.
+            # We do NOT call process() as discord.py is already running the loop.
             self.xmpp_client.connect(address=(NWWS_SERVER, 5222))
         except Exception as e:
-            logger.error(f"[NWWS] Connection failed: {e}")
+            logger.error(f"[NWWS] Connection attempt failed: {e}")
             self.xmpp_client = None
 
     @monitor_connection.before_loop

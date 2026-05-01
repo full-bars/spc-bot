@@ -513,8 +513,7 @@ class StatusCog(commands.Cog):
         nwws_status = "DISABLED"
         nwws_cog = self.bot.get_cog("NWWSCog")
         if nwws_cog and nwws_cog.xmpp_client:
-            xmpp_state = nwws_cog.xmpp_client.state.current
-            nwws_status = xmpp_state.upper()
+            nwws_status = "CONNECTED" if nwws_cog.xmpp_client.is_connected else "CONNECTING..."
         elif nwws_cog:
             nwws_status = "CONNECTING..." if self.bot.state.is_primary else "STANDBY"
         
