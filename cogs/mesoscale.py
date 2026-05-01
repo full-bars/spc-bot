@@ -1,7 +1,6 @@
 # cogs/mesoscale.py
 import asyncio
 import html as _html
-import json
 import logging
 import os
 import re
