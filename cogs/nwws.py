@@ -61,10 +61,10 @@ class NWWSClient(ClientXMPP):
                 return
             
             # --- DEBUG LOGGING: Data Stream Analysis ---
-            # Capture a large sample (500 chars) to verify WMO/PIL headers
-            # and any hidden XML/Metadata.
-            sample = body.replace('\r', '').replace('\n', '\\n')[:500]
-            logger.info(f"[NWWS-DEBUG] RAW INGRESS (len={len(body)}): {sample}...")
+            # Capture a large sample (2000 chars) to verify WMO/PIL headers.
+            # We preserve newlines here for easier verification.
+            sample = body[:2000].replace('\r', '')
+            logger.info(f"\n[NWWS-DEBUG] RAW INGRESS START (len={len(body)})\n{sample}\n[NWWS-DEBUG] RAW INGRESS END\n")
             # -------------------------------------------
             
             # We want to run the processing off the XMPP event loop
