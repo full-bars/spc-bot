@@ -18,16 +18,18 @@ A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks
 |---|---|
 | Watch Alerts | Tornado and severe thunderstorm watches via NWS API; IEM iembot fast-path for sub-second text delivery with persistent DB-backed pre-caching |
 | NWS Warnings | Immediate Tornado, Severe Tstorm, and Flash Flood warning posts with IEM Autoplot 208 maps; specialized PDS and Emergency formatting |
-| Tornado Dashboard | Chronological, calendar-style dashboard for `/recenttornadoes` and `/sigtor` with EF-rating distinctions and [Tornado Archive](https://tornadoarchive.com/) integration |
-| Tornado Surveys | DAMAGE SURVEY PNS detection; Autoplot 253 tornado-track maps; automatic linking to [NWS Damage Assessment Toolkit (DAT)](https://apps.dat.noaa.gov/stormdamage/damageviewer/) tracks |
+| Update Pipeline | Real-time tracking of warning status changes (`CON`, `EXT`, `EXA`); automatically posts concise updates for storms changing intensity or moving into new counties; includes full support for Severe Weather Statements (`SVS`) and Flash Flood Statements (`FFS`) |
+| Tornado Dashboard | Single-card, chronological dashboard for `/recenttornadoes` and `/sigtor` with EF-rating distinctions, warning-to-report **Lead Time** tracking, and [Tornado Archive](https://tornadoarchive.com/) integration |
+| Tornado Surveys | DAMAGE SURVEY PNS detection; Autoplot 253 tornado-track maps; automatic linking to [NWS Damage Assessment Toolkit (DAT)](https://apps.dat.noaa.gov/stormdamage/damageviewer/) tracks with an interactive **Photo Carousel** of official damage photos |
 
-### Soundings & Radar
+### Soundings & Analytics
 | Feature | Details |
 |---|---|
 | `/sounding` | Observed RAOB plots via SounderPy; supports city names, radar codes, and station IDs with interactive time selection |
 | Watch-triggered soundings | Auto-posts soundings for RAOB stations near active watches — on issuance (any hour via IEM) and at 00z/12z synoptic cycles |
 | MDT/HIGH risk sweep | On Moderate or High Risk days sweeps every RAOB station and ACARS airport inside the categorical polygon (100 km buffer) as new soundings arrive |
 | `/hodograph` | VWP hodograph for any of 200 NEXRAD/TDWR sites; auto ASOS surface wind and storm parameter table |
+| Analytics Cog | Comprehensive suite including `/topstats` (leaderboards), `/verify` (storm-based warning metrics via IEM Cow), `/riskmap` (historical risk frequency), `/dayssince`, and `/tornadoheatmap` |
 | Radar Downloader | NEXRAD Level 2 from NOAA AWS S3 — single or multi-site ZIPs; Z-to-Z range, start+duration, explicit datetime, or N most recent files |
 
 ### System
@@ -179,7 +181,7 @@ spc-bot/
 │       ├── wsr88d.py        # Radar site info and filename utilities
 │       ├── asos.py          # ASOS surface wind fetching
 │       └── utils.py         # Shared exception types
-└── tests/                   # pytest suite (290 tests, see CONTRIBUTING.md)
+└── tests/                   # pytest suite (342 tests, see CONTRIBUTING.md)
     ├── conftest.py          # Fixtures: fake_bot (real BotState), isolated_db, global patches
     ├── test_fixtures.py     # Fixture invariants
     ├── test_utils.py        # Utility and sounding parsing

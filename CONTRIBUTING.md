@@ -136,9 +136,9 @@ scraping the SPC watch index HTML directly.
 - Wind, hail, and tornado tags where applicable
 - PDS and Tornado Emergency labels when present
 
-**Lifecycle tracking** — when a warning expires, is cancelled, or receives a statement of no activity, the cog edits the original Discord embed in place with a timestamp and updated status. VTEC context (including the Autoplot image URL) is cached at post time so the edit can attach the correct graphic.
+**Lifecycle tracking** — when a warning expires, is cancelled, or receives a statement of no activity, the cog edits the original Discord embed in place. Mid-warning updates (`CON`, `EXT`, `EXA`) and statements (`SVS`, `FFS`) are posted as fresh, concise embeds with automated county-level diffing ('cancels X, continues Y').
 
-**Damage surveys** — `ReportsCog` polls for PNS products flagged as `DAMAGE SURVEY`. Once the NWS survey is finalized, it fetches and posts an IEM Autoplot 253 tornado track map. The bot automatically attempts to link these tracks to historical events in the database using the NWS Damage Assessment Toolkit (DAT) API.
+**Damage surveys** — `ReportsCog` polls for PNS products flagged as `DAMAGE SURVEY`. Once the NWS survey is finalized, it fetches and posts an IEM Autoplot 253 tornado track map. The bot automatically attempts to link these tracks to historical events in the database using the NWS Damage Assessment Toolkit (DAT) API, including interactive photo carousels from the field.
 
 ### IEMBot Real-Time Feed
 
@@ -237,7 +237,7 @@ python -m pytest tests/ \
     --cov-report=term-missing
 ```
 
-The suite currently collects **255 tests**.
+The suite currently collects **342 tests**.
 
 Lint (same selection CI uses):
 
