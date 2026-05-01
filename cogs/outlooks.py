@@ -10,7 +10,6 @@ from config import AUTO_CACHE_FILE, SPC_CHANNEL_ID, SPC_URLS, SPC_URLS_FALLBACK
 from utils.backoff import TaskBackoff
 from utils.state_store import set_posted_urls
 from utils.cache import (
-    check_all_urls_exist_parallel,
     check_partial_updates_parallel,
     save_downloaded_images,
 )
@@ -31,9 +30,6 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
     fallback_urls = SPC_URLS_FALLBACK.get(day, [])
     if urls == fallback_urls and state.last_posted_urls.get(day_key) == urls:
         logger.info(f"[Day {day}] Fallback URLs unchanged from last post — skipping")
-        return
-
-    if not await check_all_urls_exist_parallel(urls):
         return
 
     updated_count, total_count, downloaded_data = (
@@ -207,8 +203,6 @@ class OutlooksCog(commands.Cog):
             logger.warning("SPC channel not found for auto_post_spc48")
             return
         urls = SPC_URLS["48"]
-        if not await check_all_urls_exist_parallel(urls):
-            return
         updated_count, total_count, downloaded_data = (
             await check_partial_updates_parallel(urls, self.bot.state.auto_cache)
         )
