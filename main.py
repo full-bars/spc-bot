@@ -11,7 +11,7 @@ import discord
 import discord.app_commands
 from discord.ext import commands, tasks
 
-from config import CACHE_DIR, CONFIG, HEALTH_CHANNEL_ID, TOKEN
+from config import CACHE_DIR, CONFIG, HEALTH_CHANNEL_ID, TOKEN, __version__
 import utils.http
 from utils.http import CircuitOpenError
 from utils.state_store import (
@@ -209,7 +209,7 @@ async def send_bot_alert(
 async def on_ready():
     bot.state.bot_start_time = datetime.now(timezone.utc)
 
-    logger.info(f"Logged in as {bot.user} (id={bot.user.id})")
+    logger.info(f"Logged in as {bot.user} (id={bot.user.id}) | Version: v{__version__}")
 
     await utils.http.ensure_session()
 
@@ -231,7 +231,7 @@ async def on_ready():
                 logger.exception(f"Failed to sync command tree: {e}")
         else:
             logger.info("[FAILOVER] Standby — skipping command sync to preserve primary commands")
-        logger.info("All tasks started. Bot is ready.")
+        logger.info(f"All tasks started. Bot v{__version__} is ready.")
         if not periodic_sync.is_running():
             periodic_sync.start()
         if not snapshot_events_task.is_running():
