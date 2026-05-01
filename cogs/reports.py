@@ -130,7 +130,7 @@ class ReportsCog(commands.Cog):
                 try:
                     lsr_ts = datetime.strptime(product_id[:12], "%Y%m%d%H%M").replace(tzinfo=timezone.utc).timestamp()
                 except Exception:
-                    pass
+                    logger.debug("LSR timestamp parse failed for product_id %r, falling back to now()", product_id)
             
             # Dedup check for Tornadoes (Discord side)
             if "TORNADO" in event_type.upper():
@@ -264,7 +264,7 @@ class ReportsCog(commands.Cog):
                 pns_ts = dt.replace(tzinfo=timezone.utc).timestamp()
                 pns_time_str = dt.strftime("%b %d, %I:%M %p")
             except Exception:
-                pass
+                logger.debug("PNS timestamp parse failed for product_id %r", product_id)
 
         desc = (
             f"{office} issues [Damage Survey PNS]({pns_url}) (Max: {rating_str}){tor_count_msg} at {pns_time_str}\n"
