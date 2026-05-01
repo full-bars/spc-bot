@@ -4,10 +4,16 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
-## [5.7.9] — 2026-05-01
+## [5.8.0] — 2026-05-01
+
+### Added
+- **Warning Lifecycle Updates.** The bot now posts real-time updates for existing warnings when their status changes (e.g., `CON` continues, `EXT` extends, `EXA` expands). This includes high-fidelity concise descriptions with automated 'cancels/continues' logic for county-level changes.
+- **SVS & FFS Support.** Added full support for Severe Weather Statements (`SVS`) and Flash Flood Statements (`FFS`), ensuring critical mid-warning updates are no longer dropped.
 
 ### Fixed
-- **MD Mass-Cancellation Shield.** Implemented a multi-cycle verification system for Mesoscale Discussions. An MD must now be absent from the primary index for two consecutive poll cycles before a cancellation is posted. Additionally, any event where more than 3 MDs disappear simultaneously is suppressed as index lag, eliminating mass-cancellation spam during index synchronization flaps.
+- **MD Mass-Cancellation Shield (Final Fix).** Corrected a logic bug in the shield that caused legitimate mass expirations to be suppressed indefinitely. Mass disappearances are now suppressed for a single cycle only, ensuring data integrity while still blocking index flaps.
+
+## [5.7.9] — 2026-05-01
 
 ## [5.7.8] — 2026-04-30
 
