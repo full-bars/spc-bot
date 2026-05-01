@@ -87,6 +87,11 @@ WXNEXT_BASE = _P["wxnext_base_url"]
 WXNEXT_PAGE = _P["wxnext_page_url"]
 SPC_DAY1_CATEGORICAL_GEOJSON_URL = _P["spc_day1_categorical_geojson_url"]
 
+# NWWS-OI
+NWWS_USER = os.getenv("NWWS_USER", "")
+NWWS_PASSWORD = os.getenv("NWWS_PASSWORD", "")
+NWWS_SERVER = os.getenv("NWWS_SERVER", "nwws-oi.weather.gov")
+
 # Timezones
 CENTRAL = pytz.timezone("America/Chicago")
 PACIFIC = pytz.timezone("US/Pacific")
