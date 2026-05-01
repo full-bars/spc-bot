@@ -1,9 +1,7 @@
 """Tests for cogs/status.py — Help and status commands."""
 
-import socket
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import discord
 import pytest
 
 from cogs.status import StatusCog
