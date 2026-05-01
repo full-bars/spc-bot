@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.6.4] — 2026-04-30
+
+### Added
+- **PNS Full-Text View.** Damage Survey posts now include a "📜 View Full Text" button that sends the complete raw NWS text as an ephemeral message, preventing truncation of long reports while keeping the channel clean.
+
+### Fixed
+- **MD Cancellation Spam (Improved).** Refined the IEM fallback logic to strictly only include discussions issued on the current UTC day. This prevents the bot from "discovering" old discussions in the IEM archive and then immediately cancelling them when the SPC index returns.
+- **PNS Parsing.** Corrected a variable name mismatch in the damage survey handler that was causing a crash during tornado rating extraction.
+- **Outbreak Multi-Survey Handling.** The damage survey header now correctly identifies the highest EF-scale rating across all events in a single product and displays a total tornado count.
+
 ## [5.6.3] — 2026-04-30
 
 ### Fixed
