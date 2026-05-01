@@ -10,6 +10,15 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 logger = logging.getLogger("spc_bot")
 
+# Named timeout presets (seconds) — use these at call sites instead of bare integers
+TIMEOUT_FAST = 10       # Quick HEAD checks, small API calls
+TIMEOUT_STANDARD = 15  # Most JSON endpoints
+TIMEOUT_SLOW = 30       # Larger content, general GET
+
+# Circuit breaker tuning — adjust these to change trip sensitivity globally
+_CB_FAILURE_THRESHOLD = 5
+_CB_RECOVERY_TIMEOUT = 60.0
+
 http_session: Optional[aiohttp.ClientSession] = None
 _session_lock = asyncio.Lock()
 
@@ -20,7 +29,7 @@ class CircuitOpenError(Exception):
 
 
 class CircuitBreaker:
-    def __init__(self, failure_threshold: int = 5, recovery_timeout: float = 60.0):
+    def __init__(self, failure_threshold: int = _CB_FAILURE_THRESHOLD, recovery_timeout: float = _CB_RECOVERY_TIMEOUT):
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
         self.failures: Dict[str, int] = {}
@@ -257,31 +266,39 @@ async def http_head_meta(url: str, timeout: int = 20) -> Optional[Dict[str, str]
         return None
 
 
-async def http_get_json(url: str, retries: int = 1, timeout: int = 15) -> Optional[dict]:
+async def http_get_json(url: str, retries: int = 1, timeout: int = TIMEOUT_STANDARD) -> Optional[dict]:
     """Fetch JSON from a URL with retries and circuit breaker."""
     parsed = urlparse(url)
     host = parsed.netloc
     if circuit_breaker.is_open(host):
         return None
 
-    try:
+    retry_decorator = retry(
+        stop=stop_after_attempt(retries + 1),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((aiohttp.ClientError, asyncio.TimeoutError)),
+        reraise=True,
+    )
+
+    async def _do_request():
         session = await ensure_session()
-        for attempt in range(retries + 1):
-            async with session.get(
-                url, timeout=aiohttp.ClientTimeout(total=timeout)
-            ) as r:
-                if r.status == 200:
-                    circuit_breaker.record_success(host)
-                    return await r.json()
-                if r.status == 429 or r.status >= 500:
-                    if attempt < retries:
-                        await asyncio.sleep(2**attempt)
-                        continue
-                logger.warning(f"JSON fetch failed for {url}: {r.status}")
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as r:
+            if r.status in (429, 502, 503, 504):
+                raise aiohttp.ClientResponseError(
+                    r.request_info, r.history, status=r.status, message="Server returned retryable error"
+                )
+            if r.status != 200:
+                logger.warning(f"[HTTP] JSON fetch failed for {url}: {r.status}")
                 circuit_breaker.record_failure(host)
                 return None
-    except Exception as e:
-        circuit_breaker.record_failure(host)
-        logger.warning(f"JSON fetch error for {url}: {type(e).__name__}: {e}")
+            circuit_breaker.record_success(host)
+            return await r.json()
+
+    try:
+        return await retry_decorator(_do_request)()
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        status = getattr(e, "status", None)
+        if status is None or status >= 500 or status == 429:
+            circuit_breaker.record_failure(host)
+        logger.warning(f"[HTTP] JSON fetch error for {url}: {type(e).__name__}: {e}")
         return None
-    return None

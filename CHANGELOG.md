@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.9.2] — 2026-05-01
+
+### Fixed
+- **MD Detail Fallback.** Switched from the broken `nwstext.json` endpoint to the reliable `retrieve.py` service for fetching Mesoscale Discussion text when the SPC site is unreachable. This fixes the recurring `404 Not Found` errors in the MD detailing path.
+- **Sounding Availability Errors.** Skip IEM availability checks for 5-digit WMO IDs. These IDs are incompatible with IEM's JSON RAOB service and were triggering massive log volume with `422 Unprocessable Content` warnings.
+
 ## [5.9.1] — 2026-05-01
 
 ### Fixed
