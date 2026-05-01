@@ -11,7 +11,7 @@ import discord
 import discord.app_commands
 from discord.ext import commands, tasks
 
-from config import CACHE_DIR, CONFIG, HEALTH_CHANNEL_ID, TOKEN, __version__
+from config import CACHE_DIR, CONFIG, DEV_CHANNEL_ID, HEALTH_CHANNEL_ID, TOKEN, __version__
 import utils.http
 from utils.http import CircuitOpenError
 from utils.state_store import (
@@ -295,21 +295,26 @@ async def watchdog_task():
     if not bot.state.is_primary:
         return
 
-    # Probe an endpoint we actually depend on. NWS API works as a liveness
-    # check and tells us something about SPC/NWS reachability — the things
-    # that would silently break posts. HEAD keeps the check cheap.
-    probe_healthy = False
-    probe_url = "https://api.weather.gov/"
-    if utils.http.http_session is not None and not utils.http.http_session.closed:
+    # Probe two independent endpoints. We only count a failure if BOTH fail —
+    # a single-endpoint outage (e.g. NWS maintenance) shouldn't trigger a
+    # session teardown or operator alert.
+    _PROBE_PRIMARY = "https://api.weather.gov/"
+    _PROBE_SECONDARY = "https://mesonet.agron.iastate.edu/"
+
+    async def _head_ok(url: str) -> bool:
+        if utils.http.http_session is None or utils.http.http_session.closed:
+            return False
         try:
             async with utils.http.http_session.head(
-                probe_url,
-                timeout=aiohttp.ClientTimeout(total=20),
-                allow_redirects=True,
+                url, timeout=aiohttp.ClientTimeout(total=20), allow_redirects=True
             ) as r:
-                probe_healthy = r.status < 500
+                return r.status < 500
         except Exception as e:
-            logger.warning(f"[WATCHDOG] Session probe to {probe_url} failed: {e!r}")
+            logger.warning(f"[WATCHDOG] Session probe to {url} failed: {e!r}")
+            return False
+
+    primary_ok = await _head_ok(_PROBE_PRIMARY)
+    probe_healthy = primary_ok or await _head_ok(_PROBE_SECONDARY)
 
     if probe_healthy:
         if _session_probe_failures > 0:
@@ -322,6 +327,19 @@ async def watchdog_task():
                 f"[WATCHDOG] Session probe failed {_session_probe_failures} consecutive times — "
                 "tearing down and recreating"
             )
+            try:
+                ch = bot.get_channel(DEV_CHANNEL_ID) or await bot.fetch_channel(DEV_CHANNEL_ID)
+                await ch.send(embed=discord.Embed(
+                    title="⚠️ Watchdog: session reset",
+                    description=(
+                        f"Both `{_PROBE_PRIMARY}` and `{_PROBE_SECONDARY}` failed "
+                        f"{_session_probe_failures} consecutive cycles. "
+                        "Tearing down and recreating the aiohttp session."
+                    ),
+                    color=discord.Color.red(),
+                ))
+            except Exception as alert_err:
+                logger.warning(f"[WATCHDOG] Could not send session-reset alert: {alert_err}")
             await utils.http.close_session()
             await utils.http.ensure_session()
             _session_probe_failures = 0
@@ -330,6 +348,19 @@ async def watchdog_task():
                 f"[WATCHDOG] Session probe failed ({_session_probe_failures}/3) — "
                 "waiting for next cycle"
             )
+            if _session_probe_failures == 2:
+                try:
+                    ch = bot.get_channel(DEV_CHANNEL_ID) or await bot.fetch_channel(DEV_CHANNEL_ID)
+                    await ch.send(embed=discord.Embed(
+                        title="⚠️ Watchdog: probe degraded (2/3)",
+                        description=(
+                            f"Both `{_PROBE_PRIMARY}` and `{_PROBE_SECONDARY}` unreachable "
+                            "for 2 consecutive cycles. Session reset on next failure."
+                        ),
+                        color=discord.Color.orange(),
+                    ))
+                except Exception as alert_err:
+                    logger.warning(f"[WATCHDOG] Could not send degradation alert: {alert_err}")
 
     # Grace period for startup race: tasks need a few ticks to schedule
     # their first iteration after wait_until_ready() unblocks.

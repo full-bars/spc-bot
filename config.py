@@ -30,6 +30,7 @@ CONFIG = {
     # Test channel for warnings during dev. Override via env once we're
     # ready to point this at production.
     "warnings_channel_id": int(os.getenv("WARNINGS_CHANNEL_ID") or "1336294580743704607"),
+    "dev_channel_id": int(os.getenv("DEV_CHANNEL_ID") or "1336294580743704607"),
     "manual_cache_file": os.getenv("MANUAL_CACHE_FILE", "posted_records.json"),
     "auto_cache_file": os.getenv("AUTO_CACHE_FILE", "auto_posted_records.json"),
     "guild_id": _require_int("GUILD_ID"),
@@ -46,6 +47,7 @@ SPC_CHANNEL_ID = CONFIG["spc_channel_id"]
 HEALTH_CHANNEL_ID = CONFIG["health_channel_id"]
 SOUNDING_CHANNEL_ID = CONFIG["sounding_channel_id"]
 WARNINGS_CHANNEL_ID = CONFIG["warnings_channel_id"]
+DEV_CHANNEL_ID = CONFIG["dev_channel_id"]
 MANUAL_CACHE_FILE = os.path.join(CONFIG["cache_file_dir"], CONFIG["manual_cache_file"])
 AUTO_CACHE_FILE = os.path.join(CONFIG["cache_file_dir"], CONFIG["auto_cache_file"])
 GUILD_ID = CONFIG["guild_id"]
