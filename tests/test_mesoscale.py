@@ -29,9 +29,11 @@ async def test_cancellation_fires_when_index_empty():
 
     with patch("cogs.mesoscale.fetch_latest_md_numbers", AsyncMock(return_value=[])):
         cog = MesoscaleCog(bot)
-        await cog.auto_post_md()
+        await cog.auto_post_md() # 1st miss
+        await cog.auto_post_md() # 2nd miss (confirmed)
 
     channel.send.assert_called_once()
+
     embed = channel.send.call_args.kwargs["embed"]
     assert "100" in embed.title
     assert "Cancelled" in embed.title
@@ -62,9 +64,11 @@ async def test_multiple_cancellations_when_index_empty():
 
     with patch("cogs.mesoscale.fetch_latest_md_numbers", AsyncMock(return_value=[])):
         cog = MesoscaleCog(bot)
-        await cog.auto_post_md()
+        await cog.auto_post_md() # 1st miss
+        await cog.auto_post_md() # 2nd miss (confirmed)
 
     assert channel.send.call_count == 3
+
     assert len(bot.state.active_mds) == 0
 
 
@@ -76,13 +80,15 @@ async def test_partial_cancellation_when_some_mds_expire():
     with patch("cogs.mesoscale.fetch_latest_md_numbers", AsyncMock(return_value=["0101"])), \
          patch("cogs.mesoscale.fetch_md_details", AsyncMock(return_value=(None, None, False, None))):
         cog = MesoscaleCog(bot)
-        await cog.auto_post_md()
+        await cog.auto_post_md() # 1st miss
+        await cog.auto_post_md() # 2nd miss
 
     cancel_calls = [
         c for c in channel.send.call_args_list
         if "Cancelled" in (c.kwargs.get("embed", MagicMock()).title or "")
     ]
     assert len(cancel_calls) == 1
+
     assert "0100" not in bot.state.active_mds
     assert "0101" in bot.state.active_mds
 
@@ -115,10 +121,10 @@ async def test_lag_protection_does_not_spare_older_md():
     with patch("cogs.mesoscale.fetch_latest_md_numbers", AsyncMock(return_value=["0100"])), \
          patch("cogs.mesoscale.fetch_md_details", AsyncMock(return_value=(None, None, False, None))):
         cog = MesoscaleCog(bot)
-        await cog.auto_post_md()
+        await cog.auto_post_md() # 1st miss
+        await cog.auto_post_md() # 2nd miss
 
     assert "0099" not in bot.state.active_mds
-
 
 @pytest.mark.asyncio
 async def test_year_wraparound_spares_early_year_md():

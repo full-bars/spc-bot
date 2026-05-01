@@ -499,6 +499,7 @@ class MesoscaleCog(commands.Cog):
         self._md_backoff = TaskBackoff("auto_post_md")
         self._cancelled_mds: set = set()  # MDs cancelled this session — never re-activate
         self._pending_tasks: set[asyncio.Task] = set()
+        self._missing_confirmation: Dict[str, int] = {}  # md_num -> consecutive misses
 
     async def cog_load(self):
         self.auto_post_md.start()
@@ -639,51 +640,69 @@ class MesoscaleCog(commands.Cog):
             # ── MD cancellations ─────────────────────────────────────────────
             # Run even when current_mds is empty — a successful empty response
             # means no MDs are active and anything in active_mds should be
-            # cancelled. The previous `if current_mds:` guard silently skipped
-            # cancellations on quiet days when the last MD expired.
-            for md_num in list(self.bot.state.active_mds):
-                    if md_num not in current_mds:
-                        # Protect against index lag only when there are active MDs
-                        # to compare against.
-                        if current_max >= 0:
-                            num_int = int(md_num)
-                            # Handle year wraparound (e.g. 0001 is newer than 9999)
-                            is_newer = (num_int > current_max and num_int - current_max < 1000) or \
-                                       (num_int < current_max and current_max - num_int > 8000)
-                            if is_newer:
-                                logger.info(
-                                    f"[MD] Index lagging (highest is {current_max:04d}) — "
-                                    f"sparing #{md_num} from cancellation"
-                                )
-                                continue
+            # cancelled.
+            diff = self.bot.state.active_mds - current_mds
+            
+            # Reset confirmation for anything still on the index
+            for num in current_mds:
+                self._missing_confirmation.pop(num, None)
 
-                        self.bot.state.active_mds.discard(md_num)
-                        logger.info(
-                            f"[MD] MD #{md_num} no longer on index — "
-                            f"posting cancellation"
-                        )
-                        embed = discord.Embed(
-                            title=(
-                                f"✅  Mesoscale Discussion #{int(md_num)} "
-                                f"— Cancelled"
-                            ),
-                            color=discord.Color.green(),
-                            timestamp=datetime.now(timezone.utc),
-                        )
-                        embed.set_footer(text="SPC MD Monitor")
-                        try:
-                            await channel.send(embed=embed)
-                            self._cancelled_mds.add(md_num)
-                            self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
+            if diff:
+                # Shield 1: If more than 3 disappear at once, it's likely an index sync error
+                if len(diff) > 3:
+                    logger.warning(f"[MD] Mass disappearance detected ({len(diff)} MDs) — suppressing as index lag")
+                    return
+
+                for md_num in list(diff):
+                    # Shield 2: Require 2 consecutive misses before posting cancellation
+                    self._missing_confirmation[md_num] = self._missing_confirmation.get(md_num, 0) + 1
+                    if self._missing_confirmation[md_num] < 2:
+                        logger.info(f"[MD] MD #{md_num} missing (count {self._missing_confirmation[md_num]}) — awaiting confirmation")
+                        continue
+                    
+                    # Confirmed missing twice
+                    self._missing_confirmation.pop(md_num, None)
+
+                    # Protect against index lag only when there are active MDs
+                    # to compare against.
+                    if current_max >= 0:
+                        num_int = int(md_num)
+                        # Handle year wraparound (e.g. 0001 is newer than 9999)
+                        is_newer = (num_int > current_max and num_int - current_max < 1000) or \
+                                   (num_int < current_max and current_max - num_int > 8000)
+                        if is_newer:
                             logger.info(
-                                f"[MD] Posted cancellation for #{md_num}"
+                                f"[MD] Index lagging (highest is {current_max:04d}) — "
+                                f"sparing #{md_num} from cancellation"
                             )
-                        except discord.HTTPException as e:
-                            logger.exception(
-                                f"[MD] Failed to send cancellation "
-                                f"for #{md_num}: {e}"
-                            )
-                            self.bot.state.active_mds.add(md_num)
+                            continue
+
+                    self.bot.state.active_mds.discard(md_num)
+                    logger.info(
+                        f"[MD] MD #{md_num} no longer on index — "
+                        f"posting cancellation"
+                    )
+                    embed = discord.Embed(
+                        title=(
+                            f"✅  Mesoscale Discussion #{int(md_num)} "
+                            f"— Cancelled"
+                        ),
+                        color=discord.Color.green(),
+                        timestamp=datetime.now(timezone.utc),
+                    )
+                    embed.set_footer(text="SPC MD Monitor")
+                    try:
+                        await channel.send(embed=embed)
+                        self._cancelled_mds.add(md_num)
+                        self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
+                        logger.info(
+                            f"[MD] Posted cancellation for #{md_num}"
+                        )
+                    except discord.HTTPException as e:
+                        logger.exception(
+                            f"[MD] Failed to send cancellation "
+                            f"for #{md_num}: {e}"
+                        )
 
             # ── New MDs ────────────────────────────────────────────────────
             for md_num in md_numbers:
