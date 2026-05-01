@@ -1,7 +1,9 @@
 """Unit tests for cogs.warnings — VTEC and LAT...LON polygon parsers,
-narrative extraction, and the iembot fast-path entry point."""
+narrative extraction, the iembot fast-path entry point, and the NWS API
+_tick poll path (disappeared detection, CON area updates, initial discovery)."""
 
-from unittest.mock import AsyncMock, MagicMock
+import json
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
@@ -184,6 +186,7 @@ def _make_cog(posted: dict | None = None) -> WarningsCog:
     iembot path without touching Discord, the DB, or the network."""
     cog = WarningsCog.__new__(WarningsCog)
     cog.bot = MagicMock()
+    cog.bot.wait_until_ready = AsyncMock()
     cog.bot.state.is_primary = True
     cog.bot.state.posted_warnings = posted if posted is not None else {}
     cog.bot.state.active_warnings = {}
@@ -379,3 +382,200 @@ def test_build_concise_warning_text_updates_format():
     assert "(**cancels** Clarke, **continues** Jasper, Jones)" in text
     assert "till 23:00Z." in text
     assert text.endswith("]") # unix timestamp tag
+
+
+# ── NWS API _tick path ────────────────────────────────────────────────────────
+
+def _nws_feature(vtec_str: str, event: str = "Severe Thunderstorm Warning",
+                 area: str = "Noble, Garfield", ugc: list | None = None) -> dict:
+    """Build a minimal NWS GeoJSON feature dict."""
+    return {
+        "id": "urn:oid:2.49.0.1.840.0.test",
+        "type": "Feature",
+        "properties": {
+            "id": "urn:oid:2.49.0.1.840.0.test",
+            "areaDesc": area,
+            "event": event,
+            "headline": f"{event} until 9:00 PM CDT",
+            "description": "Test description.",
+            "instruction": None,
+            "response": "Shelter",
+            "parameters": {
+                "VTEC": [vtec_str],
+                "maxHailSize": None,
+                "maxWindGust": ["60 MPH"],
+                "tornadoDetection": None,
+                "tornadoDamageThreat": None,
+                "thunderstormDamageThreat": None,
+                "flashFloodDamageThreat": None,
+                "flashFloodDetection": None,
+                "windDetection": None,
+                "hailDetection": None,
+            },
+            "geocode": {"UGC": ugc or ["OKZ001"], "SAME": []},
+            "effective": "2026-04-29T20:18:00+00:00",
+            "onset": "2026-04-29T20:18:00+00:00",
+            "expires": "2026-04-29T21:15:00+00:00",
+            "ends": None,
+            "status": "Actual",
+            "messageType": "Alert",
+            "category": "Met",
+            "severity": "Severe",
+            "certainty": "Observed",
+            "urgency": "Immediate",
+            "senderName": "NWS Norman OK",
+        },
+    }
+
+
+def _nws_response(features: list) -> bytes:
+    return json.dumps({
+        "type": "FeatureCollection",
+        "features": features,
+        "title": "Current watches, warnings, and advisories",
+        "updated": "2026-04-29T20:20:00+00:00",
+    }).encode()
+
+
+def _make_tick_cog(active=None, posted=None):
+    cog = WarningsCog.__new__(WarningsCog)
+    from utils.backoff import TaskBackoff
+    cog._backoff = TaskBackoff("auto_poll_warnings")
+    cog._validators = {"etag": "", "last_modified": ""}
+    cog._cancelled_warnings = set()
+    cog.bot = MagicMock()
+    cog.bot.wait_until_ready = AsyncMock()
+    cog.bot.state.is_primary = True
+    cog.bot.state.posted_warnings = posted or {}
+    cog.bot.state.active_warnings = active or {}
+    channel = AsyncMock()
+    cog.bot.get_channel.return_value = channel
+    return cog, channel
+
+
+@pytest.mark.asyncio
+async def test_tick_disappeared_warning_triggers_cancellation(monkeypatch):
+    """A warning that was in active_warnings but has vanished from the API
+    response must fire a cancellation embed."""
+    vtec_id = "KOUN.SV.W.0042"
+    active = {vtec_id: {"office": "KOUN", "phenom": "SV", "sig": "W",
+                         "etn": "0042", "vtec_id": vtec_id, "action": "NEW"}}
+    posted = {vtec_id: {"message_id": 1, "channel_id": 2, "area": "Noble"}}
+
+    cog, channel = _make_tick_cog(active=active, posted=posted)
+
+    # API returns empty features — the warning has "disappeared"
+    content = _nws_response([])
+    import cogs.warnings as warnings_mod
+    monkeypatch.setattr(warnings_mod, "http_get_bytes_conditional",
+                        AsyncMock(return_value=(content, 200, {})))
+    monkeypatch.setattr(warnings_mod, "add_posted_warning", AsyncMock())
+    monkeypatch.setattr(warnings_mod, "prune_posted_warnings", AsyncMock())
+    monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
+
+    await cog._tick()
+
+    channel.send.assert_called_once()
+    embed = channel.send.call_args.kwargs["embed"]
+    assert "expires" in embed.description.lower()
+    assert vtec_id not in cog.bot.state.active_warnings
+
+
+@pytest.mark.asyncio
+async def test_tick_initial_discovery_posts_active_warning_missed_at_startup(monkeypatch):
+    """A CON warning in the API but NOT in posted_warnings (bot was down at issuance)
+    triggers an initial-discovery post."""
+    vtec_id = "KOUN.SV.W.0099"
+    cog, channel = _make_tick_cog()  # empty posted_warnings
+
+    vtec_str = "/O.CON.KOUN.SV.W.0099.260429T2018Z-260429T2115Z/"
+    feature = _nws_feature(vtec_str, area="Logan, Kingfisher")
+    content = _nws_response([feature])
+
+    msg_mock = AsyncMock()
+    msg_mock.id = 1
+    msg_mock.channel.id = 2
+    channel.send.return_value = msg_mock
+
+    import cogs.warnings as warnings_mod
+    monkeypatch.setattr(warnings_mod, "http_get_bytes_conditional",
+                        AsyncMock(return_value=(content, 200, {})))
+    monkeypatch.setattr(warnings_mod, "add_posted_warning", AsyncMock())
+    monkeypatch.setattr(warnings_mod, "prune_posted_warnings", AsyncMock())
+    monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
+    monkeypatch.setattr(warnings_mod, "add_significant_event", AsyncMock(), raising=False)
+
+    await cog._tick()
+
+    channel.send.assert_called_once()
+    assert vtec_id in cog.bot.state.posted_warnings
+
+
+@pytest.mark.asyncio
+async def test_tick_con_area_change_posts_partial_update(monkeypatch):
+    """When a CON warning's area differs from the stored area, an update embed is posted."""
+    vtec_id = "KOUN.SV.W.0042"
+    active = {vtec_id: {"office": "KOUN", "phenom": "SV", "sig": "W",
+                         "etn": "0042", "vtec_id": vtec_id, "action": "CON"}}
+    posted = {vtec_id: {"message_id": 1, "channel_id": 2, "area": "Noble, Garfield, Grant"}}
+
+    cog, channel = _make_tick_cog(active=active, posted=posted)
+
+    # API shows the warning continuing but with a smaller area (partial cancel)
+    vtec_str = "/O.CON.KOUN.SV.W.0042.260429T2018Z-260429T2115Z/"
+    feature = _nws_feature(vtec_str, area="Noble, Garfield")
+    content = _nws_response([feature])
+
+    msg_mock = AsyncMock()
+    msg_mock.id = 1
+    msg_mock.channel.id = 2
+    channel.send.return_value = msg_mock
+
+    import cogs.warnings as warnings_mod
+    monkeypatch.setattr(warnings_mod, "http_get_bytes_conditional",
+                        AsyncMock(return_value=(content, 200, {})))
+    monkeypatch.setattr(warnings_mod, "add_posted_warning", AsyncMock())
+    monkeypatch.setattr(warnings_mod, "prune_posted_warnings", AsyncMock())
+    monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
+    monkeypatch.setattr(warnings_mod, "add_significant_event", AsyncMock(), raising=False)
+
+    await cog._tick()
+
+    channel.send.assert_called_once()
+    # Stored area should be updated to current area
+    assert cog.bot.state.posted_warnings[vtec_id]["area"] == "Noble, Garfield"
+
+
+@pytest.mark.asyncio
+async def test_tick_304_returns_early(monkeypatch):
+    """HTTP 304 (Not Modified) skips all processing and clears backoff."""
+    cog, channel = _make_tick_cog()
+
+    import cogs.warnings as warnings_mod
+    monkeypatch.setattr(warnings_mod, "http_get_bytes_conditional",
+                        AsyncMock(return_value=(None, 304, {})))
+
+    await cog._tick()
+
+    channel.send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_tick_cancelled_warning_not_reactivated(monkeypatch):
+    """A warning in _cancelled_warnings is not posted again even if it
+    reappears in the NWS API response (handles index lag)."""
+    vtec_id = "KOUN.SV.W.0042"
+    cog, channel = _make_tick_cog()
+    cog._cancelled_warnings.add(vtec_id)
+
+    vtec_str = "/O.CON.KOUN.SV.W.0042.260429T2018Z-260429T2115Z/"
+    feature = _nws_feature(vtec_str)
+    content = _nws_response([feature])
+
+    import cogs.warnings as warnings_mod
+    monkeypatch.setattr(warnings_mod, "http_get_bytes_conditional",
+                        AsyncMock(return_value=(content, 200, {})))
+
+    await cog._tick()
+
+    channel.send.assert_not_called()

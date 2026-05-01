@@ -152,6 +152,7 @@ class BotState:
             "posted_warnings": self.posted_warnings,
             "posted_reports": list(self.posted_reports),
             "csu_posted": list(self.csu_posted),
+            "active_mds": list(self.active_mds),
             "active_warnings": list(self.active_warnings.keys()),
             "active_watches": {
 

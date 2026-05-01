@@ -1,17 +1,10 @@
 import json
-import math
 import logging
 from datetime import datetime, timezone
 from utils.http import http_get_bytes
+from utils.geo import haversine as _haversine_km
 
 logger = logging.getLogger("spc_bot")
-
-def _haversine_km(lat1, lon1, lat2, lon2):
-    R = 6371
-    dlat = math.radians(lat2 - lat1)
-    dlon = math.radians(lon2 - lon1)
-    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
-    return R * 2 * math.asin(math.sqrt(a))
 
 async def get_asos_surface_wind(radar_lat, radar_lon, vwp_time=None, radius_km=150):
     """

@@ -58,24 +58,23 @@ async def list_files(radar_site: str, dates: list) -> list[dict]:
         for date in dates:
             prefix = f"{date.year}/{date.month:02d}/{date.day:02d}/{radar_site}/"
             try:
-                response = await s3.list_objects_v2(Bucket=BUCKET, Prefix=prefix)
-                if "Contents" not in response:
-                    continue
-                files = [
-                    {
-                        "Key": obj["Key"],
-                        "LastModified": obj["LastModified"].replace(
-                            tzinfo=timezone.utc
-                        ),
-                        "Size": obj["Size"],
-                        "RadarSite": radar_site,
-                    }
-                    for obj in response["Contents"]
-                    if not (
-                        obj["Key"].lower().endswith(".tar")
-                        or "_mdm" in obj["Key"].lower()
-                    )
-                ]
+                # Paginate: a busy NEXRAD site can exceed the 1,000-object page limit.
+                page_kwargs: dict = {"Bucket": BUCKET, "Prefix": prefix}
+                files = []
+                while True:
+                    response = await s3.list_objects_v2(**page_kwargs)
+                    for obj in response.get("Contents", []):
+                        if obj["Key"].lower().endswith(".tar") or "_mdm" in obj["Key"].lower():
+                            continue
+                        files.append({
+                            "Key": obj["Key"],
+                            "LastModified": obj["LastModified"].replace(tzinfo=timezone.utc),
+                            "Size": obj["Size"],
+                            "RadarSite": radar_site,
+                        })
+                    if not response.get("IsTruncated"):
+                        break
+                    page_kwargs["ContinuationToken"] = response["NextContinuationToken"]
                 for f in files:
                     filename = os.path.basename(f["Key"])
                     try:

@@ -624,12 +624,16 @@ class WatchesCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._watches_backoff = TaskBackoff("auto_post_watches")
+        self._pending_tasks: set[asyncio.Task] = set()
 
     async def cog_load(self):
         self.auto_post_watches.start()
 
     def cog_unload(self):
         self.auto_post_watches.cancel()
+        for t in list(self._pending_tasks):
+            t.cancel()
+        self._pending_tasks.clear()
 
     async def _upgrade_watch_embed(self, watch_num: str, message: discord.Message,
                                     is_tornado: bool, watch_label: str,
@@ -810,9 +814,11 @@ class WatchesCog(commands.Cog):
             # Schedule upgrade edit once SPC data is available
             has_prelim = probs and "preliminary" in probs
             if not cache_path or has_prelim:
-                asyncio.create_task(
+                t = asyncio.create_task(
                     self._upgrade_watch_embed(watch_num, message, is_tornado, watch_label, color, expires)
                 )
+                self._pending_tasks.add(t)
+                t.add_done_callback(self._pending_tasks.discard)
         except discord.HTTPException as e:
             logger.exception(f"[WATCH] iembot-triggered send failed for #{watch_num}: {e}")
 
@@ -888,9 +894,15 @@ class WatchesCog(commands.Cog):
             for watch_num, nws_info in nws_watches.items():
                 self.bot.state.active_watches[watch_num] = nws_info
                 if watch_num in self.bot.state.posted_watches:
-                    # Still notify SoundingCog in case we missed it earlier due to missing affected_zones
+                    # Notify SoundingCog only if it hasn't handled this watch yet —
+                    # avoids accumulating hundreds of no-op tasks over a long watch.
                     sounding_cog = self.bot.cogs.get("SoundingCog")
-                    if sounding_cog and isinstance(nws_info, dict) and nws_info.get("affected_zones"):
+                    if (
+                        sounding_cog
+                        and isinstance(nws_info, dict)
+                        and nws_info.get("affected_zones")
+                        and watch_num not in sounding_cog._handled_watches
+                    ):
                         asyncio.create_task(
                             sounding_cog.post_soundings_for_watch(watch_num, nws_info, channel)
                         )
@@ -950,9 +962,11 @@ class WatchesCog(commands.Cog):
                     # Schedule upgrade edit once SPC data is available
                     has_prelim = probs and "preliminary" in probs
                     if not cache_path or has_prelim:
-                        asyncio.create_task(
+                        t = asyncio.create_task(
                             self._upgrade_watch_embed(watch_num, message, is_tornado, watch_label, color, expires)
                         )
+                        self._pending_tasks.add(t)
+                        t.add_done_callback(self._pending_tasks.discard)
                 except discord.HTTPException as e:
                     logger.exception(
                         f"[WATCH] Discord send failed for #{watch_num}: {e}"

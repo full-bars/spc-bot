@@ -4,6 +4,43 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.7.4] — 2026-04-30
+
+### Changed
+- **IEM Autoplot Image Download Extracted.** Deduplicated the identical 3-attempt retry loops in `warnings.py` (iembot path and NWS API path) into a single `_download_warning_image(url, filename)` helper. `BytesIO` is now a top-level import rather than inlined at each call site.
+- **Shared Haversine Utility.** Extracted the haversine formula from `lib/vad_plotter/asos.py` and `cogs/sounding_utils.py` into `utils/geo.py`. Both callers now import from the shared module.
+
+## [5.7.3] — 2026-04-30
+
+### Fixed
+- **Deprecated `datetime.utcnow()`.** Replaced with `datetime.now(timezone.utc).replace(tzinfo=None)` in `lib/vad_plotter/vad.py` and `vad_reader.py` to silence Python 3.12 deprecation warnings while preserving the existing naive-datetime semantics in those files.
+- **Naive `datetime.now()` in outlook partial-update tracking.** All five call sites in `cogs/outlooks.py` now use `datetime.now(timezone.utc)` for consistency with the rest of the codebase.
+- **Day 4–8 URL state not persisted.** `auto_post_spc48` now calls `set_posted_urls("day48", urls)` and updates `last_posted_urls` after a successful post, matching the Day 1–3 behavior.
+- **Hardcoded S3 year prefix.** `cogs/radar/__init__.py` S3 connectivity probe now uses `datetime.now(timezone.utc).year` instead of the literal `"2026/"`.
+- **IEM MCD fetch cap raised.** IEM nwstext fallback limit increased from 20 to 50 to reduce missed MDs during rapid-issuance outbreaks.
+- **Stale `# noqa` comment removed.** `asyncio` import in `warnings.py` no longer carries the obsolete `# noqa: F401  # used by future PRs` annotation.
+
+## [5.7.2] — 2026-04-30
+
+### Fixed
+- **S3 File Listing Truncation.** `list_files` in `cogs/radar/s3.py` now paginates using `ContinuationToken` so busy NEXRAD sites with more than 1,000 files per day are fully enumerated rather than silently cut off.
+- **Botstalk Startup Flood.** On first run (persisted seqnum = 0), the botstalk poller now fast-forwards to the current tail seqnum without processing any backlogged messages, preventing hundreds of simultaneous `_handle_warning` tasks during an active outbreak.
+
+## [5.7.1] — 2026-04-30
+
+### Fixed
+- **Sounding Monitor Race.** `monitor_special_soundings` and `monitor_high_risk_soundings` now claim each `_posted_watch_soundings` key immediately at check time (no intervening `await`), eliminating the TOCTOU window where both 15-minute tasks could see the same key as absent and both post the same sounding.
+- **Orphaned Upgrade Tasks.** `WatchesCog` and `MesoscaleCog` now track all `_upgrade_watch_embed` / `_upgrade_md_message` background tasks in a `_pending_tasks` set and cancel them in `cog_unload`. Previously these tasks survived standby demotion and continued editing Discord messages from an inactive node.
+- **No-Op Sounding Task Accumulation.** `auto_post_watches` now checks `watch_num not in sounding_cog._handled_watches` before scheduling a `post_soundings_for_watch` task for an already-posted watch. Previously 180+ tasks accumulated over a 6-hour watch period with no effect.
+
+## [5.7.0] — 2026-04-30
+
+### Fixed
+- **Failover Override.** `/failover` manual-primary command now correctly stores the hostname when writing the Upstash override key. Previously it stored the role prefix (`P`/`S`) instead of the actual hostname, making the override a no-op.
+- **SVR Detection Tags.** Added `windDetection` and `hailDetection` to `NWSAlertParameters` so Pydantic no longer silently strips these fields on parse. Detection-method tags ("RADAR INDICATED", "SPOTTER CONFIRMED") now populate correctly via the NWS API path.
+- **IEM MD Fallback (`timedelta`).** Added missing `timedelta` to the `datetime` import in `mesoscale.py`. Without it the IEM fallback during SPC index outages would raise `NameError` at runtime.
+- **Tornado Dashboard VTEC URL.** `TornadoDashboardView.build_card_embed()` now delegates URL construction to `_vtec_url()` instead of building the IEM link inline with hardcoded phenomenon/significance values.
+
 ## [5.6.6] — 2026-04-30
 
 ### Fixed

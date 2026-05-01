@@ -36,6 +36,7 @@ finally:
     sys.stdout = _stdout
 
 from utils.state_store import get_state, set_state  # noqa: E402  # follows sounderpy import
+from utils.geo import haversine
 
 # ProcessPoolExecutor for parallel sounding plots. Each worker process gets
 # its own matplotlib instance so plots run concurrently without lock contention.
@@ -152,17 +153,6 @@ def _fetch_stations() -> pd.DataFrame:
     df["LOC"] = df["LOC"].str.strip()
     return df
 
-
-# ── Distance ──────────────────────────────────────────────────────────────────
-
-def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    R = 6371
-    dlat = math.radians(lat2 - lat1)
-    dlon = math.radians(lon2 - lon1)
-    a = (math.sin(dlat/2)**2 +
-         math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
-         math.sin(dlon/2)**2)
-    return R * 2 * math.asin(math.sqrt(a))
 
 def find_nearest_stations(lat: float, lon: float, df: pd.DataFrame, n: int = 3) -> list[dict]:
     """Return the n nearest RAOB stations as a list of dicts."""

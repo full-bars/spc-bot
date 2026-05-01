@@ -43,7 +43,7 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
     if updated_count == 0:
         if day_key in state.partial_update_state:
             elapsed = (
-                datetime.now() - state.partial_update_state[day_key]["start_time"]
+                datetime.now(timezone.utc) - state.partial_update_state[day_key]["start_time"]
             ).total_seconds() / 60
             if elapsed > 20:
                 logger.warning(
@@ -68,7 +68,7 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
     if updated_count < total_count:
         if day == 1 and updated_count > 0:
             elapsed = (
-                datetime.now() - state.partial_update_state[day_key]["start_time"]
+                datetime.now(timezone.utc) - state.partial_update_state[day_key]["start_time"]
             ).total_seconds() / 60
             if elapsed > 5: # If 5 mins have passed, post what we have
                 logger.info(f"[Day 1] Posting partial update after {elapsed:.1f} min.")
@@ -80,7 +80,7 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
         else:
             if day_key not in state.partial_update_state:
                 state.partial_update_state[day_key] = {
-                    "start_time": datetime.now(),
+                    "start_time": datetime.now(timezone.utc),
                     "downloaded_data": downloaded_data,
                 }
                 logger.info(
@@ -89,7 +89,7 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
                 )
             else:
                 elapsed = (
-                    datetime.now() - state.partial_update_state[day_key]["start_time"]
+                    datetime.now(timezone.utc) - state.partial_update_state[day_key]["start_time"]
                 ).total_seconds() / 60
 
                 if elapsed > 20:
@@ -109,7 +109,7 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
         # All images updated
         if day_key in state.partial_update_state:
             elapsed = (
-                datetime.now() - state.partial_update_state[day_key]["start_time"]
+                datetime.now(timezone.utc) - state.partial_update_state[day_key]["start_time"]
             ).total_seconds() / 60
             logger.info(
                 f"[Day {day}] All images ready after {elapsed:.1f} min. Posting."
@@ -223,6 +223,8 @@ class OutlooksCog(commands.Cog):
                         files=[discord.File(fp) for fp in files],
                     )
                     self.bot.state.last_post_times["day48"] = datetime.now(timezone.utc)
+                    self.bot.state.last_posted_urls["day48"] = urls
+                    await set_posted_urls("day48", urls)
                 except Exception as e:
                     logger.exception(f"Failed to send SPC48 post: {e}")
 

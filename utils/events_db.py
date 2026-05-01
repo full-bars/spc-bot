@@ -28,6 +28,12 @@ _SYNC_DIR = os.getenv("EVENTS_SYNC_DIR", "cache/events_sync")
 _SYNC_PATH = os.path.join(_SYNC_DIR, "events.db")
 
 _db: Optional[aiosqlite.Connection] = None
+_db_dirty: bool = False
+
+
+def _mark_dirty():
+    global _db_dirty
+    _db_dirty = True
 
 
 async def get_events_db() -> aiosqlite.Connection:
@@ -117,6 +123,7 @@ async def add_significant_event(
              timestamp or time.time(), source, raw_text, dat_guid, lead_time),
         )
         await db.commit()
+        _mark_dirty()
     except Exception as e:
         logger.warning(f"[EVENTS-DB] add_significant_event({event_id}) failed: {e}")
 
@@ -153,6 +160,7 @@ async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> None
                 (guid, best_id)
             )
             await db.commit()
+            _mark_dirty()
             logger.info(f"[EVENTS-DB] Linked DAT {guid} to event {best_id}")
 
     except Exception as e:
@@ -273,6 +281,7 @@ async def prune_old_significant_events(days: int = 365) -> int:
             count = cur.rowcount
         await db.commit()
         if count > 0:
+            _mark_dirty()
             logger.info(f"[EVENTS-DB] Pruned {count} events older than {days} days")
         return count
     except Exception as e:
@@ -285,6 +294,10 @@ async def prune_old_significant_events(days: int = 365) -> int:
 
 async def snapshot_for_sync() -> None:
     """Copy events.db to the Syncthing-watched directory as a clean snapshot."""
+    global _db_dirty
+    if not _db_dirty:
+        return
+
     try:
         os.makedirs(_SYNC_DIR, exist_ok=True)
         db = await get_events_db()
@@ -293,15 +306,15 @@ async def snapshot_for_sync() -> None:
         # we wait for any readers/writers to finish.
         await db.execute("PRAGMA wal_checkpoint(RESTART)")
         await db.commit()
-        
+
         tmp = _SYNC_PATH + ".tmp"
         async with aiosqlite.connect(tmp) as dst:
             await db.backup(dst)
         os.replace(tmp, _SYNC_PATH)
+        _db_dirty = False
         logger.debug("[EVENTS-DB] Snapshot written to sync dir")
     except Exception as e:
         logger.warning(f"[EVENTS-DB] Snapshot failed: {e}")
-
 
 def restore_from_sync() -> None:
     """Copy the Syncthing-received snapshot into events.db before cogs load.

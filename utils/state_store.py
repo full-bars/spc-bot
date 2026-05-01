@@ -110,16 +110,9 @@ UPSTASH_TIMEOUT_SECONDS = 5.0
 _PREFIX = "spcbot"
 
 
-def _k_hash(cache_type: str, url: str) -> str:
-    # URLs are long and contain punctuation Redis treats literally; hash
-    # them so keys stay short and well-formed.
-    h = hashlib.sha1(url.encode("utf-8")).hexdigest()[:16]
-    return f"{_PREFIX}:hashes:{cache_type}:{h}"
-
-
 def _k_hash_url_lookup(cache_type: str, url: str) -> str:
     # We also need to recover the URL from its hash for get_all_hashes().
-    # Store url → hash in the main key, and a reverse index in a Redis Hash.
+    # Store url → hash in a Redis Hash keyed by cache_type.
     return f"{_PREFIX}:hashes_index:{cache_type}"
 
 
@@ -352,6 +345,12 @@ async def _replay(op: str, args: tuple) -> None:
         await _upstash_cmd(
             "SET", _k_product_cache(product_id), text, "EX", int(ttl)
         )
+    elif op == "add_posted_sounding":
+        (pkey,) = args
+        await _upstash_cmd("SADD", "spcbot:posted_soundings", pkey)
+    elif op == "add_sounding_handled_watch":
+        (watch_number,) = args
+        await _upstash_cmd("SADD", "spcbot:sounding_handled_watches", watch_number)
     else:
         raise ValueError(f"unknown replay op: {op}")
 
@@ -720,7 +719,78 @@ async def prune_posted_warnings(max_size: int = 500) -> None:
     _cache_invalidate("posted_warnings")
 
 
-# ── Key/value state ──────────────────────────────────────────────────────────
+# ── Soundings ─────────────────────────────────────────────────────────────────
+
+async def get_posted_soundings() -> Set[str]:
+    """Get all posted sounding keys."""
+    hit, val = _cache_get("posted_soundings")
+    if hit:
+        return set(val)
+
+    try:
+        result = await _upstash_cmd("SMEMBERS", "spcbot:posted_soundings")
+        s = set(result or [])
+        _cache_set("posted_soundings", s)
+        return s
+    except _UpstashUnavailable:
+        return await sqlite_backend.get_posted_soundings()
+
+
+async def add_posted_sounding(pkey: str) -> None:
+    """Mark a sounding as posted."""
+    _cache_add_to_set("posted_soundings", pkey)
+    await sqlite_backend.add_posted_sounding(pkey)
+    try:
+        await _upstash_cmd("SADD", "spcbot:posted_soundings", pkey)
+    except _UpstashUnavailable as e:
+        logger.warning(f"[STATE] add_posted_sounding queued for reconcile: {e}")
+        await _enqueue_dirty("add_posted_sounding", (pkey,))
+
+
+async def prune_posted_soundings(max_days: int = 2) -> None:
+    """Prune old sounding keys."""
+    await sqlite_backend.prune_posted_soundings(max_days)
+    _cache_invalidate("posted_soundings")
+
+
+async def get_sounding_handled_watches() -> Set[str]:
+    """Get all watches that have had soundings handled."""
+    hit, val = _cache_get("sounding_handled_watches")
+    if hit:
+        return set(val)
+
+    try:
+        result = await _upstash_cmd("SMEMBERS", "spcbot:sounding_handled_watches")
+        s = set(result or [])
+        _cache_set("sounding_handled_watches", s)
+        return s
+    except _UpstashUnavailable:
+        return await sqlite_backend.get_sounding_handled_watches()
+
+
+async def add_sounding_handled_watch(watch_number: str) -> None:
+    """Mark a watch as having soundings handled."""
+    _cache_add_to_set("sounding_handled_watches", watch_number)
+    await sqlite_backend.add_sounding_handled_watch(watch_number)
+    try:
+        await _upstash_cmd("SADD", "spcbot:sounding_handled_watches", watch_number)
+    except _UpstashUnavailable as e:
+        logger.warning(f"[STATE] add_sounding_handled_watch queued for reconcile: {e}")
+        await _enqueue_dirty("add_sounding_handled_watch", (watch_number,))
+
+
+async def clear_sounding_handled_watches() -> None:
+    """Clear handled watches set."""
+    _cache_invalidate("sounding_handled_watches")
+    await sqlite_backend.clear_sounding_handled_watches()
+    try:
+        await _upstash_cmd("DEL", "spcbot:sounding_handled_watches")
+    except _UpstashUnavailable:
+        pass
+
+
+# ── Key/value state ───────────────────────────────────────────────────────────
+
 
 async def get_state(key: str) -> Optional[str]:
     cache_key = f"state::{key}"

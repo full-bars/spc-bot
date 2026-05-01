@@ -276,6 +276,28 @@ class IEMBotCog(commands.Cog):
                 logger.warning(f"[IEMBOT] Could not load botstalk seqnum: {e}")
             self._botstalk_seqnum_loaded = True
 
+            # On a brand-new run (seqnum still 0), fast-forward to the current
+            # tail rather than replaying potentially hundreds of backlogged
+            # messages from an active outbreak.
+            if self.bot.state.iembot_botstalk_last_seqnum == 0:
+                try:
+                    probe, status = await http_get_bytes(
+                        f"{IEMBOT_BOTSTALK_URL}?seqnum=0", retries=2, timeout=10
+                    )
+                    if probe and status == 200:
+                        probe_data = _json.loads(probe)
+                        probe_msgs = probe_data.get("messages", [])
+                        if probe_msgs:
+                            tail = max(m.get("seqnum", 0) for m in probe_msgs)
+                            self.bot.state.iembot_botstalk_last_seqnum = tail
+                            await set_state("iembot_botstalk_last_seqnum", str(tail))
+                            logger.info(
+                                f"[IEMBOT] Botstalk first-run: fast-forwarded to seqnum {tail}"
+                            )
+                except Exception as e:
+                    logger.warning(f"[IEMBOT] Botstalk seqnum fast-forward failed: {e}")
+                return  # skip processing this tick; pick up new messages next cycle
+
         try:
             url = (
                 f"{IEMBOT_BOTSTALK_URL}"

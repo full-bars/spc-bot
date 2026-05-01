@@ -17,6 +17,8 @@ class NWSAlertParameters(BaseModel):
     thunderstormDamageThreat: Optional[List[str]] = None
     flashFloodDamageThreat: Optional[List[str]] = None
     flashFloodDetection: Optional[List[str]] = None
+    windDetection: Optional[List[str]] = None
+    hailDetection: Optional[List[str]] = None
 
 class NWSAlertProperties(BaseModel):
     id: str

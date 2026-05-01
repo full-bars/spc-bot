@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
 import discord
@@ -128,7 +128,7 @@ async def fetch_md_details_iem(md_number: str) -> Tuple[Optional[str], Optional[
     raw_text = None
     try:
         content, status = await http_get_bytes(
-            "https://mesonet.agron.iastate.edu/api/1/nwstext.json?product=MCD&limit=20",
+            "https://mesonet.agron.iastate.edu/api/1/nwstext.json?product=MCD&limit=50",
             retries=2, timeout=15
         )
         if content and status == 200:
@@ -498,12 +498,16 @@ class MesoscaleCog(commands.Cog):
         self.bot = bot
         self._md_backoff = TaskBackoff("auto_post_md")
         self._cancelled_mds: set = set()  # MDs cancelled this session — never re-activate
+        self._pending_tasks: set[asyncio.Task] = set()
 
     async def cog_load(self):
         self.auto_post_md.start()
 
     def cog_unload(self):
         self.auto_post_md.cancel()
+        for t in list(self._pending_tasks):
+            t.cancel()
+        self._pending_tasks.clear()
 
     async def _check_prewarm(self, md_num: str, raw_text: str):
         """Parse probability of watch issuance and signal SoundingCog if high."""
@@ -604,7 +608,9 @@ class MesoscaleCog(commands.Cog):
             await add_posted_md(str(md_num))
             self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
             if not cache_path or not full_text:
-                asyncio.create_task(self._upgrade_md_message(md_num, msg, full_text))
+                t = asyncio.create_task(self._upgrade_md_message(md_num, msg, full_text))
+                self._pending_tasks.add(t)
+                t.add_done_callback(self._pending_tasks.discard)
             logger.info(f"[MD] iembot-triggered: posted MD #{md_num}")
         except Exception as e:
             logger.exception(f"[MD] iembot send failed: {e}")
@@ -718,7 +724,9 @@ class MesoscaleCog(commands.Cog):
                 try:
                     msg = await channel.send(embeds=[img_embed, text_embed], files=files)
                     if not cache_path or not full_text:
-                        asyncio.create_task(self._upgrade_md_message(md_num, msg, full_text))
+                        t = asyncio.create_task(self._upgrade_md_message(md_num, msg, full_text))
+                        self._pending_tasks.add(t)
+                        t.add_done_callback(self._pending_tasks.discard)
                     self.bot.state.posted_mds.add(md_num)
                     await add_posted_md(str(md_num))
                     await prune_posted_mds()

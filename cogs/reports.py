@@ -134,7 +134,8 @@ class ReportsCog(commands.Cog):
             
             # Dedup check for Tornadoes (Discord side)
             if "TORNADO" in event_type.upper():
-                from utils.state_store import find_matching_tornado, get_posted_warning_timestamp
+                from utils.state_store import find_matching_tornado
+                from utils.db import get_posted_warning_timestamp
                 match = await find_matching_tornado(office, lsr_ts, location, window_hours=1.0)
                 if match:
                     event_id, vtec_id = match
@@ -146,7 +147,6 @@ class ReportsCog(commands.Cog):
                         if warn_ts:
                             lead_time = (lsr_ts - warn_ts) / 60.0
                             logger.info(f"[REPORTS] Calculated lead time for {event_id}: {lead_time:.1f} min")
-                            from utils.events_db import add_significant_event
                             # Update existing event with lead time
                             await add_significant_event(
                                 event_id=event_id,

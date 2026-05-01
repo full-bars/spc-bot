@@ -4,7 +4,7 @@ import struct
 import re
 import logging
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
 from lib.vad_plotter.wsr88d import build_has_name
@@ -262,7 +262,7 @@ async def find_file_times(rid):
     file_times, file_names = list(zip(*file_list))
     file_names = list(file_names)
 
-    now_utc = datetime.utcnow()
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
     year = now_utc.year
     file_dts = []
     for ft in file_times:

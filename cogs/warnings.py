@@ -14,12 +14,13 @@ This is the v1 baseline. Subsequent PRs add:
 """
 from __future__ import annotations
 
-import asyncio  # noqa: F401  # used by future PRs
+import asyncio
 import json as _json
 import logging
 import re
 import time
 from datetime import datetime, timedelta, timezone
+from io import BytesIO
 from typing import List, Optional, Tuple
 
 import discord
@@ -223,6 +224,33 @@ def iem_autoplot_url(vtec: dict) -> str:
         f"wfo:{office}::year:{year}::phenomena:{phenom}::significance:{sig}::"
         f"etn:{etn.lstrip('0') or '0'}.png"
     )
+
+
+async def _download_warning_image(image_url: str, filename: str) -> discord.File | None:
+    """Fetch an IEM Autoplot image with up to 3 attempts.
+
+    Returns a ready-to-send discord.File, or None if all attempts fail.
+    Retries on 404 (IEM map not yet generated) with a 5-second delay;
+    retries on network errors with a 2-second delay.
+    """
+    for attempt in range(3):
+        try:
+            content, status = await http_get_bytes(image_url, retries=1, timeout=15)
+            if content and status == 200:
+                return discord.File(BytesIO(content), filename=filename)
+            if status == 404 and attempt < 2:
+                await asyncio.sleep(5)
+                continue
+            logger.warning(
+                f"[WARN] Failed to download IEM image: {image_url} (status={status})"
+            )
+        except Exception as e:
+            logger.warning(f"[WARN] Error downloading IEM image: {e}")
+            if attempt < 2:
+                await asyncio.sleep(2)
+                continue
+        break
+    return None
 
 
 def _vtec_url(vtec: dict) -> str:
@@ -748,8 +776,18 @@ class TornadoDashboardView(discord.ui.View):
              embed.add_field(name="Lead Time", value=f"{e['lead_time']:.1f} min", inline=True)
         
         if e.get("vtec_id"):
-            url = f"https://mesonet.agron.iastate.edu/vtec/f/{dt.year}-O-NEW-{e['source']}-TO-W-{e['vtec_id'].split('.')[-1]}_{dt.strftime('%Y-%m-%dT%H:%MZ')}"
-            embed.add_field(name="VTEC ID", value=f"[{e['vtec_id']}]({url})", inline=True)
+            parts = e["vtec_id"].split(".")
+            if len(parts) == 4:
+                office, phenom, sig, etn = parts
+                url = _vtec_url({
+                    "action": "NEW",
+                    "office": office,
+                    "phenom": phenom,
+                    "sig": sig,
+                    "etn": etn,
+                    "start": dt.strftime("%y%m%dT%H%MZ"),
+                })
+                embed.add_field(name="VTEC ID", value=f"[{e['vtec_id']}]({url})", inline=True)
 
         if e.get("dat_guid"):
             dat_url = f"https://apps.dat.noaa.gov/stormdamage/damageviewer/?datglobalid={e['dat_guid']}"
@@ -878,27 +916,10 @@ class WarningsCog(commands.Cog):
         if (vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS":
             image_url = iem_autoplot_url(vtec)
             filename = f"warning_{vtec_id.replace('.', '_')}.png"
-            # IEM maps can take a few seconds to generate after a NEW issuance.
-            # Retry on 404 with a small delay.
-            for attempt in range(3):
-                try:
-                    content, status = await http_get_bytes(image_url, retries=1, timeout=15)
-                    if content and status == 200:
-                        from io import BytesIO
-                        files.append(discord.File(BytesIO(content), filename=filename))
-                        embed.set_image(url=f"attachment://{filename}")
-                        break
-                    elif status == 404:
-                        if attempt < 2:
-                            await asyncio.sleep(5)
-                            continue
-                    logger.warning(f"[WARN] Failed to download IEM image: {image_url} (status={status})")
-                except Exception as e:
-                    logger.warning(f"[WARN] Error downloading IEM image: {e}")
-                    if attempt < 2:
-                        await asyncio.sleep(2)
-                        continue
-                    break
+            f = await _download_warning_image(image_url, filename)
+            if f:
+                files.append(f)
+                embed.set_image(url=f"attachment://{filename}")
 
         try:
             msg = await channel.send(embed=embed, files=files)
@@ -1118,7 +1139,6 @@ class WarningsCog(commands.Cog):
             try:
                 content, status = await http_get_bytes(image_url, retries=1, timeout=10)
                 if content and status == 200:
-                    from io import BytesIO
                     files.append(discord.File(BytesIO(content), filename=filename))
             except Exception as e:
                 logger.debug(f"[WARN] No cancellation image for {vtec_id}: {e}")
@@ -1339,27 +1359,10 @@ class WarningsCog(commands.Cog):
         if (vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS":
             image_url = iem_autoplot_url(vtec)
             filename = f"warning_{vtec_id.replace('.', '_')}.png"
-            # IEM maps can take a few seconds to generate after a NEW issuance.
-            # Retry on 404 with a small delay.
-            for attempt in range(3):
-                try:
-                    content, status = await http_get_bytes(image_url, retries=1, timeout=15)
-                    if content and status == 200:
-                        from io import BytesIO
-                        files.append(discord.File(BytesIO(content), filename=filename))
-                        embed.set_image(url=f"attachment://{filename}")
-                        break
-                    elif status == 404:
-                        if attempt < 2:
-                            await asyncio.sleep(5)
-                            continue
-                    logger.warning(f"[WARN] Failed to download IEM image: {image_url} (status={status})")
-                except Exception as e:
-                    logger.warning(f"[WARN] Error downloading IEM image: {e}")
-                    if attempt < 2:
-                        await asyncio.sleep(2)
-                        continue
-                    break
+            f = await _download_warning_image(image_url, filename)
+            if f:
+                files.append(f)
+                embed.set_image(url=f"attachment://{filename}")
 
         msg = await channel.send(embed=embed, files=files)
         logger.info(f"[WARN] Posted {event} {vtec_id}")

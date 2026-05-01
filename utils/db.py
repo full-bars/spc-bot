@@ -146,6 +146,15 @@ async def _create_tables(db: aiosqlite.Connection):
             area       TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS posted_soundings (
+            pkey      TEXT PRIMARY KEY,
+            posted_at REAL NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS sounding_handled_watches (
+            watch_number TEXT PRIMARY KEY
+        );
+
         CREATE TABLE IF NOT EXISTS bot_state (
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
@@ -497,6 +506,69 @@ async def prune_posted_warnings(max_size: int = 500):
            )""",
         (max_size,),
         "prune_posted_warnings",
+    )
+
+
+# ── Soundings ─────────────────────────────────────────────────────────────────
+
+async def get_posted_soundings() -> set[str]:
+    """Get all posted sounding keys."""
+    try:
+        db = await get_db()
+        async with db.execute("SELECT pkey FROM posted_soundings") as cursor:
+            rows = await cursor.fetchall()
+            return {row["pkey"] for row in rows}
+    except Exception as e:
+        logger.warning(f"[DB] get_posted_soundings failed: {e}")
+        return set()
+
+
+async def add_posted_sounding(pkey: str, posted_at: float = 0.0):
+    """Mark a sounding as posted."""
+    await _write(
+        "INSERT OR IGNORE INTO posted_soundings (pkey, posted_at) VALUES (?, ?)",
+        (pkey, posted_at or time.time()),
+        f"add_posted_sounding({pkey})",
+    )
+
+
+async def prune_posted_soundings(max_days: int = 2):
+    """Remove sounding keys older than max_days (soundings are ephemeral)."""
+    cutoff = time.time() - (max_days * 86400)
+    await _write(
+        "DELETE FROM posted_soundings WHERE posted_at < ?",
+        (cutoff,),
+        "prune_posted_soundings",
+    )
+
+
+async def get_sounding_handled_watches() -> set[str]:
+    """Get all watches that have had soundings handled."""
+    try:
+        db = await get_db()
+        async with db.execute("SELECT watch_number FROM sounding_handled_watches") as cursor:
+            rows = await cursor.fetchall()
+            return {row["watch_number"] for row in rows}
+    except Exception as e:
+        logger.warning(f"[DB] get_sounding_handled_watches failed: {e}")
+        return set()
+
+
+async def add_sounding_handled_watch(watch_number: str):
+    """Mark a watch as having soundings handled."""
+    await _write(
+        "INSERT OR IGNORE INTO sounding_handled_watches (watch_number) VALUES (?)",
+        (watch_number,),
+        f"add_sounding_handled_watch(#{watch_number})",
+    )
+
+
+async def clear_sounding_handled_watches():
+    """Clear the sounding_handled_watches table (usually daily)."""
+    await _write(
+        "DELETE FROM sounding_handled_watches",
+        (),
+        "clear_sounding_handled_watches",
     )
 
 

@@ -604,9 +604,10 @@ class FailoverSelect(discord.ui.Select):
             await self.cog._upstash("DEL", "spcbot:manual_primary")
             msg = "✅ Manual override cleared. Returning to automatic failover."
         else:
-            # Store just the hostname (strip per-process UUID suffix) so the
-            # override survives process restarts on the same host.
-            hostname = target.split(":")[0]
+            # Store just the hostname (strip role prefix and per-process UUID)
+            # so the override survives process restarts on the same host.
+            # Identity format is "role:hostname:uuid", so index 1 is hostname.
+            hostname = target.split(":")[1]
             await self.cog._upstash("SET", "spcbot:manual_primary", hostname)
             msg = f"✅ Manual override set: `{hostname}` is now the designated Primary."
 

@@ -239,3 +239,99 @@ async def test_post_md_now_send_failure_does_not_mark_posted():
         await cog.post_md_now("0398")  # must not raise
 
     assert "0398" not in bot.state.posted_mds
+
+
+# ── fetch_latest_md_numbers — IEM fallback parse path ────────────────────────
+
+@pytest.mark.asyncio
+async def test_fetch_md_numbers_parses_iem_fallback_text():
+    """When SPC index is empty, IEM retrieve.py text is parsed for MD numbers."""
+    from cogs.mesoscale import fetch_latest_md_numbers
+
+    iem_text = (
+        "MESOSCALE DISCUSSION 0412\n"
+        "Some content...\n\n"
+        "MESOSCALE DISCUSSION 0413\n"
+        "More content...\n"
+    )
+
+    with patch("cogs.mesoscale.http_get_text", AsyncMock(side_effect=[
+        # First call: SPC index (empty → triggers fallback)
+        None,
+        # Second call: IEM retrieve.py
+        iem_text,
+    ])), \
+    patch("cogs.mesoscale.http_head_meta", AsyncMock(return_value=None)):
+        result = await fetch_latest_md_numbers(fresh=True)
+
+    assert "0412" in result
+    assert "0413" in result
+
+
+@pytest.mark.asyncio
+async def test_fetch_md_numbers_returns_none_when_both_sources_fail():
+    """If SPC index and IEM fallback both fail, None is returned (not empty list)."""
+    from cogs.mesoscale import fetch_latest_md_numbers
+
+    with patch("cogs.mesoscale.http_get_text", AsyncMock(return_value=None)), \
+         patch("cogs.mesoscale.http_head_meta", AsyncMock(return_value=None)):
+        result = await fetch_latest_md_numbers(fresh=True)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_md_numbers_zero_pads_md_numbers():
+    """MD numbers from IEM are zero-padded to 4 digits."""
+    from cogs.mesoscale import fetch_latest_md_numbers
+
+    iem_text = "MESOSCALE DISCUSSION 42\nContent."
+
+    with patch("cogs.mesoscale.http_get_text", AsyncMock(side_effect=[None, iem_text])), \
+         patch("cogs.mesoscale.http_head_meta", AsyncMock(return_value=None)):
+        result = await fetch_latest_md_numbers(fresh=True)
+
+    assert "0042" in result
+
+
+@pytest.mark.asyncio
+async def test_fetch_md_numbers_deduplicates_repeated_numbers():
+    """Duplicate MD numbers in IEM text are returned once each."""
+    from cogs.mesoscale import fetch_latest_md_numbers
+
+    iem_text = (
+        "MESOSCALE DISCUSSION 0100\n"
+        "MESOSCALE DISCUSSION 0100\n"  # duplicate
+        "MESOSCALE DISCUSSION 0101\n"
+    )
+
+    with patch("cogs.mesoscale.http_get_text", AsyncMock(side_effect=[None, iem_text])), \
+         patch("cogs.mesoscale.http_head_meta", AsyncMock(return_value=None)):
+        result = await fetch_latest_md_numbers(fresh=True)
+
+    assert result.count("0100") == 1
+    assert "0101" in result
+
+
+@pytest.mark.asyncio
+async def test_fetch_md_numbers_spc_path_uses_head_cache():
+    """Unchanged SPC index (HEAD match) returns empty list without full fetch."""
+    from cogs.mesoscale import fetch_latest_md_numbers
+    import cogs.mesoscale as md_mod
+
+    # Seed a cached HEAD so the comparison can match
+    md_mod._md_index_head = {"etag": '"abc123"', "last_modified": "Thu, 01 Jan 2026 00:00:00 GMT",
+                              "content_length": "12345"}
+
+    with patch("cogs.mesoscale.http_head_meta", AsyncMock(return_value={
+        "etag": '"abc123"',
+        "last_modified": "Thu, 01 Jan 2026 00:00:00 GMT",
+        "content_length": "12345",
+    })), patch("cogs.mesoscale.http_get_text") as mock_get:
+        result = await fetch_latest_md_numbers(fresh=False)
+
+    assert result == []
+    mock_get.assert_not_called()
+
+    # Reset module state for other tests
+    md_mod._md_index_head = {}

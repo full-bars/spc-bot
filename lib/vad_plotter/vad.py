@@ -17,7 +17,7 @@ import re
 import argparse
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import glob
 
@@ -37,7 +37,7 @@ def parse_vector(vec_str):
 
 def parse_time(time_str):
     no_my = False
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     if '-' not in time_str:
         no_my = True
         year = now.year

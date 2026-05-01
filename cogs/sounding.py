@@ -37,7 +37,16 @@ from cogs.sounding_utils import (
 from cogs.sounding_views import CombinedSoundingView, post_sounding
 from config import CACHE_DIR, SOUNDING_CHANNEL_ID
 from utils.spc_outlook import get_high_risk_polygon, is_inside_polygon
-from utils.state_store import get_state, set_state
+from utils.state_store import (
+    add_posted_sounding,
+    add_sounding_handled_watch,
+    clear_sounding_handled_watches,
+    get_posted_soundings,
+    get_sounding_handled_watches,
+    get_state,
+    prune_posted_soundings,
+    set_state,
+)
 
 pd_isna = pd.isna
 
@@ -93,9 +102,6 @@ class SoundingCog(commands.Cog):
         during active wx doesn't re-post every station/watch combo the
         bot already covered today. Entries from previous UTC days are
         dropped on load."""
-        # Unconditional entry log — v5.2.0 shipped without one and we
-        # couldn't tell from production logs whether cog_load was even
-        # being called vs. finding an empty payload vs. raising silently.
         self._restore_attempted = True
         logger.info("[SOUNDING-AUTO] cog_load: restoring dedup state from state_store")
         
@@ -104,47 +110,37 @@ class SoundingCog(commands.Cog):
         self.monitor_high_risk_soundings.start()
 
         try:
-            raw = await get_state("posted_watch_soundings")
+            # Check if we need to clear handled watches (new day)
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            if not isinstance(raw, str):
-                logger.info(
-                    f"[SOUNDING-AUTO] cog_load: no persisted state "
-                    f"(raw={type(raw).__name__}) — starting with empty dedup set"
-                )
-                return
-            payload = json.loads(raw)
-            payload_date = payload.get("date")
-            if payload_date != today:
-                logger.info(
-                    f"[SOUNDING-AUTO] cog_load: persisted state is from "
-                    f"{payload_date}, today is {today} — discarding stale entries"
-                )
-                return
-            self._posted_watch_soundings.update(payload.get("keys", []))
-            self._handled_watches.update(payload.get("handled", []))
+            last_date = await get_state("sounding_handled_date")
+            if last_date != today:
+                logger.info(f"[SOUNDING-AUTO] New day {today}, clearing handled watches")
+                await clear_sounding_handled_watches()
+                await set_state("sounding_handled_date", today)
+            
+            # Prune old sounding keys
+            await prune_posted_soundings(max_days=2)
+
+            self._posted_watch_soundings = await get_posted_soundings()
+            self._handled_watches = await get_sounding_handled_watches()
+            
             logger.info(
                 f"[SOUNDING-AUTO] Restored {len(self._posted_watch_soundings)} "
                 f"posted-sounding keys and {len(self._handled_watches)} "
                 f"handled watches for {today}"
             )
-        except (ValueError, TypeError) as e:
-            logger.warning(f"[SOUNDING-AUTO] posted_watch_soundings parse failed: {e}")
         except Exception as e:
-            logger.warning(f"[SOUNDING-AUTO] Could not restore dedup state: {e}")
+            logger.exception(f"[SOUNDING-AUTO] Could not restore dedup state: {e}")
 
-    async def _persist_posted_state(self) -> None:
-        """Write the current posted-sounding dedup set to state_store.
-        Called after each successful post so a restart mid-event doesn't
-        clear the set."""
-        try:
-            payload = json.dumps({
-                "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-                "keys": sorted(self._posted_watch_soundings),
-                "handled": sorted(self._handled_watches),
-            })
-            await set_state("posted_watch_soundings", payload)
-        except Exception as e:
-            logger.debug(f"[SOUNDING-AUTO] Could not persist dedup state: {e}")
+    async def _mark_sounding_posted(self, pkey: str):
+        """Mark a sounding as posted in memory and persistent store."""
+        self._posted_watch_soundings.add(pkey)
+        await add_posted_sounding(pkey)
+
+    async def _mark_watch_handled(self, watch_num: str):
+        """Mark a watch as having soundings handled in memory and persistent store."""
+        self._handled_watches.add(watch_num)
+        await add_sounding_handled_watch(watch_num)
 
     async def _resolve_watch_centroid(
         self, watch_num: str, info: dict
@@ -262,11 +258,14 @@ class SoundingCog(commands.Cog):
             
             # We check ALL available soundings in the window, not just the newest,
             # in case multiple special releases happened (e.g. 18z then 20z).
+            # Claim each key atomically (no await between check and add) so a
+            # concurrent monitor_high_risk_soundings tick can't race and double-post.
             to_post = []
             for y, mo, d, h in avail:
                 tkey = f"{y}-{mo}-{d}_{h}z"
                 pkey = f"raob:{sid}:{tkey}"
                 if pkey not in self._posted_watch_soundings:
+                    await self._mark_sounding_posted(pkey)
                     to_post.append((station_info, sid, y, mo, d, h, tkey, pkey))
             return to_post
 
@@ -289,10 +288,6 @@ class SoundingCog(commands.Cog):
         # To avoid flooding, we process them in small batches if there are many
         for i in range(0, len(all_to_post), 3):
             batch = all_to_post[i:i+3]
-            
-            # Claim keys
-            for *_, pkey in batch:
-                self._posted_watch_soundings.add(pkey)
 
             # Fetch
             async def _fetch_mon(station, sid, y, mo, d, h, tkey, pkey):
@@ -449,11 +444,14 @@ class SoundingCog(commands.Cog):
             )
             if not avail:
                 return []
+            # Claim atomically (no await between check and add) to prevent a
+            # concurrent monitor_special_soundings tick from racing on the same key.
             new_times = []
             for y, mo, d, h in avail:
                 tkey = f"{y}-{mo}-{d}_{h}z"
                 pkey = f"raob:{sid}:{tkey}"
                 if pkey not in self._posted_watch_soundings:
+                    await self._mark_sounding_posted(pkey)
                     new_times.append((station, sid, y, mo, d, h, tkey, pkey))
             return new_times
 
@@ -471,8 +469,6 @@ class SoundingCog(commands.Cog):
             # Process in batches of 3 to keep memory and Discord rate-limit happy
             for i in range(0, len(to_post), 3):
                 batch = to_post[i:i+3]
-                for *_, pkey in batch:
-                    self._posted_watch_soundings.add(pkey)
 
                 async def _fetch(station, sid, y, mo, d, h, tkey, pkey):
                     data = await fetch_sounding(
@@ -539,7 +535,7 @@ class SoundingCog(commands.Cog):
                 f"{p['year']}{p['month']}{p['day']}_{p['acars_hour']}z"
             )
             if pkey not in self._posted_watch_soundings:
-                self._posted_watch_soundings.add(pkey)
+                await self._mark_sounding_posted(pkey)
                 acars_to_post.append(p)
 
         if acars_to_post:
@@ -662,7 +658,7 @@ class SoundingCog(commands.Cog):
             logger.warning(f"[SOUNDING-AUTO] No affected zones for watch #{watch_num} — skipping")
             return
 
-        self._handled_watches.add(watch_num)
+        await self._mark_watch_handled(watch_num)
         wtype = nws_info.get("type", "SVR") if isinstance(nws_info, dict) else "SVR"
         watch_label = "Tornado Watch" if wtype == "TORNADO" else "SVR Watch"
 
@@ -700,7 +696,7 @@ class SoundingCog(commands.Cog):
 
         # Claim post keys before launching parallel fetches to prevent double-posts.
         for *_, pkey in to_fetch:
-            self._posted_watch_soundings.add(pkey)
+            await self._mark_sounding_posted(pkey)
 
         # ── Phase 1: fetch all sounding data concurrently ─────────────────
         async def _fetch_raob(station, sid, y, mo, d, h, tkey, pkey):
@@ -759,7 +755,7 @@ class SoundingCog(commands.Cog):
                 f"{profile['year']}{profile['month']}{profile['day']}_{profile['acars_hour']}z"
             )
             if post_key not in self._posted_watch_soundings:
-                self._posted_watch_soundings.add(post_key)
+                await self._mark_sounding_posted(post_key)
                 acars_eligible.append(profile)
 
         async def _fetch_acars(p):
@@ -874,7 +870,7 @@ class SoundingCog(commands.Cog):
                 station_id = station.get("icao") or station.get("wmo")
                 post_key = f"raob:{station_id}:{time_key}"
                 if post_key not in self._posted_watch_soundings:
-                    self._posted_watch_soundings.add(post_key)
+                    await self._mark_sounding_posted(post_key)
                     eligible.append((station, station_id))
 
             # ── Phase 1: fetch all RAOB data concurrently ─────────────────
@@ -935,7 +931,7 @@ class SoundingCog(commands.Cog):
             for profile in acars_profiles[:2]:
                 post_key = f"acars:{profile['airport']}:{time_key}"
                 if post_key not in self._posted_watch_soundings:
-                    self._posted_watch_soundings.add(post_key)
+                    await self._mark_sounding_posted(post_key)
                     acars_eligible2.append(profile)
 
             async def _fetch_acars2(p):

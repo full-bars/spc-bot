@@ -150,7 +150,7 @@ class RadarCog(commands.Cog):
             async with _s3() as s3:
                 await s3.list_objects_v2(
                     Bucket="unidata-nexrad-level2",
-                    Prefix="2026/",
+                    Prefix=f"{datetime.now(timezone.utc).year}/",
                     Delimiter="/",
                     MaxKeys=1,
                 )
