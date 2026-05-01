@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.7.8] — 2026-04-30
+
+### Changed
+- **Help Menu Overhaul.** Updated the `/help` command to include the full suite of analytics and tornado tracking tools added in v5.6 (e.g., `/recenttornadoes`, `/verify`, `/topstats`).
+- **Enhanced Status Reporting.** The `/status` command now includes the bot's version number and a list of currently open HTTP circuit breakers for better diagnostic visibility.
+
+### Added
+- **Status & Help Tests.** Implemented new unit tests in `tests/test_status.py` to verify command outputs and health reporting logic.
+
 ## [5.7.7] — 2026-04-30
 
 ### Fixed

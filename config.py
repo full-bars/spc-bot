@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 # Single source of truth for the release displayed in /help.
 # Bump this in the same commit as the git tag.
-__version__ = "5.7.7"
+__version__ = "5.7.8"
 
 load_dotenv()
 

@@ -283,6 +283,22 @@ class StatusCog(commands.Cog):
             inline=False,
         )
 
+        # Tornado Tracking & Analytics
+        embed.add_field(
+            name="🌪️ Tornado Tracking & Analytics",
+            value=(
+                "`/recenttornadoes` [range] - List recent confirmed tornadoes\n"
+                "`/sigtor` [range] - List significant (EF2+) tornadoes\n"
+                "`/topstats` [by] [year] - Leading states/WFOs for tornado counts\n"
+                "`/verify` <wfo> [days] - Warning verification metrics (IEM Cow)\n"
+                "`/riskmap` [days] - Historical Day 1 risk frequency map\n"
+                "`/dayssince` - Current streak since last Tornado Warning\n"
+                "`/dailyrecap` [date] - Visual summary of a day's warning polygons\n"
+                "`/tornadoheatmap` [days] - Tornado report density map"
+            ),
+            inline=False,
+        )
+
         # Experimental & Models
         embed.add_field(
             name="🧪 Experimental & Models",
@@ -488,6 +504,7 @@ class StatusCog(commands.Cog):
         lines = [
             "```",
             "═══ SPC/SPC Bot Status ═══",
+            f"Version        : v{__version__}",
             f"Host           : {hostname} ({host_ip})",
             f"Node Role      : {'PRIMARY' if self.bot.state.is_primary else 'STANDBY'}",
             "",
@@ -509,6 +526,15 @@ class StatusCog(commands.Cog):
         lines.append(
             f"HTTP Session   : {'OK' if session_ok else 'CLOSED/MISSING'}"
         )
+
+        open_circuits = [
+            h for h in _http.circuit_breaker.failures 
+            if _http.circuit_breaker.is_open(h)
+        ]
+        if open_circuits:
+            lines.append(f"Open Circuits  : {', '.join(open_circuits)}")
+        else:
+            lines.append("Open Circuits  : NONE")
 
         # Proactively refresh — the 30-min TTL inside get_high_risk_polygon
         # makes this a no-op most of the time, but it guarantees /status is
