@@ -17,6 +17,16 @@ echo "Running pre-push checks..."
 cd "$(git rev-parse --show-toplevel)"
 source venv/bin/activate 2>/dev/null || true
 
+# 1. Lint check (Ruff)
+# This catches unused imports, which have caused multiple CI failures recently.
+echo "Linting..."
+ruff check --select=E9,F63,F7,F82,F401 --exclude=venv,lib,cache .
+if [ $? -ne 0 ]; then
+    echo "LINT ERRORS FOUND — push aborted"
+    exit 1
+fi
+
+# 2. Syntax check
 failed=0
 for f in $(git diff --name-only HEAD @{upstream} 2>/dev/null | grep '\.py$'); do
     if [ -f "$f" ]; then
@@ -29,6 +39,8 @@ for f in $(git diff --name-only HEAD @{upstream} 2>/dev/null | grep '\.py$'); do
 done
 [ $failed -ne 0 ] && exit 1
 
+# 3. Tests
+echo "Testing..."
 python -m pytest tests/ -q 2>&1 | tail -3
 if [ ${PIPESTATUS[0]} -ne 0 ]; then
     echo "TESTS FAILED — push aborted"
