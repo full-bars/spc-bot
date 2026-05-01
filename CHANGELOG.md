@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.8.1] — 2026-05-01
+
+### Fixed
+- **MD Cancellation Reliability.** Refined the Mesoscale Discussion cancellation logic to only process expirations when the authoritative SPC index is successfully reachable. During outages, the bot continues to discover new discussions via the IEM fallback but skips expiration checks, eliminating false cancellation notices caused by synchronization lag between the two sources.
+- **Code Simplification.** Removed the complex multi-cycle verification shield and threshold guards in favor of the simpler source-based verification rule.
+
 ## [5.8.0] — 2026-05-01
 
 ### Added
