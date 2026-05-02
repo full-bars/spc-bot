@@ -327,3 +327,36 @@ async def test_check_for_surveys_no_datglobalid_arg_returns_early():
         await cog._check_for_surveys("2026-04-29")
 
     channel.send.assert_not_called()
+
+@pytest.mark.asyncio
+async def test_check_for_surveys_falls_back_to_local_render():
+    """If IEM Autoplot returns 404, bot renders and posts a local map from DAT geometry."""
+    cog, channel = _make_cog()
+
+    meta = {
+        "arguments": [
+            {"id": "datglobalid", "options": {"{GUID-LOCAL}": "OUN EF2 Test"}}
+        ]
+    }
+    
+    # IEM meta call succeeds (200), but IEM image call fails (404)
+    with patch("cogs.reports.http_get_bytes", side_effect=[
+        (json.dumps(meta).encode(), 200), # meta call
+        (None, 404)                      # image call
+    ]), \
+    patch("utils.dat_api.fetch_dat_track_geometry", AsyncMock(return_value=[[(35.0, -97.0), (35.1, -97.1)]])), \
+    patch("utils.map_utils.render_tornado_track", MagicMock()), \
+    patch("os.path.exists", return_value=True), \
+    patch("discord.File", return_value=MagicMock(spec=discord.File, filename="track_{GUID-LOCAL}.png")), \
+    patch("cogs.reports.add_posted_survey", AsyncMock()), \
+    patch("cogs.reports.prune_posted_surveys", AsyncMock()), \
+    patch("utils.events_db.link_dat_guid_to_tornado", AsyncMock()):
+
+        await cog._check_for_surveys("2026-04-29")
+
+    channel.send.assert_called_once()
+    kwargs = channel.send.call_args.kwargs
+    embed = kwargs["embed"]
+    assert "Local DAT Render" in embed.footer.text
+    # Verify file attachment
+    assert "file" in kwargs

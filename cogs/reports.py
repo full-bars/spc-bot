@@ -1,6 +1,7 @@
 # cogs/reports.py
 import asyncio
 import logging
+import os
 import re
 from datetime import datetime, timezone
 
@@ -396,21 +397,45 @@ class ReportsCog(commands.Cog):
                     f"datglobalid:{guid}::dat:{event_date}::cmap:gist_rainbow::"
                     f"_r:t::dpi:100.png"
                 )
+
+                # --- Fallback Logic: Try IEM first, fall back to local render ---
+                file_to_send = None
+                source_text = "IEM Autoplot 253"
                 
+                # Check if IEM image is available (timeout quickly to avoid lag)
+                _, status = await http_get_bytes(img_url, retries=0, timeout=5)
+                if status != 200:
+                    logger.info(f"[REPORTS] IEM map not ready for {guid}, attempting local render")
+                    from utils.dat_api import fetch_dat_track_geometry  # noqa: PLC0415
+                    from utils.map_utils import render_tornado_track  # noqa: PLC0415
+                    
+                    paths = await fetch_dat_track_geometry(guid)
+                    if paths:
+                        out_path = os.path.join("cache", f"track_{guid}.png")
+                        render_tornado_track(paths, out_path)
+                        if os.path.exists(out_path):
+                            file_to_send = discord.File(out_path, filename=f"track_{guid}.png")
+                            source_text = "Local DAT Render"
+
                 embed = discord.Embed(
                     title="🌪️ Tornado Track + Lead Time",
                     description=f"**Event:** {label}\n**Date:** {event_date}",
                     color=discord.Color.red(),
                     url=f"https://mesonet.agron.iastate.edu/plotting/auto/?q=253&dat={event_date.replace('-', '/')}&datglobalid={guid}"
                 )
-                embed.set_image(url=img_url)
-                embed.set_footer(text=f"IEM Autoplot 253 | {guid}")
                 
-                await channel.send(embed=embed)
+                if file_to_send:
+                    embed.set_image(url=f"attachment://{file_to_send.filename}")
+                else:
+                    embed.set_image(url=img_url)
+                    
+                embed.set_footer(text=f"{source_text} | {guid}")
+                
+                await channel.send(embed=embed, file=file_to_send)
                 self.posted_surveys.add(guid)
                 await add_posted_survey(guid)
                 await prune_posted_surveys()
-                logger.info(f"[REPORTS] Posted Autoplot 253 for {guid} ({label})")
+                logger.info(f"[REPORTS] Posted survey map for {guid} ({label}) via {source_text}")
                 
                 from utils.events_db import link_dat_guid_to_tornado
                 await link_dat_guid_to_tornado(event_date, guid, label)

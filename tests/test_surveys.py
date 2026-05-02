@@ -37,10 +37,12 @@ async def test_pns_triggers_survey_check(isolated_events_db):
         mock_content = json.dumps(mock_meta).encode()
         
         with patch("cogs.reports.http_get_bytes", side_effect=[
-            # We don't need to mock the image download here, 
-            # just the metadata call in _check_for_surveys
-            (mock_content, 200)
-        ]):
+            # 1. Metadata call
+            (mock_content, 200),
+            # 2. Image check call (IEM image exists)
+            (b"fake-image-data", 200)
+        ]), \
+        patch("utils.events_db.link_dat_guid_to_tornado", AsyncMock()):
             # Use a mock for _check_for_surveys to avoid background task issues in test
             # or just await it directly for the test
             with patch.object(ReportsCog, "_check_for_surveys", wraps=cog._check_for_surveys) as mock_check:
