@@ -809,6 +809,8 @@ class SoundingCog(commands.Cog):
     @tasks.loop(minutes=30)
     async def auto_sounding_watches(self):
         """Post soundings for RAOB stations near active watches at 00z/12z."""
+        if not self.bot.state.is_primary:
+            return
         await self.bot.wait_until_ready()
         await self._ensure_restored()
         now = datetime.now(timezone.utc)
