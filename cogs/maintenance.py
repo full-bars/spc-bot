@@ -66,8 +66,11 @@ class MaintenanceCog(commands.Cog):
                 logger.info("[MAINTENANCE] Cleanup complete. No files needed deletion.")
 
             # Prune significant_events older than 365 days
-            from utils.events_db import prune_old_significant_events
+            from utils.events_db import prune_old_significant_events, backfill_dat_guids
             await prune_old_significant_events(days=365)
+            
+            # Backfill missing DAT GUIDs via geographic matching
+            await backfill_dat_guids(days=30)
                 
         except Exception as e:
             logger.exception(f"[MAINTENANCE] Error during cache cleanup: {e}")

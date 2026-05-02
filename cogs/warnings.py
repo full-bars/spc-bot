@@ -554,38 +554,54 @@ class TornadoPhotoView(discord.ui.View):
         self.urls = urls
         self.parent_view = parent_view
         self.location = location
-        self.index = 0
+        self.page = 0
+        self.per_page = 4
         self._update_buttons()
 
     def _update_buttons(self):
-        self.prev_btn.disabled = self.index <= 0
-        self.next_btn.disabled = self.index >= len(self.urls) - 1
+        max_pages = (len(self.urls) + self.per_page - 1) // self.per_page
+        self.prev_btn.disabled = self.page <= 0
+        self.next_btn.disabled = self.page >= max_pages - 1
 
-    def build_embed(self) -> discord.Embed:
-        embed = discord.Embed(
-            title=f"📸 Damage Photos: {self.location}",
-            color=discord.Color.teal(),
-            timestamp=datetime.now(timezone.utc)
-        )
-        embed.set_image(url=self.urls[self.index])
-        embed.set_footer(text=f"Photo {self.index + 1} of {len(self.urls)}")
-        return embed
+    def build_embeds(self) -> list[discord.Embed]:
+        start = self.page * self.per_page
+        end = start + self.per_page
+        page_urls = self.urls[start:end]
+        
+        embeds = []
+        for i, url in enumerate(page_urls):
+            embed = discord.Embed(
+                title=f"📸 Damage Photos: {self.location}" if i == 0 else None,
+                color=discord.Color.teal(),
+                timestamp=datetime.now(timezone.utc) if i == 0 else None
+            )
+            # Use proxy URL or original URL
+            embed.set_image(url=url)
+            
+            if i == 0:
+                max_pages = (len(self.urls) + self.per_page - 1) // self.per_page
+                embed.set_footer(text=f"Page {self.page + 1} of {max_pages} ({len(self.urls)} total photos)")
+            
+            embeds.append(embed)
+            
+        return embeds
 
-    @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="◀ Prev Page", style=discord.ButtonStyle.secondary)
     async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.index = max(0, self.index - 1)
+        self.page = max(0, self.page - 1)
         self._update_buttons()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await interaction.response.edit_message(embeds=self.build_embeds(), view=self)
 
-    @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Next Page ▶", style=discord.ButtonStyle.secondary)
     async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.index = min(len(self.urls) - 1, self.index + 1)
+        max_pages = (len(self.urls) + self.per_page - 1) // self.per_page
+        self.page = min(max_pages - 1, self.page + 1)
         self._update_buttons()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await interaction.response.edit_message(embeds=self.build_embeds(), view=self)
 
     @discord.ui.button(label="🔙 Back to Card", style=discord.ButtonStyle.primary)
     async def back_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(embed=self.parent_view.build_card_embed(), view=self.parent_view)
+        await interaction.response.edit_message(embed=self.parent_view.build_card_embed(), embeds=[], view=self.parent_view)
 
 
 class TornadoDashboardView(discord.ui.View):
@@ -731,7 +747,7 @@ class TornadoDashboardView(discord.ui.View):
             return
 
         photo_view = TornadoPhotoView(photos, self, location)
-        await interaction.edit_original_response(embed=photo_view.build_embed(), view=photo_view)
+        await interaction.edit_original_response(embeds=photo_view.build_embeds(), view=photo_view)
 
     def _get_ef_emoji(self, mag: str) -> str:
         mag = (mag or "").upper()

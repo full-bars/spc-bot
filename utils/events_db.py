@@ -11,6 +11,7 @@ Sync snapshot:  cache/events_sync/events.db  — written every snapshot cycle,
                 watched by Syncthing for cross-node replication.
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -18,6 +19,8 @@ import shutil
 import time
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
+
+from utils.http import http_get_json
 
 import aiosqlite
 
@@ -168,11 +171,89 @@ async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> Opti
             _mark_dirty()
             logger.info(f"[EVENTS-DB] Linked DAT {guid} to event {best_id}")
             return (best_id, best_row["location"], best_row["magnitude"], best_row["coords"])
-
+            
     except Exception as e:
         logger.warning(f"[EVENTS-DB] link_dat_guid_to_tornado failed: {e}")
-
     return None
+
+
+async def backfill_dat_guids(days: int = 30):
+    """
+    Search for all tornado tracks updated in the last N days from DAT ArcGIS API 
+    and attempt to link them to events in our database using geography.
+    """
+    from utils.geo import haversine
+    db = await get_events_db()
+
+    # 1. Fetch recently updated tracks from DAT
+    # ArcGIS uses Unix timestamps in milliseconds for date filters
+    cutoff_ms = int((time.time() - (days * 86400)) * 1000)
+    
+    url = (
+        "https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/1/query"
+        f"?where=last_edited_date >= {cutoff_ms}&outFields=event_id,event_name,efscale&returnGeometry=true&outSR=4326&f=json"
+    )
+
+    try:
+        data = await http_get_json(url, retries=1, timeout=15)
+        if not data or "features" not in data:
+            logger.debug(f"[EVENTS-DB] No DAT updates found in last {days} days")
+            return
+
+        # 2. Get un-linked tornadoes from our DB
+        # We only need to try matching events that don't have a GUID yet
+        async with db.execute(
+            "SELECT event_id, location, coords FROM significant_events WHERE event_type = 'Tornado' AND dat_guid IS NULL"
+        ) as cur:
+            our_events = await cur.fetchall()
+
+        if not our_events:
+            return
+
+        linked_count = 0
+        for feat in data["features"]:
+            guid = feat["attributes"]["event_id"]
+            geom = feat.get("geometry", {})
+            paths = geom.get("paths", [])
+            if not paths or not paths[0]:
+                continue
+
+            # Use the first point of the track as the anchor
+            track_lon, track_lat = paths[0][0]
+
+            # Find closest event in our DB
+            best_id = None
+            min_dist = 50.0  # 50km threshold
+
+            for our_e in our_events:
+                # Parse our coords: "37.67N 85.74W"
+                try:
+                    parts = our_e["coords"].replace("N", "").replace("S", "").replace("W", "").replace("E", "").split()
+                    e_lat = float(parts[0])
+                    e_lon = -float(parts[1]) if "W" in our_e["coords"] else float(parts[1])
+
+                    dist = haversine(track_lat, track_lon, e_lat, e_lon)
+                    if dist < min_dist:
+                        min_dist = dist
+                        best_id = our_e["event_id"]
+                except:
+                    continue
+
+            if best_id:
+                await db.execute(
+                    "UPDATE significant_events SET dat_guid = ? WHERE event_id = ?",
+                    (guid, best_id)
+                )
+                linked_count += 1
+
+        if linked_count > 0:
+            await db.commit()
+            _mark_dirty()
+            logger.info(f"[EVENTS-DB] Backfilled {linked_count} DAT GUIDs via geographic matching")
+
+    except Exception as e:
+        logger.warning(f"[EVENTS-DB] backfill_dat_guids failed: {e}")
+
 
 async def fetch_dat_photos(
     location: str = "",
@@ -236,26 +317,26 @@ async def fetch_dat_photos(
 
         logger.debug(f"[DAT-API] Found {len(object_ids)} damage points near {location}")
 
-        # Fetch attachments for each damage point (limit to 15 to avoid excessive API calls)
+        # Fetch attachments for each damage point in parallel (limit to 30 points)
+        # We use the queryAttachments bulk endpoint for efficiency
+        ids_str = ",".join(str(oid) for oid in object_ids[:30])
+        bulk_url = (
+            "https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/0"
+            f"/queryAttachments?objectIds={ids_str}&f=json"
+        )
+        
         urls = []
-        for oid in object_ids[:15]:
-            attach_url = (
-                "https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/0"
-                f"/{oid}/attachments?f=json"
-            )
-
-            try:
-                attach_data = await http_get_json(attach_url, retries=0, timeout=5)
-                for att in attach_data.get("attachmentInfos", []):
-                    if att.get("contentType", "").startswith("image/"):
-                        photo_url = (
-                            f"https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/0"
-                            f"/{oid}/attachments/{att['id']}"
+        bulk_data = await http_get_json(bulk_url, retries=1, timeout=10)
+        if bulk_data and "attachmentGroups" in bulk_data:
+            for group in bulk_data["attachmentGroups"]:
+                parent_id = group["parentObjectId"]
+                for info in group["attachmentInfos"]:
+                    if info.get("contentType", "").startswith("image/"):
+                        attach_id = info["id"]
+                        urls.append(
+                            "https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/0"
+                            f"/{parent_id}/attachments/{attach_id}"
                         )
-                        urls.append(photo_url)
-            except Exception as e:
-                logger.debug(f"[DAT-API] Error fetching attachments for ObjectID {oid}: {e}")
-                continue
 
         if urls:
             logger.info(f"[DAT-API] Found {len(urls)} photo(s) for {location}")
@@ -272,7 +353,7 @@ async def cache_dat_photos(
     magnitude: str = "",
     coords: str = "",
 ) -> int:
-    """Download and cache DAT photos for a tornado event.
+    """Download and cache DAT photos for a tornado event in parallel.
 
     Returns the number of photos cached (0 if none found or already cached).
     """
@@ -295,30 +376,28 @@ async def cache_dat_photos(
     # Create cache directory
     os.makedirs(cache_dir, exist_ok=True)
 
-    # Download each photo
-    cached_count = 0
-    for idx, url in enumerate(photo_urls, 1):
+    # Download photos in parallel
+    async def _dl(idx, url):
         try:
-            content, status = await http_get_bytes(url, retries=1, timeout=10)
+            content, status = await http_get_bytes(url, retries=1, timeout=15)
             if status == 200 and content:
-                # Determine file extension
                 ext = ".jpg"
                 if b"\x89PNG" in content[:8]:
                     ext = ".png"
-
                 file_path = os.path.join(cache_dir, f"photo_{idx:02d}{ext}")
                 with open(file_path, "wb") as f:
                     f.write(content)
-                cached_count += 1
-                logger.debug(f"[DAT-CACHE] Cached {file_path} ({len(content)} bytes)")
-            else:
-                logger.debug(f"[DAT-CACHE] Failed to download photo {idx}: status {status}")
+                return True
         except Exception as e:
-            logger.warning(f"[DAT-CACHE] Error caching photo {idx} for {event_id}: {e}")
-            continue
+            logger.warning(f"[DAT-CACHE] Failed to download {url}: {e}")
+        return False
+
+    tasks = [_dl(i, url) for i, url in enumerate(photo_urls, 1)]
+    results = await asyncio.gather(*tasks)
+    cached_count = sum(1 for r in results if r)
 
     if cached_count > 0:
-        logger.info(f"[DAT-CACHE] Cached {cached_count} photo(s) for {event_id}")
+        logger.info(f"[DAT-CACHE] Successfully cached {cached_count} photo(s) for {event_id}")
 
     return cached_count
 
