@@ -185,6 +185,7 @@ def _make_cog(posted: dict | None = None) -> WarningsCog:
     """Build a WarningsCog with mocked bot/channel for unit testing the
     iembot path without touching Discord, the DB, or the network."""
     cog = WarningsCog.__new__(WarningsCog)
+    cog._in_flight_vtecs = set()
     cog.bot = MagicMock()
     cog.bot.wait_until_ready = AsyncMock()
     cog.bot.state.is_primary = True
@@ -444,6 +445,7 @@ def _nws_response(features: list) -> bytes:
 
 def _make_tick_cog(active=None, posted=None):
     cog = WarningsCog.__new__(WarningsCog)
+    cog._in_flight_vtecs = set()
     from utils.backoff import TaskBackoff
     cog._backoff = TaskBackoff("auto_poll_warnings")
     cog._validators = {"etag": "", "last_modified": ""}

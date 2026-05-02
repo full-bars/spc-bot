@@ -30,20 +30,21 @@ logger.setLevel(logging.INFO)
 logger.propagate = False
 formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
 
-ch = logging.StreamHandler()
-ch.setFormatter(formatter)
-logger.addHandler(ch)
+if not logger.handlers:
+    ch = logging.StreamHandler()
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
 
-try:
-    from logging.handlers import RotatingFileHandler
+    try:
+        from logging.handlers import RotatingFileHandler
 
-    fh = RotatingFileHandler(
-        CONFIG["log_file"], maxBytes=5 * 1024 * 1024, backupCount=3
-    )
-    fh.setFormatter(formatter)
-    logger.addHandler(fh)
-except Exception as e:
-    logger.warning(f"Could not create rotating file handler: {e}")
+        fh = RotatingFileHandler(
+            CONFIG["log_file"], maxBytes=5 * 1024 * 1024, backupCount=3
+        )
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
+    except Exception as e:
+        logger.warning(f"Could not create rotating file handler: {e}")
 
 # ── Bot setup ────────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
