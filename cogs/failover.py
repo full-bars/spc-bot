@@ -417,6 +417,11 @@ class FailoverCog(commands.Cog):
             except Exception as e:
                 logger.exception(f"[FAILOVER] Failed to load {ext}: {e}")
 
+        # Trigger immediate NWWS connection if available
+        nwws = self.bot.get_cog("NWWSCog")
+        if nwws:
+            asyncio.create_task(nwws.trigger_connection())
+
         try:
             synced = await self.bot.tree.sync()
             logger.info(f"[FAILOVER] Synced {len(synced)} slash commands")
