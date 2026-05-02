@@ -55,17 +55,24 @@ class NWWSClient(ClientXMPP):
         logger.warning("[NWWS] XMPP Disconnected")
 
     def message(self, msg):
-        if msg['type'] in ('chat', 'normal'):
-            body = msg['body']
+        # NWWS-OI often uses 'headline' type for products.
+        # We'll allow 'chat', 'normal', and 'headline' to be safe.
+        msg_type = msg['type']
+        body = msg['body']
+        
+        # --- DEBUG LOGGING: Data Stream Analysis ---
+        # Capture a large sample (2000 chars) to verify WMO/PIL headers.
+        # We preserve newlines here for easier verification.
+        if body:
+            sample = body[:2000].replace('\r', '')
+            logger.info(f"\n[NWWS-DEBUG] INGRESS ({msg_type}) START (len={len(body)})\n{sample}\n[NWWS-DEBUG] INGRESS END\n")
+        else:
+            # Some headline messages might carry data in custom XML tags rather than body
+            logger.info(f"[NWWS-DEBUG] Received {msg_type} with NO BODY. XML: {msg}")
+
+        if msg_type in ('chat', 'normal', 'headline'):
             if not body:
                 return
-            
-            # --- DEBUG LOGGING: Data Stream Analysis ---
-            # Capture a large sample (2000 chars) to verify WMO/PIL headers.
-            # We preserve newlines here for easier verification.
-            sample = body[:2000].replace('\r', '')
-            logger.info(f"\n[NWWS-DEBUG] RAW INGRESS START (len={len(body)})\n{sample}\n[NWWS-DEBUG] RAW INGRESS END\n")
-            # -------------------------------------------
             
             # We want to run the processing off the XMPP event loop
             asyncio.create_task(self._process_nwws_message(body))
