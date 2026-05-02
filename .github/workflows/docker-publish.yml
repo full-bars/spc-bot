@@ -73,7 +73,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   build-arm64:
-    runs-on: honk
+    runs-on: [self-hosted, ARM64]
     needs: verify
     permissions:
       packages: write
@@ -114,7 +114,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   export-and-upload:
-    runs-on: honk
+    runs-on: [self-hosted, ARM64]
     needs: [build-amd64, build-arm64]
     permissions:
       contents: write
