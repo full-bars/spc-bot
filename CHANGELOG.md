@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.12.4] — 2026-05-02
+
+### Added
+- **Dashboard Track Maps.** Integrated the high-detail tornado track maps into the individual event cards in the `/recenttornadoes` dashboard. Operators can now view the geographic survey path directly within the interactive card view.
+- **Multi-Arch Release Assets.** Automated the generation of portable Docker tarballs for both AMD64 and ARM64 architectures. These are now available directly in the GitHub Release "Assets" section for offline or registry-free deployments.
+
 ## [5.12.3] — 2026-05-02
 
 ### Added
