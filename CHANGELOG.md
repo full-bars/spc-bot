@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.12.8] — 2026-05-02
+
+### Infrastructure
+- **Parallel Multi-Arch Docker Builds.** Split amd64 and arm64 builds across dedicated self-hosted runners (Ryzen 9 for amd64, Oracle A1 for arm64). Enables simultaneous compilation, reducing total release time by ~50%.
+
 ## [5.12.7] — 2026-05-02
 
 ### Infrastructure
