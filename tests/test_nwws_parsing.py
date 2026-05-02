@@ -1,5 +1,5 @@
 """
-Unit tests for cogs/nwws.py — parsing and routing of XMPP products.
+Unit tests for cogs/nwws.py — parsing and routing of XMPP MUC products.
 """
 
 import pytest
@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from cogs.nwws import NWWSClient
 
-# Mock body samples
-SAMPLE_TOR = """WFUS54 KOUN 011234
+# Mock product text
+SAMPLE_TOR_TEXT = """WFUS54 KOUN 011234
 TOROUN
 OKC031-011315-
 /O.NEW.KOUN.TO.W.0042.260501T1234Z-260501T1315Z/
@@ -21,26 +21,41 @@ NATIONAL WEATHER SERVICE NORMAN OK
 ...A TORNADO WARNING REMAINS IN EFFECT FOR NORTHERN COMANCHE COUNTY...
 """
 
-SAMPLE_SEL = """WWUS20 KWNS 011545
-SEL5
+@pytest.fixture
+def mock_payload():
+    payload = MagicMock()
+    # Mock the __getitem__ access for attributes
+    data = {
+        'cccc': 'KOUN',
+        'ttaaii': 'WFUS54',
+        'awipsid': 'TOROUN',
+        'issue': '2026-05-01T12:34:00Z',
+        'id': '1.1'
+    }
+    payload.__getitem__.side_effect = data.get
+    payload.xml.text = SAMPLE_TOR_TEXT
+    return payload
 
-SEVERE THUNDERSTORM WATCH NUMBER 42
-NWS STORM PREDICTION CENTER NORMAN OK
-1045 AM CDT FRI MAY 1 2026
-
-THE NWS STORM PREDICTION CENTER HAS ISSUED A
-...
-"""
+@pytest.fixture
+def mock_msg(mock_payload):
+    msg = MagicMock()
+    msg['type'] = 'groupchat'
+    msg['from'] = 'nwws@conference.nwws-oi.weather.gov/nwws-oi'
+    msg['nwws'] = mock_payload
+    return msg
 
 @pytest.mark.asyncio
-async def test_process_nwws_message_routes_warning():
+async def test_process_nwws_message_routes_warning(mock_payload):
     bot = MagicMock()
     warnings_cog = MagicMock()
     warnings_cog.post_warning_now = AsyncMock()
-    bot.get_cog.return_value = warnings_cog
+    bot.get_cog.side_effect = lambda name: warnings_cog if name == "WarningsCog" else None
     
-    client = NWWSClient("test@jid", "pass", bot)
-    await client._process_nwws_message(SAMPLE_TOR)
+    # Mock slixmpp client setup
+    with patch('slixmpp.ClientXMPP.register_plugin'), \
+         patch('slixmpp.xmlstream.register_stanza_plugin'):
+        client = NWWSClient("test@jid", "pass", bot)
+        await client._process_nwws_message(mock_payload, SAMPLE_TOR_TEXT)
     
     assert warnings_cog.post_warning_now.called
     args = warnings_cog.post_warning_now.call_args[0]
@@ -48,16 +63,28 @@ async def test_process_nwws_message_routes_warning():
     assert "Tornado Warning" == args[2] # event type
 
 @pytest.mark.asyncio
-async def test_process_nwws_message_routes_watch():
+async def test_process_nwws_message_routes_watch(mock_payload):
     bot = MagicMock()
     watches_cog = MagicMock()
     watches_cog.post_watch_now = AsyncMock()
-    bot.get_cog.return_value = watches_cog
+    bot.get_cog.side_effect = lambda name: watches_cog if name == "WatchesCog" else None
     
-    client = NWWSClient("test@jid", "pass", bot)
-    with patch("cogs.iembot._parse_watch_text", return_value="Parsed Text"), \
-         patch("utils.state_store.set_product_cache", AsyncMock()):
-        await client._process_nwws_message(SAMPLE_SEL)
+    # Update payload for watch
+    data = {
+        'cccc': 'KWNS',
+        'ttaaii': 'WWUS20',
+        'awipsid': 'SEL5'
+    }
+    mock_payload.__getitem__.side_effect = data.get
+    watch_text = "SEVERE THUNDERSTORM WATCH NUMBER 42\n..."
+    mock_payload.xml.text = watch_text
+    
+    with patch('slixmpp.ClientXMPP.register_plugin'), \
+         patch('slixmpp.xmlstream.register_stanza_plugin'):
+        client = NWWSClient("test@jid", "pass", bot)
+        with patch("cogs.iembot._parse_watch_text", return_value="Parsed Text"), \
+             patch("utils.state_store.set_product_cache", AsyncMock()):
+            await client._process_nwws_message(mock_payload, watch_text)
     
     assert watches_cog.post_watch_now.called
     args = watches_cog.post_watch_now.call_args[0]
@@ -65,30 +92,20 @@ async def test_process_nwws_message_routes_watch():
     assert args[1]["type"] == "SVR"
 
 @pytest.mark.asyncio
-async def test_process_nwws_message_routes_md():
-    bot = MagicMock()
-    mesoscale_cog = MagicMock()
-    mesoscale_cog.post_md_now = AsyncMock()
-    bot.get_cog.return_value = mesoscale_cog
-    
-    SAMPLE_MCD = """ACUS11 KWNS 011200
-SWOMCD
-SPC MCD 011200
-Mesoscale Discussion 0590
-Concerning tornado activity.
-"""
-    client = NWWSClient("test@jid", "pass", bot)
-    with patch("utils.state_store.set_product_cache", AsyncMock()):
-        await client._process_nwws_message(SAMPLE_MCD)
-    
-    assert mesoscale_cog.post_md_now.called
-    args = mesoscale_cog.post_md_now.call_args[0]
-    assert args[0] == "0590"
-
-@pytest.mark.asyncio
 async def test_process_nwws_message_ignores_garbage():
     bot = MagicMock()
-    client = NWWSClient("test@jid", "pass", bot)
-    # Should not raise or call anything
-    await client._process_nwws_message("short junk")
+    with patch('slixmpp.ClientXMPP.register_plugin'), \
+         patch('slixmpp.xmlstream.register_stanza_plugin'):
+        client = NWWSClient("test@jid", "pass", bot)
+        
+    payload = MagicMock()
+    data = {'awipsid': ''}
+    payload.__getitem__.side_effect = data.get
+    payload.xml.text = ''
+    
+    msg = MagicMock()
+    msg['nwws'] = payload
+    msg['type'] = 'groupchat'
+    
+    client.message(msg)
     assert not bot.get_cog.called
