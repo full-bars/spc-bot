@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.12.7] — 2026-05-02
+
+### Fixed
+- **Status Command Crash.** Implemented response chunking in `/status` to prevent crashes when the report exceeds Discord's 2000-character limit.
+- **NWWS Routing (CLISPS Fix).** Fixed a logic error where Climate Statements were misidentified as Special Weather Statements. Routing now uses strict `.startswith()` prefix matching.
+- **Warning Deduplication.** Implemented thread-safe in-flight tracking to prevent race conditions between NWWS and IEMBot triggers.
+- **Stable Product IDs.** NWWS products now use the authoritative `issue` timestamp from metadata, ensuring stable identifiers for retransmitted products.
+- **Office Normalization.** Standardized office codes to 4-letter ICAOs bot-wide (e.g., `OUN` → `KOUN`) for reliable key matching.
+- **IEM Map Reliability.** Upgraded IEM Autoplot retry logic with exponential backoff (8 attempts over ~60s) to better handle delayed polygon generation.
+- **Duplicate Log Noise.** Resolved an issue where duplicate logging handlers were being added to the main bot logger.
+
 ## [5.12.6] — 2026-05-02
 
 ### Changed

@@ -253,7 +253,7 @@ python -m pytest tests/ \
     --cov-report=term-missing
 ```
 
-The suite currently collects **346 tests**.
+The suite currently collects **363 tests**.
 
 Lint (same selection CI uses):
 
