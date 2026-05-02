@@ -699,23 +699,38 @@ class TornadoDashboardView(discord.ui.View):
         # Need location and coords to search DAT
         location = e.get("location")
         coords = e.get("coords")
+        event_id = e.get("event_id")
         if not location or not coords:
             await interaction.response.send_message("No location data available for this event.", ephemeral=True)
             return
 
         await interaction.response.defer()
-        from utils.events_db import fetch_dat_photos
-        magnitude = e.get("magnitude", "")
-        urls = await fetch_dat_photos(
-            location=location,
-            magnitude=magnitude,
-            coords=coords,
-        )
-        if not urls:
+        from utils.events_db import fetch_dat_photos, get_cached_dat_photos
+
+        # Check cache first (instant load)
+        photos = []
+        if event_id:
+            photos = get_cached_dat_photos(event_id)
+
+        # If not cached, fetch from DAT
+        if not photos:
+            magnitude = e.get("magnitude", "")
+            photo_urls = await fetch_dat_photos(
+                location=location,
+                magnitude=magnitude,
+                coords=coords,
+            )
+            if photo_urls:
+                # Convert URLs to file paths if possible, otherwise use URLs
+                photos = photo_urls
+        else:
+            logger.info(f"[WARNINGS] Using {len(photos)} cached photo(s) for {event_id}")
+
+        if not photos:
             await interaction.followup.send("No damage photos found in the DAT for this event.", ephemeral=True)
             return
 
-        photo_view = TornadoPhotoView(urls, self, location)
+        photo_view = TornadoPhotoView(photos, self, location)
         await interaction.edit_original_response(embed=photo_view.build_embed(), view=photo_view)
 
     def _get_ef_emoji(self, mag: str) -> str:

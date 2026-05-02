@@ -436,9 +436,19 @@ class ReportsCog(commands.Cog):
                 await add_posted_survey(guid)
                 await prune_posted_surveys()
                 logger.info(f"[REPORTS] Posted survey map for {guid} ({label}) via {source_text}")
-                
-                from utils.events_db import link_dat_guid_to_tornado
-                await link_dat_guid_to_tornado(event_date, guid, label)
+
+                # Link DAT guid to tornado and cache photos
+                from utils.events_db import link_dat_guid_to_tornado, cache_dat_photos
+                match_result = await link_dat_guid_to_tornado(event_date, guid, label)
+                if match_result:
+                    event_id, location, magnitude = match_result
+                    # Pre-cache photos in the background
+                    asyncio.create_task(cache_dat_photos(
+                        event_id=event_id,
+                        location=location,
+                        magnitude=magnitude or "",
+                        coords=coords,
+                    ))
 
         except Exception as e:
             logger.warning(f"[REPORTS] Survey check failed for {event_date}: {e}")

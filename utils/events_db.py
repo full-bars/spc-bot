@@ -127,34 +127,39 @@ async def add_significant_event(
     except Exception as e:
         logger.warning(f"[EVENTS-DB] add_significant_event({event_id}) failed: {e}")
 
-async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> None:
-    """Attempt to link a DAT guid to a tornado based on the label."""
+async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> Optional[Tuple[str, Optional[str], Optional[str]]]:
+    """Attempt to link a DAT guid to a tornado based on the label.
+
+    Returns (event_id, location, magnitude) if matched, or None if no match.
+    """
     db = await get_events_db()
     try:
         # Date str is YYYY-MM-DD
         dt = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         start_ts = dt.timestamp()
         end_ts = start_ts + 86400
-        
+
         async with db.execute(
-            """SELECT event_id, location FROM significant_events
+            """SELECT event_id, location, magnitude FROM significant_events
                WHERE event_type = 'Tornado'
                  AND timestamp >= ? AND timestamp < ?""",
             (start_ts - 43200, end_ts + 43200) # Give 12h buffer
         ) as cur:
             rows = await cur.fetchall()
-            
+
         if not rows:
-            return
+            return None
 
         query_words = set(re.findall(r"\w+", label.upper()))
         best_id, best_score = None, -1
+        best_row = None
         for row in rows:
             overlap = len(query_words & set(re.findall(r"\w+", row["location"].upper())))
             if overlap > best_score and overlap > 0:
                 best_score, best_id = overlap, row["event_id"]
-                
-        if best_id:
+                best_row = row
+
+        if best_id and best_row:
             await db.execute(
                 "UPDATE significant_events SET dat_guid = ? WHERE event_id = ?",
                 (guid, best_id)
@@ -162,9 +167,12 @@ async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> None
             await db.commit()
             _mark_dirty()
             logger.info(f"[EVENTS-DB] Linked DAT {guid} to event {best_id}")
+            return (best_id, best_row["location"], best_row["magnitude"])
 
     except Exception as e:
         logger.warning(f"[EVENTS-DB] link_dat_guid_to_tornado failed: {e}")
+
+    return None
 
 async def fetch_dat_photos(
     location: str = "",
@@ -256,6 +264,118 @@ async def fetch_dat_photos(
     except Exception as e:
         logger.warning(f"[DAT-API] Error fetching photos for {location}: {e}")
         return []
+
+
+async def cache_dat_photos(
+    event_id: str,
+    location: str = "",
+    magnitude: str = "",
+    coords: str = "",
+) -> int:
+    """Download and cache DAT photos for a tornado event.
+
+    Returns the number of photos cached (0 if none found or already cached).
+    """
+    from utils.http import http_get_bytes
+
+    cache_dir = os.path.join("cache", "tornado_photos", event_id)
+
+    # Check if already cached
+    if os.path.exists(cache_dir) and os.listdir(cache_dir):
+        count = len([f for f in os.listdir(cache_dir) if f.endswith((".jpg", ".png"))])
+        if count > 0:
+            logger.debug(f"[DAT-CACHE] Photos already cached for {event_id} ({count} files)")
+            return 0
+
+    # Fetch photo URLs
+    photo_urls = await fetch_dat_photos(location=location, magnitude=magnitude, coords=coords)
+    if not photo_urls:
+        return 0
+
+    # Create cache directory
+    os.makedirs(cache_dir, exist_ok=True)
+
+    # Download each photo
+    cached_count = 0
+    for idx, url in enumerate(photo_urls, 1):
+        try:
+            content, status = await http_get_bytes(url, retries=1, timeout=10)
+            if status == 200 and content:
+                # Determine file extension
+                ext = ".jpg"
+                if b"\x89PNG" in content[:8]:
+                    ext = ".png"
+
+                file_path = os.path.join(cache_dir, f"photo_{idx:02d}{ext}")
+                with open(file_path, "wb") as f:
+                    f.write(content)
+                cached_count += 1
+                logger.debug(f"[DAT-CACHE] Cached {file_path} ({len(content)} bytes)")
+            else:
+                logger.debug(f"[DAT-CACHE] Failed to download photo {idx}: status {status}")
+        except Exception as e:
+            logger.warning(f"[DAT-CACHE] Error caching photo {idx} for {event_id}: {e}")
+            continue
+
+    if cached_count > 0:
+        logger.info(f"[DAT-CACHE] Cached {cached_count} photo(s) for {event_id}")
+
+    return cached_count
+
+
+def get_cached_dat_photos(event_id: str) -> List[str]:
+    """Retrieve cached photo paths for a tornado event.
+
+    Returns list of local file paths, or empty list if not cached.
+    """
+    cache_dir = os.path.join("cache", "tornado_photos", event_id)
+
+    if not os.path.exists(cache_dir):
+        return []
+
+    # Return sorted photo files
+    photos = []
+    for filename in sorted(os.listdir(cache_dir)):
+        if filename.endswith((".jpg", ".png", ".jpeg")):
+            file_path = os.path.abspath(os.path.join(cache_dir, filename))
+            if os.path.exists(file_path):
+                photos.append(file_path)
+
+    return photos
+
+
+async def cleanup_old_photos(days: int = 30) -> int:
+    """Remove cached photos older than N days. Returns count deleted."""
+    cache_dir = os.path.join("cache", "tornado_photos")
+    if not os.path.exists(cache_dir):
+        return 0
+
+    cutoff_time = time.time() - (days * 86400)
+    deleted_count = 0
+
+    try:
+        for event_id in os.listdir(cache_dir):
+            event_dir = os.path.join(cache_dir, event_id)
+            if not os.path.isdir(event_dir):
+                continue
+
+            mtime = os.path.getmtime(event_dir)
+            if mtime < cutoff_time:
+                # Delete entire event directory
+                try:
+                    shutil.rmtree(event_dir)
+                    deleted_count += 1
+                    logger.debug(f"[DAT-CACHE] Deleted cached photos for {event_id}")
+                except Exception as e:
+                    logger.warning(f"[DAT-CACHE] Error deleting {event_dir}: {e}")
+
+    except Exception as e:
+        logger.warning(f"[DAT-CACHE] Cleanup failed: {e}")
+
+    if deleted_count > 0:
+        logger.info(f"[DAT-CACHE] Cleaned up {deleted_count} expired photo cache(s)")
+
+    return deleted_count
 
 
 # ── Reads ────────────────────────────────────────────────────────────────────
