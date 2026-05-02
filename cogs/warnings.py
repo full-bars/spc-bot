@@ -229,28 +229,31 @@ def iem_autoplot_url(vtec: dict) -> str:
 
 
 async def _download_warning_image(image_url: str, filename: str) -> discord.File | None:
-    """Fetch an IEM Autoplot image with up to 3 attempts.
+    """Fetch an IEM Autoplot image with up to 6 attempts (~30s window).
 
     Returns a ready-to-send discord.File, or None if all attempts fail.
-    Retries on 404 (IEM map not yet generated) with a 5-second delay;
-    retries on network errors with a 2-second delay.
+    Retries on 404 (IEM map not yet generated) or network errors with
+    a 5-second delay between attempts.
     """
-    for attempt in range(3):
+    for attempt in range(6):
         try:
             content, status = await http_get_bytes(image_url, retries=1, timeout=15)
             if content and status == 200:
                 return discord.File(BytesIO(content), filename=filename)
-            if status == 404 and attempt < 2:
+            
+            # If map not found (404) or other error, wait 5s and retry
+            if attempt < 5:
                 await asyncio.sleep(5)
                 continue
+            
             logger.warning(
-                f"[WARN] Failed to download IEM image: {image_url} (status={status})"
+                f"[WARN] Failed to download IEM image after 6 attempts: {image_url} (status={status})"
             )
         except Exception as e:
-            logger.warning(f"[WARN] Error downloading IEM image: {e}")
-            if attempt < 2:
-                await asyncio.sleep(2)
+            if attempt < 5:
+                await asyncio.sleep(5)
                 continue
+            logger.warning(f"[WARN] Error downloading IEM image after 6 attempts: {e}")
         break
     return None
 
