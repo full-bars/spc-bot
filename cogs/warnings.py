@@ -744,40 +744,83 @@ class TornadoDashboardView(discord.ui.View):
         return "⚪"
 
     def build_summary_embed(self) -> discord.Embed:
-        embed = discord.Embed(
-            title=f"{self.title} (Summary)",
-            color=discord.Color.red(),
-            timestamp=datetime.now(timezone.utc)
-        )
+        # Calculate Grand Totals
+        totals = {"EF5": 0, "EF4": 0, "EF3": 0, "EF2": 0, "EF1": 0, "EF0": 0, "EFU": 0}
+        for e in self.events:
+            mag = (e.get("magnitude") or "").upper()
+            matched = False
+            for scale in ["EF5", "EF4", "EF3", "EF2", "EF1", "EF0"]:
+                if scale in mag:
+                    totals[scale] += 1
+                    matched = True
+                    break
+            if not matched:
+                totals["EFU"] += 1
+
+        total_count = len(self.events)
         
-        for date_str in self.dates[:25]: 
+        # Build total line: 🟣0 🔴0 🟠2 🟡5 🟢14 🔵21 ⚪6
+        t_parts = []
+        if totals["EF5"]: t_parts.append(f"🟣{totals['EF5']}")
+        if totals["EF4"]: t_parts.append(f"🔴{totals['EF4']}")
+        if totals["EF3"]: t_parts.append(f"🟠{totals['EF3']}")
+        if totals["EF2"]: t_parts.append(f"🟡{totals['EF2']}")
+        if totals["EF1"]: t_parts.append(f"🟢{totals['EF1']}")
+        if totals["EF0"]: t_parts.append(f"🔵{totals['EF0']}")
+        if totals["EFU"]: t_parts.append(f"⚪{totals['EFU']}")
+        
+        total_line = " ".join(t_parts) if t_parts else "None"
+        
+        lines = [
+            f"**Total: {total_line} ({total_count} tornadoes)**",
+            "───────────────────────────"
+        ]
+        
+        # Add daily breakdown
+        for date_str in self.dates[:20]: # Limit to 20 days for description length
             day_events = self.grouped[date_str]
-            counts = {"EF5": 0, "EF4": 0, "EF3": 0, "EF2": 0, "EF1": 0, "EF0": 0, "EFU": 0}
+            d_counts = {"EF5": 0, "EF4": 0, "EF3": 0, "EF2": 0, "EF1": 0, "EF0": 0, "EFU": 0}
             for e in day_events:
                 mag = (e.get("magnitude") or "").upper()
                 matched = False
                 for scale in ["EF5", "EF4", "EF3", "EF2", "EF1", "EF0"]:
                     if scale in mag:
-                        counts[scale] += 1
+                        d_counts[scale] += 1
                         matched = True
                         break
                 if not matched:
-                    counts["EFU"] += 1
+                    d_counts["EFU"] += 1
+
+            # Shorten date: 2026-05-01 -> May 01
+            try:
+                dt_obj = datetime.strptime(date_str, "%Y-%m-%d")
+                short_date = dt_obj.strftime("%b %d")
+            except ValueError:
+                short_date = date_str
+
+            # Build daily parts
+            d_parts = []
+            if d_counts["EF5"]: d_parts.append(f"🟣{d_counts['EF5']}")
+            if d_counts["EF4"]: d_parts.append(f"🔴{d_counts['EF4']}")
+            if d_counts["EF3"]: d_parts.append(f"🟠{d_counts['EF3']}")
+            if d_counts["EF2"]: d_parts.append(f"🟡{d_counts['EF2']}")
+            if d_counts["EF1"]: d_parts.append(f"🟢{d_counts['EF1']}")
+            if d_counts["EF0"]: d_parts.append(f"🔵{d_counts['EF0']}")
+            if d_counts["EFU"]: d_parts.append(f"⚪{d_counts['EFU']}")
             
-            parts = []
-            if counts["EF5"]: parts.append(f"🟣 {counts['EF5']}")
-            if counts["EF4"]: parts.append(f"🔴 {counts['EF4']}")
-            if counts["EF3"]: parts.append(f"🟠 {counts['EF3']}")
-            if counts["EF2"]: parts.append(f"🟡 {counts['EF2']}")
-            if counts["EF1"]: parts.append(f"🟢 {counts['EF1']}")
-            if counts["EF0"]: parts.append(f"🔵 {counts['EF0']}")
-            if counts["EFU"]: parts.append(f"⚪ {counts['EFU']}")
+            day_icons = " ".join(d_parts) if d_parts else "Confirmed"
+            # Use fixed-width date for alignment in monospace blocks
+            lines.append(f"`{short_date} ({len(day_events):>2})` .... {day_icons}")
             
-            val = " ".join(parts) if parts else "Confirmed"
-            embed.add_field(name=f"📅 {date_str} ({len(day_events)})", value=val, inline=True)
-            
+        embed = discord.Embed(
+            title=f"{self.title}",
+            description="\n".join(lines),
+            color=discord.Color.red(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        
         embed.set_footer(
-            text=f"Showing last {min(25, len(self.dates))} active days. Use dropdown to pick a day."
+            text=f"Showing last {min(20, len(self.dates))} active days. Use dropdown to pick a day."
         )
         return embed
         
