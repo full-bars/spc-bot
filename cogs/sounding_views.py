@@ -116,8 +116,19 @@ async def post_sounding(
         return
 
     mode_label = "\U0001f319 Dark" if dark_mode else "\u2600\ufe0f Light"
-    caption = "**RAOB Sounding \u2014 {}**\nValid: {} | {} mode{}".format(
-        label, time_label, mode_label, fallback_note
+
+    # Extract source from clean_data
+    source_str = ""
+    try:
+        if clean_data and isinstance(clean_data, dict) and "site_info" in clean_data:
+            source = clean_data["site_info"].get("source", "")
+            if source:
+                source_str = f" | Source: {source}"
+    except (KeyError, AttributeError, TypeError):
+        pass
+
+    caption = "**RAOB Sounding \u2014 {}**\nValid: {} | {} mode{}{}".format(
+        label, time_label, mode_label, source_str, fallback_note
     )
     qwarn = sounding_quality_warning(clean_data)
     if qwarn:

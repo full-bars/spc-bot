@@ -1075,7 +1075,7 @@ async def fetch_sounding(
     )
     if validate_sounding_data(gsl_data):
         return gsl_data
-        
+
     return None
 
 async def generate_plot(
