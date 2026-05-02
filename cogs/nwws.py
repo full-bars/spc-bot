@@ -178,6 +178,15 @@ class NWWSCog(commands.Cog):
         if self.xmpp_client:
             self.xmpp_client.disconnect()
 
+    async def trigger_connection(self):
+        """Immediately attempt to connect to NWWS-OI (called by FailoverCog)."""
+        if not self._should_be_connected:
+            self._should_be_connected = True
+            if not self.monitor_connection.is_running():
+                self.monitor_connection.start()
+        
+        await self.monitor_connection()
+
     @tasks.loop(seconds=30)
     async def monitor_connection(self):
         """Maintain persistent connection to NWWS-OI."""
