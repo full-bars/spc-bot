@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.12.6] — 2026-05-02
+
+### Changed
+- **Python 3.13 Runtime.** Upgraded Docker base images and CI workflows from Python 3.12 to 3.13 for performance improvements in math-heavy operations (numpy/scipy/Cartopy stack).
+- **Docker Build Optimization.** Implemented BuildKit cache mounts for pip to persist compiled wheels between builds, reducing subsequent release build times by 5-10x.
+
+### Fixed
+- **Duplicate MCD Posts.** Fixed a race condition in `post_md_now()` where concurrent iembot triggers could post the same Mesoscale Discussion twice. MD is now marked as posted immediately upon entry to prevent concurrent calls from both proceeding.
+
 ## [5.12.5] — 2026-05-02
 
 ### Added
