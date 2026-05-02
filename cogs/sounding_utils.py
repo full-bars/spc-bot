@@ -36,7 +36,7 @@ finally:
 
 from utils.state_store import get_state, set_state  # noqa: E402  # follows sounderpy import
 from utils.geo import haversine
-from utils.http import http_get_json
+from utils.http import http_get_json, circuit_breaker
 
 # ProcessPoolExecutor for parallel sounding plots. Each worker process gets
 # its own matplotlib instance so plots run concurrently without lock contention.
@@ -1030,17 +1030,18 @@ async def fetch_sounding(
     lat: float = 0, lon: float = 0, elev: float = 0,
 ) -> Optional[dict]:
     """
-    Fetch sounding data. Returns clean_data dict or None on failure.
+    Fetch sounding data with multi-source fallback and circuit-awareness.
+    Returns clean_data dict or None on failure.
 
     Strategy:
-    - 00z/12z: Try Wyoming first (cleanest data), fall back to IEM only if 
-                Wyoming is unavailable or invalid.
-    - Other hours: IEM only (Wyoming doesn't have special soundings).
+    1. Standard Hours (00z/12z): Try Wyoming first (cleanest data).
+    2. IEM: Try IEM if Wyoming fails or for non-standard hours.
+    3. GSL: High-authority redundant fallback if IEM is down or circuit is open.
     """
     loop = asyncio.get_running_loop()
 
+    # 1. Wyoming (Preferred for standard hours)
     if hour in ("00", "12"):
-        # Preferred source: Wyoming
         logger.debug(f"[SOUNDING] Fetching Wyoming for {station_id} {hour}z")
         try:
             wyo_data = await loop.run_in_executor(
@@ -1050,29 +1051,30 @@ async def fetch_sounding(
             if validate_sounding_data(wyo_data):
                 logger.debug(f"[SOUNDING] Wyoming success for {station_id} {hour}z")
                 return wyo_data
-            else:
-                logger.debug(f"[SOUNDING] Wyoming data invalid for {station_id} {hour}z")
         except Exception as e:
             logger.debug(f"[SOUNDING] Wyoming failed for {station_id} {hour}z: {e}")
 
-        # Fallback source: IEM
-        logger.debug(f"[SOUNDING] Falling back to IEM for {station_id} {hour}z")
+    # 2. IEM (Primary source for all other times, fallback for standard hours)
+    iem_host = "mesonet.agron.iastate.edu"
+    if not circuit_breaker.is_open(iem_host):
+        logger.debug(f"[SOUNDING] Fetching IEM for {station_id} {hour}z")
         iem_data = await fetch_iem_sounding(
             station_id, year, month, day, hour,
             station_name=station_name, lat=lat, lon=lon, elev=elev
         )
         if validate_sounding_data(iem_data):
             return iem_data
-        
-        return None
+    else:
+        logger.info(f"[SOUNDING] IEM circuit open — skipping to GSL for {station_id}")
 
-    # Non-standard hours: IEM only
-    iem_data = await fetch_iem_sounding(
+    # 3. GSL (High-authority redundant fallback)
+    logger.debug(f"[SOUNDING] Fetching GSL fallback for {station_id} {hour}z")
+    gsl_data = await fetch_gsl_sounding(
         station_id, year, month, day, hour,
         station_name=station_name, lat=lat, lon=lon, elev=elev
     )
-    if validate_sounding_data(iem_data):
-        return iem_data
+    if validate_sounding_data(gsl_data):
+        return gsl_data
         
     return None
 
