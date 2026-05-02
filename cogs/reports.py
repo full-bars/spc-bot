@@ -398,25 +398,30 @@ class ReportsCog(commands.Cog):
                     f"_r:t::dpi:100.png"
                 )
 
-                # --- Fallback Logic: Try IEM first, fall back to local render ---
+                # --- Mapping Logic: Local Render (Primary) -> IEM Autoplot (Fallback) ---
                 file_to_send = None
-                source_text = "IEM Autoplot 253"
+                source_text = "Local DAT Render"
                 
-                # Check if IEM image is available (timeout quickly to avoid lag)
-                _, status = await http_get_bytes(img_url, retries=0, timeout=5)
-                if status != 200:
-                    logger.info(f"[REPORTS] IEM map not ready for {guid}, attempting local render")
-                    from utils.dat_api import fetch_dat_track_geometry  # noqa: PLC0415
-                    from utils.map_utils import render_tornado_track  # noqa: PLC0415
+                # Try high-detail local render first
+                from utils.dat_api import fetch_dat_track_geometry  # noqa: PLC0415
+                from utils.map_utils import render_tornado_track  # noqa: PLC0415
+                
+                paths = await fetch_dat_track_geometry(guid)
+                if paths:
+                    out_path = os.path.join("cache", f"track_{guid}.png")
+                    render_tornado_track(paths, out_path)
+                    if os.path.exists(out_path):
+                        file_to_send = discord.File(out_path, filename=f"track_{guid}.png")
+                
+                # If local render failed (no geometry yet), fall back to IEM
+                if not file_to_send:
+                    source_text = "IEM Autoplot 253"
+                    # Check if IEM image is available
+                    _, status = await http_get_bytes(img_url, retries=0, timeout=5)
+                    if status != 200:
+                        logger.info(f"[REPORTS] Both local and IEM maps unavailable for {guid}")
+                        # We'll post without an image for now, or just use the URL and hope it populates
                     
-                    paths = await fetch_dat_track_geometry(guid)
-                    if paths:
-                        out_path = os.path.join("cache", f"track_{guid}.png")
-                        render_tornado_track(paths, out_path)
-                        if os.path.exists(out_path):
-                            file_to_send = discord.File(out_path, filename=f"track_{guid}.png")
-                            source_text = "Local DAT Render"
-
                 embed = discord.Embed(
                     title="🌪️ Tornado Track + Lead Time",
                     description=f"**Event:** {label}\n**Date:** {event_date}",
