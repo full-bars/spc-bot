@@ -16,6 +16,7 @@ import asyncio
 import logging
 import re
 import time
+from logging.handlers import RotatingFileHandler
 from typing import Optional
 
 from discord.ext import commands, tasks
@@ -26,6 +27,24 @@ from slixmpp.xmlstream import ElementBase, register_stanza_plugin
 from config import NWWS_USER, NWWS_PASSWORD, NWWS_SERVER
 
 logger = logging.getLogger("spc_bot")
+
+# --- Secondary Firehose Logger ---
+# This logger writes EVERYTHING from NWWS to a separate file (capped at 10MB)
+# so the main log stays quiet.
+firehose_logger = logging.getLogger("nwws_firehose")
+firehose_logger.setLevel(logging.INFO)
+# Disable propagation so it doesn't leak into spc_bot.log
+firehose_logger.propagate = False
+
+# Only add the handler once
+if not firehose_logger.handlers:
+    fh = RotatingFileHandler(
+        "nwws_firehose.log", 
+        maxBytes=10*1024*1024, # 10MB
+        backupCount=1
+    )
+    fh.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
+    firehose_logger.addHandler(fh)
 
 # --- NWWS-OI Custom XML Payload ---
 # Specification: <x xmlns='nwws-oi' cccc='...' ttaaii='...' issue='...' awipsid='...' id='...' />
@@ -87,19 +106,18 @@ class NWWSClient(ClientXMPP):
         # If no custom payload, check body (for MOTD or other messages)
         body = msg['body']
 
-        # --- DEBUG LOGGING: Multi-line Sample ---
+        # --- VERBOSE LOGGING: Directed to nwws_firehose.log ---
         if payload['awipsid'] or raw_text:
-            # We log the metadata and a generous sample of the text.
-            # Using multiple log entries to avoid single-line truncation.
-            logger.info(f"[NWWS-DEBUG] {msg_type.upper()} from {msg['from']}")
-            logger.info(f"  cccc: {payload['cccc']}, ttaaii: {payload['ttaaii']}, awipsid: {payload['awipsid']}")
-            
-            # Preserve newlines for readability in the log
+            # Metadata log
+            firehose_logger.info(
+                f"[{msg_type.upper()}] from {msg['from']} | "
+                f"cccc: {payload['cccc']}, ttaaii: {payload['ttaaii']}, awipsid: {payload['awipsid']}"
+            )
+            # Sample text log
             sample = raw_text[:2000].replace('\r', '')
-            logger.info(f"  RAW TEXT SAMPLE:\n{sample}\n")
+            firehose_logger.info(f"RAW TEXT:\n{sample}\n" + "-"*40)
         elif body and "**WARNING**" in body:
-            # Catch the MOTD
-            logger.info(f"[NWWS-DEBUG] Received MOTD/Normal: {body[:100]}...")
+            firehose_logger.info(f"MOTD: {body[:100]}...")
         # ---------------------
 
         if not raw_text or not payload['awipsid']:
