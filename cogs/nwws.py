@@ -19,7 +19,7 @@ import time
 from typing import Optional
 
 from discord.ext import commands, tasks
-from slixmpp import ClientXMPP
+from slixmpp import ClientXMPP, Message
 from slixmpp.exceptions import IqError, IqTimeout
 from slixmpp.xmlstream import ElementBase, register_stanza_plugin
 
@@ -48,7 +48,7 @@ class NWWSClient(ClientXMPP):
         
         # Register the MUC plugin and our custom payload
         self.register_plugin('xep_0045') # Multi-User Chat
-        register_stanza_plugin(self.Message, NWWSPayload)
+        register_stanza_plugin(Message, NWWSPayload)
 
         self.add_event_handler("session_start", self.session_start)
         self.add_event_handler("message", self.message)
