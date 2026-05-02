@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json as _json
 import logging
+import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -665,10 +666,35 @@ class TornadoDashboardView(discord.ui.View):
             url = f"https://tornadoarchive.com/explorer/?start={min_dt}&end={max_dt}&domain=north_america"
             self.add_item(discord.ui.Button(label="Tornado Archive", url=url, style=discord.ButtonStyle.link))
 
+    async def _render_map_if_needed(self, e: dict) -> Tuple[Optional[str], Optional[discord.File]]:
+        """Helper to fetch geometry and render a local map if possible."""
+        guid = e.get("dat_guid")
+        if not guid:
+            return None, None
+            
+        png_path = os.path.join("cache", f"track_{guid}.png")
+        if os.path.exists(png_path):
+            return f"attachment://track_{guid}.png", discord.File(png_path, filename=f"track_{guid}.png")
+
+        # Not cached, try to render now
+        from utils.dat_api import fetch_dat_track_geometry  # noqa: PLC0415
+        from utils.map_utils import render_tornado_track  # noqa: PLC0415
+        
+        try:
+            paths = await fetch_dat_track_geometry(guid)
+            if paths:
+                render_tornado_track(paths, png_path)
+                if os.path.exists(png_path):
+                    return f"attachment://track_{guid}.png", discord.File(png_path, filename=f"track_{guid}.png")
+        except Exception as err:
+            logger.warning(f"[DASHBOARD] Failed to render map for {guid}: {err}")
+            
+        return None, None
+
     async def on_select(self, interaction: discord.Interaction):
         val = interaction.data["values"][0]
         if val == "summary":
-            await interaction.response.edit_message(embed=self.build_summary_embed(), view=self)
+            await interaction.response.edit_message(embed=self.build_summary_embed(), embeds=[], view=self)
         else:
             # Switch to card mode at the first event of that day
             day_events = self.grouped[val]
@@ -676,31 +702,63 @@ class TornadoDashboardView(discord.ui.View):
             self.index = self.events.index(first_event)
             self.mode = "card"
             self._update_items()
-            await interaction.response.edit_message(embed=self.build_card_embed(), view=self)
+            
+            # Check for map
+            img_url, file = await self._render_map_if_needed(first_event)
+            embed = self.build_card_embed()
+            if img_url:
+                embed.set_image(url=img_url)
+                embed.set_footer(text=f"Local DAT Render | {embed.footer.text}")
+                
+            await interaction.response.edit_message(embed=embed, view=self, attachments=[file] if file else [])
 
     @discord.ui.button(label="⏮️ First", style=discord.ButtonStyle.secondary)
     async def first_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.index = 0
         self._update_items()
-        await interaction.response.edit_message(embed=self.build_card_embed(), view=self)
+        e = self.events[self.index]
+        img_url, file = await self._render_map_if_needed(e)
+        embed = self.build_card_embed()
+        if img_url:
+            embed.set_image(url=img_url)
+            embed.set_footer(text=f"Local DAT Render | {embed.footer.text}")
+        await interaction.response.edit_message(embed=embed, view=self, attachments=[file] if file else [])
 
     @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary)
     async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.index = max(0, self.index - 1)
         self._update_items()
-        await interaction.response.edit_message(embed=self.build_card_embed(), view=self)
+        e = self.events[self.index]
+        img_url, file = await self._render_map_if_needed(e)
+        embed = self.build_card_embed()
+        if img_url:
+            embed.set_image(url=img_url)
+            embed.set_footer(text=f"Local DAT Render | {embed.footer.text}")
+        await interaction.response.edit_message(embed=embed, view=self, attachments=[file] if file else [])
 
     @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary)
     async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.index = min(len(self.events) - 1, self.index + 1)
         self._update_items()
-        await interaction.response.edit_message(embed=self.build_card_embed(), view=self)
+        e = self.events[self.index]
+        img_url, file = await self._render_map_if_needed(e)
+        embed = self.build_card_embed()
+        if img_url:
+            embed.set_image(url=img_url)
+            embed.set_footer(text=f"Local DAT Render | {embed.footer.text}")
+        await interaction.response.edit_message(embed=embed, view=self, attachments=[file] if file else [])
 
     @discord.ui.button(label="Last ⏭️", style=discord.ButtonStyle.secondary)
     async def last_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.index = len(self.events) - 1
         self._update_items()
-        await interaction.response.edit_message(embed=self.build_card_embed(), view=self)
+        e = self.events[self.index]
+        img_url, file = await self._render_map_if_needed(e)
+        embed = self.build_card_embed()
+        if img_url:
+            embed.set_image(url=img_url)
+            embed.set_footer(text=f"Local DAT Render | {embed.footer.text}")
+        await interaction.response.edit_message(embed=embed, view=self, attachments=[file] if file else [])
 
     @discord.ui.button(label="📋 Summary", style=discord.ButtonStyle.primary)
     async def summary_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
