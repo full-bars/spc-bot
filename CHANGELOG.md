@@ -6,6 +6,9 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [5.11.1] — 2026-05-02
 
+### Added
+- **Extended Radar Retry Window.** Increased the IEM Autoplot retry count to 6 (~30s window) for new warnings. This ensures that the high-speed NWWS-OI path still includes a radar map even if the product beats the IEM map generator by several seconds.
+
 ### Fixed
 - **NWWS Firehose Log Pollution.** Resolved an issue where running tests would write mock data into the production `nwws_firehose.log`. The firehose log path is now configurable via `NWWS_FIREHOSE_LOG` and is redirected to a temporary file during test execution.
 
