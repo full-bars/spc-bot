@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.12.5] — 2026-05-02
+
+### Added
+- **On-Demand Dashboard Mapping.** The `/recenttornadoes` card view now supports on-demand local map rendering. If an event has a linked DAT GUID, the bot will automatically fetch the geometry and render the high-detail OSM map directly in the interactive dashboard.
+
+### Fixed
+- **CI Build Stability.** Resolved a critical build failure in v5.12.4 by adding missing `Cartopy` and `scipy` dependencies to the core requirements.
+- **Standby Task Suppression.** Fixed a bug where automated sounding tasks were incorrectly attempting to run on Standby nodes.
+- **Multi-Arch Wheel Building.** Optimized the Dockerfile to ensure transitive dependencies are captured correctly during cross-architecture compilation (AMD64/ARM64).
+
 ## [5.12.4] — 2026-05-02
 
 ### Added
