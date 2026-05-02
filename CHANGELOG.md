@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.12.3] — 2026-05-02
+
+### Added
+- **Primary Local OSM Mapping.** Promoted the high-detail local map renderer to the primary visualization for all tornado tracks. Surveys now default to professional OpenStreetMap terrain tiles with road/terrain context, bypassing IEM Autoplot latency.
+- **Enhanced Mapping Visuals.** Added high-resolution (10m) US county boundaries and white-halo path outlines for maximum clarity.
+
+### Changed
+- **IEM Fallback.** Retained IEM Autoplot 253 as a secondary fallback source to ensure visual coverage even if raw DAT geometry is delayed.
+
 ## [5.12.2] — 2026-05-02
 
 ### Added
