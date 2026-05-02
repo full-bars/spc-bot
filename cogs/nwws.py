@@ -133,8 +133,10 @@ class NWWSClient(ClientXMPP):
             office = payload['cccc']
             ttaaii = payload['ttaaii']
             
-            # Construct a product_id matching the iembot format where possible
-            ts_str = time.strftime("%Y%m%d%H%M", time.gmtime())
+            # Construct a product_id matching the iembot format where possible.
+            # Use the stable 'issue' timestamp from NWWS metadata so retransmits
+            # don't get a new ID based on the current bot clock.
+            ts_str = payload['issue'] or time.strftime("%Y%m%d%H%M", time.gmtime())
             product_id = f"{ts_str}-{office}-{ttaaii}-{afos_pil}"
 
             # 2. Routing Logic

@@ -79,6 +79,11 @@ def parse_vtec(text: str) -> Optional[dict]:
     if not m:
         return None
     action, office, phenom, sig, etn, start, end = m.groups()
+    
+    # Normalize office to 4-letter ICAO (common for US WFOs in VTEC)
+    if len(office) == 3 and office[0] in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+        office = "K" + office
+
     return {
         "action": action,
         "office": office,
@@ -230,34 +235,35 @@ def iem_autoplot_url(vtec: dict) -> str:
 
 
 async def _download_warning_image(image_url: str, filename: str) -> discord.File | None:
-    """Fetch an IEM Autoplot image with up to 6 attempts (~30s window).
+    """Fetch an IEM Autoplot image with up to 8 attempts (~60s window).
 
     Returns a ready-to-send discord.File, or None if all attempts fail.
-    Retries on 404 (IEM map not yet generated) or network errors with
-    a 5-second delay between attempts.
+    Retries on 404 (IEM map not yet generated), 400 (bad request/pending),
+    or network errors with exponential backoff.
     """
-    for attempt in range(6):
+    for attempt in range(8):
         try:
             content, status = await http_get_bytes(image_url, retries=1, timeout=15)
             if content and status == 200:
                 return discord.File(BytesIO(content), filename=filename)
-            
-            # If map not found (404) or other error, wait 5s and retry
-            if attempt < 5:
-                await asyncio.sleep(5)
+
+            # Map might be pending (404/400). Use exponential backoff: 2s, 4s, 8s, 10s...
+            if attempt < 7:
+                delay = min(2 ** (attempt + 1), 10)
+                await asyncio.sleep(delay)
                 continue
-            
+
             logger.warning(
-                f"[WARN] Failed to download IEM image after 6 attempts: {image_url} (status={status})"
+                f"[WARN] Failed to download IEM image after 8 attempts: {image_url} (status={status})"
             )
         except Exception as e:
-            if attempt < 5:
-                await asyncio.sleep(5)
+            if attempt < 7:
+                delay = min(2 ** (attempt + 1), 10)
+                await asyncio.sleep(delay)
                 continue
-            logger.warning(f"[WARN] Error downloading IEM image after 6 attempts: {e}")
+            logger.warning(f"[WARN] Error downloading IEM image after 8 attempts: {e}")
         break
     return None
-
 
 def _vtec_url(vtec: dict) -> str:
     """Build an IEM VTEC event page URL from a parsed vtec dict."""
@@ -966,6 +972,7 @@ class WarningsCog(commands.Cog):
         self._backoff = TaskBackoff("auto_poll_warnings")
         self._validators = {"etag": "", "last_modified": ""}
         self._cancelled_warnings: set[str] = set()
+        self._in_flight_vtecs: set[str] = set()
 
     async def cog_load(self):
         # Restore the dedup mapping so a restart during active wx doesn't
@@ -1053,71 +1060,81 @@ class WarningsCog(commands.Cog):
         if not is_update and vtec_id in self.bot.state.posted_warnings:
             return
 
-        # Claim the dedup key BEFORE the (possibly slow) Discord send so
-        # a concurrent NWS API poll can't double-post.
-        if not is_update:
-            self.bot.state.posted_warnings[vtec_id] = {} # placeholder
-        
-        self.bot.state.active_warnings[vtec_id] = vtec
-
-        # Log significant events (tornadoes, hail, wind) to DB
-        await self._check_and_log_significant_event(event, raw_text, vtec)
-
-        emoji, display_event, color, footer_id = get_warning_style(event, raw_text)
-        
-        prev_area = self.bot.state.posted_warnings.get(vtec_id, {}).get("area", "")
-        concise_text = build_concise_warning_text(
-            display_event, vtec, raw_text=raw_text, is_update=is_update, prev_area=prev_area
-        )
-
-        embed = discord.Embed(
-            title=f"{emoji} {display_event}",
-            description=concise_text,
-            color=color,
-            timestamp=datetime.now(timezone.utc),
-        )
-        footer_text = f"VTEC {vtec_id}"
-        if footer_id:
-            footer_text += f" | {footer_id}"
-        embed.set_footer(text=footer_text)
-
-        # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS)
-        files = []
-        if (vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS":
-            image_url = iem_autoplot_url(vtec)
-            filename = f"warning_{vtec_id.replace('.', '_')}.png"
-            f = await _download_warning_image(image_url, filename)
-            if f:
-                files.append(f)
-                embed.set_image(url=f"attachment://{filename}")
-
-        try:
-            msg = await channel.send(embed=embed, files=files)
-            logger.info(f"[WARN] Posted (iembot) {event} {vtec_id} ({'Update' if is_update else 'Issuance'})")
-            
-            # Simple area extraction for persistence
-            area_m = re.search(r"for (.+?) till", concise_text)
-            area_desc = area_m.group(1) if area_m else "affected area"
-
-            self.bot.state.posted_warnings[vtec_id] = {
-                "message_id": msg.id,
-                "channel_id": msg.channel.id,
-                "area": area_desc,
-            }
-        except discord.HTTPException as e:
-            # Roll back the dedup claim on a hard send failure
-            if not is_update and vtec_id in self.bot.state.posted_warnings:
-                del self.bot.state.posted_warnings[vtec_id]
-            logger.exception(
-                f"[WARN] iembot send failed for {vtec_id}: {e}"
-            )
+        # ── In-Flight Deduplication ──────────────────────────────────────────
+        # Check if this VTEC ID is already being processed by another task
+        # (e.g. concurrent NWWS and IEMBot triggers).
+        if vtec_id in self._in_flight_vtecs:
             return
+        self._in_flight_vtecs.add(vtec_id)
 
         try:
-            await add_posted_warning(vtec_id, msg.id, msg.channel.id, time.time(), area=area_desc)
-            await prune_posted_warnings()
-        except Exception as e:
-            logger.warning(f"[WARN] Failed to persist {vtec_id}: {e}")
+            # Claim the dedup key BEFORE any awaits so concurrent tasks
+            # hitting the same path see the state immediately.
+            if not is_update:
+                self.bot.state.posted_warnings[vtec_id] = {} # placeholder
+            
+            self.bot.state.active_warnings[vtec_id] = vtec
+
+            # Log significant events (tornadoes, hail, wind) to DB
+            await self._check_and_log_significant_event(event, raw_text, vtec)
+
+            emoji, display_event, color, footer_id = get_warning_style(event, raw_text)
+            
+            prev_area = self.bot.state.posted_warnings.get(vtec_id, {}).get("area", "")
+            concise_text = build_concise_warning_text(
+                display_event, vtec, raw_text=raw_text, is_update=is_update, prev_area=prev_area
+            )
+
+            embed = discord.Embed(
+                title=f"{emoji} {display_event}",
+                description=concise_text,
+                color=color,
+                timestamp=datetime.now(timezone.utc),
+            )
+            footer_text = f"VTEC {vtec_id}"
+            if footer_id:
+                footer_text += f" | {footer_id}"
+            embed.set_footer(text=footer_text)
+
+            # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS)
+            files = []
+            if (vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS":
+                image_url = iem_autoplot_url(vtec)
+                filename = f"warning_{vtec_id.replace('.', '_')}.png"
+                f = await _download_warning_image(image_url, filename)
+                if f:
+                    files.append(f)
+                    embed.set_image(url=f"attachment://{filename}")
+
+            try:
+                msg = await channel.send(embed=embed, files=files)
+                logger.info(f"[WARN] Posted (iembot) {event} {vtec_id} ({'Update' if is_update else 'Issuance'})")
+                
+                # Simple area extraction for persistence
+                area_m = re.search(r"for (.+?) till", concise_text)
+                area_desc = area_m.group(1) if area_m else "affected area"
+
+                self.bot.state.posted_warnings[vtec_id] = {
+                    "message_id": msg.id,
+                    "channel_id": msg.channel.id,
+                    "area": area_desc,
+                }
+            except discord.HTTPException as e:
+                # Roll back the dedup claim on a hard send failure
+                if not is_update and vtec_id in self.bot.state.posted_warnings:
+                    del self.bot.state.posted_warnings[vtec_id]
+                logger.exception(
+                    f"[WARN] iembot send failed for {vtec_id}: {e}"
+                )
+                return
+
+            try:
+                await add_posted_warning(vtec_id, msg.id, msg.channel.id, time.time(), area=area_desc)
+                await prune_posted_warnings()
+            except Exception as e:
+                logger.warning(f"[WARN] Failed to persist {vtec_id}: {e}")
+        finally:
+            self._in_flight_vtecs.discard(vtec_id)
 
     async def _check_and_log_significant_event(self, event: str, raw_text: str, vtec: dict):
         """Parse warning text for confirmed tornadoes and log to DB."""
@@ -1413,55 +1430,41 @@ class WarningsCog(commands.Cog):
                 # Still active, ensures it stays in the active set
                 if issuance_id not in self.bot.state.active_warnings:
                     self.bot.state.active_warnings[issuance_id] = vtec_dict
-                
-                # Check for area change (partial cancellation) on CON products
-                if vtec_dict["action"] == "CON":
-                    stored_info = self.bot.state.posted_warnings[issuance_id]
-                    prev_area = stored_info.get("area", "")
-                    curr_area = props.areaDesc or ""
-                    
-                    if prev_area and curr_area and prev_area != curr_area:
-                        # Area changed - likely a partial cancellation
-                        try:
-                            await self._post_warning(feature, channel, vtec_dict, event, is_update=True)
-                        except discord.HTTPException as e:
-                            logger.exception(f"[WARN] Update send failed for {issuance_id}: {e}")
-                        
-                        # Update stored area so we don't spam updates for every poll
-                        self.bot.state.posted_warnings[issuance_id]["area"] = curr_area
-                        await add_posted_warning(
-                            issuance_id, 
-                            stored_info["message_id"], 
-                            stored_info["channel_id"], 
-                            area=curr_area
-                        )
                 continue
 
             # 2. If NOT in posted_warnings, we should post it!
-            # Allow NEW, CON, EXT, and UPG to trigger initial discovery posts.
-            # This ensures we catch warnings issued while the bot was down/starting.
-            if vtec_dict["action"] not in ("NEW", "CON", "EXT", "UPG"):
+            # Check in-flight set to avoid racing with concurrent NWWS triggers
+            if issuance_id in self._in_flight_vtecs:
                 continue
+            self._in_flight_vtecs.add(issuance_id)
 
             try:
-                msg, area_desc = await self._post_warning(feature, channel, vtec_dict, event)
-            except discord.HTTPException as e:
-                logger.exception(f"[WARN] Send failed for {issuance_id}: {e}")
-                continue
+                # Allow NEW, CON, EXT, and UPG to trigger initial discovery posts.
+                # This ensures we catch warnings issued while the bot was down/starting.
+                if vtec_dict["action"] not in ("NEW", "CON", "EXT", "UPG"):
+                    continue
 
-            self.bot.state.active_warnings[issuance_id] = vtec_dict
-            self.bot.state.posted_warnings[issuance_id] = {
-                "message_id": msg.id,
-                "channel_id": msg.channel.id,
-                "area": area_desc,
-            }
-            try:
-                await add_posted_warning(issuance_id, msg.id, msg.channel.id, time.time(), area=area_desc)
-                await prune_posted_warnings()
-            except Exception as e:
-                logger.warning(
-                    f"[WARN] Failed to persist {issuance_id}: {e}"
-                )
+                try:
+                    msg, area_desc = await self._post_warning(feature, channel, vtec_dict, event)
+                except discord.HTTPException as e:
+                    logger.exception(f"[WARN] Send failed for {issuance_id}: {e}")
+                    continue
+
+                self.bot.state.active_warnings[issuance_id] = vtec_dict
+                self.bot.state.posted_warnings[issuance_id] = {
+                    "message_id": msg.id,
+                    "channel_id": msg.channel.id,
+                    "area": area_desc,
+                }
+                try:
+                    await add_posted_warning(issuance_id, msg.id, msg.channel.id, time.time(), area=area_desc)
+                    await prune_posted_warnings()
+                except Exception as e:
+                    logger.warning(
+                        f"[WARN] Failed to persist {issuance_id}: {e}"
+                    )
+            finally:
+                self._in_flight_vtecs.discard(issuance_id)
 
         # Detect disappeared warnings (cancellations/expirations)
         disappeared = set(self.bot.state.active_warnings.keys()) - current_vtec_ids
