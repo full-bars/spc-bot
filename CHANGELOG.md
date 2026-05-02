@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.11.1] — 2026-05-02
+
+### Fixed
+- **NWWS Firehose Log Pollution.** Resolved an issue where running tests would write mock data into the production `nwws_firehose.log`. The firehose log path is now configurable via `NWWS_FIREHOSE_LOG` and is redirected to a temporary file during test execution.
+
 ## [5.11.0] — 2026-05-02
 
 ### Added

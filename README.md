@@ -183,7 +183,7 @@ spc-bot/
 │       ├── wsr88d.py        # Radar site info and filename utilities
 │       ├── asos.py          # ASOS surface wind fetching
 │       └── utils.py         # Shared exception types
-└── tests/                   # pytest suite (342 tests, see CONTRIBUTING.md)
+└── tests/                   # pytest suite (346 tests, see CONTRIBUTING.md)
     ├── conftest.py          # Fixtures: fake_bot (real BotState), isolated_db, global patches
     ├── test_fixtures.py     # Fixture invariants
     ├── test_utils.py        # Utility and sounding parsing

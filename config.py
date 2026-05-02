@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 # Single source of truth for the release displayed in /help.
 # Bump this in the same commit as the git tag.
-__version__ = "5.11.0"
+__version__ = "5.11.1"
 
 load_dotenv()
 
@@ -34,6 +34,7 @@ CONFIG = {
     "guild_id": _require_int("GUILD_ID"),
     "cache_file_dir": os.getenv("CACHE_DIR", "cache"),
     "log_file": os.getenv("LOG_FILE", "spc_bot.log"),
+    "nwws_firehose_log": os.getenv("NWWS_FIREHOSE_LOG", "nwws_firehose.log"),
 }
 
 if not CONFIG["token"]:
@@ -48,6 +49,7 @@ WARNINGS_CHANNEL_ID = CONFIG["warnings_channel_id"]
 DEV_CHANNEL_ID = CONFIG["dev_channel_id"]
 MANUAL_CACHE_FILE = os.path.join(CONFIG["cache_file_dir"], CONFIG["manual_cache_file"])
 AUTO_CACHE_FILE = os.path.join(CONFIG["cache_file_dir"], CONFIG["auto_cache_file"])
+NWWS_FIREHOSE_LOG = os.path.join(CONFIG["cache_file_dir"], CONFIG["nwws_firehose_log"])
 GUILD_ID = CONFIG["guild_id"]
 CACHE_DIR = CONFIG["cache_file_dir"]
 

@@ -24,7 +24,7 @@ from slixmpp import ClientXMPP, Message
 from slixmpp.exceptions import IqError, IqTimeout
 from slixmpp.xmlstream import ElementBase, register_stanza_plugin
 
-from config import NWWS_USER, NWWS_PASSWORD, NWWS_SERVER
+from config import NWWS_USER, NWWS_PASSWORD, NWWS_SERVER, NWWS_FIREHOSE_LOG
 
 logger = logging.getLogger("spc_bot")
 
@@ -39,7 +39,7 @@ firehose_logger.propagate = False
 # Only add the handler once
 if not firehose_logger.handlers:
     fh = RotatingFileHandler(
-        "nwws_firehose.log", 
+        NWWS_FIREHOSE_LOG, 
         maxBytes=10*1024*1024, # 10MB
         backupCount=1
     )

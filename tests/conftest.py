@@ -34,6 +34,7 @@ os.environ.setdefault("MODELS_CHANNEL_ID", "987654321")
 os.environ.setdefault("GUILD_ID", "111222333")
 os.environ.setdefault("CACHE_DIR", _TEST_CACHE)
 os.environ.setdefault("LOG_FILE", os.path.join(_TEST_CACHE, "spc_bot_test.log"))
+os.environ.setdefault("NWWS_FIREHOSE_LOG", "nwws_firehose_test.log")
 os.environ.setdefault("FAILOVER_TOKEN", "test-failover-token-not-real")
 # Force Upstash credentials to empty so load_dotenv() (called by config.py)
 # cannot override them with real values from .env. Without this, every call
