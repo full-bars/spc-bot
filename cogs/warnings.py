@@ -627,10 +627,10 @@ class TornadoDashboardView(discord.ui.View):
             self.add_item(self.next_btn)
             self.add_item(self.last_btn)
             self.add_item(self.summary_btn)
-            
-            # Add Photos button if event has a dat_guid
+
+            # Add Photos button if event has location and coords for DAT search
             e = self.events[self.index]
-            if e.get("dat_guid"):
+            if e.get("location") and e.get("coords"):
                 self.add_item(self.photos_btn)
             
             self.first_btn.disabled = self.index <= 0
@@ -695,19 +695,27 @@ class TornadoDashboardView(discord.ui.View):
     @discord.ui.button(label="📸 Photos", style=discord.ButtonStyle.success)
     async def photos_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         e = self.events[self.index]
-        guid = e.get("dat_guid")
-        if not guid:
-            await interaction.response.send_message("No DAT info available for this event.", ephemeral=True)
+
+        # Need location and coords to search DAT
+        location = e.get("location")
+        coords = e.get("coords")
+        if not location or not coords:
+            await interaction.response.send_message("No location data available for this event.", ephemeral=True)
             return
 
         await interaction.response.defer()
         from utils.events_db import fetch_dat_photos
-        urls = await fetch_dat_photos(guid)
+        magnitude = e.get("magnitude", "")
+        urls = await fetch_dat_photos(
+            location=location,
+            magnitude=magnitude,
+            coords=coords,
+        )
         if not urls:
             await interaction.followup.send("No damage photos found in the DAT for this event.", ephemeral=True)
             return
 
-        photo_view = TornadoPhotoView(urls, self, e["location"])
+        photo_view = TornadoPhotoView(urls, self, location)
         await interaction.edit_original_response(embed=photo_view.build_embed(), view=photo_view)
 
     def _get_ef_emoji(self, mag: str) -> str:

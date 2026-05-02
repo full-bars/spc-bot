@@ -166,51 +166,96 @@ async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> None
     except Exception as e:
         logger.warning(f"[EVENTS-DB] link_dat_guid_to_tornado failed: {e}")
 
-async def fetch_dat_photos(guid: str) -> List[str]:
-    """Retrieve damage photo URLs for a given DAT globalid (guid).
+async def fetch_dat_photos(
+    location: str = "",
+    magnitude: str = "",
+    coords: str = "",
+) -> List[str]:
+    """Retrieve damage photo URLs for a tornado by searching DAT Layer 0.
 
-    The guid is the datglobalid from IEM metadata, which corresponds to
-    the 'globalid' field in the DAT ArcGIS FeatureServer, not 'event_id'.
+    Searches DAT by location (lat/lon from coords) and magnitude (EF rating).
+    Returns URLs for image attachments found at matching damage points.
     """
     from utils.http import http_get_json
 
-    # 1. Query Layer 0 (Points) to find ObjectIDs for this event
+    if not coords or not location:
+        return []
+
+    # Parse coords format: "37.67N 85.74W" -> lat, lon
+    try:
+        parts = coords.replace("N", "").replace("S", "").replace("W", "").replace("E", "").split()
+        lat = float(parts[0])
+        lon = -float(parts[1]) if "W" in coords else float(parts[1])
+    except (ValueError, IndexError):
+        logger.warning(f"[DAT-API] Could not parse coords: {coords}")
+        return []
+
+    # Extract EF rating from magnitude (e.g., "EF0", "EF1", or "Confirmed")
+    ef_rating = None
+    magnitude_upper = (magnitude or "").upper()
+    if any(f"EF{i}" in magnitude_upper for i in range(6)):
+        for i in range(5, -1, -1):
+            if f"EF{i}" in magnitude_upper:
+                ef_rating = f"EF{i}"
+                break
+
+    # Query DAT Layer 0 for damage points in the area
+    # Use a 0.3 degree buffer (~21 miles) around the tornado location
+    buffer = 0.3
+    bbox = f"{lon-buffer},{lat-buffer},{lon+buffer},{lat+buffer}"
+
     query_url = (
         "https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/0/query"
-        f"?where=globalid='{guid}'&outFields=objectid&f=json"
+        f"?geometry={bbox}&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects"
     )
-    
-    data = await http_get_json(query_url)
-    if not data or "features" not in data:
+
+    # Add EF filter if we have a specific rating
+    if ef_rating:
+        query_url += f"&where=efscale='{ef_rating}'"
+
+    query_url += "&outFields=objectid&f=json"
+
+    try:
+        data = await http_get_json(query_url, retries=1, timeout=10)
+        if not data or "features" not in data:
+            logger.debug(f"[DAT-API] No damage points found near {location}")
+            return []
+
+        object_ids = [f["attributes"]["objectid"] for f in data.get("features", [])]
+        if not object_ids:
+            logger.debug(f"[DAT-API] No damage points found near {location}")
+            return []
+
+        logger.debug(f"[DAT-API] Found {len(object_ids)} damage points near {location}")
+
+        # Fetch attachments for each damage point (limit to 15 to avoid excessive API calls)
+        urls = []
+        for oid in object_ids[:15]:
+            attach_url = (
+                "https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/0"
+                f"/{oid}/attachments?f=json"
+            )
+
+            try:
+                attach_data = await http_get_json(attach_url, retries=0, timeout=5)
+                for att in attach_data.get("attachmentInfos", []):
+                    if att.get("contentType", "").startswith("image/"):
+                        photo_url = (
+                            f"https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/0"
+                            f"/{oid}/attachments/{att['id']}"
+                        )
+                        urls.append(photo_url)
+            except Exception as e:
+                logger.debug(f"[DAT-API] Error fetching attachments for ObjectID {oid}: {e}")
+                continue
+
+        if urls:
+            logger.info(f"[DAT-API] Found {len(urls)} photo(s) for {location}")
+        return urls
+
+    except Exception as e:
+        logger.warning(f"[DAT-API] Error fetching photos for {location}: {e}")
         return []
-        
-    object_ids = [f["attributes"]["objectid"] for f in data["features"]]
-    if not object_ids:
-        return []
-        
-    # 2. Query Attachments for those ObjectIDs
-    # We can use the /queryAttachments endpoint for bulk lookup
-    ids_str = ",".join(str(i) for i in object_ids[:20]) # Limit to 20 points
-    attach_url = (
-        "https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/0/queryAttachments"
-        f"?objectIds={ids_str}&f=json"
-    )
-    
-    attach_data = await http_get_json(attach_url)
-    if not attach_data or "attachmentGroups" not in attach_data:
-        return []
-        
-    urls = []
-    for group in attach_data["attachmentGroups"]:
-        parent_id = group["parentObjectId"]
-        for info in group["attachmentInfos"]:
-            if info.get("contentType", "").startswith("image/"):
-                attach_id = info["id"]
-                urls.append(
-                    f"https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/0/{parent_id}/attachments/{attach_id}"
-                )
-    
-    return urls
 
 
 # ── Reads ────────────────────────────────────────────────────────────────────
