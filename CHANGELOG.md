@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.12.1] — 2026-05-02
+
+### Added
+- **Sounding Source Attribution.** Added the data source (Wyoming, IEM, or GSL) to the Discord sounding post captions. This allows operators to visually confirm which authority was used for each plot.
+
 ## [5.12.0] — 2026-05-02
 
 ### Added
