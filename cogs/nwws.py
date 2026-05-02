@@ -68,7 +68,7 @@ class NWWSClient(ClientXMPP):
         
         # Join the NWWS-OI Multi-User Chat
         logger.info(f"[NWWS] Joining room {self.room} as {self.nick}...")
-        self.plugin['xep_0045'].join_room(self.room, self.nick)
+        self.plugin['xep_0045'].join_muc(self.room, self.nick)
         logger.info(f"[NWWS] XMPP Session Started as {self.boundjid}")
 
     def on_disconnect(self, event):
