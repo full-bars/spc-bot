@@ -127,34 +127,39 @@ async def add_significant_event(
     except Exception as e:
         logger.warning(f"[EVENTS-DB] add_significant_event({event_id}) failed: {e}")
 
-async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> None:
-    """Attempt to link a DAT guid to a tornado based on the label."""
+async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> Optional[Tuple[str, Optional[str], Optional[str], Optional[str]]]:
+    """Attempt to link a DAT guid to a tornado based on the label.
+
+    Returns (event_id, location, magnitude, coords) if matched, or None if no match.
+    """
     db = await get_events_db()
     try:
         # Date str is YYYY-MM-DD
         dt = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         start_ts = dt.timestamp()
         end_ts = start_ts + 86400
-        
+
         async with db.execute(
-            """SELECT event_id, location FROM significant_events
+            """SELECT event_id, location, magnitude, coords FROM significant_events
                WHERE event_type = 'Tornado'
                  AND timestamp >= ? AND timestamp < ?""",
             (start_ts - 43200, end_ts + 43200) # Give 12h buffer
         ) as cur:
             rows = await cur.fetchall()
-            
+
         if not rows:
-            return
+            return None
 
         query_words = set(re.findall(r"\w+", label.upper()))
         best_id, best_score = None, -1
+        best_row = None
         for row in rows:
             overlap = len(query_words & set(re.findall(r"\w+", row["location"].upper())))
             if overlap > best_score and overlap > 0:
                 best_score, best_id = overlap, row["event_id"]
-                
-        if best_id:
+                best_row = row
+
+        if best_id and best_row:
             await db.execute(
                 "UPDATE significant_events SET dat_guid = ? WHERE event_id = ?",
                 (guid, best_id)
@@ -162,51 +167,215 @@ async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> None
             await db.commit()
             _mark_dirty()
             logger.info(f"[EVENTS-DB] Linked DAT {guid} to event {best_id}")
+            return (best_id, best_row["location"], best_row["magnitude"], best_row["coords"])
 
     except Exception as e:
         logger.warning(f"[EVENTS-DB] link_dat_guid_to_tornado failed: {e}")
 
-async def fetch_dat_photos(guid: str) -> List[str]:
-    """Retrieve damage photo URLs for a given DAT event_id (guid)."""
+    return None
+
+async def fetch_dat_photos(
+    location: str = "",
+    magnitude: str = "",
+    coords: str = "",
+) -> List[str]:
+    """Retrieve damage photo URLs for a tornado by searching DAT Layer 0.
+
+    Searches DAT by location (lat/lon from coords) and magnitude (EF rating).
+    Returns URLs for image attachments found at matching damage points.
+    """
     from utils.http import http_get_json
-    
-    # 1. Query Layer 0 (Points) to find ObjectIDs for this event
+
+    if not coords or not location:
+        return []
+
+    # Parse coords format: "37.67N 85.74W" -> lat, lon
+    try:
+        parts = coords.replace("N", "").replace("S", "").replace("W", "").replace("E", "").split()
+        lat = float(parts[0])
+        lon = -float(parts[1]) if "W" in coords else float(parts[1])
+    except (ValueError, IndexError):
+        logger.warning(f"[DAT-API] Could not parse coords: {coords}")
+        return []
+
+    # Extract EF rating from magnitude (e.g., "EF0", "EF1", or "Confirmed")
+    ef_rating = None
+    magnitude_upper = (magnitude or "").upper()
+    if any(f"EF{i}" in magnitude_upper for i in range(6)):
+        for i in range(5, -1, -1):
+            if f"EF{i}" in magnitude_upper:
+                ef_rating = f"EF{i}"
+                break
+
+    # Query DAT Layer 0 for damage points in the area
+    # Use a 0.3 degree buffer (~21 miles) around the tornado location
+    buffer = 0.3
+    bbox = f"{lon-buffer},{lat-buffer},{lon+buffer},{lat+buffer}"
+
     query_url = (
         "https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/0/query"
-        f"?where=event_id='{guid}'&outFields=objectid&f=json"
+        f"?geometry={bbox}&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects"
     )
-    
-    data = await http_get_json(query_url)
-    if not data or "features" not in data:
+
+    # Add EF filter if we have a specific rating
+    if ef_rating:
+        query_url += f"&where=efscale='{ef_rating}'"
+
+    query_url += "&outFields=objectid&f=json"
+
+    try:
+        data = await http_get_json(query_url, retries=1, timeout=10)
+        if not data or "features" not in data:
+            logger.debug(f"[DAT-API] No damage points found near {location}")
+            return []
+
+        object_ids = [f["attributes"]["objectid"] for f in data.get("features", [])]
+        if not object_ids:
+            logger.debug(f"[DAT-API] No damage points found near {location}")
+            return []
+
+        logger.debug(f"[DAT-API] Found {len(object_ids)} damage points near {location}")
+
+        # Fetch attachments for each damage point (limit to 15 to avoid excessive API calls)
+        urls = []
+        for oid in object_ids[:15]:
+            attach_url = (
+                "https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/0"
+                f"/{oid}/attachments?f=json"
+            )
+
+            try:
+                attach_data = await http_get_json(attach_url, retries=0, timeout=5)
+                for att in attach_data.get("attachmentInfos", []):
+                    if att.get("contentType", "").startswith("image/"):
+                        photo_url = (
+                            f"https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/0"
+                            f"/{oid}/attachments/{att['id']}"
+                        )
+                        urls.append(photo_url)
+            except Exception as e:
+                logger.debug(f"[DAT-API] Error fetching attachments for ObjectID {oid}: {e}")
+                continue
+
+        if urls:
+            logger.info(f"[DAT-API] Found {len(urls)} photo(s) for {location}")
+        return urls
+
+    except Exception as e:
+        logger.warning(f"[DAT-API] Error fetching photos for {location}: {e}")
         return []
-        
-    object_ids = [f["attributes"]["objectid"] for f in data["features"]]
-    if not object_ids:
+
+
+async def cache_dat_photos(
+    event_id: str,
+    location: str = "",
+    magnitude: str = "",
+    coords: str = "",
+) -> int:
+    """Download and cache DAT photos for a tornado event.
+
+    Returns the number of photos cached (0 if none found or already cached).
+    """
+    from utils.http import http_get_bytes
+
+    cache_dir = os.path.join("cache", "tornado_photos", event_id)
+
+    # Check if already cached
+    if os.path.exists(cache_dir) and os.listdir(cache_dir):
+        count = len([f for f in os.listdir(cache_dir) if f.endswith((".jpg", ".png"))])
+        if count > 0:
+            logger.debug(f"[DAT-CACHE] Photos already cached for {event_id} ({count} files)")
+            return 0
+
+    # Fetch photo URLs
+    photo_urls = await fetch_dat_photos(location=location, magnitude=magnitude, coords=coords)
+    if not photo_urls:
+        return 0
+
+    # Create cache directory
+    os.makedirs(cache_dir, exist_ok=True)
+
+    # Download each photo
+    cached_count = 0
+    for idx, url in enumerate(photo_urls, 1):
+        try:
+            content, status = await http_get_bytes(url, retries=1, timeout=10)
+            if status == 200 and content:
+                # Determine file extension
+                ext = ".jpg"
+                if b"\x89PNG" in content[:8]:
+                    ext = ".png"
+
+                file_path = os.path.join(cache_dir, f"photo_{idx:02d}{ext}")
+                with open(file_path, "wb") as f:
+                    f.write(content)
+                cached_count += 1
+                logger.debug(f"[DAT-CACHE] Cached {file_path} ({len(content)} bytes)")
+            else:
+                logger.debug(f"[DAT-CACHE] Failed to download photo {idx}: status {status}")
+        except Exception as e:
+            logger.warning(f"[DAT-CACHE] Error caching photo {idx} for {event_id}: {e}")
+            continue
+
+    if cached_count > 0:
+        logger.info(f"[DAT-CACHE] Cached {cached_count} photo(s) for {event_id}")
+
+    return cached_count
+
+
+def get_cached_dat_photos(event_id: str) -> List[str]:
+    """Retrieve cached photo paths for a tornado event.
+
+    Returns list of local file paths, or empty list if not cached.
+    """
+    cache_dir = os.path.join("cache", "tornado_photos", event_id)
+
+    if not os.path.exists(cache_dir):
         return []
-        
-    # 2. Query Attachments for those ObjectIDs
-    # We can use the /queryAttachments endpoint for bulk lookup
-    ids_str = ",".join(str(i) for i in object_ids[:20]) # Limit to 20 points
-    attach_url = (
-        "https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/0/queryAttachments"
-        f"?objectIds={ids_str}&f=json"
-    )
-    
-    attach_data = await http_get_json(attach_url)
-    if not attach_data or "attachmentGroups" not in attach_data:
-        return []
-        
-    urls = []
-    for group in attach_data["attachmentGroups"]:
-        parent_id = group["parentObjectId"]
-        for info in group["attachmentInfos"]:
-            if info.get("contentType", "").startswith("image/"):
-                attach_id = info["id"]
-                urls.append(
-                    f"https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/0/{parent_id}/attachments/{attach_id}"
-                )
-    
-    return urls
+
+    # Return sorted photo files
+    photos = []
+    for filename in sorted(os.listdir(cache_dir)):
+        if filename.endswith((".jpg", ".png", ".jpeg")):
+            file_path = os.path.abspath(os.path.join(cache_dir, filename))
+            if os.path.exists(file_path):
+                photos.append(file_path)
+
+    return photos
+
+
+async def cleanup_old_photos(days: int = 30) -> int:
+    """Remove cached photos older than N days. Returns count deleted."""
+    cache_dir = os.path.join("cache", "tornado_photos")
+    if not os.path.exists(cache_dir):
+        return 0
+
+    cutoff_time = time.time() - (days * 86400)
+    deleted_count = 0
+
+    try:
+        for event_id in os.listdir(cache_dir):
+            event_dir = os.path.join(cache_dir, event_id)
+            if not os.path.isdir(event_dir):
+                continue
+
+            mtime = os.path.getmtime(event_dir)
+            if mtime < cutoff_time:
+                # Delete entire event directory
+                try:
+                    shutil.rmtree(event_dir)
+                    deleted_count += 1
+                    logger.debug(f"[DAT-CACHE] Deleted cached photos for {event_id}")
+                except Exception as e:
+                    logger.warning(f"[DAT-CACHE] Error deleting {event_dir}: {e}")
+
+    except Exception as e:
+        logger.warning(f"[DAT-CACHE] Cleanup failed: {e}")
+
+    if deleted_count > 0:
+        logger.info(f"[DAT-CACHE] Cleaned up {deleted_count} expired photo cache(s)")
+
+    return deleted_count
 
 
 # ── Reads ────────────────────────────────────────────────────────────────────
