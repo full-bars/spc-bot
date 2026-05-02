@@ -167,13 +167,17 @@ async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> None
         logger.warning(f"[EVENTS-DB] link_dat_guid_to_tornado failed: {e}")
 
 async def fetch_dat_photos(guid: str) -> List[str]:
-    """Retrieve damage photo URLs for a given DAT event_id (guid)."""
+    """Retrieve damage photo URLs for a given DAT globalid (guid).
+
+    The guid is the datglobalid from IEM metadata, which corresponds to
+    the 'globalid' field in the DAT ArcGIS FeatureServer, not 'event_id'.
+    """
     from utils.http import http_get_json
-    
+
     # 1. Query Layer 0 (Points) to find ObjectIDs for this event
     query_url = (
         "https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/0/query"
-        f"?where=event_id='{guid}'&outFields=objectid&f=json"
+        f"?where=globalid='{guid}'&outFields=objectid&f=json"
     )
     
     data = await http_get_json(query_url)

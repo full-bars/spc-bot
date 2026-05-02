@@ -15,12 +15,15 @@ async def fetch_dat_track_geometry(guid: str) -> Optional[List[List[Tuple[float,
     """
     Fetch the polyline geometry for a tornado track from DAT.
     Returns a list of paths, where each path is a list of (lat, lon) tuples.
+
+    The guid is the datglobalid from IEM metadata, which corresponds to
+    the 'globalid' field in the DAT ArcGIS FeatureServer, not 'event_id'.
     """
-    # Query Layer 1 (Lines) for this event_id. 
+    # Query Layer 1 (Lines) for this globalid.
     # outSR=4326 ensures we get standard WGS84 (Lat/Lon) coordinates.
     query_url = (
         f"{DAT_BASE_URL}/{TRACK_LAYER_ID}/query"
-        f"?where=event_id='{guid}'&outFields=*&returnGeometry=true&outSR=4326&f=json"
+        f"?where=globalid='{guid}'&outFields=*&returnGeometry=true&outSR=4326&f=json"
     )
     
     try:
