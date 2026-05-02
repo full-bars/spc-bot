@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.12.0] — 2026-05-02
+
+### Added
+- **Sounding Redundancy (GSL Fallback).** Implemented a high-authority fallback for RAOB sounding plots using the NOAA Global Systems Laboratory (GSL) service. The bot now has a completely independent data path from IEM, resolving the single-point-of-failure reliance on Iowa State for sounding graphics.
+- **Circuit-Aware Sounding Retrieval.** Updated the sounding pipeline to automatically skip the primary IEM attempt and go directly to the GSL fallback if the IEM circuit breaker is open.
+- **Local Damage Track Rendering.** The bot can now render tornado damage survey maps locally using Cartopy and direct GeoJSON geometry from the NWS DAT ArcGIS API. This serves as a reliable fallback if the IEM Autoplot 253 service is unavailable.
+- **Expanded Test Suite.** Added comprehensive integration tests for `MaintenanceCog` (DB retention), `SCPCog` (daily maps), `RadarCog` (NEXRAD cleanup), and `SoundingCog` (auto-post windows).
+
+### Fixed
+- **SPS PIL Consistency.** Improved the radar image retry logic to handle Special Weather Statements (SPS) correctly when map polygons are delayed.
+
 ## [5.11.1] — 2026-05-02
 
 ### Added
