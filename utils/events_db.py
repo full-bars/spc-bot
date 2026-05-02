@@ -127,10 +127,10 @@ async def add_significant_event(
     except Exception as e:
         logger.warning(f"[EVENTS-DB] add_significant_event({event_id}) failed: {e}")
 
-async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> Optional[Tuple[str, Optional[str], Optional[str]]]:
+async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> Optional[Tuple[str, Optional[str], Optional[str], Optional[str]]]:
     """Attempt to link a DAT guid to a tornado based on the label.
 
-    Returns (event_id, location, magnitude) if matched, or None if no match.
+    Returns (event_id, location, magnitude, coords) if matched, or None if no match.
     """
     db = await get_events_db()
     try:
@@ -140,7 +140,7 @@ async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> Opti
         end_ts = start_ts + 86400
 
         async with db.execute(
-            """SELECT event_id, location, magnitude FROM significant_events
+            """SELECT event_id, location, magnitude, coords FROM significant_events
                WHERE event_type = 'Tornado'
                  AND timestamp >= ? AND timestamp < ?""",
             (start_ts - 43200, end_ts + 43200) # Give 12h buffer
@@ -167,7 +167,7 @@ async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> Opti
             await db.commit()
             _mark_dirty()
             logger.info(f"[EVENTS-DB] Linked DAT {guid} to event {best_id}")
-            return (best_id, best_row["location"], best_row["magnitude"])
+            return (best_id, best_row["location"], best_row["magnitude"], best_row["coords"])
 
     except Exception as e:
         logger.warning(f"[EVENTS-DB] link_dat_guid_to_tornado failed: {e}")

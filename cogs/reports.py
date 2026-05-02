@@ -441,13 +441,13 @@ class ReportsCog(commands.Cog):
                 from utils.events_db import link_dat_guid_to_tornado, cache_dat_photos
                 match_result = await link_dat_guid_to_tornado(event_date, guid, label)
                 if match_result:
-                    event_id, location, magnitude = match_result
+                    event_id, location, magnitude, coords = match_result
                     # Pre-cache photos in the background
                     asyncio.create_task(cache_dat_photos(
                         event_id=event_id,
                         location=location,
                         magnitude=magnitude or "",
-                        coords=coords,
+                        coords=coords or "",
                     ))
 
         except Exception as e:
