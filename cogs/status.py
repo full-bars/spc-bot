@@ -608,7 +608,35 @@ class StatusCog(commands.Cog):
         lines.append(f"Watches tracked: {len(self.bot.state.active_watches)}")
         lines.append("```")
 
-        await interaction.followup.send("\n".join(lines), ephemeral=True)
+        # Join lines and split into 2000-char chunks for Discord safety
+        full_content = "\n".join(lines)
+        if len(full_content) <= 2000:
+            await interaction.followup.send(full_content, ephemeral=True)
+        else:
+            # Split by lines to avoid breaking code blocks or words mid-way
+            current_chunk = []
+            current_length = 0
+            for line in lines:
+                # 1 for the newline
+                if current_length + len(line) + 1 > 1990: # Leave some buffer
+                    if current_chunk:
+                        chunk_str = "\n".join(current_chunk)
+                        if not chunk_str.endswith("```") and "```" in chunk_str:
+                             chunk_str += "\n```"
+                        await interaction.followup.send(chunk_str, ephemeral=True)
+                    
+                    current_chunk = []
+                    if "```" in full_content and not line.startswith("```"):
+                         current_chunk.append("```")
+                         current_length = 3
+                    else:
+                         current_length = 0
+                
+                current_chunk.append(line)
+                current_length += len(line) + 1
+            
+            if current_chunk:
+                await interaction.followup.send("\n".join(current_chunk), ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

@@ -169,7 +169,7 @@ class NWWSClient(ClientXMPP):
                         logger.info(f"[NWWS] Triggered MD {md_num} via XMPP")
 
             # WARNINGS (TOR, SVR, FFW, etc)
-            elif any(x in afos_pil for x in ("TOR", "SVR", "FFW", "SVS", "FFS", "SPS")):
+            elif any(afos_pil.startswith(x) for x in ("TOR", "SVR", "FFW", "SVS", "FFS", "SPS")):
                 warnings_cog = self.bot.get_cog("WarningsCog")
                 if warnings_cog:
                     # Clean the raw text for WarningsCog (strip the leading sequence number if present)
@@ -189,16 +189,16 @@ class NWWSClient(ClientXMPP):
                         "FFS": "Flash Flood Statement",
                         "SPS": "Special Weather Statement"
                     }
-                    pil_prefix = next((p for p in event_map if p in afos_pil), None)
+                    pil_prefix = next((p for p in event_map if afos_pil.startswith(p)), None)
                     if pil_prefix:
                         await warnings_cog.post_warning_now(product_id, cleaned_text, event_map[pil_prefix])
                         logger.info(f"[NWWS] Triggered {pil_prefix} Warning via XMPP")
 
             # REPORTS (LSR, PNS)
-            elif any(x in afos_pil for x in ("LSR", "PNS")):
+            elif any(afos_pil.startswith(x) for x in ("LSR", "PNS")):
                 reports_cog = self.bot.get_cog("ReportsCog")
                 if reports_cog:
-                    pil_prefix = "LSR" if "LSR" in afos_pil else "PNS"
+                    pil_prefix = "LSR" if afos_pil.startswith("LSR") else "PNS"
                     await reports_cog.post_report_now(product_id, raw_text, pil_prefix)
                     logger.info(f"[NWWS] Triggered {pil_prefix} via XMPP")
 
