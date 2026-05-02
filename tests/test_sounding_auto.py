@@ -21,8 +21,8 @@ async def test_auto_sounding_watches_skips_standby():
         cog = SoundingCog(bot)
         await cog.auto_sounding_watches()
         
-    # Should return early after wait_until_ready
-    assert bot.wait_until_ready.called
+    # Should return early BEFORE wait_until_ready
+    assert not bot.wait_until_ready.called
     assert not bot.get_channel.called
 
 @pytest.mark.asyncio
