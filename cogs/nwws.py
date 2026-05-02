@@ -87,15 +87,16 @@ class NWWSClient(ClientXMPP):
         # If no custom payload, check body (for MOTD or other messages)
         body = msg['body']
 
-        # --- DEBUG LOGGING ---
-        # Log anything that looks like a product or has an awipsid
+        # --- DEBUG LOGGING: Multi-line Sample ---
         if payload['awipsid'] or raw_text:
-            sample = raw_text[:500].replace('\r', '').replace('\n', '\\n')
-            logger.info(
-                f"[NWWS-DEBUG] {msg_type.upper()} from {msg['from']}\n"
-                f"  cccc: {payload['cccc']}, awipsid: {payload['awipsid']}\n"
-                f"  Text: {sample}..."
-            )
+            # We log the metadata and a generous sample of the text.
+            # Using multiple log entries to avoid single-line truncation.
+            logger.info(f"[NWWS-DEBUG] {msg_type.upper()} from {msg['from']}")
+            logger.info(f"  cccc: {payload['cccc']}, ttaaii: {payload['ttaaii']}, awipsid: {payload['awipsid']}")
+            
+            # Preserve newlines for readability in the log
+            sample = raw_text[:2000].replace('\r', '')
+            logger.info(f"  RAW TEXT SAMPLE:\n{sample}\n")
         elif body and "**WARNING**" in body:
             # Catch the MOTD
             logger.info(f"[NWWS-DEBUG] Received MOTD/Normal: {body[:100]}...")
@@ -112,12 +113,13 @@ class NWWSClient(ClientXMPP):
         try:
             afos_pil = payload['awipsid']
             office = payload['cccc']
+            ttaaii = payload['ttaaii']
             
-            # Construct a product_id
+            # Construct a product_id matching the iembot format where possible
             ts_str = time.strftime("%Y%m%d%H%M", time.gmtime())
-            product_id = f"{ts_str}-{office}-{payload['ttaaii']}-{afos_pil}"
+            product_id = f"{ts_str}-{office}-{ttaaii}-{afos_pil}"
 
-            # Routing Logic
+            # 2. Routing Logic
             
             # WATCHES (SEL products)
             if "SEL" in afos_pil:
@@ -152,6 +154,15 @@ class NWWSClient(ClientXMPP):
             elif any(x in afos_pil for x in ("TOR", "SVR", "FFW", "SVS", "FFS", "SPS")):
                 warnings_cog = self.bot.get_cog("WarningsCog")
                 if warnings_cog:
+                    # Clean the raw text for WarningsCog (strip the leading sequence number if present)
+                    # Heuristic: find the line starting with the WMO header (ttaaii)
+                    cleaned_text = raw_text
+                    lines = raw_text.splitlines()
+                    for i, line in enumerate(lines):
+                        if ttaaii in line:
+                            cleaned_text = "\n".join(lines[i:])
+                            break
+
                     event_map = {
                         "TOR": "Tornado Warning",
                         "SVR": "Severe Thunderstorm Warning",
@@ -162,7 +173,7 @@ class NWWSClient(ClientXMPP):
                     }
                     pil_prefix = next((p for p in event_map if p in afos_pil), None)
                     if pil_prefix:
-                        await warnings_cog.post_warning_now(product_id, raw_text, event_map[pil_prefix])
+                        await warnings_cog.post_warning_now(product_id, cleaned_text, event_map[pil_prefix])
                         logger.info(f"[NWWS] Triggered {pil_prefix} Warning via XMPP")
 
             # REPORTS (LSR, PNS)
