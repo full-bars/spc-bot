@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.12.2] — 2026-05-02
+
+### Added
+- **Tornado Dashboard UX Overhaul.** Completely redesigned the `/recenttornadoes` summary view to use a vertical list with grand totals, improving scannability on mobile and desktop.
+- **Improved Damage Photo Grid.** Redesigned the photo carousel into an efficient 2x2 grid layout, displaying 4 photos per page using multiple embeds.
+- **Geographic DAT Linking.** Implemented a more robust linking engine between bot events and official NOAA DAT tracks using Lat/Lon proximity (Haversine) instead of word-matching.
+- **Parallel Photo Ingest.** Optimized the damage survey pipeline to use ArcGIS bulk endpoints and parallel downloads, making photo caching up to 5x faster.
+- **30-Day Survey Backfill.** Added a rolling 30-day automated backfill task to `MaintenanceCog` to ensure surveys finalized weeks after a storm are automatically linked to the dashboard.
+
+## [5.12.1] — 2026-05-02
+
+### Added
+- **Tornado Dashboard UX Overhaul.** Completely redesigned the `/recenttornadoes` summary view to use a vertical list with grand totals, improving scannability on mobile and desktop.
+- **Improved Damage Photo Grid.** Redesigned the photo carousel into an efficient 2x2 grid layout, displaying 4 photos per page using multiple embeds.
+- **Geographic DAT Linking.** Implemented a more robust linking engine between bot events and official NOAA DAT tracks using Lat/Lon proximity (Haversine) instead of word-matching.
+- **Parallel Photo Ingest.** Optimized the damage survey pipeline to use ArcGIS bulk endpoints and parallel downloads, making photo caching up to 5x faster.
+- **30-Day Survey Backfill.** Added a rolling 30-day automated backfill task to `MaintenanceCog` to ensure surveys finalized weeks after a storm are automatically linked to the dashboard.
+
 ## [5.12.1] — 2026-05-02
 
 ### Added
