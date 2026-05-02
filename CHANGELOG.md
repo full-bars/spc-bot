@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.11.0] — 2026-05-02
+
+### Added
+- **NWWS-OI (XMPP) Authority.** Established a persistent XMPP connection to `nwws-oi.weather.gov` to serve as the bot's highest-authority alerting path. Pushes raw NWS text products via Multi-User Chat (MUC) with near-zero latency, beating IEMBot and NWS API polling.
+- **NWWS XML Payload Parsing.** Developed custom stanza parsing for the `<x xmlns='nwws-oi'>` element, extracting 100% accurate metadata (`cccc`, `awipsid`, `ttaaii`) and raw product text directly from the NOAA wire.
+- **NWWS Firehose Log.** Implemented a dedicated `nwws_firehose.log` with a 10MB rotating limit. This audit trail captures every incoming XMPP message in full detail without cluttering the main operational logs.
+
+### Fixed
+- **NWWS Connection Stability.** Resolved "event loop already running" errors by refactoring the XMPP client to use non-blocking async patterns. Disabled IPv6 and implemented manual `is_connected` tracking via XMPP events for robust failover behavior.
+- **Failover Connection Gap.** Implemented `trigger_connection()` in the NWWS cog, hooked into the `FailoverCog` promotion sequence. This ensures near-instantaneous XMPP connectivity the moment a node promotes to Primary.
+- **Channel Routing Bug.** Fixed a configuration issue where Special Weather Statements (SPS) were incorrectly routing to the SPC channel when `WARNINGS_CHANNEL_ID` was omitted from `.env`.
+
+### Changed
+- **Status Command Enhanced.** The `/status` command now includes a "Connectivity" section showing real-time `CONNECTED`/`STANDBY` states for NWWS-OI and the IEMBot feed.
+
 ## [5.10.0] — 2026-05-01
 
 ### Added
