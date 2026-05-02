@@ -171,5 +171,46 @@ class TestSoundingQualityWarning:
         assert validate_sounding_data(out) is True
 
 
+class TestMultiSourceSounding:
+    @pytest.mark.asyncio
+    async def test_fsl_to_clean_data_parsing(self):
+        from cogs.sounding_utils import _fsl_to_clean_data
+        
+        # Real sample of FSL data
+        sample_fsl = """
+    1      100  12345  KILX  72433  40.15N  89.33W    180  1200
+    2     2026      5      1     12      0      0      0      0
+    3      KILX   72433  99999
+    4   10000     180    154     82    260     25
+    5    9250     762    120     70    270     35
+    6    8500    1450     80     40    280     40
+    7    7000    3100     -2    -50    290     50
+    8    5000    5800    -15    -250    300     60
+    9    4000    7500    -25    -350    310     70
+"""
+        out = _fsl_to_clean_data(
+            sample_fsl, "KILX", "Lincoln", 40.15, -89.33, 180,
+            ["2026", "05", "01", "12:00"]
+        )
+        assert out is not None
+        assert len(out["p"]) == 3 # Mandatory + Significant thermo
+        assert out["site_info"]["source"] == "RAOB OBSERVED (GSL)"
+        assert out["p"][0].magnitude == 1000.0
+        assert out["T"][0].magnitude == 15.4
+
+    @pytest.mark.asyncio
+    async def test_fetch_gsl_sounding_failure(self, monkeypatch):
+        from cogs.sounding_utils import fetch_gsl_sounding
+        
+        # Mock http_get_text to return "No data available"
+        async def mock_get(*args, **kwargs):
+            return "No data available"
+            
+        monkeypatch.setattr("utils.http.http_get_text", mock_get)
+        
+        out = await fetch_gsl_sounding("KILX", "2026", "05", "01", "12")
+        assert out is None
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
