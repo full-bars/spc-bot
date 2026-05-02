@@ -879,6 +879,16 @@ class TornadoDashboardView(discord.ui.View):
         if e.get("dat_guid"):
             dat_url = f"https://apps.dat.noaa.gov/stormdamage/damageviewer/?datglobalid={e['dat_guid']}"
             embed.add_field(name="NWS DAT", value=f"[View Track]({dat_url})", inline=True)
+            
+            # Show track map in the card
+            # We use IEM Autoplot for the dashboard view as it handles historical caching better
+            event_date = dt.strftime("%Y-%m-%d")
+            img_url = (
+                f"https://mesonet.agron.iastate.edu/plotting/auto/plot/253/"
+                f"datglobalid:{e['dat_guid']}::dat:{event_date}::cmap:gist_rainbow::"
+                f"_r:t::dpi:100.png"
+            )
+            embed.set_image(url=img_url)
 
         if e.get("raw_text"):
              text = e["raw_text"]
