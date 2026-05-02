@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.12.7] — 2026-05-02
+
+### Infrastructure
+- **Self-hosted GitHub Actions Runner.** Deployed Oracle ARM A1 instance (4 CPU, 24GB RAM) as primary Docker builder. Eliminates GitHub's queue delays and leverages persistent BuildKit cache for 82% faster multi-arch releases.
+
 ## [5.12.6] — 2026-05-02
 
 ### Changed
