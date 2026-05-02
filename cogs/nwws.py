@@ -113,9 +113,9 @@ class NWWSClient(ClientXMPP):
                 f"[{msg_type.upper()}] from {msg['from']} | "
                 f"cccc: {payload['cccc']}, ttaaii: {payload['ttaaii']}, awipsid: {payload['awipsid']}"
             )
-            # Sample text log
-            sample = raw_text[:2000].replace('\r', '')
-            firehose_logger.info(f"RAW TEXT:\n{sample}\n" + "-"*40)
+            # Full text log (no truncation, rotating file handles size)
+            text_clean = raw_text.replace('\r', '')
+            firehose_logger.info(f"RAW TEXT:\n{text_clean}\n" + "-"*40)
         elif body and "**WARNING**" in body:
             firehose_logger.info(f"MOTD: {body[:100]}...")
         # ---------------------
