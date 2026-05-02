@@ -24,12 +24,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /build
 
 # Upgrade pip and install build-time requirements
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip setuptools wheel
 
 COPY requirements.txt .
 
 # Build wheels for all dependencies
-RUN pip wheel --no-cache-dir --wheel-dir /build/wheels -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip wheel --wheel-dir /build/wheels -r requirements.txt
 
 # Runtime stage
 FROM python:3.13-slim-bookworm
