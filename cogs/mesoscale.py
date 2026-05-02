@@ -584,6 +584,7 @@ class MesoscaleCog(commands.Cog):
         channel = self.bot.get_channel(SPC_CHANNEL_ID)
         if not channel:
             return
+        self.bot.state.posted_mds.add(md_num)
         logger.info(f"[MD] iembot-triggered post for #{md_num}")
         image_url, summary, from_cache, raw_text = await fetch_md_details(md_num)
         if raw_text:
@@ -605,7 +606,6 @@ class MesoscaleCog(commands.Cog):
         try:
             msg = await channel.send(embeds=[img_embed, text_embed], files=files)
             self.bot.state.active_mds.add(md_num)
-            self.bot.state.posted_mds.add(md_num)
             await add_posted_md(str(md_num))
             self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
             if not cache_path or not full_text:
