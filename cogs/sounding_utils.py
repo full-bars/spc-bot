@@ -771,6 +771,139 @@ async def get_acars_profiles_in_polygon(
     return results
 
 
+def _fsl_to_clean_data(text: str, station_id: str, station_name: str,
+                       lat: float, lon: float, elev: float,
+                       run_time: list[str]) -> Optional[dict]:
+    """Parse GSL 'FSL' format ASCII text into SounderPy clean_data."""
+    lines = text.splitlines()
+    levels = []
+    
+    # FSL format data lines (Type 4, 5, 6) have 7 fields:
+    # Type, Pressure (1/10 mb), Height (m), Temp (1/10 C), Dewpt (1/10 C), Wind Dir (deg), Wind Spd (kt)
+    for line in lines:
+        parts = line.split()
+        if len(parts) < 7:
+            continue
+        try:
+            ltype = int(parts[0])
+            if ltype not in (4, 5, 6):
+                continue
+                
+            p_raw = int(parts[1])
+            z_raw = int(parts[2])
+            t_raw = int(parts[3])
+            td_raw = int(parts[4])
+            wdir_raw = int(parts[5])
+            wspd_raw = int(parts[6])
+            
+            if p_raw == 99999 or z_raw == 99999:
+                continue
+                
+            levels.append({
+                "pres": p_raw / 10.0,
+                "hght": float(z_raw),
+                "tmpc": t_raw / 10.0 if t_raw != 99999 else np.nan,
+                "dwpc": td_raw / 10.0 if td_raw != 99999 else np.nan,
+                "drct": float(wdir_raw) if wdir_raw != 99999 else np.nan,
+                "sknt": float(wspd_raw) if wspd_raw != 99999 else np.nan
+            })
+        except (ValueError, IndexError):
+            continue
+
+    if not levels:
+        return None
+
+    # Standardize: sort descending pressure and deduplicate near-duplicate pressures
+    levels.sort(key=lambda lv: lv["pres"], reverse=True)
+    deduped = []
+    last_p = None
+    for lv in levels:
+        if last_p is not None and abs(last_p - lv["pres"]) < 0.1:
+            continue
+        deduped.append(lv)
+        last_p = lv["pres"]
+    levels = deduped
+
+    pres = np.array([lv["pres"] for lv in levels])
+    hght = np.array([lv["hght"] for lv in levels])
+    tmpc = np.array([lv["tmpc"] for lv in levels])
+    dwpc = np.array([lv["dwpc"] for lv in levels])
+    drct = np.array([lv["drct"] for lv in levels])
+    sknt = np.array([lv["sknt"] for lv in levels])
+
+    # Wind components
+    u = -sknt * np.sin(np.deg2rad(drct))
+    v = -sknt * np.cos(np.deg2rad(drct))
+
+    return {
+        "p": pres * units("hPa"),
+        "z": hght * units("meter"),
+        "T": tmpc * units("degC"),
+        "Td": dwpc * units("degC"),
+        "u": u * units("knot"),
+        "v": v * units("knot"),
+        "site_info": {
+            "site-id": station_id,
+            "site-name": station_name,
+            "site-lctn": "United States",
+            "site-latlon": [lat, lon],
+            "site-elv": str(int(elev)) if elev else "0",
+            "source": "RAOB OBSERVED (GSL)",
+            "model": "no-model",
+            "fcst-hour": "no-fcst-hour",
+            "run-time": run_time,
+            "valid-time": run_time,
+        },
+        "titles": {
+            "top_title": "RAOB OBSERVED VERTICAL PROFILE",
+            "left_title": f"VALID: {run_time[1]}-{run_time[2]}-{run_time[0]} {run_time[3]}Z",
+            "right_title": f"{station_id} - {station_name} | {lat:.2f}, {lon:.2f}",
+        },
+    }
+
+
+async def fetch_gsl_sounding(station_id: str, year: str, month: str,
+                              day: str, hour: str,
+                              station_name: str = "",
+                              lat: float = 0, lon: float = 0,
+                              elev: float = 0) -> Optional[dict]:
+    """
+    Fetch a sounding from NOAA/GSL and convert to SounderPy clean_data format.
+    Uses the rucsoundings.noaa.gov ASCII 'FSL' format.
+    """
+    month_map = {
+        "01": "JAN", "02": "FEB", "03": "MAR", "04": "APR",
+        "05": "MAY", "06": "JUN", "07": "JUL", "08": "AUG",
+        "09": "SEP", "10": "OCT", "11": "NOV", "12": "DEC"
+    }
+    month_name = month_map.get(month, "JAN")
+    
+    url = (
+        "https://rucsoundings.noaa.gov/get_raobs.cgi?"
+        f"data_source=RAOB&latest=latest&start_year={year}&"
+        f"start_month_name={month_name}&start_mday={day}&"
+        f"start_hour={hour}&start_min=0&n_hrs=1.0&fcst_len=0&"
+        f"select_mdstns={station_id}&fsl_data_last=yes"
+    )
+    
+    try:
+        from utils.http import http_get_text
+        text = await http_get_text(url, retries=1, timeout=15)
+        if not text or "No data available" in text:
+            return None
+            
+        clean = _fsl_to_clean_data(
+            text, station_id, station_name or station_id,
+            lat, lon, elev, [year, month, day, f"{hour}:00"]
+        )
+        if clean:
+            logger.debug(f"[GSL] Got sounding for {station_id} at {year}-{month}-{day} {hour}z")
+        return clean
+    except Exception as e:
+        logger.debug(f"[GSL] Failed for {station_id} at {hour}z: {e}")
+        return None
+
+
 async def fetch_acars_sounding(
     profile_id: str,
     year: str, month: str, day: str, hour: str,
