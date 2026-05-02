@@ -1430,6 +1430,33 @@ class WarningsCog(commands.Cog):
                 # Still active, ensures it stays in the active set
                 if issuance_id not in self.bot.state.active_warnings:
                     self.bot.state.active_warnings[issuance_id] = vtec_dict
+                
+                # Check for area change (partial cancellation) on CON products
+                if vtec_dict["action"] == "CON":
+                    stored_info = self.bot.state.posted_warnings[issuance_id]
+                    prev_area = stored_info.get("area", "")
+                    curr_area = props.areaDesc or ""
+                    
+                    if prev_area and curr_area and prev_area != curr_area:
+                        # Area changed - likely a partial cancellation
+                        if issuance_id not in self._in_flight_vtecs:
+                            self._in_flight_vtecs.add(issuance_id)
+                            try:
+                                try:
+                                    await self._post_warning(feature, channel, vtec_dict, event, is_update=True)
+                                except discord.HTTPException as e:
+                                    logger.exception(f"[WARN] Update send failed for {issuance_id}: {e}")
+                                
+                                # Update stored area so we don't spam updates for every poll
+                                self.bot.state.posted_warnings[issuance_id]["area"] = curr_area
+                                await add_posted_warning(
+                                    issuance_id, 
+                                    stored_info["message_id"], 
+                                    stored_info["channel_id"], 
+                                    area=curr_area
+                                )
+                            finally:
+                                self._in_flight_vtecs.discard(issuance_id)
                 continue
 
             # 2. If NOT in posted_warnings, we should post it!
