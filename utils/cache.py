@@ -339,8 +339,8 @@ async def save_downloaded_images(
             cache_path = get_cache_path_for_url(url)
             try:
                 await _write_file(cache_path, content)
+                # Success - mark for hash update
                 if h:
-                    cache[url] = h
                     batch_updates[url] = h
                 files.append(cache_path)
                 logger.debug(f"Saved cached file for {url} -> {cache_path}")
@@ -348,6 +348,10 @@ async def save_downloaded_images(
                 logger.warning(f"Error writing {cache_path}: {e}")
 
     if batch_updates:
+        # Update in-memory cache first so subsequent checks in this loop see it
+        for url, h in batch_updates.items():
+            cache[url] = h
+            
         cache_type = "manual" if "manual" in cache_file_path else "auto"
         # Standardized await for DB integrity
         await set_hashes_batch(batch_updates, cache_type)

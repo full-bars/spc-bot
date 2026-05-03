@@ -24,109 +24,118 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
     Detects partial updates and waits up to 20 minutes for all images before
     posting whatever is available.
     """
-    urls = await get_spc_urls(day)
     day_key = f"day{day}"
-
-    fallback_urls = SPC_URLS_FALLBACK.get(day, [])
-    if urls == fallback_urls and state.last_posted_urls.get(day_key) == urls:
-        logger.info(f"[Day {day}] Fallback URLs unchanged from last post — skipping")
+    
+    # Locking: prevent concurrent checks for the same day (auto_post vs aggressive_check)
+    if day_key in state.hashes._in_flight:
         return
+    
+    state.hashes._in_flight.add(day_key)
+    try:
+        urls = await get_spc_urls(day)
 
-    updated_count, total_count, downloaded_data = (
-        await check_partial_updates_parallel(urls, state.auto_cache)
-    )
+        fallback_urls = SPC_URLS_FALLBACK.get(day, [])
+        if urls == fallback_urls and state.last_posted_urls.get(day_key) == urls:
+            logger.info(f"[Day {day}] Fallback URLs unchanged from last post — skipping")
+            return
 
-    if updated_count == 0:
-        if day_key in state.partial_update_state:
-            elapsed = (
-                datetime.now(timezone.utc) - state.partial_update_state[day_key]["start_time"]
-            ).total_seconds() / 60
-            if elapsed > 20:
-                logger.warning(
-                    f"[Day {day}] Timeout after {elapsed:.1f} min with no further "
-                    f"updates — clearing partial state without posting"
-                )
-                state.partial_update_state.pop(day_key, None)
-            else:
-                logger.debug(
-                    f"[Day {day}] No new updates this cycle, still waiting "
-                    f"({elapsed:.1f} min elapsed)"
-                )
-        return
+        updated_count, total_count, downloaded_data = (
+            await check_partial_updates_parallel(urls, state.auto_cache)
+        )
 
-    # Check if we have everything (either now or combined with partial state)
-    if day_key in state.partial_update_state:
-        stored = state.partial_update_state[day_key]["downloaded_data"]
-        stored.update({k: v for k, v in downloaded_data.items() if v is not None})
-        downloaded_data = stored
-        updated_count = len([v for v in downloaded_data.values() if v is not None])
-
-    if updated_count < total_count:
-        if day == 1 and updated_count > 0:
-            elapsed = (
-                datetime.now(timezone.utc) - state.partial_update_state[day_key]["start_time"]
-            ).total_seconds() / 60
-            if elapsed > 5: # If 5 mins have passed, post what we have
-                logger.info(f"[Day 1] Posting partial update after {elapsed:.1f} min.")
-                state.partial_update_state.pop(day_key, None)
-                # Proceed to post...
-            else:
-                logger.info(f"[Day 1] Waiting for more images ({updated_count}/{total_count}, {elapsed:.1f} min elapsed)")
-                return
-        else:
-            if day_key not in state.partial_update_state:
-                state.partial_update_state[day_key] = {
-                    "start_time": datetime.now(timezone.utc),
-                    "downloaded_data": downloaded_data,
-                }
-                logger.info(
-                    f"[Day {day}] Partial update ({updated_count}/{total_count}). "
-                    f"Entering aggressive check mode."
-                )
-            else:
+        if updated_count == 0:
+            if day_key in state.partial_update_state:
                 elapsed = (
                     datetime.now(timezone.utc) - state.partial_update_state[day_key]["start_time"]
                 ).total_seconds() / 60
-
                 if elapsed > 20:
                     logger.warning(
-                        f"[Day {day}] Timeout after {elapsed:.1f} min. "
-                        f"Posting {updated_count}/{total_count} images."
+                        f"[Day {day}] Timeout after {elapsed:.1f} min with no further "
+                        f"updates — clearing partial state without posting"
                     )
+                    state.partial_update_state.pop(day_key, None)
+                else:
+                    logger.debug(
+                        f"[Day {day}] No new updates this cycle, still waiting "
+                        f"({elapsed:.1f} min elapsed)"
+                    )
+            return
+
+        # Check if we have everything (either now or combined with partial state)
+        if day_key in state.partial_update_state:
+            stored = state.partial_update_state[day_key]["downloaded_data"]
+            stored.update({k: v for k, v in downloaded_data.items() if v is not None})
+            downloaded_data = stored
+            updated_count = len([v for v in downloaded_data.values() if v is not None])
+
+        if updated_count < total_count:
+            if day == 1 and updated_count > 0:
+                elapsed = (
+                    datetime.now(timezone.utc) - state.partial_update_state[day_key]["start_time"]
+                ).total_seconds() / 60
+                if elapsed > 5: # If 5 mins have passed, post what we have
+                    logger.info(f"[Day 1] Posting partial update after {elapsed:.1f} min.")
                     state.partial_update_state.pop(day_key, None)
                     # Proceed to post...
                 else:
-                    logger.info(
-                        f"[Day {day}] Waiting: {updated_count}/{total_count} ready "
-                        f"({elapsed:.1f} min elapsed)"
-                    )
+                    logger.info(f"[Day 1] Waiting for more images ({updated_count}/{total_count}, {elapsed:.1f} min elapsed)")
                     return
-    else:
-        # All images updated
-        if day_key in state.partial_update_state:
-            elapsed = (
-                datetime.now(timezone.utc) - state.partial_update_state[day_key]["start_time"]
-            ).total_seconds() / 60
-            logger.info(
-                f"[Day {day}] All images ready after {elapsed:.1f} min. Posting."
-            )
-            state.partial_update_state.pop(day_key, None)
+            else:
+                if day_key not in state.partial_update_state:
+                    state.partial_update_state[day_key] = {
+                        "start_time": datetime.now(timezone.utc),
+                        "downloaded_data": downloaded_data,
+                    }
+                    logger.info(
+                        f"[Day {day}] Partial update ({updated_count}/{total_count}). "
+                        f"Entering aggressive check mode."
+                    )
+                else:
+                    elapsed = (
+                        datetime.now(timezone.utc) - state.partial_update_state[day_key]["start_time"]
+                    ).total_seconds() / 60
 
-    files = await save_downloaded_images(
-        urls, downloaded_data, AUTO_CACHE_FILE, state.auto_cache
-    )
-    if files:
-        try:
-            await channel.send(
-                f"**Latest SPC Day {day} Outlooks**",
-                files=[discord.File(fp) for fp in files],
-            )
-            state.last_post_times[day_key] = datetime.now(timezone.utc)
-            state.last_posted_urls[day_key] = urls
-            await set_posted_urls(day_key, urls)
-            logger.info(f"[Day {day}] Posted {len(files)} images. URLs: {urls}")
-        except Exception as e:
-            logger.exception(f"Failed to send post for Day {day}: {e}")
+                    if elapsed > 20:
+                        logger.warning(
+                            f"[Day {day}] Timeout after {elapsed:.1f} min. "
+                            f"Posting {updated_count}/{total_count} images."
+                        )
+                        state.partial_update_state.pop(day_key, None)
+                        # Proceed to post...
+                    else:
+                        logger.info(
+                            f"[Day {day}] Waiting: {updated_count}/{total_count} ready "
+                            f"({elapsed:.1f} min elapsed)"
+                        )
+                        return
+        else:
+            # All images updated
+            if day_key in state.partial_update_state:
+                elapsed = (
+                    datetime.now(timezone.utc) - state.partial_update_state[day_key]["start_time"]
+                ).total_seconds() / 60
+                logger.info(
+                    f"[Day {day}] All images ready after {elapsed:.1f} min. Posting."
+                )
+                state.partial_update_state.pop(day_key, None)
+
+        files = await save_downloaded_images(
+            urls, downloaded_data, AUTO_CACHE_FILE, state.auto_cache
+        )
+        if files:
+            try:
+                await channel.send(
+                    f"**Latest SPC Day {day} Outlooks**",
+                    files=[discord.File(fp) for fp in files],
+                )
+                state.last_post_times[day_key] = datetime.now(timezone.utc)
+                state.last_posted_urls[day_key] = urls
+                await set_posted_urls(day_key, urls)
+                logger.info(f"[Day {day}] Posted {len(files)} images. URLs: {urls}")
+            except Exception as e:
+                logger.exception(f"Failed to send post for Day {day}: {e}")
+    finally:
+        state.hashes._in_flight.discard(day_key)
 
 
 class OutlooksCog(commands.Cog):

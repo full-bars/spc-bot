@@ -48,12 +48,13 @@ class RecentLogHandler(logging.Handler):
 class HashStore:
     """Image-hash caches and partial-update state."""
 
-    __slots__ = ("auto_cache", "manual_cache", "partial_update_state")
+    __slots__ = ("auto_cache", "manual_cache", "partial_update_state", "_in_flight")
 
     def __init__(self):
         self.auto_cache: Dict[str, str] = {}
         self.manual_cache: Dict[str, str] = {}
         self.partial_update_state: Dict[str, Dict] = {}
+        self._in_flight: Set[str] = set()
 
 
 class PostingLog:
