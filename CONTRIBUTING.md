@@ -66,9 +66,11 @@ or inline where invoked, not into the configured channels.
 ### Status & Admin
 | Command | Description |
 |---|---|
-| `/status` | Show bot health: node role (Primary/Standby), task states, last auto-post times, partial update state, tracked MD/watch counts. Ephemeral. |
+| `/status` | Real-time health dashboard: node role, network latency (ms), alert delay, and task states. Features 5-second auto-refresh. |
+| `/taskmgr` | (Owner-only) htop-style background loop monitor showing health and iteration timers. |
+| `/logs` | (Owner-only) Virtual terminal console viewer with ANSI support and auto-refresh. |
 | `/help` | Show all available weather and bot commands. |
-| `/failover` | (Admin only) Manually designate the Primary node. Requires `ADMIN_USER_ID` to be set in `.env`. |
+| `/failover` | (Owner-only) Manually trigger a node role swap. |
 
 ---
 
@@ -126,16 +128,15 @@ scraping the SPC watch index HTML directly.
 
 ### NWS Warnings (TOR / SVR / FFW / SPS)
 
-`WarningsCog` runs two parallel paths:
+`WarningsCog` runs three parallel paths:
 
-**iembot fast-trigger** — the `IEMBotCog` WebSocket feed fires within seconds of issuance. A new `WEA` (warning) product in the feed causes an immediate embed post to `WARNINGS_CHANNEL_ID` before the NWS API has the product indexed.
+**NWWS-OI (XMPP) Trigger** — the highest-authority path. Raw text products are pushed directly from the NWS satellite feed. This path provides near-zero latency, often beating the NWS API and IEM by 10–60 seconds.
 
-**`auto_poll_warnings` (every 2 minutes)** — calls the NWS Alerts API (`/alerts/active?event=...`) for Tornado Warnings, Severe Thunderstorm Warnings, Flash Flood Warnings, and Special Weather Statements. Each new VTEC ID is posted as a rich embed containing:
-- Nearest-NEXRAD radar GIF (IEM Autoplot)
-- IEM Autoplot polygon map (208 for TOR/SVR/FFW, 217 for SPS)
-- Affected counties / zones
-- Wind, hail, and tornado tags where applicable
-- PDS and Tornado Emergency labels when present
+**iembot fast-trigger** — secondary push path via the IEM WebSocket feed.
+
+**`auto_poll_warnings` (every 30 seconds)** — tertiary polling path using the NWS Alerts API.
+
+**Narrative Extraction** — the bot extracts the substantive "At..." narrative or impact statement from the raw text. For **Special Weather Statements (SPS)**, a refined fallback ensures impact text is captured even without standard bullet points. High-signal weather keywords (e.g., `TORNADO`, `HAIL`, `WIND`) are automatically bolded for clarity.
 
 **Lifecycle tracking** — when a warning expires, is cancelled, or receives a statement of no activity, the cog edits the original Discord embed in place. Mid-warning updates (`CON`, `EXT`, `EXA`) and statements (`SVS`, `FFS`) are posted as fresh, concise embeds with automated county-level diffing ('cancels X, continues Y').
 
@@ -253,13 +254,24 @@ python -m pytest tests/ \
     --cov-report=term-missing
 ```
 
-The suite currently collects **363 tests**.
+The suite currently collects **366 tests**.
 
 Lint (same selection CI uses):
 
 ```bash
 ruff check --select=E9,F63,F7,F82,F401 --exclude=venv,lib,cache .
 ```
+
+---
+
+## Roadmap: Performance & Scalability (v5.13+)
+
+- **Sounding Plot Worker Pool Expansion**: Targeting the primary bottleneck in sounding generation.
+- **Hybrid Core (Rust Integration)**:
+    - **PyO3 Extensions**: Move CPU-bound image hashing (change detection) to Rust.
+    - **Binary Parsing**: Implement a high-speed Rust `nom` parser for NEXRAD/VWP products.
+    - **Sidecar Service**: Offload heavy I/O (zipping/downloads) to a compiled Rust binary.
+- **Database Connection Pooling**: Improving SQLite/Upstash throughput.
 
 ---
 
@@ -322,7 +334,7 @@ Older versions (≤ v4) shipped state between the two nodes via an HTTP endpoint
 
 ## Events Archive (v5.3.2+)
 
-Significant weather events (confirmed tornadoes, hail ≥ 3 in, wind ≥ 80 mph) are written to a dedicated **`cache/events.db`** SQLite file that is entirely separate from `bot_state.db` and never touches Upstash Redis. This keeps the free-tier budget free for operational state (hashes, watches, MDs) while the event archive grows unboundedly.
+Significant weather events (confirmed tornadoes ONLY) are written to a dedicated **`cache/events.db`** SQLite file that is entirely separate from `bot_state.db` and never touches Upstash Redis. (Hail and wind events are explicitly excluded from this specific archive to maintain focus on the tornado record). This keeps the free-tier budget free for operational state (hashes, watches, MDs) while the event archive grows unboundedly.
 
 ### Path configuration
 
