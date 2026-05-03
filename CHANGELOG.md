@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
-## [5.12.7] — 2026-05-02
+## [5.13.0] — 2026-05-02
 
 ### Added
 - **Live Performance Monitoring.** Overhauled the `/status` command with a clean, interactive embed featuring real-time latency metrics:
