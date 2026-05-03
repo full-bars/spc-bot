@@ -155,6 +155,10 @@ class NWWSClient(ClientXMPP):
             # Use the stable 'issue' timestamp from NWWS metadata so retransmits
             # don't get a new ID based on the current bot clock.
             ts_str = payload['issue'] or time.strftime("%Y%m%d%H%M", time.gmtime())
+            # Normalize ISO8601 format to compact format for dedup consistency
+            if "T" in ts_str and "Z" in ts_str:
+                # Convert "2026-05-03T06:50:00Z" → "202605030650"
+                ts_str = ts_str.replace("-", "").replace("T", "").replace(":", "").split("Z")[0][:12]
             product_id = f"{ts_str}-{office}-{ttaaii}-{afos_pil}"
 
             # Track NWWS wire latency (rough estimate to minute precision)
