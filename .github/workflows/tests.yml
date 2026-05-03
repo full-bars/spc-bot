@@ -64,7 +64,6 @@ jobs:
           cache-from: |
             type=gha
             type=registry,ref=ghcr.io/${{ github.repository }}:buildcache
-          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}:buildcache,mode=max
       - name: Smoke test — image imports main.py
         env:
           DISCORD_TOKEN: ci-smoke-token
