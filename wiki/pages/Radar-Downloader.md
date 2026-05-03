@@ -16,7 +16,7 @@ The `/download` command allows users to retrieve raw radar data for post-event a
 
 ## ☁️ S3 Integration
 
-- **Backend:** Pulls directly from the `noaa-nexrad-level2` bucket on AWS S3.
+- **Backend:** Pulls directly from the `unidata-nexrad-level2` bucket on AWS S3.
 - **Metadata Search:** The bot performs real-time S3 prefix listing to find the exact filenames and timestamps required, ensuring accuracy even across UTC day boundaries.
 - **Efficiency:** Downloads are streamed directly to a temporary buffer and then zipped, minimizing disk I/O.
 
