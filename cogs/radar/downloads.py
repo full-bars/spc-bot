@@ -111,16 +111,16 @@ async def cleanup_old_files(directory, age_threshold):
     path = Path(directory)
     if not path.exists():
         return
-    for item in path.iterdir():
-        if item.is_file():
-            age = now - item.stat().st_mtime
+    for entry in os.scandir(path):
+        if entry.is_file():
+            age = now - entry.stat().st_mtime
             if age > age_threshold:
                 try:
-                    item.unlink()
-                    logger.debug(f"[RADAR] Deleted old file: {item}")
+                    os.unlink(entry.path)
+                    logger.debug(f"[RADAR] Deleted old file: {entry.path}")
                 except Exception as e:
                     logger.exception(
-                        f"[RADAR] Failed to delete old file {item}: {e}"
+                        f"[RADAR] Failed to delete old file {entry.path}: {e}"
                     )
 
 
@@ -132,46 +132,19 @@ async def split_and_zip_files(
     Returns a list of zip paths.
     """
 
-    def _zip():
-        by_site = {site: [] for site in radar_sites}
-        for file_path, file_info in file_paths:
-            site = file_info.get("RadarSite", radar_sites[0])
-            by_site[site].append((file_path, file_info))
-
-        all_zip_paths = []
-        for site, site_files in by_site.items():
-            if not site_files:
-                continue
-            chunk_size = 0
-            current_zip_files = []
-            zip_counter = 1
-            site_zip_paths = []
-            for file_path, file_info in site_files:
-                file_size = os.path.getsize(file_path)
-                if (
-                    chunk_size + file_size > split_size
-                    and current_zip_files
-                ):
-                    zip_path = (
-                        Path(output_dir) / f"{site}_part{zip_counter}.zip"
-                    )
-                    with zipfile.ZipFile(
-                        zip_path, "w", zipfile.ZIP_DEFLATED
-                    ) as zipf:
-                        for fp, fi in current_zip_files:
-                            zipf.write(
-                                fp,
-                                os.path.join(
-                                    site, os.path.basename(fp)
-                                ),
-                            )
-                    site_zip_paths.append(zip_path)
-                    current_zip_files = []
-                    chunk_size = 0
-                    zip_counter += 1
-                current_zip_files.append((file_path, file_info))
-                chunk_size += file_size
-            if current_zip_files:
+    def _zip_site(site, site_files):
+        if not site_files:
+            return []
+        chunk_size = 0
+        current_zip_files = []
+        zip_counter = 1
+        site_zip_paths = []
+        for file_path, file_info in site_files:
+            file_size = os.path.getsize(file_path)
+            if (
+                chunk_size + file_size > split_size
+                and current_zip_files
+            ):
                 zip_path = (
                     Path(output_dir) / f"{site}_part{zip_counter}.zip"
                 )
@@ -181,19 +154,54 @@ async def split_and_zip_files(
                     for fp, fi in current_zip_files:
                         zipf.write(
                             fp,
-                            os.path.join(site, os.path.basename(fp)),
+                            os.path.join(
+                                site, os.path.basename(fp)
+                            ),
                         )
                 site_zip_paths.append(zip_path)
-            if len(site_zip_paths) == 1:
-                clean_path = Path(output_dir) / f"{site}.zip"
-                site_zip_paths[0].rename(clean_path)
-                site_zip_paths[0] = clean_path
-            all_zip_paths.extend(site_zip_paths)
-        return all_zip_paths
+                current_zip_files = []
+                chunk_size = 0
+                zip_counter += 1
+            current_zip_files.append((file_path, file_info))
+            chunk_size += file_size
+        if current_zip_files:
+            zip_path = (
+                Path(output_dir) / f"{site}_part{zip_counter}.zip"
+            )
+            with zipfile.ZipFile(
+                zip_path, "w", zipfile.ZIP_DEFLATED
+            ) as zipf:
+                for fp, fi in current_zip_files:
+                    zipf.write(
+                        fp,
+                        os.path.join(site, os.path.basename(fp)),
+                    )
+            site_zip_paths.append(zip_path)
+        if len(site_zip_paths) == 1:
+            clean_path = Path(output_dir) / f"{site}.zip"
+            site_zip_paths[0].rename(clean_path)
+            site_zip_paths[0] = clean_path
+        return site_zip_paths
 
     try:
+        by_site = {site: [] for site in radar_sites}
+        for file_path, file_info in file_paths:
+            site = file_info.get("RadarSite", radar_sites[0])
+            by_site[site].append((file_path, file_info))
+
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _zip)
+        tasks = [
+            loop.run_in_executor(None, _zip_site, site, site_files)
+            for site, site_files in by_site.items()
+            if site_files
+        ]
+        
+        all_zip_paths = []
+        results = await asyncio.gather(*tasks)
+        for result in results:
+            all_zip_paths.extend(result)
+            
+        return all_zip_paths
     except Exception as e:
         logger.exception(f"[RADAR] ZIP creation failed: {e}")
         raise RuntimeError(f"Failed to create ZIP file: {e}") from e
