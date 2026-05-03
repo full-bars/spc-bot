@@ -178,6 +178,313 @@ class MDPaginatorView(discord.ui.View):
                 pass
 
 
+async def is_owner(interaction: discord.Interaction) -> bool:
+    """Check if the user is the bot owner."""
+    if interaction.user.id == interaction.client.owner_id:
+        return True
+    if not interaction.client.application:
+        await interaction.client.application_info()
+    
+    owner = interaction.client.application.owner
+    if isinstance(owner, discord.Team):
+        return any(m.id == interaction.user.id for m in owner.members)
+    return owner.id == interaction.user.id
+
+
+class StatusView(discord.ui.View):
+    def __init__(self, bot, interaction):
+        super().__init__(timeout=300)
+        self.bot = bot
+        self.interaction = interaction
+        self.detailed = False
+
+    async def build_embeds(self):
+        now = datetime.now(timezone.utc)
+        hostname = socket.gethostname()
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            host_ip = s.getsockname()[0]
+            s.close()
+        except Exception:
+            host_ip = "unknown"
+
+        role = "PRIMARY" if self.bot.state.is_primary else "STANDBY"
+        color = discord.Color.green() if self.bot.state.is_primary else discord.Color.gold()
+
+        embed = discord.Embed(
+            title="🛰️ SPCBot System Status",
+            description=f"Operational Overview | **{role}** node",
+            color=color,
+            timestamp=now
+        )
+
+        # System Info
+        uptime_str = format_timedelta(now - self.bot.state.bot_start_time) if self.bot.state.bot_start_time else "unknown"
+        rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        system_val = (
+            f"**Host:** `{hostname}` (`{host_ip}`)\n"
+            f"**Uptime:** `{uptime_str}`\n"
+            f"**Memory:** `{rss_kb / 1024:.1f} MB`"
+        )
+        embed.add_field(name="🖥️ System", value=system_val, inline=True)
+
+        # Connectivity
+        nwws_status = "🔴 DISCONNECTED"
+        nwws_cog = self.bot.get_cog("NWWSCog")
+        if nwws_cog and nwws_cog.xmpp_client:
+            nwws_status = "🟢 CONNECTED" if nwws_cog.xmpp_client.is_connected else "🟡 CONNECTING..."
+        elif nwws_cog:
+            nwws_status = "🟡 CONNECTING..." if self.bot.state.is_primary else "⚪ STANDBY"
+
+        iembot_status = "🔴 STOPPED"
+        iembot_cog = self.bot.get_cog("IEMBotCog")
+        if iembot_cog and iembot_cog.poll_iembot_feed.is_running():
+            iembot_status = "🟢 POLLING"
+        elif iembot_cog:
+            iembot_status = "⚪ STANDBY" if not self.bot.state.is_primary else "🔴 STOPPED"
+
+        session_ok = _http.http_session is not None and not _http.http_session.closed
+        conn_val = (
+            f"**NWWS-OI:** {nwws_status}\n"
+            f"**IEMBot:** {iembot_status}\n"
+            f"**HTTP:** {'🟢 OK' if session_ok else '🔴 CLOSED'}"
+        )
+        embed.add_field(name="📡 Connectivity", value=conn_val, inline=True)
+
+        # Environment
+        risk_label = get_current_risk_display()
+        active_high_risk = peek_active_labels()
+        env_val = (
+            f"**SPC Day 1:** `{risk_label}`\n"
+        )
+        if active_high_risk:
+            env_val += "*(Sounding Sweep Armed)*\n"
+        env_val += (
+            f"**Active MDs:** `{len(self.bot.state.active_mds)}`\n"
+            f"**Active Watches:** `{len(self.bot.state.active_watches)}`"
+        )
+        embed.add_field(name="🌩️ Environment", value=env_val, inline=True)
+
+        # Circuits
+        open_circuits = [h for h in _http.circuit_breaker.failures if _http.circuit_breaker.is_open(h)]
+        if open_circuits:
+            embed.add_field(name="🔌 Open Circuits", value=", ".join(f"`{h}`" for h in open_circuits), inline=False)
+            embed.color = discord.Color.red()
+
+        # Recent activity (condensed)
+        recent_lines = []
+        sorted_posts = sorted(
+            [(k, v) for k, v in self.bot.state.last_post_times.items() if v],
+            key=lambda x: x[1],
+            reverse=True
+        )[:5]
+
+        for key, dt in sorted_posts:
+            ago = now - dt
+            recent_lines.append(f"**{key}:** {format_timedelta(ago)} ago")
+
+        if recent_lines:
+            embed.add_field(name="🔄 Recent Activity", value="\n".join(recent_lines), inline=False)
+
+        embed.set_footer(text=f"WXModelBot v{__version__}")
+        
+        embeds = [embed]
+
+        if self.detailed:
+            task_embed = discord.Embed(title="📋 Bot Task Details", color=color)
+            task_labels = {
+                "auto_post_spc":        "NOAA-SPC outlooks",
+                "aggressive_check_spc": "NOAA-SPC aggressive check",
+                "auto_post_spc48":      "NOAA-SPC Day 4-8",
+                "auto_post_md":         "NOAA-SPC mesoscale discussions",
+                "auto_post_watches":    "NOAA-SPC watches",
+                "auto_post_scp":        "NIU/Gensini SCP graphics",
+                "csu_mlp_daily_poll":   "CSU-MLP forecasts",
+                "wxnext_daily_poll":    "NCAR WxNext2",
+                "periodic_cleanup":     "periodic cache cleanup",
+                "poll_iembot_feed":     "IEMBot real-time feed",
+                "sync_loop":            "Failover standby sync",
+                "auto_sounding_watches": "Sounding monitor",
+                "monitor_special_soundings": "Special-release sounding monitor",
+                "monitor_high_risk_soundings": "High-risk sounding sweep",
+            }
+            task_lines = []
+            for cog_name, cog in self.bot.cogs.items():
+                for task_name in dir(cog):
+                    task = getattr(cog, task_name, None)
+                    if isinstance(task, tasks.Loop):
+                        status = "🟢" if task.is_running() else "🔴"
+                        label = task_labels.get(task_name, task_name)
+                        task_lines.append(f"{status} `{label}`")
+            
+            if task_lines:
+                task_embed.description = "\n".join(task_lines)
+            embeds.append(task_embed)
+
+        return embeds
+
+    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.primary, emoji="🔄")
+    async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embeds = await self.build_embeds()
+        await interaction.response.edit_message(embeds=embeds, view=self)
+
+    @discord.ui.button(label="Show Task Details", style=discord.ButtonStyle.secondary, emoji="📋")
+    async def toggle_details_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.detailed = not self.detailed
+        button.label = "Hide Task Details" if self.detailed else "Show Task Details"
+        embeds = await self.build_embeds()
+        await interaction.response.edit_message(embeds=embeds, view=self)
+
+
+class TaskMgrView(discord.ui.View):
+    def __init__(self, bot, interaction):
+        super().__init__(timeout=600)
+        self.bot = bot
+        self.interaction = interaction
+        self.message = None
+        self.should_update = True
+
+    async def build_embed(self):
+        now = datetime.now(timezone.utc)
+        color = discord.Color.blue()
+        embed = discord.Embed(
+            title="🖥️ SPCBot Task Manager",
+            description="Real-time background task monitoring",
+            color=color,
+            timestamp=now
+        )
+
+        task_labels = {
+            "auto_post_spc":        "NOAA-SPC outlooks",
+            "aggressive_check_spc": "NOAA-SPC aggressive check",
+            "auto_post_spc48":      "NOAA-SPC Day 4-8",
+            "auto_post_md":         "NOAA-SPC mesoscale discussions",
+            "auto_post_watches":    "NOAA-SPC watches",
+            "auto_post_scp":        "NIU/Gensini SCP graphics",
+            "csu_mlp_daily_poll":   "CSU-MLP forecasts",
+            "wxnext_daily_poll":    "NCAR WxNext2",
+            "periodic_cleanup":     "periodic cache cleanup",
+            "poll_iembot_feed":     "IEMBot real-time feed",
+            "sync_loop":            "Failover standby sync",
+            "auto_sounding_watches": "Sounding monitor",
+            "monitor_special_soundings": "Special-release sounding monitor",
+            "monitor_high_risk_soundings": "High-risk sounding sweep",
+        }
+
+        task_lines = []
+        for cog_name, cog in self.bot.cogs.items():
+            for task_name in dir(cog):
+                task = getattr(cog, task_name, None)
+                if isinstance(task, tasks.Loop):
+                    status = "🟢" if task.is_running() else "🔴"
+                    label = task_labels.get(task_name, task_name)
+                    # Show next iteration time if running
+                    next_iter = ""
+                    if task.is_running() and task.next_iteration:
+                        diff = task.next_iteration - now
+                        next_iter = f" (next in {format_timedelta(diff)})"
+                    
+                    task_lines.append(f"{status} `{label:<28}`{next_iter}")
+
+        if task_lines:
+            embed.description = f"```\n" + "\n".join(task_lines) + "\n```"
+
+        rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        embed.set_footer(text=f"Memory: {rss_kb / 1024:.1f} MB | Auto-refreshing every 30s")
+        return embed
+
+    async def start_auto_update(self):
+        while self.should_update:
+            await asyncio.sleep(30)
+            if not self.should_update:
+                break
+            try:
+                embed = await self.build_embed()
+                await self.message.edit(embed=embed, view=self)
+            except Exception:
+                self.should_update = False
+                break
+
+    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.primary, emoji="🔄")
+    async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = await self.build_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="Stop Refresh", style=discord.ButtonStyle.danger, emoji="🛑")
+    async def stop_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.should_update = False
+        for item in self.children:
+            item.disabled = True
+        await interaction.response.edit_message(view=self)
+        self.stop()
+
+    async def on_timeout(self):
+        self.should_update = False
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
+
+class LogView(discord.ui.View):
+    def __init__(self, bot, interaction):
+        super().__init__(timeout=300)
+        self.bot = bot
+        self.interaction = interaction
+        self.message = None
+        self.should_update = True
+
+    def build_content(self):
+        logs = []
+        if hasattr(self.bot, "log_handler"):
+            logs = self.bot.log_handler.get_logs()
+        
+        if not logs:
+            logs = ["No logs captured yet..."]
+        
+        content = "🛰️ **SPCBot Live Console Output**\n"
+        content += f"```ansi\n"
+        # Discord supports ANSI color codes in ```ansi blocks
+        # We'll just provide the raw text for now, but in the future we could colorize
+        content += "\n".join(logs)
+        content += "\n```\n*Refreshing every 5 seconds...*"
+        return content
+
+    async def start_auto_update(self):
+        while self.should_update:
+            await asyncio.sleep(5)
+            if not self.should_update:
+                break
+            try:
+                content = self.build_content()
+                await self.message.edit(content=content, view=self)
+            except Exception:
+                self.should_update = False
+                break
+
+    @discord.ui.button(label="Stop Stream", style=discord.ButtonStyle.danger, emoji="🛑")
+    async def stop_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.should_update = False
+        for item in self.children:
+            item.disabled = True
+        await interaction.response.edit_message(view=self)
+        self.stop()
+
+    async def on_timeout(self):
+        self.should_update = False
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
+
 class StatusCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -299,7 +606,9 @@ class StatusCog(commands.Cog):
                 "`/scp` - NIU Supercell Composite\n"
                 "`/wpc` - WPC Flash Flood Outlooks\n"
                 "`/download` <site> - Raw Level 2 Radar data\n"
-                "`/status` - Bot health & circuit status"
+                "`/status` - Bot health & circuit status\n"
+                "`/taskmgr` - Live task manager\n"
+                "`/logs` - Live log stream"
             ),
             inline=False,
         )
@@ -473,70 +782,6 @@ class StatusCog(commands.Cog):
     )
     async def status_slash(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-
-        now = datetime.now(timezone.utc)
-        hostname = socket.gethostname()
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            host_ip = s.getsockname()[0]
-            s.close()
-        except Exception:
-            host_ip = "unknown"
-        lines = [
-            "```",
-            "═══ SPC/SPC Bot Status ═══",
-            f"Version        : v{__version__}",
-            f"Host           : {hostname} ({host_ip})",
-            f"Node Role      : {'PRIMARY' if self.bot.state.is_primary else 'STANDBY'}",
-            "",
-        ]
-
-        if self.bot.state.bot_start_time:
-            uptime = now - self.bot.state.bot_start_time
-            lines.append(f"Uptime         : {format_timedelta(uptime)}")
-        else:
-            lines.append("Uptime         : unknown")
-
-        rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-        lines.append(f"RSS Memory     : {rss_kb / 1024:.1f} MB")
-
-        session_ok = (
-            _http.http_session is not None
-            and not _http.http_session.closed
-        )
-        lines.append(
-            f"HTTP Session   : {'OK' if session_ok else 'CLOSED/MISSING'}"
-        )
-
-        # --- Connectivity Section ---
-        nwws_status = "DISABLED"
-        nwws_cog = self.bot.get_cog("NWWSCog")
-        if nwws_cog and nwws_cog.xmpp_client:
-            nwws_status = "CONNECTED" if nwws_cog.xmpp_client.is_connected else "CONNECTING..."
-        elif nwws_cog:
-            nwws_status = "CONNECTING..." if self.bot.state.is_primary else "STANDBY"
-        
-        # IEMBot status from its task loop
-        iembot_status = "STOPPED"
-        iembot_cog = self.bot.get_cog("IEMBotCog")
-        if iembot_cog and iembot_cog.poll_iembot_feed.is_running():
-            iembot_status = "POLLING"
-        elif iembot_cog:
-            iembot_status = "STANDBY" if not self.bot.state.is_primary else "STOPPED"
-
-        lines.append(f"NWWS-OI (XMPP) : {nwws_status}")
-        lines.append(f"IEMBot Feed    : {iembot_status}")
-
-        open_circuits = [
-            h for h in _http.circuit_breaker.failures 
-            if _http.circuit_breaker.is_open(h)
-        ]
-        if open_circuits:
-            lines.append(f"Open Circuits  : {', '.join(open_circuits)}")
-        else:
-            lines.append("Open Circuits  : NONE")
-
         # Proactively refresh — the 30-min TTL inside get_high_risk_polygon
         # makes this a no-op most of the time, but it guarantees /status is
         # accurate immediately after a restart.
@@ -544,99 +789,54 @@ class StatusCog(commands.Cog):
             await get_high_risk_polygon()
         except Exception as e:
             logger.debug(f"[STATUS] Outlook peek failed: {e}")
-            
-        risk_label = get_current_risk_display()
-        active_high_risk = peek_active_labels()
-        
-        status_line = f"SPC Day 1 Risk : {risk_label}"
-        if active_high_risk:
-             status_line += " — high-risk sounding sweep armed"
-        lines.append(status_line)
-        lines.append("")
 
-        lines.append("── Tasks ──────────────────────────────")
-        task_labels = {
-            "auto_post_spc":        "NOAA-SPC outlooks",
-            "aggressive_check_spc": "NOAA-SPC aggressive check",
-            "auto_post_spc48":      "NOAA-SPC Day 4-8",
-            "auto_post_md":         "NOAA-SPC mesoscale discussions",
-            "auto_post_watches":    "NOAA-SPC watches",
-            "auto_post_scp":        "NIU/Gensini SCP graphics",
-            "csu_mlp_daily_poll":   "CSU-MLP forecasts",
-            "wxnext_daily_poll":    "NCAR WxNext2",
-            "periodic_cleanup":     "periodic cache cleanup",
-            "poll_iembot_feed":     "IEMBot real-time feed",
-            "sync_loop":            "Failover standby sync",
-            "auto_sounding_watches": "Sounding monitor",
-            "monitor_special_soundings": "Special-release sounding monitor",
-            "monitor_high_risk_soundings": "High-risk sounding sweep",
-        }
-        for cog_name, cog in self.bot.cogs.items():
-            for task_name in dir(cog):
-                task = getattr(cog, task_name, None)
-                if isinstance(task, tasks.Loop):
-                    status = "running" if task.is_running() else "STOPPED"
-                    label = task_labels.get(task_name, task_name)
-                    lines.append(f"  {label:<35} {status}")
-        lines.append("")
+        view = StatusView(self.bot, interaction)
+        embeds = await view.build_embeds()
+        await interaction.followup.send(embeds=embeds, view=view, ephemeral=True)
 
-        lines.append("── Last Auto-Posts ─────────────────────")
-        for key, dt in self.bot.state.last_post_times.items():
-            if dt:
-                ago = now - dt
-                lines.append(
-                    f"  {key:<10} {format_timedelta(ago)} ago  "
-                    f"({dt.strftime('%m/%d %H:%MZ')})"
+    @discord.app_commands.command(
+        name="taskmgr",
+        description="Live-updating background task manager (htop style)",
+    )
+    @discord.app_commands.check(is_owner)
+    async def taskmgr_slash(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        view = TaskMgrView(self.bot, interaction)
+        embed = await view.build_embed( )
+        msg = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        view.message = msg
+        asyncio.create_task(view.start_auto_update())
+
+    @discord.app_commands.command(
+        name="logs",
+        description="Live-streaming bot console output (virtual terminal)",
+    )
+    @discord.app_commands.check(is_owner)
+    async def logs_slash(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        view = LogView(self.bot, interaction)
+        content = view.build_content()
+        msg = await interaction.followup.send(content=content, view=view, ephemeral=True)
+        view.message = msg
+        asyncio.create_task(view.start_auto_update())
+
+    # ── Error Handling ───────────────────────────────────────────────────
+
+    async def cog_app_command_error(
+        self, interaction: discord.Interaction, error: discord.app_commands.AppCommandError
+    ):
+        if isinstance(error, discord.app_commands.CheckFailure):
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "❌ You are not authorized to use this command.", ephemeral=True
                 )
             else:
-                lines.append(f"  {key:<10} never this session")
-        lines.append("")
-
-        if self.bot.state.partial_update_state:
-            lines.append("── Partial Update State ────────────────")
-            for day_key, state in self.bot.state.partial_update_state.items():
-                elapsed = (
-                    datetime.now() - state["start_time"]
-                ).total_seconds() / 60
-                lines.append(
-                    f"  {day_key}: {elapsed:.1f} min elapsed, "
-                    f"{len(state['downloaded_data'])} imgs cached"
+                await interaction.followup.send(
+                    "❌ You are not authorized to use this command.", ephemeral=True
                 )
-            lines.append("")
-
-        lines.append(f"MDs tracked    : {len(self.bot.state.active_mds)}")
-        lines.append(f"Watches tracked: {len(self.bot.state.active_watches)}")
-        lines.append("```")
-
-        # Join lines and split into 2000-char chunks for Discord safety
-        full_content = "\n".join(lines)
-        if len(full_content) <= 2000:
-            await interaction.followup.send(full_content, ephemeral=True)
         else:
-            # Split by lines to avoid breaking code blocks or words mid-way
-            current_chunk = []
-            current_length = 0
-            for line in lines:
-                # 1 for the newline
-                if current_length + len(line) + 1 > 1990: # Leave some buffer
-                    if current_chunk:
-                        chunk_str = "\n".join(current_chunk)
-                        if not chunk_str.endswith("```") and "```" in chunk_str:
-                             chunk_str += "\n```"
-                        await interaction.followup.send(chunk_str, ephemeral=True)
-                    
-                    current_chunk = []
-                    if "```" in full_content and not line.startswith("```"):
-                         current_chunk.append("```")
-                         current_length = 3
-                    else:
-                         current_length = 0
-                
-                current_chunk.append(line)
-                current_length += len(line) + 1
-            
-            if current_chunk:
-                await interaction.followup.send("\n".join(current_chunk), ephemeral=True)
+            logger.error(f"[STATUS] Command error: {error}")
+
 
 
 async def setup(bot: commands.Bot):
