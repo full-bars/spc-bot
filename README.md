@@ -1,6 +1,6 @@
 # WxAlert / SPCBot
 
-A Discord bot for severe weather enthusiasts. Auto-posts SPC convective outlooks, mesoscale discussions, and tornado/severe thunderstorm watches in real time. Includes a NEXRAD Level 2 radar downloader pulling from the NOAA AWS S3 archive and a VWP hodograph generator for any NEXRAD or TDWR site.
+A sophisticated severe weather monitoring platform featuring real-time warning lifecycle tracking, automated damage survey mapping, and professional RAOB/ACARS sounding plots. Engineered for near-zero latency, it leverages **NWWS-OI (XMPP)** to deliver NWS products in sub-second timeframes. Built for enthusiasts and researchers with high-availability failover and interactive dashboards.
 
 ## Features
 
