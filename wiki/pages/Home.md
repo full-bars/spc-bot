@@ -2,6 +2,9 @@
 
 **SPCBot** (v5.13.0) is a high-performance, severe weather monitoring Discord bot. Built for enthusiasts and researchers, it delivers near-zero latency alerts, real-time analytics, and automated scientific plots.
 
+> [!WARNING]
+> **Warning and lifecycle tracking features are in Beta.** These features are under active development and should be considered experimental. Always rely on official NWS sources for life-safety decisions.
+
 ## 🚀 Key Features
 
 - **Gold-Standard Alerting:** NWWS-OI (XMPP) integration for sub-second latency on NWS products.
