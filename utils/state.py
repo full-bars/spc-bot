@@ -138,9 +138,9 @@ class BotState:
         self.bot_start_time: Optional[datetime] = None
 
         # Latency tracking (seconds)
-        self.nwws_latency: float = 0.0
-        self.iembot_latency: float = 0.0
-        self.http_latency: float = 0.0
+        self.nwws_latency: Optional[float] = None
+        self.iembot_latency: Optional[float] = None
+        self.http_latency: Optional[float] = None
 
         self.hashes = HashStore()
         self.posting = PostingLog()

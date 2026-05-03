@@ -170,8 +170,8 @@ class IEMBotCog(commands.Cog):
                     from datetime import datetime as dt_class, timezone as tz_class
                     ts_str = product_id.split("-")[0]
                     issue_dt = dt_class.strptime(ts_str, "%Y%m%d%H%M").replace(tzinfo=tz_class.utc)
-                    latency = (dt_class.now(tz_class.utc) - issue_dt).total_seconds()
-                    if self.bot.state.iembot_latency == 0:
+                    latency = max(0.0, (dt_class.now(tz_class.utc) - issue_dt).total_seconds())
+                    if self.bot.state.iembot_latency is None:
                         self.bot.state.iembot_latency = latency
                     else:
                         self.bot.state.iembot_latency = (self.bot.state.iembot_latency * 0.9) + (latency * 0.1)
@@ -341,8 +341,8 @@ class IEMBotCog(commands.Cog):
                     from datetime import datetime as dt_class, timezone as tz_class
                     ts_str = product_id.split("-")[0]
                     issue_dt = dt_class.strptime(ts_str, "%Y%m%d%H%M").replace(tzinfo=tz_class.utc)
-                    latency = (dt_class.now(tz_class.utc) - issue_dt).total_seconds()
-                    if self.bot.state.iembot_latency == 0:
+                    latency = max(0.0, (dt_class.now(tz_class.utc) - issue_dt).total_seconds())
+                    if self.bot.state.iembot_latency is None:
                         self.bot.state.iembot_latency = latency
                     else:
                         self.bot.state.iembot_latency = (self.bot.state.iembot_latency * 0.9) + (latency * 0.1)

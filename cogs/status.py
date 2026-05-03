@@ -260,10 +260,10 @@ class StatusView(discord.ui.View):
 
         latency_val = (
             f"**Discord RTT:** `{discord_rtt:.1f}ms`\n"
-            f"**NWWS Wire:** `{nwws_lat:.1f}s`" if nwws_lat > 0 else f"**NWWS Wire:** `---`"
+            f"**NWWS Wire:** `{nwws_lat:.1f}s`" if nwws_lat is not None else f"**NWWS Wire:** `---`"
         )
-        latency_val += f"\n**IEMBot Wire:** `{iem_lat:.1f}s`" if iem_lat > 0 else f"\n**IEMBot Wire:** `---`"
-        latency_val += f"\n**HTTP Avg:** `{http_lat * 1000:.1f}ms`" if http_lat > 0 else f"\n**HTTP Avg:** `---`"
+        latency_val += f"\n**IEMBot Wire:** `{iem_lat:.1f}s`" if iem_lat is not None else f"\n**IEMBot Wire:** `---`"
+        latency_val += f"\n**HTTP Avg:** `{http_lat * 1000:.1f}ms`" if http_lat is not None else f"\n**HTTP Avg:** `---`"
         
         embed.add_field(name="⏱️ Latency", value=latency_val, inline=True)
 
@@ -277,7 +277,8 @@ class StatusView(discord.ui.View):
             env_val += "*(Sounding Sweep Armed)*\n"
         env_val += (
             f"**Active MDs:** `{len(self.bot.state.active_mds)}`\n"
-            f"**Active Watches:** `{len(self.bot.state.active_watches)}`"
+            f"**Active Watches:** `{len(self.bot.state.active_watches)}`\n"
+            f"**Active Warnings:** `{len(self.bot.state.active_warnings)}`"
         )
         embed.add_field(name="🌩️ Environment", value=env_val, inline=True)
 
