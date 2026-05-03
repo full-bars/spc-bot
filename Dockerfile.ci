@@ -30,7 +30,7 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Pre-install all dependencies (build wheels and install)
-COPY requirements-dev.txt .
+COPY requirements.txt requirements-dev.txt .
 RUN pip install --upgrade pip setuptools wheel && \
     pip install -r requirements-dev.txt
 
