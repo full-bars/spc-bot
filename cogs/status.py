@@ -260,9 +260,9 @@ class StatusView(discord.ui.View):
 
         latency_val = (
             f"**Discord RTT:** `{discord_rtt:.1f}ms`\n"
-            f"**NWWS Wire:** `{nwws_lat:.1f}s`" if nwws_lat is not None else f"**NWWS Wire:** `---`"
+            f"**NWWS Wire:** `{nwws_lat:.1f}s`*" if nwws_lat is not None else f"**NWWS Wire:** `---`"
         )
-        latency_val += f"\n**IEMBot Wire:** `{iem_lat:.1f}s`" if iem_lat is not None else f"\n**IEMBot Wire:** `---`"
+        latency_val += f"\n**IEMBot Wire:** `{iem_lat:.1f}s`*" if iem_lat is not None else f"\n**IEMBot Wire:** `---`"
         latency_val += f"\n**HTTP Avg:** `{http_lat * 1000:.1f}ms`" if http_lat is not None else f"\n**HTTP Avg:** `---`"
         
         embed.add_field(name="⏱️ Latency", value=latency_val, inline=True)
@@ -303,7 +303,7 @@ class StatusView(discord.ui.View):
         if recent_lines:
             embed.add_field(name="🔄 Recent Activity", value="\n".join(recent_lines), inline=False)
 
-        embed.set_footer(text=f"WXModelBot v{__version__}")
+        embed.set_footer(text=f"WXModelBot v{__version__} | *Wire latency has minute-precision error")
         
         embeds = [embed]
 

@@ -142,20 +142,24 @@ class NWWSClient(ClientXMPP):
             # Track NWWS wire latency (rough estimate to minute precision)
             try:
                 from datetime import datetime as dt_class, timezone as tz_class
-                issue_val = payload['issue'] or ts_str
-                if "T" in issue_val: # ISO8601 format: 2026-05-03T01:15:00Z
-                    issue_dt = dt_class.fromisoformat(issue_val.replace("Z", "+00:00"))
-                elif len(issue_val) >= 14:
-                    issue_dt = dt_class.strptime(issue_val[:14], "%Y%m%d%H%M%S").replace(tzinfo=tz_class.utc)
-                else:
-                    issue_dt = dt_class.strptime(issue_val[:12], "%Y%m%d%H%M").replace(tzinfo=tz_class.utc)
+                uptime_sec = (dt_class.now(tz_class.utc) - self.bot.state.bot_start_time).total_seconds() if self.bot.state.bot_start_time else 0
                 
-                latency = max(0.0, (dt_class.now(tz_class.utc) - issue_dt).total_seconds())
-                # Update rolling average or just last seen
-                if self.bot.state.nwws_latency is None:
-                    self.bot.state.nwws_latency = latency
-                else:
-                    self.bot.state.nwws_latency = (self.bot.state.nwws_latency * 0.9) + (latency * 0.1)
+                # Only track latency after 60s of uptime to avoid catch-up skew
+                if uptime_sec > 60:
+                    issue_val = payload['issue'] or ts_str
+                    if "T" in issue_val: # ISO8601 format: 2026-05-03T01:15:00Z
+                        issue_dt = dt_class.fromisoformat(issue_val.replace("Z", "+00:00"))
+                    elif len(issue_val) >= 14:
+                        issue_dt = dt_class.strptime(issue_val[:14], "%Y%m%d%H%M%S").replace(tzinfo=tz_class.utc)
+                    else:
+                        issue_dt = dt_class.strptime(issue_val[:12], "%Y%m%d%H%M").replace(tzinfo=tz_class.utc)
+                    
+                    latency = max(0.0, (dt_class.now(tz_class.utc) - issue_dt).total_seconds())
+                    # Update rolling average or just last seen
+                    if self.bot.state.nwws_latency is None:
+                        self.bot.state.nwws_latency = latency
+                    else:
+                        self.bot.state.nwws_latency = (self.bot.state.nwws_latency * 0.9) + (latency * 0.1)
             except Exception as e:
                 logger.debug(f"[NWWS] Latency calculation failed ({issue_val}): {e}")
 
