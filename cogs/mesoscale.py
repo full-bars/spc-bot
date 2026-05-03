@@ -25,6 +25,10 @@ logger = logging.getLogger("spc_bot")
 _md_index_head: Dict[str, str] = {}
 _md_index_unreachable: bool = False
 
+_MD_NUMBER_RE = re.compile(r"MESOSCALE DISCUSSION\s+(\d+)", re.IGNORECASE)
+_MD_HREF_RE = re.compile(r'href="(?:/products/md/)?md(\d+)\.html"', re.IGNORECASE)
+_ACUS_SPLIT_RE = re.compile(r"(?m)^ACUS11 KWNS\s+\d{6}")
+_CONCERNING_RE = re.compile(r"(CONCERNING[^\n<]{10,120})", re.IGNORECASE)
 
 async def fetch_latest_md_numbers(fresh: bool = False) -> Tuple[Optional[List[str]], bool]:
     """
@@ -141,7 +145,7 @@ async def fetch_md_details_iem(md_number: str) -> Tuple[Optional[str], Optional[
                     or f"MESOSCALE DISCUSSION {padded}" in p
                 ):
                     raw_text = p
-                    concerning = re.search(r"(CONCERNING[^\n<]{10,120})", p, re.IGNORECASE)
+                    concerning = _CONCERNING_RE.search(p)
                     if concerning:
                         summary = concerning.group(1).strip()
                     else:

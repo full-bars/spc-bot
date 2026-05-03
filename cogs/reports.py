@@ -21,6 +21,21 @@ from utils.state_store import (
 
 logger = logging.getLogger("spc_bot")
 
+_LSR_SPLIT_RE = re.compile(r"\n\n(?=\d{4}\s+[A-Z])")
+_LSR_LINE1_RE = re.compile(r"^(\d{4}\s+[AP]M)\s+(.{16})\s+(.{24})\s+(\d+\.\d+N\s+\d+\.\d+W)", re.M)
+_LSR_LINE2_RE = re.compile(r"^(\d{2}/\d{2}/\d{4})\s+(.{24})\s+([A-Z]{2})\s+(.*)$", re.M)
+_LSR_REMARKS_RE = re.compile(r"REMARKS\s*\.\.\.\s*(.*?)(?=\n\s*\n|\$\$|$)", re.I | re.DOTALL)
+_LSR_PK_WND_RE = re.compile(r"PK WND\s+\d{3}(\d{2,3})/?(\d{4})?", re.I)
+
+_PNS_RATING_RE = re.compile(r"Rating:\s*EF(\d|U)", re.I)
+_PNS_EVENT_RE = re.compile(r"\.\.\.(.*?)\.\.\.")
+_PNS_SUMMARY_RE = re.compile(r"SUMMARY:\s*(.*?)(?=\n\s*\n|\$\$|$)", re.I | re.DOTALL)
+_PNS_TIME_RE = re.compile(r"(\d{1,2}:\d{2}\s+[AP]M\s+[A-Z]{3}.*?202\d)", re.I)
+_PNS_NUM_DATE_RE = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{4})")
+_PNS_LATLON_RE = re.compile(r"START LAT/LON:\s*([\d\.\-]+)\s*/\s*([\d\.\-]+)", re.I)
+_PNS_MONTHS_STR = "JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC"
+_PNS_NARR_DATE_RE = re.compile(rf"({_PNS_MONTHS_STR})\w*\s+(\d{{1,2}})\s*,\s*(\d{{4}})", re.I)
+
 class PNSView(discord.ui.View):
     def __init__(self, raw_text: str):
         super().__init__(timeout=86400) # Long timeout for persistent posts
@@ -303,11 +318,10 @@ class ReportsCog(commands.Cog):
                 logger.warning(f"Failed to parse event date '{event_date}': {e}")
         else:
             # Narrative: MAY 21 2024
-            months = "JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC"
-            m_narr = re.search(rf"({months})\w*\s+(\d{{1,2}})\s*,\s*(\d{{4}})", raw_text, re.I)
+            m_narr = _PNS_NARR_DATE_RE.search(raw_text)
             if m_narr:
                 m_str = m_narr.group(1).upper()[:3]
-                m_idx = (months.split("|").index(m_str) + 1)
+                m_idx = (_PNS_MONTHS_STR.split("|").index(m_str) + 1)
                 event_date = f"{m_narr.group(3)}-{str(m_idx).zfill(2)}-{m_narr.group(2).zfill(2)}"
                 try:
                     event_ts = datetime.strptime(event_date, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp()
