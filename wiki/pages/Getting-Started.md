@@ -4,7 +4,7 @@ SPCBot is designed for flexibility, supporting both containerized and native Lin
 
 ## 📋 Prerequisites
 
-- **Python 3.12+** (matches production stack).
+- **Python 3.13+** (matches current production stack).
 - **Discord Bot Token**: Create one at the [Discord Developer Portal](https://discord.com/developers/applications).
 - **Upstash Redis** (Optional): Required only for High Availability (Failover).
 - **Syncthing** (Optional): Required for cross-node `events.db` replication.

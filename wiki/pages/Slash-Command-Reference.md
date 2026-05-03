@@ -38,7 +38,7 @@ SPCBot uses Discord Slash Commands for all user interactions. Commands are organ
 | `/scp` | NIU/Gensini Supercell Composite Parameter maps. | `fresh` |
 | `/wpc` | WPC Excessive Rainfall Outlooks. | None |
 | `/download` | Request raw Level 2 Radar data from NOAA S3. | `site`, `time`, `count` |
-| `/status` | View real-time bot health and connectivity. | None |
-| `/taskmgr` | Monitor background loops (Owner-only). | None |
-| `/logs` | View a live-streaming console log (Owner-only). | None |
+| `/status` | Real-time operational dashboard with system health, network connectivity (NWWS/IEM pings in ms), alert delay tracking, and environment state. Auto-refreshes every 5 seconds for 5 minutes. | None |
+| `/taskmgr` | Live-updating task manager (htop-style) showing background loop status and iteration timers. Auto-refreshes every 5 seconds for 10 minutes. Owner-only. | None |
+| `/logs` | Virtual terminal viewer for live-streaming console output with ANSI color support. Auto-refreshes every 5 seconds for 5 minutes. Owner-only. | None |
 | `/failover` | Manually trigger a node role swap (Owner-only). | `force_hostname` |
