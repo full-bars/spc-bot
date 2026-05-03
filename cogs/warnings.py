@@ -505,13 +505,37 @@ def build_concise_warning_text(
     # 5. Narrative bullet
     narrative = ""
     if text_to_search:
-        m_nat = re.search(r"(?:\*\s*)?At\s+(.+?)(?=\n\s*\*|\n\s*LAT\.\.\.LON|\n[A-Z]{4,}\b\.{3,}|$)", text_to_search, re.I | re.DOTALL)
+        # Narrative extraction: capture the "At..." bullet or the primary impact statement.
+        # We stop at the next bullet point (*) or known footer blocks.
+        m_nat = re.search(r"(?:\*\s*)?At\s+(.+?)(?=\n\s*\*|\n\s*LAT\.\.\.LON|\n\s*PRECAUTIONARY|\n\s*TIME\.\.\.MOT\.\.\.LOC|$)", text_to_search, re.I | re.DOTALL)
+        
+        # Fallback for Special Weather Statements which often lead with "...A STRONG THUNDERSTORM..."
+        if not m_nat and vtec.get("phenom") == "SPS":
+            # Capture from the first significant impact line starting with dots
+            m_nat = re.search(r"(?:\n|^)\s*\.\.\.([^.].+?)(?=\n\s*\*|\n\s*LAT\.\.\.LON|$)", text_to_search, re.I | re.DOTALL)
+
         if m_nat:
             val = m_nat.group(1).strip()
-            val = re.sub(r"([A-Z]{4,}\b\.{3,})", r"**\1**", val)
+            
+            # Refined bolding: only bold high-signal weather keywords followed by dots.
+            # Avoids bolding structural words like "NEAR...", "LOCATED...", or "TIME..."
+            def _bold_repl(m):
+                word = m.group(1).upper()
+                # Only bold if the word (excluding trailing dots) is a high-signal keyword
+                base_word = re.sub(r"\.+$", "", word)
+                if base_word in ("TORNADO", "HAIL", "WIND", "GUST", "WATERSPOUT", "IMPACT", "SOURCE", "MAX", "DAMAGE", "THREAT"):
+                    return f"**{m.group(1)}**"
+                return m.group(1)
+
+            val = re.sub(r"([A-Z]{4,}\b\.{3,})", _bold_repl, val)
             val = re.sub(r"\s+", " ", val).strip()
             val = val.lstrip(".").strip()
-            narrative = f"\nAt {val}"
+            
+            # Use "At" prefix for standard warnings, or just the text for SPS
+            if "At" in m_nat.group(0):
+                 narrative = f"\nAt {val}"
+            else:
+                 narrative = f"\n{val}"
 
     # 6. Hyperlinked verb + relative timestamp
     vtec_link = _vtec_url(vtec)
