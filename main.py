@@ -21,7 +21,7 @@ from utils.state_store import (
     get_state,
 )
 from utils.cache import hydrate_validators_from_store
-from utils.state import BotState
+from utils.state import BotState, RecentLogHandler
 from cogs import ALL_EXTENSIONS
 
 # ── Logging setup ────────────────────────────────────────────────────────────
@@ -34,6 +34,11 @@ if not logger.handlers:
     ch = logging.StreamHandler()
     ch.setFormatter(formatter)
     logger.addHandler(ch)
+
+    # In-memory log buffer for /logs command
+    log_handler = RecentLogHandler(max_lines=20)
+    log_handler.setFormatter(formatter)
+    logger.addHandler(log_handler)
 
     try:
         from logging.handlers import RotatingFileHandler
@@ -51,6 +56,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot.state = BotState()
+bot.log_handler = log_handler
 
 IS_PRIMARY = os.getenv("IS_PRIMARY", "true").lower() == "true"
 bot.state.is_primary = IS_PRIMARY

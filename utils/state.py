@@ -22,8 +22,27 @@ new code can take an explicit dependency on the component it needs
 rather than on the whole coordinator.
 """
 
+import logging
+from collections import deque
 from datetime import datetime
 from typing import Dict, List, Optional, Set
+
+
+class RecentLogHandler(logging.Handler):
+    """Logging handler that keeps the last N lines in memory."""
+    def __init__(self, max_lines: int = 20):
+        super().__init__()
+        self.buffer = deque(maxlen=max_lines)
+
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            self.buffer.append(msg)
+        except Exception:
+            self.handleError(record)
+
+    def get_logs(self) -> List[str]:
+        return list(self.buffer)
 
 
 class HashStore:

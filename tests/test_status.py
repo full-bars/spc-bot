@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import discord
 
 from cogs.status import StatusCog
 from config import __version__
@@ -59,11 +60,11 @@ async def test_status_output_contains_version():
         await cog.status_slash.callback(cog, interaction)
 
     interaction.followup.send.assert_called_once()
-    content = interaction.followup.send.call_args.args[0]
+    embeds = interaction.followup.send.call_args.kwargs["embeds"]
+    main_embed = embeds[0]
     
-    assert f"Version        : v{__version__}" in content
-    assert "Node Role      : PRIMARY" in content
-    assert "Open Circuits  : NONE" in content
+    assert f"v{__version__}" in main_embed.footer.text
+    assert "PRIMARY" in main_embed.description
 
 
 @pytest.mark.asyncio
@@ -85,7 +86,70 @@ async def test_status_output_shows_open_circuits():
             await cog.status_slash.callback(cog, interaction)
 
         interaction.followup.send.assert_called_once()
-        content = interaction.followup.send.call_args.args[0]
-        assert "Open Circuits  : test.host" in content
+        embeds = interaction.followup.send.call_args.kwargs["embeds"]
+        main_embed = embeds[0]
+        
+        found = False
+        for field in main_embed.fields:
+            if "Open Circuits" in field.name:
+                assert "test.host" in field.value
+                found = True
+        assert found
     finally:
         circuit_breaker.record_success("test.host")
+
+
+@pytest.mark.asyncio
+async def test_taskmgr_initialization():
+    """/taskmgr should initialize with an embed and start auto-update."""
+    cog = _make_cog()
+    interaction = _make_interaction()
+    cog.bot.cogs = {"TestCog": MagicMock()}
+
+    await cog.taskmgr_slash.callback(cog, interaction)
+
+    interaction.followup.send.assert_called_once()
+    kwargs = interaction.followup.send.call_args.kwargs
+    assert "embed" in kwargs
+    assert kwargs["embed"].title == "🖥️ SPCBot Task Manager"
+    assert "view" in kwargs
+    assert kwargs["view"].should_update is True
+
+
+@pytest.mark.asyncio
+async def test_logs_initialization():
+    """/logs should initialize with content from the log handler."""
+    cog = _make_cog()
+    interaction = _make_interaction()
+    mock_handler = MagicMock()
+    mock_handler.get_logs.return_value = ["Line 1", "Line 2"]
+    cog.bot.log_handler = mock_handler
+
+    await cog.logs_slash.callback(cog, interaction)
+
+    interaction.followup.send.assert_called_once()
+    kwargs = interaction.followup.send.call_args.kwargs
+    assert "Line 1" in kwargs["content"]
+    assert "Line 2" in kwargs["content"]
+    assert "view" in kwargs
+
+
+@pytest.mark.asyncio
+async def test_is_owner_check():
+    """is_owner check should correctly identify the bot owner."""
+    from cogs.status import is_owner
+    
+    interaction = MagicMock()
+    interaction.user.id = 123
+    interaction.client.owner_id = 123
+    
+    assert await is_owner(interaction) is True
+    
+    interaction.client.owner_id = 456
+    interaction.client.application = MagicMock()
+    interaction.client.application.owner.id = 123
+    assert await is_owner(interaction) is True
+    
+    interaction.client.application.owner.id = 999
+    interaction.client.application.owner = MagicMock(spec=discord.User)
+    assert await is_owner(interaction) is False
