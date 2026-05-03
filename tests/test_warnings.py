@@ -210,6 +210,7 @@ async def test_post_warning_now_dedups_against_posted_set(monkeypatch):
     import cogs.warnings as warnings_mod
     monkeypatch.setattr(warnings_mod, "add_posted_warning", AsyncMock())
     monkeypatch.setattr(warnings_mod, "prune_posted_warnings", AsyncMock())
+    monkeypatch.setattr(warnings_mod, "_download_warning_image", AsyncMock(return_value=None))
     monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
 
     await cog.post_warning_now(
@@ -283,6 +284,7 @@ async def test_post_warning_now_claims_key_before_send(monkeypatch):
     import cogs.warnings as warnings_mod
     monkeypatch.setattr(warnings_mod, "add_posted_warning", AsyncMock())
     monkeypatch.setattr(warnings_mod, "prune_posted_warnings", AsyncMock())
+    monkeypatch.setattr(warnings_mod, "_download_warning_image", AsyncMock(return_value=None))
     monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
 
     # Stash the membership state observed at the moment of send.
@@ -478,6 +480,7 @@ async def test_tick_disappeared_warning_triggers_cancellation(monkeypatch):
                         AsyncMock(return_value=(content, 200, {})))
     monkeypatch.setattr(warnings_mod, "add_posted_warning", AsyncMock())
     monkeypatch.setattr(warnings_mod, "prune_posted_warnings", AsyncMock())
+    monkeypatch.setattr(warnings_mod, "_download_warning_image", AsyncMock(return_value=None))
     monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
 
     await cog._tick()
@@ -509,6 +512,7 @@ async def test_tick_initial_discovery_posts_active_warning_missed_at_startup(mon
                         AsyncMock(return_value=(content, 200, {})))
     monkeypatch.setattr(warnings_mod, "add_posted_warning", AsyncMock())
     monkeypatch.setattr(warnings_mod, "prune_posted_warnings", AsyncMock())
+    monkeypatch.setattr(warnings_mod, "_download_warning_image", AsyncMock(return_value=None))
     monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
     monkeypatch.setattr(warnings_mod, "add_significant_event", AsyncMock(), raising=False)
 
@@ -543,6 +547,7 @@ async def test_tick_con_area_change_posts_partial_update(monkeypatch):
                         AsyncMock(return_value=(content, 200, {})))
     monkeypatch.setattr(warnings_mod, "add_posted_warning", AsyncMock())
     monkeypatch.setattr(warnings_mod, "prune_posted_warnings", AsyncMock())
+    monkeypatch.setattr(warnings_mod, "_download_warning_image", AsyncMock(return_value=None))
     monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
     monkeypatch.setattr(warnings_mod, "add_significant_event", AsyncMock(), raising=False)
 
