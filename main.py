@@ -58,6 +58,15 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 bot.state = BotState()
 bot.log_handler = log_handler
 
+# Initialize HTTP latency tracking
+def _update_http_latency(l: float):
+    if bot.state.http_latency == 0:
+        bot.state.http_latency = l
+    else:
+        bot.state.http_latency = (bot.state.http_latency * 0.9) + (l * 0.1)
+
+utils.http.set_latency_callback(_update_http_latency)
+
 IS_PRIMARY = os.getenv("IS_PRIMARY", "true").lower() == "true"
 bot.state.is_primary = IS_PRIMARY
 

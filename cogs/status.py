@@ -252,6 +252,21 @@ class StatusView(discord.ui.View):
         )
         embed.add_field(name="📡 Connectivity", value=conn_val, inline=True)
 
+        # Latency Metrics
+        nwws_lat = self.bot.state.nwws_latency
+        iem_lat = self.bot.state.iembot_latency
+        http_lat = self.bot.state.http_latency
+        discord_rtt = self.bot.latency * 1000  # Convert to ms
+
+        latency_val = (
+            f"**Discord RTT:** `{discord_rtt:.1f}ms`\n"
+            f"**NWWS Wire:** `{nwws_lat:.1f}s`" if nwws_lat > 0 else f"**NWWS Wire:** `---`"
+        )
+        latency_val += f"\n**IEMBot Wire:** `{iem_lat:.1f}s`" if iem_lat > 0 else f"\n**IEMBot Wire:** `---`"
+        latency_val += f"\n**HTTP Avg:** `{http_lat * 1000:.1f}ms`" if http_lat > 0 else f"\n**HTTP Avg:** `---`"
+        
+        embed.add_field(name="⏱️ Latency", value=latency_val, inline=True)
+
         # Environment
         risk_label = get_current_risk_display()
         active_high_risk = peek_active_labels()

@@ -19,6 +19,12 @@ TIMEOUT_SLOW = 30       # Larger content, general GET
 _CB_FAILURE_THRESHOLD = 5
 _CB_RECOVERY_TIMEOUT = 60.0
 
+_latency_callback = None
+
+def set_latency_callback(cb):
+    global _latency_callback
+    _latency_callback = cb
+
 http_session: Optional[aiohttp.ClientSession] = None
 _session_lock = asyncio.Lock()
 
@@ -160,11 +166,16 @@ async def http_get_bytes_conditional(
 
     async def _do_request():
         session = await ensure_session()
+        start = time.perf_counter()
         async with session.get(
             url,
             timeout=aiohttp.ClientTimeout(total=timeout),
             headers=headers or None,
         ) as response:
+            latency = time.perf_counter() - start
+            if _latency_callback:
+                _latency_callback(latency)
+            
             if response.status in (429, 503, 502, 504):
                 # Tenacity handles the backoff/retry; we just signal the failure
                 raise aiohttp.ClientResponseError(
