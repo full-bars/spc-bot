@@ -14,6 +14,9 @@ A sophisticated severe weather monitoring platform featuring real-time warning l
 | NCAR WxNext2 AI | Mean AI convective hazard Days 1–8, auto-posted daily; `/wxnext` slash command |
 
 ### Real-time Alerts
+> [!IMPORTANT]
+> **Warning and lifecycle tracking features are currently in active development (Beta).** While engineered for low latency, these features should be considered experimental. Always rely on official NWS sources for life-safety decisions.
+
 | Feature | Details |
 |---|---|
 | NWWS-OI (XMPP) | **Gold Standard** authority source; pushes raw NWS text products via XMPP with near-zero latency, beating API polling by up to 60s |
