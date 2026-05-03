@@ -244,28 +244,30 @@ class StatusView(discord.ui.View):
         elif iembot_cog:
             iembot_status = "⚪ STANDBY" if not self.bot.state.is_primary else "🔴 STOPPED"
 
+        nwws_ping = self.bot.state.nwws_ping
+        iembot_ping = self.bot.state.iembot_ping
         session_ok = _http.http_session is not None and not _http.http_session.closed
         conn_val = (
-            f"**NWWS-OI:** {nwws_status}\n"
-            f"**IEMBot:** {iembot_status}\n"
+            f"**NWWS-OI:** {nwws_status}" + (f" (`{nwws_ping:.0f}ms`)\n" if nwws_ping else "\n") +
+            f"**IEMBot:** {iembot_status}" + (f" (`{iembot_ping:.0f}ms`)\n" if iembot_ping else "\n") +
             f"**HTTP:** {'🟢 OK' if session_ok else '🔴 CLOSED'}"
         )
         embed.add_field(name="📡 Connectivity", value=conn_val, inline=True)
 
-        # Latency Metrics
+        # Alert Performance
         nwws_lat = self.bot.state.nwws_latency
         iem_lat = self.bot.state.iembot_latency
         http_lat = self.bot.state.http_latency
         discord_rtt = self.bot.latency * 1000  # Convert to ms
 
-        latency_val = (
+        perf_val = (
             f"**Discord RTT:** `{discord_rtt:.1f}ms`\n"
-            f"**NWWS Wire:** `{nwws_lat:.1f}s`*" if nwws_lat is not None else f"**NWWS Wire:** `---`"
+            f"**NWWS Delay:** `{nwws_lat:.1f}s`*" if nwws_lat is not None else f"**NWWS Delay:** `---`"
         )
-        latency_val += f"\n**IEMBot Wire:** `{iem_lat:.1f}s`*" if iem_lat is not None else f"\n**IEMBot Wire:** `---`"
-        latency_val += f"\n**HTTP Avg:** `{http_lat * 1000:.1f}ms`" if http_lat is not None else f"\n**HTTP Avg:** `---`"
+        perf_val += f"\n**IEMBot Delay:** `{iem_lat:.1f}s`*" if iem_lat is not None else f"\n**IEMBot Delay:** `---`"
+        perf_val += f"\n**HTTP Avg:** `{http_lat * 1000:.1f}ms`" if http_lat is not None else f"\n**HTTP Avg:** `---`"
         
-        embed.add_field(name="⏱️ Latency", value=latency_val, inline=True)
+        embed.add_field(name="⏱️ Performance", value=perf_val, inline=True)
 
         # Environment
         risk_label = get_current_risk_display()

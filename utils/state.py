@@ -141,6 +141,10 @@ class BotState:
         self.nwws_latency: Optional[float] = None
         self.iembot_latency: Optional[float] = None
         self.http_latency: Optional[float] = None
+        
+        # Network pings (milliseconds)
+        self.nwws_ping: Optional[float] = None
+        self.iembot_ping: Optional[float] = None
 
         self.hashes = HashStore()
         self.posting = PostingLog()

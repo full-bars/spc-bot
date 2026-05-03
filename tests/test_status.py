@@ -25,6 +25,8 @@ def _make_cog():
     bot.state.nwws_latency = 0.0
     bot.state.iembot_latency = 0.0
     bot.state.http_latency = 0.0
+    bot.state.nwws_ping = 0.0
+    bot.state.iembot_ping = 0.0
     bot.state.active_mds = []
     bot.state.active_watches = {}
     bot.state.last_post_times = {}

@@ -14,6 +14,7 @@ import asyncio
 import json as _json
 import logging
 import re
+import time
 from typing import Optional
 
 from discord.ext import commands, tasks
@@ -145,7 +146,9 @@ class IEMBotCog(commands.Cog):
 
         try:
             url = f"{IEMBOT_FEED_URL}?seqnum={self.bot.state.iembot_last_seqnum}"
+            start_req = time.perf_counter()
             content, status = await http_get_bytes(url, retries=2, timeout=10)
+            self.bot.state.iembot_ping = (time.perf_counter() - start_req) * 1000
             if not content or status != 200:
                 return
 
@@ -168,15 +171,18 @@ class IEMBotCog(commands.Cog):
                 # Track IEMBot wire latency
                 try:
                     from datetime import datetime as dt_class, timezone as tz_class
-                    uptime_sec = (dt_class.now(tz_class.utc) - self.bot.state.bot_start_time).total_seconds() if self.bot.state.bot_start_time else 0
-                    if uptime_sec > 60:
-                        ts_str = product_id.split("-")[0]
-                        issue_dt = dt_class.strptime(ts_str, "%Y%m%d%H%M").replace(tzinfo=tz_class.utc)
-                        latency = max(0.0, (dt_class.now(tz_class.utc) - issue_dt).total_seconds())
-                        if self.bot.state.iembot_latency is None:
-                            self.bot.state.iembot_latency = latency
-                        else:
-                            self.bot.state.iembot_latency = (self.bot.state.iembot_latency * 0.9) + (latency * 0.1)
+                    now = dt_class.now(tz_class.utc)
+                    start_time = self.bot.state.bot_start_time
+                    if isinstance(start_time, dt_class):
+                        uptime_sec = (now - start_time).total_seconds()
+                        if uptime_sec > 60:
+                            ts_str = product_id.split("-")[0]
+                            issue_dt = dt_class.strptime(ts_str, "%Y%m%d%H%M").replace(tzinfo=tz_class.utc)
+                            latency = max(0.0, (now - issue_dt).total_seconds())
+                            if self.bot.state.iembot_latency is None:
+                                self.bot.state.iembot_latency = latency
+                            else:
+                                self.bot.state.iembot_latency = (self.bot.state.iembot_latency * 0.9) + (latency * 0.1)
                 except Exception:
                     pass
 
@@ -318,7 +324,9 @@ class IEMBotCog(commands.Cog):
                 f"{IEMBOT_BOTSTALK_URL}"
                 f"?seqnum={self.bot.state.iembot_botstalk_last_seqnum}"
             )
+            start_req = time.perf_counter()
             content, status = await http_get_bytes(url, retries=2, timeout=10)
+            self.bot.state.iembot_ping = (time.perf_counter() - start_req) * 1000
             if not content or status != 200:
                 return
 
@@ -341,15 +349,18 @@ class IEMBotCog(commands.Cog):
                 # Track IEMBot wire latency
                 try:
                     from datetime import datetime as dt_class, timezone as tz_class
-                    uptime_sec = (dt_class.now(tz_class.utc) - self.bot.state.bot_start_time).total_seconds() if self.bot.state.bot_start_time else 0
-                    if uptime_sec > 60:
-                        ts_str = product_id.split("-")[0]
-                        issue_dt = dt_class.strptime(ts_str, "%Y%m%d%H%M").replace(tzinfo=tz_class.utc)
-                        latency = max(0.0, (dt_class.now(tz_class.utc) - issue_dt).total_seconds())
-                        if self.bot.state.iembot_latency is None:
-                            self.bot.state.iembot_latency = latency
-                        else:
-                            self.bot.state.iembot_latency = (self.bot.state.iembot_latency * 0.9) + (latency * 0.1)
+                    now = dt_class.now(tz_class.utc)
+                    start_time = self.bot.state.bot_start_time
+                    if isinstance(start_time, dt_class):
+                        uptime_sec = (now - start_time).total_seconds()
+                        if uptime_sec > 60:
+                            ts_str = product_id.split("-")[0]
+                            issue_dt = dt_class.strptime(ts_str, "%Y%m%d%H%M").replace(tzinfo=tz_class.utc)
+                            latency = max(0.0, (now - issue_dt).total_seconds())
+                            if self.bot.state.iembot_latency is None:
+                                self.bot.state.iembot_latency = latency
+                            else:
+                                self.bot.state.iembot_latency = (self.bot.state.iembot_latency * 0.9) + (latency * 0.1)
                 except Exception:
                     pass
 
