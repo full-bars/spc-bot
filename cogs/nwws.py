@@ -139,6 +139,19 @@ class NWWSClient(ClientXMPP):
             ts_str = payload['issue'] or time.strftime("%Y%m%d%H%M", time.gmtime())
             product_id = f"{ts_str}-{office}-{ttaaii}-{afos_pil}"
 
+            # Track NWWS wire latency (rough estimate to minute precision)
+            try:
+                from datetime import datetime as dt_class, timezone as tz_class
+                issue_dt = dt_class.strptime(ts_str[:12], "%Y%m%d%H%M").replace(tzinfo=tz_class.utc)
+                latency = (dt_class.now(tz_class.utc) - issue_dt).total_seconds()
+                # Update rolling average or just last seen
+                if self.bot.state.nwws_latency == 0:
+                    self.bot.state.nwws_latency = latency
+                else:
+                    self.bot.state.nwws_latency = (self.bot.state.nwws_latency * 0.9) + (latency * 0.1)
+            except Exception:
+                pass
+
             # 2. Routing Logic
             
             # WATCHES (SEL products)

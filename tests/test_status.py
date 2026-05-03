@@ -22,6 +22,13 @@ def _make_cog():
     bot.state = MagicMock()
     bot.state.is_primary = True
     bot.state.bot_start_time = None
+    bot.state.nwws_latency = 0.0
+    bot.state.iembot_latency = 0.0
+    bot.state.http_latency = 0.0
+    bot.state.active_mds = []
+    bot.state.active_watches = {}
+    bot.state.last_post_times = {}
+    bot.latency = 0.05  # 50ms
     cog = StatusCog(bot)
     return cog
 

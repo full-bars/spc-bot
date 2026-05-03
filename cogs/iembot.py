@@ -164,6 +164,19 @@ class IEMBotCog(commands.Cog):
                 product_id = msg.get("product_id", "")
                 if not product_id:
                     continue
+                
+                # Track IEMBot wire latency
+                try:
+                    from datetime import datetime as dt_class, timezone as tz_class
+                    ts_str = product_id.split("-")[0]
+                    issue_dt = dt_class.strptime(ts_str, "%Y%m%d%H%M").replace(tzinfo=tz_class.utc)
+                    latency = (dt_class.now(tz_class.utc) - issue_dt).total_seconds()
+                    if self.bot.state.iembot_latency == 0:
+                        self.bot.state.iembot_latency = latency
+                    else:
+                        self.bot.state.iembot_latency = (self.bot.state.iembot_latency * 0.9) + (latency * 0.1)
+                except Exception:
+                    pass
 
                 if "WWUS20-SEL" in product_id or "WWUS40-SEL" in product_id:
                     t = asyncio.create_task(self._handle_watch(product_id))
@@ -322,6 +335,19 @@ class IEMBotCog(commands.Cog):
                 product_id = msg.get("product_id", "")
                 if not product_id:
                     continue
+                
+                # Track IEMBot wire latency
+                try:
+                    from datetime import datetime as dt_class, timezone as tz_class
+                    ts_str = product_id.split("-")[0]
+                    issue_dt = dt_class.strptime(ts_str, "%Y%m%d%H%M").replace(tzinfo=tz_class.utc)
+                    latency = (dt_class.now(tz_class.utc) - issue_dt).total_seconds()
+                    if self.bot.state.iembot_latency == 0:
+                        self.bot.state.iembot_latency = latency
+                    else:
+                        self.bot.state.iembot_latency = (self.bot.state.iembot_latency * 0.9) + (latency * 0.1)
+                except Exception:
+                    pass
 
                 pil_match = self._ISSUANCE_PIL_RE.search(product_id)
                 if pil_match:
