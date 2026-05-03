@@ -4,4 +4,5 @@ ALL_EXTENSIONS = [
     "cogs.warnings",
     "cogs.status", "cogs.radar", "cogs.csu_mlp", "cogs.ncar",
     "cogs.sounding", "cogs.hodograph", "cogs.maintenance", "cogs.analytics",
+    "cogs.recorder",
 ]

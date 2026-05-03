@@ -29,6 +29,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from config import NWS_ALERTS_WARNINGS_URL, WARNINGS_CHANNEL_ID
+from lib.vad_plotter.radar_coords import get_nearest_radar
 from utils.backoff import TaskBackoff
 from utils.http import http_get_bytes, http_get_bytes_conditional
 from utils.state_store import (
@@ -136,6 +137,18 @@ def parse_warning_polygon(
             continue
         coords.append((lat, lon))
     return coords or None
+
+
+def get_polygon_centroid(
+    coords: List[Tuple[float, float]]
+) -> Optional[Tuple[float, float]]:
+    """Calculate the simple arithmetic centroid of a list of (lat, lon) pairs."""
+    if not coords:
+        return None
+    lat_sum = sum(c[0] for c in coords)
+    lon_sum = sum(c[1] for c in coords)
+    n = len(coords)
+    return (lat_sum / n, lon_sum / n)
 
 
 # ── Cog ──────────────────────────────────────────────────────────────────────
@@ -1201,6 +1214,21 @@ class WarningsCog(commands.Cog):
                 raw_text=raw_text
             )
             logger.info(f"[WARN] Logged confirmed tornado for {vtec_id} (match: {match_id is not None})")
+
+            # 2. Trigger VAD Recorder mission
+            try:
+                poly_coords = parse_warning_polygon(raw_text)
+                centroid = get_polygon_centroid(poly_coords)
+                if centroid:
+                    lat, lon = centroid
+                    radar_id = get_nearest_radar(lat, lon)
+                    if radar_id:
+                        recorder = self.bot.get_cog("RecorderCog")
+                        if recorder:
+                            recorder.start_mission(radar_id, time.time())
+                            logger.info(f"[WARN] Triggered VAD recorder for {radar_id} near {lat:.2f}, {lon:.2f}")
+            except Exception as e:
+                logger.warning(f"[WARN] Failed to trigger VAD recorder for {vtec_id}: {e}")
 
     @app_commands.command(name="recenttornadoes", description="List confirmed tornadoes from recent warnings and reports")
     @app_commands.describe(range="Time range to look back")
