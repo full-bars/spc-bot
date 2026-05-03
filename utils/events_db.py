@@ -210,6 +210,16 @@ async def backfill_dat_guids(days: int = 30):
         if not our_events:
             return
 
+        parsed_events = []
+        for e in our_events:
+            try:
+                parts = e["coords"].replace("N", "").replace("S", "").replace("W", "").replace("E", "").split()
+                e_lat = float(parts[0])
+                e_lon = -float(parts[1]) if "W" in e["coords"] else float(parts[1])
+                parsed_events.append({"event_id": e["event_id"], "lat": e_lat, "lon": e_lon})
+            except Exception:
+                continue
+
         linked_count = 0
         for feat in data["features"]:
             guid = feat["attributes"]["event_id"]
@@ -225,19 +235,11 @@ async def backfill_dat_guids(days: int = 30):
             best_id = None
             min_dist = 50.0  # 50km threshold
 
-            for our_e in our_events:
-                # Parse our coords: "37.67N 85.74W"
-                try:
-                    parts = our_e["coords"].replace("N", "").replace("S", "").replace("W", "").replace("E", "").split()
-                    e_lat = float(parts[0])
-                    e_lon = -float(parts[1]) if "W" in our_e["coords"] else float(parts[1])
-
-                    dist = haversine(track_lat, track_lon, e_lat, e_lon)
-                    if dist < min_dist:
-                        min_dist = dist
-                        best_id = our_e["event_id"]
-                except:
-                    continue
+            for our_e in parsed_events:
+                dist = haversine(track_lat, track_lon, our_e["lat"], our_e["lon"])
+                if dist < min_dist:
+                    min_dist = dist
+                    best_id = our_e["event_id"]
 
             if best_id:
                 await db.execute(
