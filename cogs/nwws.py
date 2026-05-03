@@ -75,7 +75,7 @@ class NWWSClient(ClientXMPP):
         self.add_event_handler("disconnected", self.on_disconnect)
         
         # Start ping task on session start
-        self.add_event_handler("session_start", self._start_ping_task, threaded=False)
+        self.add_event_handler("session_start", self._start_ping_task)
 
     def _start_ping_task(self, _):
         self.bot.loop.create_task(self._ping_loop())

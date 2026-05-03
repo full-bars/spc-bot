@@ -6,6 +6,15 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [5.12.7] — 2026-05-02
 
+### Added
+- **Live Performance Monitoring.** Overhauled the `/status` command with a clean, interactive embed featuring real-time latency metrics:
+  - **Network Health.** Added live Direct-to-NWS (XMPP) heartbeats and IEM poll RTT in milliseconds.
+  - **Alert Delay.** Tracked "on the wire" time from NWS issuance to bot receipt (with minute-precision disclosure).
+  - **Auto-Refresh.** The status dashboard now self-updates every 5 seconds for 5 minutes, eliminating the need for manual refreshes.
+- **Bot Task Manager.** Introduced `/taskmgr` (Owner-only), a live-updating "htop-style" dashboard showing background loop statuses and scheduled iteration timers.
+- **Virtual Terminal Logs.** Introduced `/logs` (Owner-only), a live-streaming console viewer with ANSI support and 5-second auto-refresh.
+- **Startup Protection.** Implemented a "Startup Shield" for latency tracking, ignoring the first 60 seconds of uptime to prevent catch-up skew from poisoning rolling averages.
+
 ### Fixed
 - **Status Command Crash.** Implemented response chunking in `/status` to prevent crashes when the report exceeds Discord's 2000-character limit.
 - **NWWS Routing (CLISPS Fix).** Fixed a logic error where Climate Statements were misidentified as Special Weather Statements. Routing now uses strict `.startswith()` prefix matching.

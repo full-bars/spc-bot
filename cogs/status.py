@@ -196,7 +196,9 @@ class StatusView(discord.ui.View):
         super().__init__(timeout=300)
         self.bot = bot
         self.interaction = interaction
+        self.message = None
         self.detailed = False
+        self.should_update = True
 
     async def build_embeds(self):
         now = datetime.now(timezone.utc)
@@ -305,7 +307,8 @@ class StatusView(discord.ui.View):
         if recent_lines:
             embed.add_field(name="🔄 Recent Activity", value="\n".join(recent_lines), inline=False)
 
-        embed.set_footer(text=f"WXModelBot v{__version__} | *Wire latency has minute-precision error")
+        update_msg = " | Live Auto-refresh" if self.should_update else ""
+        embed.set_footer(text=f"WXModelBot v{__version__} | *Wire latency has minute-precision error{update_msg}")
         
         embeds = [embed]
 
@@ -342,10 +345,18 @@ class StatusView(discord.ui.View):
 
         return embeds
 
-    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.primary, emoji="🔄")
-    async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embeds = await self.build_embeds()
-        await interaction.response.edit_message(embeds=embeds, view=self)
+    async def start_auto_update(self):
+        """Refresh the status embed every 5s for the duration of the view timeout (5m)."""
+        while self.should_update:
+            await asyncio.sleep(5)
+            if not self.should_update:
+                break
+            try:
+                embeds = await self.build_embeds()
+                await self.message.edit(embeds=embeds, view=self)
+            except Exception:
+                self.should_update = False
+                break
 
     @discord.ui.button(label="Show Task Details", style=discord.ButtonStyle.secondary, emoji="📋")
     async def toggle_details_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -353,6 +364,24 @@ class StatusView(discord.ui.View):
         button.label = "Hide Task Details" if self.detailed else "Show Task Details"
         embeds = await self.build_embeds()
         await interaction.response.edit_message(embeds=embeds, view=self)
+
+    @discord.ui.button(label="Stop Refresh", style=discord.ButtonStyle.danger, emoji="🛑")
+    async def stop_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.should_update = False
+        for item in self.children:
+            item.disabled = True
+        await interaction.response.edit_message(view=self)
+        self.stop()
+
+    async def on_timeout(self):
+        self.should_update = False
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 
 
 class TaskMgrView(discord.ui.View):
@@ -810,7 +839,9 @@ class StatusCog(commands.Cog):
 
         view = StatusView(self.bot, interaction)
         embeds = await view.build_embeds()
-        await interaction.followup.send(embeds=embeds, view=view, ephemeral=True)
+        msg = await interaction.followup.send(embeds=embeds, view=view, ephemeral=True)
+        view.message = msg
+        asyncio.create_task(view.start_auto_update())
 
     @discord.app_commands.command(
         name="taskmgr",
