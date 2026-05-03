@@ -1,0 +1,41 @@
+# CI testing image with all dependencies pre-installed
+# Reduces test job from ~2min to ~30s by pre-building wheels and deps
+FROM python:3.13-slim-bookworm
+
+# Install system build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    libgeos-dev \
+    libproj-dev \
+    proj-bin \
+    libgdal-dev \
+    libfreetype6-dev \
+    libpng-dev \
+    libjpeg-dev \
+    zlib1g-dev \
+    libopenblas-dev \
+    liblapack-dev \
+    libffi-dev \
+    libhdf5-dev \
+    libnetcdf-dev \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_CACHE_DIR=/root/.cache/pip
+
+WORKDIR /app
+
+# Pre-install all dependencies (build wheels and install)
+COPY requirements-dev.txt .
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install -r requirements-dev.txt
+
+# Pre-warm common imports to check for import errors
+RUN python -c "import discord, aiohttp, numpy, matplotlib, metpy, cartopy; print('All imports OK')"
+
+# Default to bash; tests will mount /app and run pytest
+ENTRYPOINT ["/bin/bash"]
