@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.13.1] — 2026-05-03
+
+### Added
+- **System Documentation Wiki.** Built out a comprehensive 12-page GitHub Wiki repository covering core features, system architecture (Failover/Persistence), alerting hierarchy (NWWS-OI), and configuration.
+
+### Fixed
+- **Outlook Double-Posting.** Resolved a race condition between `auto_post_spc` and `aggressive_check_spc` that could cause the same Day 3 outlook to be posted twice. Implemented a per-day "in-flight" locking mechanism.
+- **Immediate Hash Synchronization.** Updated the image caching pipeline to synchronize hashes in memory immediately after a successful disk write, ensuring consistent state across concurrent monitoring loops.
+- **Refined Warning Bolding.** Replaced generic bolding logic with a curated list of high-signal weather keywords (`TORNADO`, `HAIL`, `WIND`, etc.) to prevent erratic bolding of structural words like `NEAR...` or `LOCATED...`.
+- **SPS Narrative Extraction.** Improved the "At..." narrative fallback for Special Weather Statements to correctly capture impact text in products lacking standard bullet points.
+
 ## [5.13.0] — 2026-05-02
 
 ### Added
