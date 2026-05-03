@@ -60,10 +60,14 @@ bot.log_handler = log_handler
 
 # Initialize HTTP latency tracking
 def _update_http_latency(l: float):
-    if bot.state.http_latency == 0:
-        bot.state.http_latency = l
-    else:
-        bot.state.http_latency = (bot.state.http_latency * 0.9) + (l * 0.1)
+    try:
+        curr = bot.state.http_latency
+        if isinstance(curr, (int, float)):
+            bot.state.http_latency = (curr * 0.9) + (l * 0.1)
+        else:
+            bot.state.http_latency = l
+    except Exception:
+        pass
 
 utils.http.set_latency_callback(_update_http_latency)
 

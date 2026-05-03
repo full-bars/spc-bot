@@ -143,7 +143,9 @@ class NWWSClient(ClientXMPP):
             try:
                 from datetime import datetime as dt_class, timezone as tz_class
                 issue_val = payload['issue'] or ts_str
-                if len(issue_val) >= 14:
+                if "T" in issue_val: # ISO8601 format: 2026-05-03T01:15:00Z
+                    issue_dt = dt_class.fromisoformat(issue_val.replace("Z", "+00:00"))
+                elif len(issue_val) >= 14:
                     issue_dt = dt_class.strptime(issue_val[:14], "%Y%m%d%H%M%S").replace(tzinfo=tz_class.utc)
                 else:
                     issue_dt = dt_class.strptime(issue_val[:12], "%Y%m%d%H%M").replace(tzinfo=tz_class.utc)
@@ -155,7 +157,7 @@ class NWWSClient(ClientXMPP):
                 else:
                     self.bot.state.nwws_latency = (self.bot.state.nwws_latency * 0.9) + (latency * 0.1)
             except Exception as e:
-                logger.debug(f"[NWWS] Latency calculation failed: {e}")
+                logger.debug(f"[NWWS] Latency calculation failed ({issue_val}): {e}")
 
             # 2. Routing Logic
             
