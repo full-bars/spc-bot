@@ -90,7 +90,7 @@ async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
             watch_num = m.group(2).zfill(4)
             wtype = "TORNADO" if m.group(1).upper() == "TO" else "SVR"
             if watch_num in result:
-                continue
+                break
             expires_dt = None
             if expires_str:
                 try:
