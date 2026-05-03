@@ -7,18 +7,74 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
+import zlib
 from lib.vad_plotter.wsr88d import build_has_name
-from utils.http import http_get_bytes, http_get_text
+from utils.http import http_get_bytes, http_get_text, circuit_breaker
 
 logger = logging.getLogger("spc_bot")
 
 _base_url = "https://tgftp.nws.noaa.gov/SL.us008001/DF.of/DC.radar/DS.48vwp/"
+_S3_BUCKET = "unidata-nexrad-level3"
+
+def _normalize_nids_bytes(raw_bytes: bytes) -> bytes:
+    """
+    Ensure the incoming bytes are raw NIDS Product 48, unwrapped and decompressed.
+    """
+    # 1. Handle Zlib compression (common on S3)
+    if b"\x78\xda" in raw_bytes[:100]:
+        try:
+            offset = raw_bytes.find(b"\x78\xda")
+            raw_bytes = zlib.decompress(raw_bytes[offset:])
+            logger.debug(f"[VAD] Decompressed payload: {len(raw_bytes)} bytes")
+        except Exception as e:
+            logger.warning(f"[VAD] Failed to decompress payload: {e}")
+
+    # 2. Locate the NIDS Message Header (Product Code 48 = 0x0030)
+    # We look for 48 (h) at the start of the Product Description Block.
+    # The standard structure we expect is:
+    # [30 bytes WMO] [18 bytes Msg Header] [12 bytes PDB prefix] [Product Code 48]
+    # Total offset to code = 30 + 18 + 12 = 60.
+    
+    # If the file is already raw from TGFTP, it should have 48 at offset 60.
+    # If it's unwrapped, it might have 48 at offset 30 (18 Msg + 12 PDB).
+    
+    found_offset = -1
+    # Scan first 200 bytes for the product code 48 (h) 
+    # to find where to anchor our 30-byte dummy WMO header.
+    for i in range(200):
+        if i + 2 <= len(raw_bytes):
+            val = struct.unpack(">h", raw_bytes[i:i+2])[0]
+            if val == 48:
+                # Potential match. Verify it's likely a PDB by checking 
+                # if the Message Code at -30 bytes is also 48.
+                if i >= 30:
+                    msg_code = struct.unpack(">h", raw_bytes[i-30:i-30+2])[0]
+                    if msg_code == 48:
+                        found_offset = i
+                        break
+    
+    if found_offset != -1:
+        # We want the message to start 60 bytes BEFORE the PDB product code
+        # (30 WMO + 18 Msg Header + 12 PDB prefix).
+        # We will strip whatever is there and prepend exactly 30 dummy bytes 
+        # so the existing _read_headers (which skips 30) works perfectly.
+        nids_start = found_offset - 30 # Start of Message Header
+        payload = raw_bytes[nids_start:]
+        return b"A" * 30 + payload
+        
+    return raw_bytes
 
 class VADFile(object):
     fields = ['wind_dir', 'wind_spd', 'rms_error', 'divergence', 'slant_range', 'elev_angle']
 
-    def __init__(self, file):
-        self._rpg = file
+    def __init__(self, file_or_bytes):
+        if isinstance(file_or_bytes, (bytes, bytearray)):
+            data = file_or_bytes
+        else:
+            data = file_or_bytes.read()
+            
+        normalized = _normalize_nids_bytes(data)
+        self._rpg = BytesIO(normalized)
         self._data = None
 
         self._read_headers()
@@ -248,78 +304,173 @@ class VADFile(object):
         for key, val in zip(keys, vals):
             self._data[key] = np.append(val, self._data[key])
 
-async def find_file_times(rid):
-    url = "%s/SI.%s/" % (_base_url, rid.lower())
+import aioboto3
+import botocore
+from botocore.config import Config
 
-    file_text = await http_get_text(url)
-    if not file_text:
-        return []
-
-    file_list = re.findall("([\w]{3} [\d]{1,2} [\d]{2}:[\d]{2}) (sn.[\d]{4})", file_text)
-    if not file_list:
-        return []
+async def _list_s3_vad_times(rid: str) -> list:
+    """List recent VAD files from S3 for a site."""
+    rid_upper = rid.upper()
+    # The S3 bucket is alphabetical. We'll try the current day first.
+    now = datetime.now(timezone.utc)
+    prefix = f"{rid_upper}_NVW_{now.strftime('%Y_%m_%d')}"
     
-    file_times, file_names = list(zip(*file_list))
-    file_names = list(file_names)
+    session = aioboto3.Session()
+    try:
+        async with session.client(
+            "s3",
+            config=Config(signature_version=botocore.UNSIGNED),
+            region_name="us-east-1"
+        ) as s3:
+            response = await s3.list_objects_v2(Bucket=_S3_BUCKET, Prefix=prefix)
+            if "Contents" not in response:
+                # Try yesterday just in case (UTC day rollover)
+                yesterday = now - timedelta(days=1)
+                prefix_y = f"{rid_upper}_NVW_{yesterday.strftime('%Y_%m_%d')}"
+                response = await s3.list_objects_v2(Bucket=_S3_BUCKET, Prefix=prefix_y)
+            
+            if "Contents" not in response:
+                return []
+            
+            results = []
+            for obj in response["Contents"]:
+                key = obj["Key"]
+                # Key format: SSS_NVW_YYYY_MM_DD_HH_MM_SS
+                try:
+                    ts_str = "_".join(key.split("_")[2:])
+                    ts = datetime.strptime(ts_str, "%Y_%m_%d_%H_%M_%S").replace(tzinfo=timezone.utc)
+                    results.append((key, ts))
+                except:
+                    continue
+            
+            # Sort newest first
+            return sorted(results, key=lambda x: x[1], reverse=True)
+    except Exception as e:
+        logger.warning(f"[VAD] S3 listing failed for {rid}: {e}")
+        return []
 
-    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
-    year = now_utc.year
-    file_dts = []
-    for ft in file_times:
-        ft_dt = datetime.strptime("%d %s" % (year, ft), "%Y %b %d %H:%M")
-        if ft_dt > now_utc:
-            ft_dt = datetime.strptime("%d %s" % (year - 1, ft), "%Y %b %d %H:%M")
+async def find_file_times(rid):
+    host = "tgftp.nws.noaa.gov"
+    
+    # Try TGFTP if circuit is closed
+    if not circuit_breaker.is_open(host):
+        url = "%s/SI.%s/" % (_base_url, rid.lower())
+        try:
+            file_text = await http_get_text(url, timeout=10)
+            if file_text:
+                file_list = re.findall("([\w]{3} [\d]{1,2} [\d]{2}:[\d]{2}) (sn.[\d]{4})", file_text)
+                if file_list:
+                    file_times, file_names = list(zip(*file_list))
+                    file_names = list(file_names)
 
-        file_dts.append(ft_dt)
+                    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+                    year = now_utc.year
+                    file_dts = []
+                    for ft in file_times:
+                        ft_dt = datetime.strptime("%d %s" % (year, ft), "%Y %b %d %H:%M")
+                        if ft_dt > now_utc:
+                            ft_dt = datetime.strptime("%d %s" % (year - 1, ft), "%Y %b %d %H:%M")
 
-    file_list = list(zip(file_names, file_dts))
-    file_list.sort(key=lambda fl: fl[1])
+                        file_dts.append(ft_dt)
 
-    file_names, file_dts = list(zip(*file_list))
-    file_names = list(file_names)
+                    file_list = list(zip(file_names, file_dts))
+                    file_list.sort(key=lambda fl: fl[1])
 
-    file_names[:-1] = file_names[1:]
-    file_names[-1] = 'sn.last'
+                    file_names, file_dts = list(zip(*file_list))
+                    file_names = list(file_names)
 
-    return list(zip(file_names, file_dts))[::-1]
+                    file_names[:-1] = file_names[1:]
+                    file_names[-1] = 'sn.last'
+
+                    return list(zip(file_names, file_dts))[::-1]
+        except Exception as e:
+            logger.warning(f"[VAD] TGFTP listing failed for {rid}, recording failure: {e}")
+            circuit_breaker.record_failure(host)
+
+    # Fallback to S3
+    logger.info(f"[VAD] Falling back to S3 listing for {rid}")
+    return await _list_s3_vad_times(rid)
 
 async def download_vad(rid, time=None, file_id=None, cache_path=None):
-    if time is None:
-        if file_id is None:
-            url = "%s/SI.%s/sn.last" % (_base_url, rid.lower())
+    host = "tgftp.nws.noaa.gov"
+    content = None
+    status = None
+    
+    # Attempt TGFTP if circuit is closed
+    if not circuit_breaker.is_open(host):
+        if time is None:
+            if file_id is None:
+                url = "%s/SI.%s/sn.last" % (_base_url, rid.lower())
+            else:
+                url = "%s/SI.%s/sn.%04d" % (_base_url, rid.lower(), file_id)
         else:
-            url = "%s/SI.%s/sn.%04d" % (_base_url, rid.lower(), file_id)
-    else:
-        file_name = ""
-        times = await find_file_times(rid)
-        for fn, ft in times:
-            if ft <= time:
-                file_name = fn
-                break
+            file_name = ""
+            times = await find_file_times(rid)
+            # Filter for TGFTP filenames (sn.*)
+            tgftp_times = [(fn, ft) for fn, ft in times if isinstance(fn, str) and fn.startswith("sn.")]
+            for fn, ft in tgftp_times:
+                # Ensure ft is naive for comparison if needed
+                ft_naive = ft.replace(tzinfo=None) if ft.tzinfo else ft
+                time_naive = time.replace(tzinfo=None) if time.tzinfo else time
+                if ft_naive <= time_naive:
+                    file_name = fn
+                    break
 
-        if file_name == "":
-            raise ValueError("No VAD files before %s." % time.strftime("%d %B %Y %H%M UTC"))
+            if file_name:
+                url = "%s/SI.%s/%s" % (_base_url, rid.lower(), file_name)
+            else:
+                url = None
 
-        url = "%s/SI.%s/%s" % (_base_url, rid.lower(), file_name)
+        if url:
+            try:
+                content, status = await http_get_bytes(url, retries=1, timeout=10)
+                if status == 200 and content:
+                    circuit_breaker.record_success(host)
+                else:
+                    logger.warning(f"[VAD] TGFTP fetch status {status} for {rid}")
+                    circuit_breaker.record_failure(host)
+            except Exception as e:
+                logger.warning(f"[VAD] TGFTP fetch exception for {rid}: {e}")
+                circuit_breaker.record_failure(host)
 
-    try:
-        content, status = await http_get_bytes(url, retries=2, timeout=10)
-        if status != 200 or not content:
-            raise ValueError("Could not find radar site '%s' (status %s)" % (rid.upper(), status))
+    # Fallback to S3 if TGFTP failed or circuit was open
+    if not content:
+        logger.info(f"[VAD] Fetching from S3 fallback for {rid}")
+        s3_times = await _list_s3_vad_times(rid)
+        if not s3_times:
+            raise ValueError(f"Could not find VAD data for {rid} on TGFTP or S3")
         
-        frem = BytesIO(content)
-    except Exception as e:
-        if "radar site" in str(e):
-            raise
-        raise ValueError("Could not fetch VAD data for '%s': %s" % (rid.upper(), e))
+        target_key = None
+        if time:
+            time_utc = time.replace(tzinfo=timezone.utc) if not time.tzinfo else time
+            for key, ts in s3_times:
+                if ts <= time_utc:
+                    target_key = key
+                    break
+        else:
+            target_key = s3_times[0][0] # Latest
+            
+        if not target_key:
+             raise ValueError(f"No VAD files before {time} found on S3 for {rid}")
+             
+        session = aioboto3.Session()
+        try:
+            async with session.client(
+                "s3",
+                config=Config(signature_version=botocore.UNSIGNED),
+                region_name="us-east-1"
+            ) as s3:
+                resp = await s3.get_object(Bucket=_S3_BUCKET, Key=target_key)
+                content = await resp["Body"].read()
+        except Exception as e:
+            raise ValueError(f"Failed to fetch VAD from S3 ({target_key}): {e}")
 
-    if cache_path is None:
-        vad = VADFile(frem)
-    else:
-        vad = VADFile(frem)
-
-        iname = build_has_name(rid, vad['time'])
-        with open("%s/%s" % (cache_path, iname), 'wb') as floc:
-            floc.write(content)
-
-    return vad
+    if content:
+        vad = VADFile(content)
+        if cache_path:
+            iname = build_has_name(rid, vad['time'])
+            with open("%s/%s" % (cache_path, iname), 'wb') as floc:
+                floc.write(content)
+        return vad
+        
+    raise ValueError(f"VAD data unavailable for {rid}")
