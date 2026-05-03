@@ -278,3 +278,46 @@ async def test_resync_pushes_sqlite_contents_to_upstash(isolated_db, monkeypatch
     cmds = [c[0] for c in calls]
     assert "SADD" in cmds
     assert "HSET" in cmds
+
+# ── Core Logic (Migrated from test_db.py) ──────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_set_hash_conflict_update(isolated_db, upstash_mock):
+    # Simulate Upstash being down so we test the authoritative SQLite logic
+    async def _fail(*args): raise state_store._UpstashUnavailable("down")
+    upstash_mock.side_effect = _fail
+    
+    await state_store.set_hash("https://example.com/a.png", "first", "auto")
+    await state_store.set_hash("https://example.com/a.png", "second", "auto")
+    
+    # Bypass cache to check SQLite
+    state_store._cache.clear()
+    assert await state_store.get_all_hashes("auto") == {"https://example.com/a.png": "second"}
+
+@pytest.mark.asyncio
+async def test_set_hashes_batch_and_get(isolated_db, upstash_mock):
+    async def _fail(*args): raise state_store._UpstashUnavailable("down")
+    upstash_mock.side_effect = _fail
+    
+    payload = {f"https://x/{i}": f"h{i}" for i in range(5)}
+    await state_store.set_hashes_batch(payload, "auto")
+    
+    state_store._cache.clear()
+    stored = await state_store.get_all_hashes("auto")
+    assert stored == payload
+
+@pytest.mark.asyncio
+async def test_add_posted_md_is_idempotent(isolated_db, upstash_mock):
+    async def _fail(*args): raise state_store._UpstashUnavailable("down")
+    upstash_mock.side_effect = _fail
+    
+    await state_store.add_posted_md("0100")
+    await state_store.add_posted_md("0100")
+    
+    state_store._cache.clear()
+    assert await state_store.get_posted_mds() == {"0100"}
+
+@pytest.mark.asyncio
+async def test_product_cache_respects_ttl(isolated_db, upstash_mock):
+    await state_store.set_product_cache("prod_2", "stale", ttl=-1)
+    assert await state_store.get_product_cache("prod_2") is None
