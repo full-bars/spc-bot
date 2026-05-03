@@ -2,8 +2,9 @@ name: Build and Push CI Image
 
 on:
   schedule:
-    # Build daily (2am UTC) to keep deps current and apply security patches quickly
-    - cron: '2 2 * * *'
+    # Build daily (7am UTC) to keep deps current and apply security patches quickly
+    # Scheduled for minimal disruption during active coding hours
+    - cron: '2 7 * * *'
   push:
     branches: [main]
     paths:
