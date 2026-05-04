@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.15.0] — 2026-05-04
+
+### Added
+- **Discord Gateway Geolocation.** Status dashboard now displays the geographic location and IP address of the Discord gateway the bot is connected to, enabling real-time server affinity monitoring.
+- **NWWS Message Throughput Tracking.** Added real-time measurement of inbound NWWS firehose message rates (messages/second), with 5-second rolling windows and 70/30 weighted averaging for smooth updates.
+- **HTTP Latency Metric.** Added HTTP request latency to the Connectivity section of `/status` for monitoring external API response times.
+
+### Fixed
+- **Archived Message Detection.** Fixed throughput tracking not populating due to incorrect XMPP delay element detection. Now properly distinguishes real-time messages from archived room history by comparing delay timestamps (>10 seconds = archived).
+- **NWWS Latency Measurement.** Corrected latency calculation to measure from product issue timestamp to bot reception, not from issue to current time.
+
 ## [5.14.1] — 2026-05-03
 
 ### Added
