@@ -157,6 +157,7 @@ class NWWSClient(ClientXMPP):
                 self.bot.state.nwws_last_window_time = now
                 # Set initial throughput estimate after first message
                 self.bot.state.nwws_throughput = 0.2  # Conservative initial estimate
+                logger.info("[NWWS] First realtime message received, throughput tracking started")
             else:
                 elapsed = (now - self.bot.state.nwws_last_window_time).total_seconds()
                 if elapsed >= 5:
@@ -167,9 +168,13 @@ class NWWSClient(ClientXMPP):
                     else:
                         # 70/30 rolling average: favor recent data
                         self.bot.state.nwws_throughput = (self.bot.state.nwws_throughput * 0.7) + (throughput * 0.3)
+                    logger.debug(f"[NWWS] Throughput update: {self.bot.state.nwws_throughput:.2f} msg/s ({self.bot.state.nwws_msg_count} in {elapsed:.1f}s)")
                     # Reset window
                     self.bot.state.nwws_msg_count = 0
                     self.bot.state.nwws_last_window_time = now
+        else:
+            # Log archived messages separately to understand reconnection behavior
+            logger.debug(f"[NWWS] Skipping archived message ({payload['awipsid']})")
 
         # Capture receive timestamp for accurate wire latency measurement
         from datetime import datetime as dt_class, timezone as tz_class
