@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.14.0] — 2026-05-03
+
+### Added
+- **Automated VAD Forensics Recorder.** Introduced a persistent background recording system for `OBSERVED` tornado warnings. Captures 1h lead-up + 90m evolution GIFs of the vertical wind environment automatically.
+- **Environmental Database.** Expanded the significant events archive to store calculated 0-1km SRH and animated evolution links, creating a permanent meteorological record of every observed tornado.
+- **AWS S3 VAD Fallback.** Implemented a high-availability secondary data source for NEXRAD Level 3 Product 48 (VWP) via the Unidata-NODD S3 bucket.
+- **Interactive Forensics UI.** Added dynamic "View Environmental Evolution" buttons to tornado warnings and a searchable `/archive` command for historical environmental discovery.
+
+### Changed
+- **Stateless Polling Architecture.** Major refactor of watch, MD, and warning polling to utilize the persistent `state_store`. Bot can now resume missions and deduplicate alerts seamlessly after restarts or failover.
+- **Global Radar Dataset.** Synchronized a master 208-site radar list (NEXRAD + TDWR) with static coordinates bot-wide.
+- **Background Rendering Pool.** Offloaded GIF and image generation to a dedicated `ProcessPoolExecutor` to ensure near-zero impact on the primary Discord event loop.
+
+### Fixed
+- **TGFTP Reliability.** Integrated a `CircuitBreaker` that automatically fails over to S3 when NWS servers return 403s or timeouts.
+- **Multi-Event Linkage.** Improved the recorder logic to group overlapping warnings by radar site, creating unified evolution timelines for outbreak events.
+- **VAD Parser Robustness.** Updated the binary VWP parser to be wrapper-agnostic, handling Zlib compression and NWS-internal distribution headers found on S3.
+
 ## [5.13.1] — 2026-05-03
 
 ### Added

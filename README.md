@@ -25,6 +25,7 @@ A sophisticated severe weather monitoring platform featuring real-time warning l
 | Update Pipeline | Real-time tracking of warning status changes (`CON`, `EXT`, `EXA`); automatically posts concise updates for storms changing intensity or moving into new counties; includes full support for Severe Weather Statements (`SVS`) and Flash Flood Statements (`FFS`) |
 | Tornado Dashboard | Single-card, chronological dashboard for `/recenttornadoes` and `/sigtor` with EF-rating distinctions, warning-to-report **Lead Time** tracking, and [Tornado Archive](https://tornadoarchive.com/) integration |
 | Tornado Surveys | DAMAGE SURVEY PNS detection; Autoplot 253 tornado-track maps; automatic linking to [NWS Damage Assessment Toolkit (DAT)](https://apps.dat.noaa.gov/stormdamage/damageviewer/) tracks with an interactive **Photo Carousel** of official damage photos |
+| VAD Forensics | **(New)** Automated 2.5h environmental evolution GIFs for `OBSERVED` tornado warnings; persistent DB-backed SRH archival and searchable forensics gallery |
 
 ### Soundings & Analytics
 | Feature | Details |
@@ -32,8 +33,8 @@ A sophisticated severe weather monitoring platform featuring real-time warning l
 | `/sounding` | Observed RAOB plots via SounderPy; supports city names, radar codes, and station IDs with interactive time selection |
 | Watch-triggered soundings | Auto-posts soundings for RAOB stations near active watches — on issuance (any hour via IEM) and at 00z/12z synoptic cycles |
 | MDT/HIGH risk sweep | On Moderate or High Risk days sweeps every RAOB station and ACARS airport inside the categorical polygon (100 km buffer) as new soundings arrive |
-| `/hodograph` | VWP hodograph for any of 200 NEXRAD/TDWR sites; auto ASOS surface wind and storm parameter table |
-| Analytics Cog | Comprehensive suite including `/topstats` (leaderboards), `/verify` (storm-based warning metrics via IEM Cow), `/riskmap` (historical risk frequency), `/dayssince`, and `/tornadoheatmap` |
+| `/hodograph` | VWP hodograph for any of 208 NEXRAD/TDWR sites; auto ASOS surface wind and storm parameter table; high-availability S3 fallback |
+| `/archive` | **(New)** Searchable directory of recorded environmental forensics (GIFs + Peak SRH) indexed by radar and date |
 | Radar Downloader | NEXRAD Level 2 from NOAA AWS S3 — single or multi-site ZIPs; Z-to-Z range, start+duration, explicit datetime, or N most recent files |
 
 ### System
