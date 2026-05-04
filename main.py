@@ -17,7 +17,7 @@ from utils.http import CircuitOpenError
 from utils.state_store import (
     check_integrity, close_db, get_db,
     get_all_hashes, get_posted_urls, get_posted_mds, get_posted_watches,
-    get_posted_reports,
+    get_posted_reports, get_all_posted_warnings,
     get_state,
 )
 from utils.cache import hydrate_validators_from_store
@@ -97,10 +97,20 @@ async def setup_hook():
         get_posted_urls("day2"),
         get_posted_urls("day3"),
         get_state("iembot_last_seqnum"),
+        get_state("iembot_botstalk_last_seqnum"),
+        get_all_posted_warnings(),
         return_exceptions=True
     )
     
-    db_auto, db_manual, db_mds, db_watches, db_reports, csu_raw, d1_urls, d2_urls, d3_urls, last_seq = results
+    db_auto, db_manual, db_mds, db_watches, db_reports, csu_raw, d1_urls, d2_urls, d3_urls, last_seq, last_botstalk, db_warnings = results
+
+    if isinstance(last_botstalk, str):
+        bot.state.iembot_botstalk_last_seqnum = int(last_botstalk)
+        logger.info(f"[DB] Restored last botstalk seqnum {last_botstalk}")
+
+    if isinstance(db_warnings, dict):
+        bot.state.posted_warnings.update(db_warnings)
+        logger.info(f"[DB] Restored {len(db_warnings)} posted warnings into cache")
 
     if isinstance(last_seq, str):
         bot.state.iembot_last_seqnum = int(last_seq)

@@ -1,5 +1,6 @@
 # cogs/mesoscale.py
 import asyncio
+import json as _json
 import html as _html
 import logging
 import os
@@ -18,17 +19,18 @@ from utils.cache import (
 )
 from utils.change_detection import get_cache_path_for_url
 from utils.http import http_get_bytes, http_get_text, http_head_meta
-from utils.state_store import add_posted_md, prune_posted_mds
+from utils.state_store import add_posted_md, get_state, prune_posted_mds, set_state
 
 logger = logging.getLogger("spc_bot")
 
-_md_index_head: Dict[str, str] = {}
-_md_index_unreachable: bool = False
+_md_index_head: Optional[Dict[str, str]] = None
+_md_index_unreachable: Optional[bool] = None
 
 _MD_NUMBER_RE = re.compile(r"MESOSCALE DISCUSSION\s+(\d+)", re.IGNORECASE)
 _MD_HREF_RE = re.compile(r'href="(?:/products/md/)?md(\d+)\.html"', re.IGNORECASE)
 _ACUS_SPLIT_RE = re.compile(r"(?m)^ACUS11 KWNS\s+\d{6}")
 _CONCERNING_RE = re.compile(r"(CONCERNING[^\n<]{10,120})", re.IGNORECASE)
+
 
 async def fetch_latest_md_numbers(fresh: bool = False) -> Tuple[Optional[List[str]], bool]:
     """
@@ -39,50 +41,56 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> Tuple[Optional[List[st
     Returns:
         (md_numbers, is_fallback)
     """
-    global _md_index_head
+    global _md_index_head, _md_index_unreachable
     logger.debug(f"[MD] Fetching MD numbers (fresh={fresh})")
+
+    # 1. Load persistent state on first run
+    if _md_index_head is None:
+        raw_head = await get_state("md_index_head")
+        _md_index_head = _json.loads(raw_head) if raw_head else {}
+    
+    if _md_index_unreachable is None:
+        raw_unreach = await get_state("md_index_unreachable")
+        _md_index_unreachable = (raw_unreach == "true") if raw_unreach else False
 
     if not fresh:
         meta = await http_head_meta(SPC_MD_INDEX_URL)
         if meta is not None and _md_index_head:
-            # Require ALL non-empty validators to match. OR was too loose —
-            # if content_length happened to line up while the page actually
-            # changed, we'd silently drop the new MD.
+            # Require ALL non-empty validators to match.
             checks = []
             for key in ("etag", "last_modified", "content_length"):
                 if meta.get(key):
                     checks.append(meta[key] == _md_index_head.get(key))
             if checks and all(checks):
                 logger.debug("[MD] Index unchanged (HEAD match)")
-                return None, False  # None → caller skips cycle entirely (no cancellations, no new-MD scan)
+                return None, False
         if meta:
             _md_index_head.update(meta)
+            await set_state("md_index_head", _json.dumps(_md_index_head))
     else:
         # Clear the cached HEAD info if fresh is requested
         _md_index_head = {}
+        await set_state("md_index_head", "{}")
 
     logger.debug(f"[MD] Requesting SPC index: {SPC_MD_INDEX_URL}")
     html = await http_get_text(SPC_MD_INDEX_URL)
 
-    global _md_index_unreachable
     # If SPC is unreachable, try to scrape from IEM
     if not html:
         logger.warning("[MD] SPC index HTML empty/failed, falling back to IEM")
         if not _md_index_unreachable:
             logger.warning("[MD] SPC index unreachable — falling back to IEM for active MD list")
             _md_index_unreachable = True
+            await set_state("md_index_unreachable", "true")
         try:
             # Fetch the raw text of SWOMCD products from the last 24 hours
-            # Format: YYYY-MM-DD HH:MM
             sts = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M")
             url = f"https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=SWOMCD&limit=10&sdate={sts}"
             
             text = await http_get_text(url, retries=2, timeout=15)
             if text:
-                # Find all discussion numbers in the concatenated text block.
-                # Since we filtered by sdate, everything in the response is recent.
                 md_nums = set()
-                matches = re.findall(r"MESOSCALE DISCUSSION\s+(\d+)", text, re.IGNORECASE)
+                matches = _MD_NUMBER_RE.findall(text)
                 for m in matches:
                     md_nums.add(m.zfill(4))
                 
@@ -93,16 +101,14 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> Tuple[Optional[List[st
         except Exception as e:
             logger.exception(f"[MD] IEM fallback for index failed: {e}")
         
-        # If both failed, return None to signal a fetch failure rather than an empty index
         return None, True
 
     if _md_index_unreachable:
         logger.info("[MD] SPC index reachable again")
         _md_index_unreachable = False
+        await set_state("md_index_unreachable", "false")
 
-    numbers = re.findall(
-        r'href="(?:/products/md/)?md(\d+)\.html"', html, re.IGNORECASE
-    )
+    numbers = _MD_HREF_RE.findall(html)
     seen = set()
     result = []
     for n in numbers:
