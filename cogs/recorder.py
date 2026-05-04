@@ -1,24 +1,26 @@
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Set
+from datetime import datetime, timezone
+from typing import Dict, Set
 import os
+import concurrent.futures
+from PIL import Image
 
-import discord
 from discord.ext import commands, tasks
 
 from lib.vad_plotter.vad_reader import download_vad, find_file_times
-from lib.vad_plotter.wsr88d import build_has_name
 from config import CACHE_DIR
 
 logger = logging.getLogger("spc_bot")
 
 RECORDING_DIR = os.path.join(CACHE_DIR, "vad_recordings")
+ARCHIVE_DIR = os.path.join(CACHE_DIR, "event_archive")
 
 class VADRecordingMission:
-    def __init__(self, site_id: str, trigger_ts: float):
+    def __init__(self, site_id: str, trigger_ts: float, event_id: str = None):
         self.site_id = site_id
         self.trigger_ts = trigger_ts
+        self.event_id = event_id # Links to significant_events
         self.start_ts = trigger_ts - (60 * 60) # 1h lookback
         self.end_ts = trigger_ts + (90 * 60)   # 90m follow-up
         self.processed_timestamps: Set[float] = set()
@@ -36,21 +38,24 @@ class RecorderCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.active_missions: Dict[str, VADRecordingMission] = {}
+        self.executor = concurrent.futures.ProcessPoolExecutor(max_workers=3)
         
-        # Ensure base recording dir exists
+        # Ensure directories exist
         os.makedirs(RECORDING_DIR, exist_ok=True)
+        os.makedirs(ARCHIVE_DIR, exist_ok=True)
         
         self.recorder_loop.start()
 
     def cog_unload(self):
         self.recorder_loop.cancel()
+        self.executor.shutdown(wait=False)
 
-    def start_mission(self, site_id: str, trigger_ts: float):
+    def start_mission(self, site_id: str, trigger_ts: float, event_id: str = None):
         if site_id in self.active_missions:
             self.active_missions[site_id].extend(trigger_ts)
         else:
-            self.active_missions[site_id] = VADRecordingMission(site_id, trigger_ts)
-            logger.info(f"[RECORDER] Started NEW mission for {site_id}")
+            self.active_missions[site_id] = VADRecordingMission(site_id, trigger_ts, event_id)
+            logger.info(f"[RECORDER] Started NEW mission for {site_id} (Event: {event_id})")
 
     @tasks.loop(minutes=5)
     async def recorder_loop(self):
@@ -92,19 +97,12 @@ class RecorderCog(commands.Cog):
                 if mission_start <= dt_utc <= mission_end and ts not in mission.processed_timestamps:
                     # Download and save to mission dir
                     try:
-                        vad = await download_vad(mission.site_id, time=dt_utc)
-                        if vad:
-                            # The vad_reader saves to cache_path if provided, but we want 
-                            # specific control here for the recording mission.
-                            # We'll re-save the content to our mission dir.
-                            # (Actually, download_vad returns a VADFile object)
-                            
-                            # For simplicity in v1, we'll just re-fetch the raw bytes 
-                            # or modify download_vad to return them.
-                            # Let's just use the build_has_name to save it.
-                            filename = build_has_name(mission.site_id, dt_utc)
-                            # ... (fetch and save logic)
-                            mission.processed_timestamps.add(ts)
+                        # We use the raw fetcher to get bytes
+                        # download_vad in its latest version returns a VADFile object
+                        # but also handles caching if path is provided.
+                        await download_vad(mission.site_id, time=dt_utc, cache_path=mission.dir)
+                        mission.processed_timestamps.add(ts)
+                        logger.debug(f"[RECORDER] Saved scan for {mission.site_id} @ {dt_utc}")
                     except Exception as e:
                         logger.warning(f"[RECORDER] Failed to fetch {mission.site_id} @ {dt_utc}: {e}")
                         
@@ -112,10 +110,93 @@ class RecorderCog(commands.Cog):
             logger.error(f"[RECORDER] Step failed for {mission.site_id}: {e}")
 
     async def _finalize_mission(self, mission: VADRecordingMission):
-        """Build the GIF and archive the metadata."""
+        """Build the evolution GIF and cleanup."""
         logger.info(f"[RECORDER] Finalizing mission for {mission.site_id}...")
-        # GIF logic will go here in Phase 3
-        pass
+        
+        # 1. Get all saved .has files in the mission directory
+        files = [f for f in os.listdir(mission.dir) if f.endswith(".has")]
+        if not files:
+            logger.warning(f"[RECORDER] No data saved for mission {mission.site_id}. Skipping GIF.")
+            return
+
+        # Sort by timestamp (build_has_name format ensures sortability usually)
+        files.sort()
+        
+        # 2. Render each frame using the existing matplotlib logic
+        # We run this in our process pool to avoid blocking the bot
+        frame_paths = []
+        try:
+            loop = asyncio.get_running_loop()
+            for filename in files:
+                input_path = os.path.join(mission.dir, filename)
+                output_path = os.path.join(mission.dir, f"{filename}.png")
+                
+                # Execute existing vad.py as a subprocess or function call in pool
+                # For now, we'll use a wrapper that calls the stable plotting logic
+                await loop.run_in_executor(self.executor, self._render_frame_worker, input_path, output_path, mission.site_id)
+                frame_paths.append(output_path)
+            
+            # 3. Stitch into GIF
+            if frame_paths:
+                gif_name = f"{mission.site_id}_{int(mission.trigger_ts)}_evolution.gif"
+                gif_path = os.path.join(ARCHIVE_DIR, gif_name)
+                
+                frames = [Image.open(f) for f in frame_paths]
+                frames[0].save(
+                    gif_path,
+                    format="GIF",
+                    append_images=frames[1:],
+                    save_all=True,
+                    duration=200, # 200ms per frame
+                    loop=0
+                )
+                
+                logger.info(f"[RECORDER] Created evolution GIF: {gif_path}")
+                
+                # 4. Calculate Peak SRH for the mission
+                peak_srh = 0.0
+                try:
+                    import numpy as np
+                    from lib.vad_plotter.vad_reader import VADFile
+                    from lib.vad_plotter.met_engine import vec2comp, storm_motion_bunkers, storm_relative_helicity
+                    for filename in files:
+                        with open(os.path.join(mission.dir, filename), 'rb') as f:
+                            vad = VADFile(f)
+                        u, v = vec2comp(vad['wind_dir'], vad['wind_spd'])
+                        sm = storm_motion_bunkers(u, v, vad['altitude'])
+                        srh = storm_relative_helicity(u, v, vad['altitude'], 0, 1.0, *sm['right'])
+                        if not np.isnan(srh):
+                            peak_srh = max(peak_srh, srh)
+                except Exception as e:
+                    logger.warning(f"[RECORDER] Could not calculate peak SRH: {e}")
+
+                # 5. Update DB
+                if mission.event_id:
+                    from utils.events_db import update_event_environment
+                    await update_event_environment(mission.event_id, gif_path, peak_srh)
+
+                # 6. Cleanup raw data
+                import shutil
+                shutil.rmtree(mission.dir)
+                logger.info(f"[RECORDER] Cleaned up temporary data for {mission.site_id}")
+        except Exception as e:
+            logger.error(f"[RECORDER] Finalization failed for {mission.site_id}: {e}")
+
+    @staticmethod
+    def _render_frame_worker(input_path, output_path, rid):
+        """Worker function to render a single hodograph frame using matplotlib."""
+        from lib.vad_plotter.vad_reader import VADFile
+        from lib.vad_plotter.plot import plot_vad
+        try:
+            with open(input_path, 'rb') as f:
+                vad = VADFile(f)
+            
+            # Use the existing stable plot function
+            plot_vad(vad, rid, output_path, web=False, fixed=True)
+            return True
+        except Exception as e:
+            print(f"Frame render failed: {e}")
+            return False
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(RecorderCog(bot))

@@ -1225,8 +1225,8 @@ class WarningsCog(commands.Cog):
                     if radar_id:
                         recorder = self.bot.get_cog("RecorderCog")
                         if recorder:
-                            recorder.start_mission(radar_id, time.time())
-                            logger.info(f"[WARN] Triggered VAD recorder for {radar_id} near {lat:.2f}, {lon:.2f}")
+                            recorder.start_mission(radar_id, time.time(), event_id=event_id)
+                            logger.info(f"[WARN] Triggered VAD recorder for {radar_id} near {lat:.2f}, {lon:.2f} (Event: {event_id})")
             except Exception as e:
                 logger.warning(f"[WARN] Failed to trigger VAD recorder for {vtec_id}: {e}")
 
