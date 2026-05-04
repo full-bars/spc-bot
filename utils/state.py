@@ -147,9 +147,14 @@ class BotState:
         self.iembot_ping: Optional[float] = None
 
         # NWWS message throughput tracking (messages per second, rolling average)
-        self.nwws_msg_count: int = 0  # message count in current window
+        self.nwws_msg_count: int = 0
         self.nwws_last_window_time: Optional[datetime] = None
-        self.nwws_throughput: Optional[float] = None  # messages/sec (rolling average)
+        self.nwws_throughput: Optional[float] = None
+
+        # Discord gateway tracking
+        self.discord_gateway_url: Optional[str] = None
+        self.discord_gateway_ip: Optional[str] = None
+        self.discord_gateway_location: Optional[str] = None
 
         self.hashes = HashStore()
         self.posting = PostingLog()
