@@ -61,38 +61,38 @@ async def resolve_gateway_ip(gateway_url: Optional[str]) -> Optional[str]:
 
 
 async def geolocate_ip(ip: Optional[str]) -> Optional[str]:
-    """Get geolocation for an IP address."""
+    """Get geolocation for an IP address using ipinfo.io."""
     if not ip:
         return None
 
     try:
         async with aiohttp.ClientSession() as session:
-            # Using ip-api.com free tier (rate limited but no key required)
+            # Use ipinfo.io (fast, reliable, no auth required)
             async with session.get(
-                f'http://ip-api.com/json/{ip}?fields=city,regionName,country',
-                timeout=aiohttp.ClientTimeout(total=5)
+                f'https://ipinfo.io/{ip}/json',
+                timeout=aiohttp.ClientTimeout(total=10)
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    if data.get('status') == 'success':
-                        city = data.get('city', '')
-                        region = data.get('regionName', '')
-                        country = data.get('country', '')
+                    city = data.get('city', '')
+                    region = data.get('region', '')
+                    country = data.get('country', '')
 
-                        # Format the location string
-                        parts = []
-                        if city:
-                            parts.append(city)
-                        if region and region != city:
-                            parts.append(region)
-                        if country:
-                            parts.append(country)
+                    # Format the location string
+                    parts = []
+                    if city:
+                        parts.append(city)
+                    if region and region != city:
+                        parts.append(region)
+                    if country:
+                        parts.append(country)
 
-                        return ', '.join(parts) if parts else None
+                    if parts:
+                        return ', '.join(parts)
     except asyncio.TimeoutError:
-        logger.debug("Gateway geolocation lookup timed out")
+        logger.debug(f"Gateway geolocation lookup timed out for {ip}")
     except Exception as e:
-        logger.debug(f"Could not geolocate gateway IP: {e}")
+        logger.debug(f"Could not geolocate gateway IP {ip}: {e}")
 
     return None
 
