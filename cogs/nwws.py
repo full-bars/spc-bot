@@ -116,11 +116,11 @@ class NWWSClient(ClientXMPP):
         # The specification says weather products arrive as 'groupchat' messages
         # from the room.
         msg_type = msg['type']
-        
+
         # Extract the custom NWWS-OI payload
         payload = msg['nwws']
         raw_text = payload.xml.text.strip() if payload.xml is not None and payload.xml.text else ""
-        
+
         # If no custom payload, check body (for MOTD or other messages)
         body = msg['body']
 
@@ -141,16 +141,47 @@ class NWWSClient(ClientXMPP):
         if not raw_text or not payload['awipsid']:
             return
 
-        # Route to processing
-        asyncio.create_task(self._process_nwws_message(payload, raw_text))
+        # Check for archived message (XEP-0203 delay element).
+        # When reconnecting to an XMPP MUC, we receive archived messages from room history.
+        # These should not affect realtime throughput statistics.
+        is_archived = msg.get('delay') is not None
 
-    async def _process_nwws_message(self, payload: NWWSPayload, raw_text: str):
+        # Track NWWS message throughput for real-time messages
+        if not is_archived:
+            from datetime import datetime as dt_class, timezone as tz_class
+            now = dt_class.now(tz_class.utc)
+            self.bot.state.nwws_msg_count += 1
+
+            # Reset window every 10 seconds
+            if self.bot.state.nwws_last_window_time is None:
+                self.bot.state.nwws_last_window_time = now
+            else:
+                elapsed = (now - self.bot.state.nwws_last_window_time).total_seconds()
+                if elapsed >= 10:
+                    # Calculate throughput and update rolling average
+                    throughput = self.bot.state.nwws_msg_count / elapsed
+                    if self.bot.state.nwws_throughput is None:
+                        self.bot.state.nwws_throughput = throughput
+                    else:
+                        self.bot.state.nwws_throughput = (self.bot.state.nwws_throughput * 0.7) + (throughput * 0.3)
+                    # Reset window
+                    self.bot.state.nwws_msg_count = 0
+                    self.bot.state.nwws_last_window_time = now
+
+        # Capture receive timestamp for accurate wire latency measurement
+        from datetime import datetime as dt_class, timezone as tz_class
+        received_at = dt_class.now(tz_class.utc)
+
+        # Route to processing
+        asyncio.create_task(self._process_nwws_message(payload, raw_text, received_at, is_archived))
+
+    async def _process_nwws_message(self, payload: NWWSPayload, raw_text: str, received_at, is_archived: bool = False):
         """Parse raw text product and route to appropriate cogs."""
         try:
             afos_pil = payload['awipsid']
             office = payload['cccc']
             ttaaii = payload['ttaaii']
-            
+
             # Construct a product_id matching the iembot format where possible.
             # Use the stable 'issue' timestamp from NWWS metadata so retransmits
             # don't get a new ID based on the current bot clock.
@@ -161,32 +192,34 @@ class NWWSClient(ClientXMPP):
                 ts_str = ts_str.replace("-", "").replace("T", "").replace(":", "").split("Z")[0][:12]
             product_id = f"{ts_str}-{office}-{ttaaii}-{afos_pil}"
 
-            # Track NWWS wire latency (rough estimate to minute precision)
-            issue_val = payload['issue'] or ts_str
-            try:
-                from datetime import datetime as dt_class, timezone as tz_class
-                now = dt_class.now(tz_class.utc)
-                start_time = self.bot.state.bot_start_time
-                
-                # Only track latency if we have a valid start time and 60s has passed
-                if isinstance(start_time, dt_class):
-                    uptime_sec = (now - start_time).total_seconds()
-                    if uptime_sec > 60:
-                        if "T" in issue_val: # ISO8601 format: 2026-05-03T01:15:00Z
-                            issue_dt = dt_class.fromisoformat(issue_val.replace("Z", "+00:00"))
-                        elif len(issue_val) >= 14:
-                            issue_dt = dt_class.strptime(issue_val[:14], "%Y%m%d%H%M%S").replace(tzinfo=tz_class.utc)
-                        else:
-                            issue_dt = dt_class.strptime(issue_val[:12], "%Y%m%d%H%M").replace(tzinfo=tz_class.utc)
-                        
-                        latency = max(0.0, (now - issue_dt).total_seconds())
-                        # Update rolling average or just last seen
-                        if self.bot.state.nwws_latency is None:
-                            self.bot.state.nwws_latency = latency
-                        else:
-                            self.bot.state.nwws_latency = (self.bot.state.nwws_latency * 0.9) + (latency * 0.1)
-            except Exception as e:
-                logger.debug(f"[NWWS] Latency calculation failed ({issue_val}): {e}")
+            # Track NWWS wire latency: time from product issue to reception
+            # Skip latency tracking for archived messages (room history on reconnect)
+            if not is_archived:
+                issue_val = payload['issue'] or ts_str
+                try:
+                    from datetime import datetime as dt_class, timezone as tz_class
+                    start_time = self.bot.state.bot_start_time
+
+                    # Only track latency if we have a valid start time and 60s has passed
+                    if isinstance(start_time, dt_class):
+                        uptime_sec = (received_at - start_time).total_seconds()
+                        if uptime_sec > 60:
+                            if "T" in issue_val: # ISO8601 format: 2026-05-03T01:15:00Z
+                                issue_dt = dt_class.fromisoformat(issue_val.replace("Z", "+00:00"))
+                            elif len(issue_val) >= 14:
+                                issue_dt = dt_class.strptime(issue_val[:14], "%Y%m%d%H%M%S").replace(tzinfo=tz_class.utc)
+                            else:
+                                issue_dt = dt_class.strptime(issue_val[:12], "%Y%m%d%H%M").replace(tzinfo=tz_class.utc)
+
+                            # Measure latency from issue time to reception (actual wire latency)
+                            latency = max(0.0, (received_at - issue_dt).total_seconds())
+                            # Update rolling average with heavier weight on recent values
+                            if self.bot.state.nwws_latency is None:
+                                self.bot.state.nwws_latency = latency
+                            else:
+                                self.bot.state.nwws_latency = (self.bot.state.nwws_latency * 0.7) + (latency * 0.3)
+                except Exception as e:
+                    logger.debug(f"[NWWS] Latency calculation failed ({issue_val}): {e}")
 
             # 2. Routing Logic
             
