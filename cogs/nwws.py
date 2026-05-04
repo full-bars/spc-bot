@@ -152,17 +152,20 @@ class NWWSClient(ClientXMPP):
             now = dt_class.now(tz_class.utc)
             self.bot.state.nwws_msg_count += 1
 
-            # Reset window every 10 seconds
+            # Calculate throughput in 5-second windows (faster population)
             if self.bot.state.nwws_last_window_time is None:
                 self.bot.state.nwws_last_window_time = now
+                # Set initial throughput estimate after first message
+                self.bot.state.nwws_throughput = 0.2  # Conservative initial estimate
             else:
                 elapsed = (now - self.bot.state.nwws_last_window_time).total_seconds()
-                if elapsed >= 10:
-                    # Calculate throughput and update rolling average
-                    throughput = self.bot.state.nwws_msg_count / elapsed
+                if elapsed >= 5:
+                    # Calculate throughput from this window
+                    throughput = self.bot.state.nwws_msg_count / elapsed if elapsed > 0 else 0
                     if self.bot.state.nwws_throughput is None:
                         self.bot.state.nwws_throughput = throughput
                     else:
+                        # 70/30 rolling average: favor recent data
                         self.bot.state.nwws_throughput = (self.bot.state.nwws_throughput * 0.7) + (throughput * 0.3)
                     # Reset window
                     self.bot.state.nwws_msg_count = 0
