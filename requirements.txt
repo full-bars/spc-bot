@@ -13,6 +13,6 @@ scipy>=1.15.0
 aiosqlite>=0.22.1
 aioboto3>=15.5.0
 shapely>=2.0
-pyproj>=3.6
+pyproj>=3.7.2
 tenacity>=8.3.0
 pydantic>=2.7.0
