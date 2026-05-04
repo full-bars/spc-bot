@@ -265,7 +265,7 @@ class StatusView(discord.ui.View):
 
         perf_val = f"**Discord RTT:** `{discord_rtt:.1f}ms`\n"
         if nwws_tput is not None:
-            perf_val += f"**NWWS Throughput:** `{nwws_tput:.2f} msg/s`"
+            perf_val += f"**NWWS Throughput:** `{nwws_tput * 60:.1f} msg/min`"
         else:
             perf_val += f"**NWWS Throughput:** `---`"
         perf_val += f"\n**IEMBot Delay:** `{iem_lat:.1f}s`*" if iem_lat is not None else f"\n**IEMBot Delay:** `---`"
