@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.15.1] — 2026-05-04
+
+### Changed
+- **Status Display.** Show public IP instead of private LAN IP for operational clarity.
+
 ## [5.15.0] — 2026-05-04
 
 ### Added
