@@ -23,6 +23,7 @@ from utils.cache import (
     download_single_image,
     format_timedelta,
 )
+from utils.discord_gateway import update_gateway_info
 from utils.spc_outlook import get_high_risk_polygon, peek_active_labels, get_current_risk_display
 from utils.spc_urls import get_spc_urls
 
@@ -262,14 +263,27 @@ class StatusView(discord.ui.View):
         http_lat = self.bot.state.http_latency
         discord_rtt = self.bot.latency * 1000  # Convert to ms
 
-        perf_val = (
-            f"**Discord RTT:** `{discord_rtt:.1f}ms`\n"
-            f"**NWWS Delay:** `{nwws_lat:.1f}s`*" if nwws_lat is not None else f"**NWWS Delay:** `---`"
-        )
+        perf_val = f"**Discord RTT:** `{discord_rtt:.1f}ms`\n"
+        if nwws_lat is not None:
+            perf_val += f"**NWWS Delay:** `{nwws_lat:.1f}s`*"
+        else:
+            perf_val += f"**NWWS Delay:** `---`"
         perf_val += f"\n**IEMBot Delay:** `{iem_lat:.1f}s`*" if iem_lat is not None else f"\n**IEMBot Delay:** `---`"
         perf_val += f"\n**HTTP Avg:** `{http_lat * 1000:.1f}ms`" if http_lat is not None else f"\n**HTTP Avg:** `---`"
-        
+
         embed.add_field(name="⏱️ Performance", value=perf_val, inline=True)
+
+        # Discord Gateway Info
+        gateway_val = ""
+        if self.bot.state.discord_gateway_location:
+            gateway_val += f"**Location:** `{self.bot.state.discord_gateway_location}`\n"
+        if self.bot.state.discord_gateway_ip:
+            gateway_val += f"**IP:** `{self.bot.state.discord_gateway_ip}`"
+        else:
+            gateway_val = "*(Resolving...)*"
+
+        if gateway_val:
+            embed.add_field(name="🌐 Discord Gateway", value=gateway_val, inline=True)
 
         # Environment
         risk_label = get_current_risk_display()
@@ -836,6 +850,12 @@ class StatusCog(commands.Cog):
             await get_high_risk_polygon()
         except Exception as e:
             logger.debug(f"[STATUS] Outlook peek failed: {e}")
+
+        # Update Discord gateway information
+        try:
+            await update_gateway_info(self.bot)
+        except Exception as e:
+            logger.debug(f"[STATUS] Could not update gateway info: {e}")
 
         view = StatusView(self.bot, interaction)
         embeds = await view.build_embeds()

@@ -139,13 +139,22 @@ class BotState:
         self.bot_start_time: Optional[datetime] = None
 
         # Latency tracking (seconds)
-        self.nwws_latency: Optional[float] = None
         self.iembot_latency: Optional[float] = None
         self.http_latency: Optional[float] = None
-        
+
         # Network pings (milliseconds)
         self.nwws_ping: Optional[float] = None
         self.iembot_ping: Optional[float] = None
+
+        # NWWS message throughput tracking (messages per second, rolling average)
+        self.nwws_msg_count: int = 0
+        self.nwws_last_window_time: Optional[datetime] = None
+        self.nwws_throughput: Optional[float] = None
+
+        # Discord gateway tracking
+        self.discord_gateway_url: Optional[str] = None
+        self.discord_gateway_ip: Optional[str] = None
+        self.discord_gateway_location: Optional[str] = None
 
         self.hashes = HashStore()
         self.posting = PostingLog()
