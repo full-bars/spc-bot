@@ -142,9 +142,25 @@ class NWWSClient(ClientXMPP):
             return
 
         # Check for archived message (XEP-0203 delay element).
-        # When reconnecting to an XMPP MUC, we receive archived messages from room history.
-        # These should not affect realtime throughput statistics.
-        is_archived = msg.get('delay') is not None
+        # Real-time messages have delay stamps very close to now; archived messages are older.
+        from datetime import datetime as dt_class, timezone as tz_class
+        is_archived = False
+        try:
+            delay_elem = msg.get('delay')
+            if delay_elem:
+                stamp = delay_elem.get('stamp')
+                if stamp and isinstance(stamp, str):
+                    # Parse the delay timestamp
+                    if stamp.endswith('Z'):
+                        delay_time = dt_class.fromisoformat(stamp.replace('Z', '+00:00'))
+                    else:
+                        delay_time = dt_class.fromisoformat(stamp)
+                    # Archived messages are more than 10 seconds old
+                    now = dt_class.now(tz_class.utc)
+                    is_archived = (now - delay_time).total_seconds() > 10
+        except (AttributeError, ValueError, TypeError):
+            # If delay parsing fails, treat as real-time
+            is_archived = False
 
         # Track NWWS message throughput for real-time messages
         if not is_archived:
@@ -153,13 +169,14 @@ class NWWSClient(ClientXMPP):
             self.bot.state.nwws_msg_count += 1
 
             # Calculate throughput in 5-second windows (faster population)
-            if self.bot.state.nwws_last_window_time is None:
+            last_time = self.bot.state.nwws_last_window_time
+            if last_time is None or not isinstance(last_time, dt_class):
                 self.bot.state.nwws_last_window_time = now
                 # Set initial throughput estimate after first message
                 self.bot.state.nwws_throughput = 0.2  # Conservative initial estimate
                 logger.info("[NWWS] First realtime message received, throughput tracking started")
             else:
-                elapsed = (now - self.bot.state.nwws_last_window_time).total_seconds()
+                elapsed = (now - last_time).total_seconds()
                 if elapsed >= 5:
                     # Calculate throughput from this window
                     throughput = self.bot.state.nwws_msg_count / elapsed if elapsed > 0 else 0
