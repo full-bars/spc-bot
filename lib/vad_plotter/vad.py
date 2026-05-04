@@ -62,7 +62,8 @@ def parse_time(time_str):
 
 
 async def vad_plotter(radar_id, storm_motion='right-mover', sfc_wind=None, time=None,
-                fname=None, local_path=None, cache_path=None, web=False, fixed=False):
+                fname=None, local_path=None, cache_path=None, web=False, fixed=False,
+                executor=None):
     plot_time = None
     if time:
         plot_time = parse_time(time)
@@ -110,7 +111,7 @@ async def vad_plotter(radar_id, storm_motion='right-mover', sfc_wind=None, time=
     # creates its own figure and closes it, which is usually okay in a 
     # thread as long as it's not the main GUI thread.
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, 
+    await loop.run_in_executor(executor, 
         plot_hodograph, vad, params, fname, web, fixed, (local_path is not None), sfc_wind_str
     )
 

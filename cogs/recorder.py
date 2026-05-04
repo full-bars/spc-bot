@@ -4,7 +4,6 @@ import json
 from datetime import datetime, timezone
 from typing import Dict, Set, Optional
 import os
-import concurrent.futures
 from PIL import Image
 
 import discord
@@ -12,13 +11,12 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from lib.vad_plotter.vad_reader import download_vad, find_file_times
-from config import CACHE_DIR
+from config import RECORDING_DIR, ARCHIVE_DIR
 from utils.state_store import get_state, set_state
+from utils.worker_pool import get_executor
 
 logger = logging.getLogger("spc_bot")
 
-RECORDING_DIR = os.path.join(CACHE_DIR, "vad_recordings")
-ARCHIVE_DIR = os.path.join(CACHE_DIR, "event_archive")
 STATE_KEY = "vad_active_missions"
 
 class VADRecordingMission:
@@ -63,7 +61,7 @@ class RecorderCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.active_missions: Dict[str, VADRecordingMission] = {}
-        self.executor = concurrent.futures.ProcessPoolExecutor(max_workers=3)
+        self.executor = get_executor()
         
         # Ensure directories exist
         os.makedirs(RECORDING_DIR, exist_ok=True)
@@ -73,7 +71,6 @@ class RecorderCog(commands.Cog):
 
     def cog_unload(self):
         self.recorder_loop.cancel()
-        self.executor.shutdown(wait=False)
 
     async def _persist_missions(self):
         """Save active missions to shared state store for resumption after restart/failover."""

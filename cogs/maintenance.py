@@ -1,8 +1,9 @@
 import logging
 import os
 import time
+import shutil
 from discord.ext import commands, tasks
-from config import CACHE_DIR
+from config import CACHE_DIR, RECORDING_DIR, ARCHIVE_DIR
 
 logger = logging.getLogger("spc_bot")
 
@@ -36,32 +37,64 @@ class MaintenanceCog(commands.Cog):
         if not os.path.exists(CACHE_DIR):
             return
 
-        extensions_to_prune = (".png", ".gif", ".jpg", ".jpeg", ".tmp")
+        extensions_to_prune = (".png", ".gif", ".jpg", ".jpeg", ".tmp", ".has")
         
         try:
+            # 1. Prune root cache files
             for filename in os.listdir(CACHE_DIR):
                 if not filename.lower().endswith(extensions_to_prune):
                     continue
                     
                 filepath = os.path.join(CACHE_DIR, filename)
-                
-                # Double check it's a file
                 if not os.path.isfile(filepath):
                     continue
                     
                 file_stat = os.stat(filepath)
-                # Check modification time
                 if file_stat.st_mtime < cutoff:
                     try:
                         os.remove(filepath)
                         deleted_count += 1
                         total_size_freed += file_stat.st_size
-                    except OSError as e:
-                        logger.warning(f"[MAINTENANCE] Failed to delete {filename}: {e}")
-                        
+                    except OSError: pass
+
+            # 2. Cleanup orphaned VAD recording mission directories
+            if os.path.exists(RECORDING_DIR):
+                for entry in os.scandir(RECORDING_DIR):
+                    if entry.is_dir():
+                        # Mission dirs are named site_timestamp
+                        # If older than 24h, it's either finished or stuck
+                        if entry.stat().st_mtime < (now - 86400):
+                            try:
+                                shutil.rmtree(entry.path)
+                                logger.info(f"[MAINTENANCE] Pruned orphaned mission dir: {entry.name}")
+                            except Exception: pass
+
+            # 3. Enforce budget on Event Archive (GIFs)
+            # Default to 1GB budget for archived GIFs
+            ARCHIVE_BUDGET_MB = 1024
+            if os.path.exists(ARCHIVE_DIR):
+                gif_files = []
+                for entry in os.scandir(ARCHIVE_DIR):
+                    if entry.is_file() and entry.name.endswith(".gif"):
+                        gif_files.append((entry.path, entry.stat()))
+                
+                # Sort by mtime (oldest first)
+                gif_files.sort(key=lambda x: x[1].st_mtime)
+                
+                total_archive_size = sum(f[1].st_size for f in gif_files)
+                if (total_archive_size / (1024*1024)) > ARCHIVE_BUDGET_MB:
+                    logger.info(f"[MAINTENANCE] Event archive ({total_archive_size/(1024*1024):.1f}MB) exceeds budget ({ARCHIVE_BUDGET_MB}MB). Pruning oldest...")
+                    while (total_archive_size / (1024*1024)) > ARCHIVE_BUDGET_MB and gif_files:
+                        path, stat = gif_files.pop(0)
+                        try:
+                            os.remove(path)
+                            total_archive_size -= stat.st_size
+                            deleted_count += 1
+                        except OSError: pass
+
             if deleted_count > 0:
                 mb_freed = total_size_freed / (1024 * 1024)
-                logger.info(f"[MAINTENANCE] Cleanup complete. Removed {deleted_count} files ({mb_freed:.2f} MB freed)")
+                logger.info(f"[MAINTENANCE] Cleanup complete. Removed {deleted_count} items ({mb_freed:.2f} MB freed)")
             else:
                 logger.info("[MAINTENANCE] Cleanup complete. No files needed deletion.")
 

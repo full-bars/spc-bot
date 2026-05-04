@@ -53,7 +53,13 @@ NWWS_FIREHOSE_LOG = os.path.join(CONFIG["cache_file_dir"], CONFIG["nwws_firehose
 GUILD_ID = CONFIG["guild_id"]
 CACHE_DIR = CONFIG["cache_file_dir"]
 
+# Forensics and Archive paths
+RECORDING_DIR = os.path.join(CACHE_DIR, "vad_recordings")
+ARCHIVE_DIR = os.path.join(CACHE_DIR, "event_archive")
+
 os.makedirs(CACHE_DIR, exist_ok=True)
+os.makedirs(RECORDING_DIR, exist_ok=True)
+os.makedirs(ARCHIVE_DIR, exist_ok=True)
 
 # ── Load Product Logic ────────────────────────────────────────────────────────
 # Use absolute path to the root directory

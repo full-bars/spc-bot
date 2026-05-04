@@ -8,10 +8,8 @@ Utility functions for the sounding cog:
 """
 
 import asyncio
-import concurrent.futures
 import io
 import logging
-import os
 import re
 import sys
 from datetime import datetime, timedelta, timezone
@@ -37,58 +35,7 @@ finally:
 from utils.state_store import get_state, set_state  # noqa: E402  # follows sounderpy import
 from utils.geo import haversine
 from utils.http import http_get_json, circuit_breaker
-
-# ProcessPoolExecutor for parallel sounding plots. Each worker process gets
-# its own matplotlib instance so plots run concurrently without lock contention.
-# Workers are capped at 3 — more than the typical per-watch batch size gains
-# nothing and wastes RAM.
-_PLOT_EXECUTOR: Optional[concurrent.futures.ProcessPoolExecutor] = None
-_PLOT_EXECUTOR_WORKERS = min(3, (os.cpu_count() or 2))
-
-
-def _plot_worker_init():
-    """Pre-import sounderpy/matplotlib in each worker so the first plot call
-    doesn't pay cold-import overhead (~2s).
-
-    Also clears inherited logging handlers to prevent duplicate log entries
-    from child processes writing to the same file/stderr as the primary."""
-    import io as _io
-    import logging as _logging
-    import sys as _sys
-
-    # Silent inherited loggers
-    for name in ("spc_bot", None):  # spc_bot and root
-        log_obj = _logging.getLogger(name)
-        for h in log_obj.handlers[:]:
-            log_obj.removeHandler(h)
-    _logging.getLogger().setLevel(_logging.WARNING)
-
-    import matplotlib as _mpl
-    _mpl.use("Agg")
-    _stdout = _sys.stdout
-    _sys.stdout = _io.StringIO()
-    try:
-        import sounderpy  # noqa: F401
-    finally:
-        _sys.stdout = _stdout
-
-
-def _get_plot_executor() -> concurrent.futures.ProcessPoolExecutor:
-    global _PLOT_EXECUTOR
-    if _PLOT_EXECUTOR is None:
-        _PLOT_EXECUTOR = concurrent.futures.ProcessPoolExecutor(
-            max_workers=_PLOT_EXECUTOR_WORKERS,
-            initializer=_plot_worker_init,
-        )
-    return _PLOT_EXECUTOR
-
-
-def shutdown_plot_executor():
-    """Shut down the plot worker pool cleanly on bot exit."""
-    global _PLOT_EXECUTOR
-    if _PLOT_EXECUTOR is not None:
-        _PLOT_EXECUTOR.shutdown(wait=False, cancel_futures=True)
-        _PLOT_EXECUTOR = None
+from utils.worker_pool import get_executor
 
 logger = logging.getLogger("spc_bot")
 
@@ -1091,7 +1038,7 @@ async def generate_plot(
     loop = asyncio.get_running_loop()
     try:
         await loop.run_in_executor(
-            _get_plot_executor(),
+            get_executor(),
             _plot_sync,
             clean_data,
             output_path,

@@ -24,6 +24,7 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
     logger.info(f"[HODO] Generating hodograph for {site} in executor pool")
 
     from lib.vad_plotter.vad import vad_plotter
+    from utils.worker_pool import get_executor
 
     try:
         await asyncio.wait_for(
@@ -36,7 +37,8 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
                 None,           # local_path
                 None,           # cache_path
                 False,          # web
-                False           # fixed
+                False,          # fixed
+                executor=get_executor()
             ),
             timeout=60
         )

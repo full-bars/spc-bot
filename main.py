@@ -515,8 +515,8 @@ async def _shutdown():
 
     # 2. Close DB, HTTP session, and plot worker pool
     try:
-        from cogs.sounding_utils import shutdown_plot_executor
-        shutdown_plot_executor()
+        from utils.worker_pool import shutdown_executor
+        shutdown_executor()
     except Exception:
         pass
     try:
