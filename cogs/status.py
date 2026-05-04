@@ -6,6 +6,7 @@ import socket
 from datetime import datetime, timezone
 from typing import Optional
 
+import aiohttp
 import discord
 from discord.ext import commands, tasks
 
@@ -204,13 +205,15 @@ class StatusView(discord.ui.View):
     async def build_embeds(self):
         now = datetime.now(timezone.utc)
         hostname = socket.gethostname()
+        host_ip = "unknown"
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            host_ip = s.getsockname()[0]
-            s.close()
+            # Get public IP from ipinfo.io
+            async with aiohttp.ClientSession() as session:
+                async with session.get('https://ipinfo.io/ip', timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    if resp.status == 200:
+                        host_ip = (await resp.text()).strip()
         except Exception:
-            host_ip = "unknown"
+            pass
 
         role = "PRIMARY" if self.bot.state.is_primary else "STANDBY"
         color = discord.Color.green() if self.bot.state.is_primary else discord.Color.gold()
