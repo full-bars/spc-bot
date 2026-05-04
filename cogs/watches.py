@@ -25,7 +25,14 @@ from utils.cache import (
 )
 from utils.change_detection import get_cache_path_for_url, is_placeholder_image
 from utils.http import http_get_bytes, http_get_bytes_conditional, http_get_text
-from utils.state_store import add_posted_watch, prune_posted_watches
+from utils.state_store import (
+    add_posted_watch,
+    get_state,
+    get_validators,
+    prune_posted_watches,
+    set_state,
+    set_validators,
+)
 
 logger = logging.getLogger("spc_bot")
 
@@ -38,12 +45,8 @@ _VTEC_RE = re.compile(
 _WW_HREF_RE = re.compile(r'href="[^"]*ww(\d+)\.html"', re.IGNORECASE)
 _TORNADO_WATCH_RE = re.compile(r"Tornado Watch", re.IGNORECASE)
 
-# Conditional-GET state for the NWS active-alerts feed. Validators let us
-# 304 most 2-minute polls; _last_parsed holds the parsed dict to return
-# on 304 so callers see no behavioral difference vs. a fresh fetch.
-_nws_validators: Dict[str, str] = {}
+# Conditional-GET state for the NWS active-alerts feed.
 _nws_last_parsed: Optional[Dict[str, dict]] = None
-
 
 
 async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
@@ -53,25 +56,49 @@ async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
     Deduplicates by watch number from the VTEC string.
     """
     global _nws_last_parsed
-    # Keep retries×timeout well under the 2-minute auto_post_watches
-    # cycle so a bad NWS API window doesn't stall successive ticks.
+
+    # 1. Load persistent state on first run
+    state_validators = await get_validators(NWS_ALERTS_URL) or {}
+    if _nws_last_parsed is None:
+        raw_last = await get_state("watch_last_parsed")
+        if raw_last:
+            try:
+                _nws_last_parsed = _json.loads(raw_last)
+                # Re-hydrate ISO strings back to datetime objects
+                for w in _nws_last_parsed.values():
+                    if w.get("expires"):
+                        w["expires"] = datetime.fromisoformat(w["expires"])
+                logger.info(f"[WATCH] Resumed {len(_nws_last_parsed)} watches from state store")
+            except Exception as e:
+                logger.warning(f"[WATCH] Failed to load last_parsed state: {e}")
+                _nws_last_parsed = {}
+        else:
+            _nws_last_parsed = {}
+
+    # 2. Conditional GET
     content, status, validators = await http_get_bytes_conditional(
         NWS_ALERTS_URL,
-        etag=_nws_validators.get("etag") or None,
-        last_modified=_nws_validators.get("last_modified") or None,
+        etag=state_validators.get("etag"),
+        last_modified=state_validators.get("last_modified"),
         retries=2,
         timeout=15,
     )
-    if status == 304 and _nws_last_parsed is not None:
+    
+    if status == 304:
         return _nws_last_parsed
+        
     if not content or status != 200:
-        logger.warning(
-            f"[WATCH] NWS API returned status {status} — will retry next cycle"
-        )
+        logger.warning(f"[WATCH] NWS API returned status {status} — will retry next cycle")
         return None
+
+    # 3. Update validators
     if validators and (validators.get("etag") or validators.get("last_modified")):
-        _nws_validators["etag"] = validators.get("etag", "")
-        _nws_validators["last_modified"] = validators.get("last_modified", "")
+        await set_validators(
+            NWS_ALERTS_URL, 
+            validators.get("etag", ""), 
+            validators.get("last_modified", "")
+        )
+        
     try:
         data = _json.loads(content)
     except Exception as e:
@@ -99,16 +126,26 @@ async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
                     )
                 except (ValueError, TypeError) as e:
                     logger.debug(f"[WATCH] Could not parse expires {expires_str!r}: {e}")
-            logger.debug(
-                f"[WATCH] NWS API: #{watch_num} ({wtype}) expires {expires_dt}"
-            )
+            
             affected_zones = props.get("affectedZones", [])
             result[watch_num] = {
                 "type": wtype,
                 "expires": expires_dt,
                 "affected_zones": affected_zones,
             }
+            
+    # 4. Save to persistent state
     _nws_last_parsed = result
+    
+    # Serialize for storage (converting datetimes to strings)
+    persist_data = {}
+    for num, info in result.items():
+        copy = dict(info)
+        if copy.get("expires"):
+            copy["expires"] = copy["expires"].isoformat()
+        persist_data[num] = copy
+        
+    await set_state("watch_last_parsed", _json.dumps(persist_data))
     return result
 
 
