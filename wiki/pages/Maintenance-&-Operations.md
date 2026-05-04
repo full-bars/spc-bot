@@ -24,6 +24,7 @@ A virtual terminal console inside Discord.
 
 The bot performs several background cleanup tasks every 24 hours:
 - **Cache Pruning:** Deletes old SPC/WPC images and temporary radar downloads.
+- **Forensics Management:** Automatically prunes orphaned VAD recording mission directories and enforces a **1GB budget** for archived GIFs, deleting oldest files first.
 - **DB Retention:** Enforces a **365-day rolling retention** for the `events.db` archive and prunes ephemeral state from `bot_state.db`.
 - **Photo Cleanup:** Deletes cached DAT damage photos older than 30 days.
 

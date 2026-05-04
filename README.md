@@ -155,8 +155,10 @@ spc-bot/
 │   │                        # separate from bot_state.db, never synced to Upstash
 │   ├── spc_urls.py          # SPC outlook URL resolution
 │   ├── spc_outlook.py       # SPC Day 1 categorical polygon (MDT/HIGH) with geodesic buffer
-│   ├── backoff.py           # Exponential backoff tracker for task loops
-│   └── db.py                # Async SQLite backend used internally by state_store as the durable mirror; also home of http_validators
+├── backoff.py           # Exponential backoff tracker for task loops
+├── worker_pool.py       # Shared ProcessPoolExecutor for background rendering
+└── db.py                # Async SQLite backend used internally by state_store as the durable mirror; also home of http_validators
+
 ├── cogs/
 │   ├── outlooks.py          # SPC Day 1-3 and Day 4-8 auto-posting
 │   ├── mesoscale.py         # SPC MD monitoring with watch probability detection and IEM fallbacks

@@ -19,9 +19,16 @@ The bot proactively monitors severe weather and automatically posts soundings:
 ## 🌀 VWP Hodographs (`/hodograph`)
 
 The `/hodograph` command generates a Vertical Wind Profile (VWP) hodograph for any of 200+ NEXRAD or TDWR radar sites.
+- **High-Availability:** Uses **AWS S3** as a primary data source with automatic fallback to **TGFTP**, ensuring reliability during NWS server outages.
 - **Real-time Surface Wind:** Automatically fetches the latest ASOS surface observation near the radar to provide an accurate surface-to-1km profile.
 - **Parameter Table:** Includes a comprehensive storm-parameter table (Bunkers motion, SRH, Shear) rendered alongside the plot.
-- **Library:** Uses the `vad-plotter` library (by Tim Supinie) for high-accuracy VWP binary parsing.
+
+## 🎥 VAD Forensics
+
+Introduced in **v5.14.0**, the bot automatically records the wind environment during confirmed tornado events.
+- **Trigger:** Any Tornado Warning with an `OBSERVED` tag starts a **2.5-hour mission**.
+- **Evolution GIFs:** Captures a 1-hour lookback and a 90-minute follow-up window, stitching them into an animated evolution of the vertical wind profile.
+- **Permanent Record:** Calculates the **Peak 0-1km SRH** during the event and archives it in `events.db` along with the GIF.
 
 ## 🔬 Scientific Stack
 

@@ -7,6 +7,7 @@ SPCBot includes a sophisticated suite for tracking confirmed tornadoes and damag
 The `/recenttornadoes` command provides a centralized view of all confirmed tornadoes logged by the bot.
 - **Summary View:** A high-level breakdown of EF ratings (🟣EF5 to ⚪EFU) for the last 30 days.
 - **Card View:** Detailed interactive cards for each event, including location, rating, and office.
+- **Environmental Context:** Tornado warnings now feature a **`[ 📊 View Environmental Evolution ]`** button that displays the animated GIF of the wind profile leading up to the event.
 - **Significant Events (`/sigtor`):** A filtered view specifically for EF2+ or PDS (Particularly Dangerous Situation) tornadoes.
 
 ## 🏁 Lead Time Tracking

@@ -166,6 +166,15 @@ The bot uses a multi-layered approach to ensure reliability:
 Posted at 6am and 6pm Pacific daily, but only if the images have actually
 changed (hash-based detection). Uses `MODELS_CHANNEL_ID`.
 
+### VAD Forensics (Evolution GIFs)
+
+`RecorderCog` manages automated 2.5-hour "recording missions" triggered by `OBSERVED` tornado warnings.
+1. **Lookback**: Fetches last 60m of VAD scans from S3 upon trigger.
+2. **Follow-up**: Polls for new scans for the next 90m.
+3. **Rendering**: Uses the shared worker pool to generate animated GIFs.
+4. **Archival**: Peak 0-1km SRH is calculated and saved to `events.db` along with the GIF path.
+5. **Resumption**: Mission state is persisted to Upstash, allowing the bot to survive restarts or failovers during a recording window.
+
 ### Sounding Plots
 
 The `/sounding` command geocodes the location, finds nearby RAOB stations that have verified data in the Wyoming archive, and presents an interactive station and time picker. Plots are generated headlessly via SounderPy and posted to the channel where the command was used. Per-user dark mode preference is persisted to the local SQLite database. Auto-posting of soundings is active in three modes: (1) **proactive pre-warming** when the MD cog detects a mesoscale discussion with ≥80% watch issuance probability; (2) **immediately on watch issuance**, using the most recent IEM-available sounding time (any hour); (3) **at 00z/12z** for all active watches. Up to 3 RAOB stations and 2 ACARS profiles per watch. At 00z/12z, Wyoming and IEM are raced simultaneously — whichever returns data first wins.

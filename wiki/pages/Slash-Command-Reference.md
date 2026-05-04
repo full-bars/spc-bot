@@ -17,6 +17,7 @@ SPCBot uses Discord Slash Commands for all user interactions. Commands are organ
 | `/watches` | List all currently active SPC Tornado and Severe Tstorm watches. | None |
 | `/recenttornadoes` | List the most recent confirmed tornado events. | None |
 | `/sigtor` | Show significant (EF2+) tornado events from the archive. | None |
+| `/archive` | Search the directory of recorded environmental forensics (GIFs + Peak SRH). | `radar`, `date` |
 
 ## 📊 Analysis & Analytics
 | Command | Description | Parameters |

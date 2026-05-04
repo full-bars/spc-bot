@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.14.1] — 2026-05-03
+
+### Added
+- **Global Worker Pool.** Refactored all rendering tasks (Soundings, Hodographs, and VAD Forensics) to use a shared `ProcessPoolExecutor` in `utils/worker_pool.py`. This ensures near-zero impact on the Discord event loop during high-demand events.
+- **Automated Forensics Cleanup.** Implemented automated management for VAD recording caches in `cogs/maintenance.py`, including a 1GB budget for archived GIFs to protect server storage.
+
+### Fixed
+- **Linting Compliance.** Updated `ruff.toml` to explicitly exclude `docs/` and other non-code asset directories from linting.
+
 ## [5.14.0] — 2026-05-03
 
 ### Added
