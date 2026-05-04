@@ -3,6 +3,7 @@ Unit tests for cogs/nwws.py — parsing and routing of XMPP MUC products.
 """
 
 import pytest
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from cogs.nwws import NWWSClient
@@ -50,13 +51,14 @@ async def test_process_nwws_message_routes_warning(mock_payload):
     warnings_cog = MagicMock()
     warnings_cog.post_warning_now = AsyncMock()
     bot.get_cog.side_effect = lambda name: warnings_cog if name == "WarningsCog" else None
-    
+
     # Mock slixmpp client setup
     with patch('slixmpp.ClientXMPP.register_plugin'), \
          patch('slixmpp.xmlstream.register_stanza_plugin'):
         client = NWWSClient("test@jid", "pass", bot)
-        await client._process_nwws_message(mock_payload, SAMPLE_TOR_TEXT)
-    
+        received_at = datetime.now(timezone.utc)
+        await client._process_nwws_message(mock_payload, SAMPLE_TOR_TEXT, received_at)
+
     assert warnings_cog.post_warning_now.called
     args = warnings_cog.post_warning_now.call_args[0]
     assert "TOR" in args[0] # product_id
@@ -68,7 +70,7 @@ async def test_process_nwws_message_routes_watch(mock_payload):
     watches_cog = MagicMock()
     watches_cog.post_watch_now = AsyncMock()
     bot.get_cog.side_effect = lambda name: watches_cog if name == "WatchesCog" else None
-    
+
     # Update payload for watch
     data = {
         'cccc': 'KWNS',
@@ -78,14 +80,15 @@ async def test_process_nwws_message_routes_watch(mock_payload):
     mock_payload.__getitem__.side_effect = data.get
     watch_text = "SEVERE THUNDERSTORM WATCH NUMBER 42\n..."
     mock_payload.xml.text = watch_text
-    
+
     with patch('slixmpp.ClientXMPP.register_plugin'), \
          patch('slixmpp.xmlstream.register_stanza_plugin'):
         client = NWWSClient("test@jid", "pass", bot)
         with patch("cogs.iembot._parse_watch_text", return_value="Parsed Text"), \
              patch("utils.state_store.set_product_cache", AsyncMock()):
-            await client._process_nwws_message(mock_payload, watch_text)
-    
+            received_at = datetime.now(timezone.utc)
+            await client._process_nwws_message(mock_payload, watch_text, received_at)
+
     assert watches_cog.post_watch_now.called
     args = watches_cog.post_watch_now.call_args[0]
     assert args[0] == "0042" # watch_num

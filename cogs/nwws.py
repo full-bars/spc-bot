@@ -116,11 +116,11 @@ class NWWSClient(ClientXMPP):
         # The specification says weather products arrive as 'groupchat' messages
         # from the room.
         msg_type = msg['type']
-        
+
         # Extract the custom NWWS-OI payload
         payload = msg['nwws']
         raw_text = payload.xml.text.strip() if payload.xml is not None and payload.xml.text else ""
-        
+
         # If no custom payload, check body (for MOTD or other messages)
         body = msg['body']
 
@@ -141,16 +141,20 @@ class NWWSClient(ClientXMPP):
         if not raw_text or not payload['awipsid']:
             return
 
-        # Route to processing
-        asyncio.create_task(self._process_nwws_message(payload, raw_text))
+        # Capture receive timestamp for accurate wire latency measurement
+        from datetime import datetime as dt_class, timezone as tz_class
+        received_at = dt_class.now(tz_class.utc)
 
-    async def _process_nwws_message(self, payload: NWWSPayload, raw_text: str):
+        # Route to processing
+        asyncio.create_task(self._process_nwws_message(payload, raw_text, received_at))
+
+    async def _process_nwws_message(self, payload: NWWSPayload, raw_text: str, received_at):
         """Parse raw text product and route to appropriate cogs."""
         try:
             afos_pil = payload['awipsid']
             office = payload['cccc']
             ttaaii = payload['ttaaii']
-            
+
             # Construct a product_id matching the iembot format where possible.
             # Use the stable 'issue' timestamp from NWWS metadata so retransmits
             # don't get a new ID based on the current bot clock.
@@ -161,16 +165,15 @@ class NWWSClient(ClientXMPP):
                 ts_str = ts_str.replace("-", "").replace("T", "").replace(":", "").split("Z")[0][:12]
             product_id = f"{ts_str}-{office}-{ttaaii}-{afos_pil}"
 
-            # Track NWWS wire latency (rough estimate to minute precision)
+            # Track NWWS wire latency: time from product issue to reception
             issue_val = payload['issue'] or ts_str
             try:
                 from datetime import datetime as dt_class, timezone as tz_class
-                now = dt_class.now(tz_class.utc)
                 start_time = self.bot.state.bot_start_time
-                
+
                 # Only track latency if we have a valid start time and 60s has passed
                 if isinstance(start_time, dt_class):
-                    uptime_sec = (now - start_time).total_seconds()
+                    uptime_sec = (received_at - start_time).total_seconds()
                     if uptime_sec > 60:
                         if "T" in issue_val: # ISO8601 format: 2026-05-03T01:15:00Z
                             issue_dt = dt_class.fromisoformat(issue_val.replace("Z", "+00:00"))
@@ -178,13 +181,14 @@ class NWWSClient(ClientXMPP):
                             issue_dt = dt_class.strptime(issue_val[:14], "%Y%m%d%H%M%S").replace(tzinfo=tz_class.utc)
                         else:
                             issue_dt = dt_class.strptime(issue_val[:12], "%Y%m%d%H%M").replace(tzinfo=tz_class.utc)
-                        
-                        latency = max(0.0, (now - issue_dt).total_seconds())
-                        # Update rolling average or just last seen
+
+                        # Measure latency from issue time to reception (actual wire latency)
+                        latency = max(0.0, (received_at - issue_dt).total_seconds())
+                        # Update rolling average with heavier weight on recent values
                         if self.bot.state.nwws_latency is None:
                             self.bot.state.nwws_latency = latency
                         else:
-                            self.bot.state.nwws_latency = (self.bot.state.nwws_latency * 0.9) + (latency * 0.1)
+                            self.bot.state.nwws_latency = (self.bot.state.nwws_latency * 0.7) + (latency * 0.3)
             except Exception as e:
                 logger.debug(f"[NWWS] Latency calculation failed ({issue_val}): {e}")
 

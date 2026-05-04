@@ -308,7 +308,7 @@ class StatusView(discord.ui.View):
             embed.add_field(name="🔄 Recent Activity", value="\n".join(recent_lines), inline=False)
 
         update_msg = " | Live Auto-refresh" if self.should_update else ""
-        embed.set_footer(text=f"WXModelBot v{__version__} | *Wire latency has minute-precision error{update_msg}")
+        embed.set_footer(text=f"WXModelBot v{__version__}{update_msg}")
         
         embeds = [embed]
 
