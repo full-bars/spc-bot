@@ -139,13 +139,17 @@ class BotState:
         self.bot_start_time: Optional[datetime] = None
 
         # Latency tracking (seconds)
-        self.nwws_latency: Optional[float] = None
         self.iembot_latency: Optional[float] = None
         self.http_latency: Optional[float] = None
-        
+
         # Network pings (milliseconds)
         self.nwws_ping: Optional[float] = None
         self.iembot_ping: Optional[float] = None
+
+        # NWWS message throughput tracking (messages per second, rolling average)
+        self.nwws_msg_count: int = 0  # message count in current window
+        self.nwws_last_window_time: Optional[datetime] = None
+        self.nwws_throughput: Optional[float] = None  # messages/sec (rolling average)
 
         self.hashes = HashStore()
         self.posting = PostingLog()

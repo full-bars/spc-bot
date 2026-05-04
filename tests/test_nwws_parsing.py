@@ -57,7 +57,7 @@ async def test_process_nwws_message_routes_warning(mock_payload):
          patch('slixmpp.xmlstream.register_stanza_plugin'):
         client = NWWSClient("test@jid", "pass", bot)
         received_at = datetime.now(timezone.utc)
-        await client._process_nwws_message(mock_payload, SAMPLE_TOR_TEXT, received_at)
+        await client._process_nwws_message(mock_payload, SAMPLE_TOR_TEXT, received_at, is_archived=False)
 
     assert warnings_cog.post_warning_now.called
     args = warnings_cog.post_warning_now.call_args[0]
@@ -87,7 +87,7 @@ async def test_process_nwws_message_routes_watch(mock_payload):
         with patch("cogs.iembot._parse_watch_text", return_value="Parsed Text"), \
              patch("utils.state_store.set_product_cache", AsyncMock()):
             received_at = datetime.now(timezone.utc)
-            await client._process_nwws_message(mock_payload, watch_text, received_at)
+            await client._process_nwws_message(mock_payload, watch_text, received_at, is_archived=False)
 
     assert watches_cog.post_watch_now.called
     args = watches_cog.post_watch_now.call_args[0]
