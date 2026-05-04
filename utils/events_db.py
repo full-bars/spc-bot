@@ -75,22 +75,20 @@ async def _create_tables(db: aiosqlite.Connection) -> None:
             source      TEXT NOT NULL,
             raw_text    TEXT,
             dat_guid    TEXT,
-            lead_time   REAL
+            lead_time   REAL,
+            gif_path    TEXT,
+            srh_0_1     REAL
         );
         CREATE INDEX IF NOT EXISTS idx_sig_events_type_ts
             ON significant_events (event_type, timestamp DESC);
     """)
 
-    # Migration
-    try:
-        await db.execute("ALTER TABLE significant_events ADD COLUMN dat_guid TEXT")
-    except Exception:
-        logger.debug("Migration already applied: dat_guid column exists")
-
-    try:
-        await db.execute("ALTER TABLE significant_events ADD COLUMN lead_time REAL")
-    except Exception:
-        logger.debug("Migration already applied: lead_time column exists")
+    # Migrations
+    for col, ctype in [("dat_guid", "TEXT"), ("lead_time", "REAL"), ("gif_path", "TEXT"), ("srh_0_1", "REAL")]:
+        try:
+            await db.execute(f"ALTER TABLE significant_events ADD COLUMN {col} {ctype}")
+        except Exception:
+            pass
 
 
 # ── Writes ───────────────────────────────────────────────────────────────────
@@ -99,36 +97,55 @@ async def add_significant_event(
     event_id: str,
     event_type: str,
     location: str,
-    magnitude: str = "",
-    vtec_id: str = "",
-    coords: str = "",
-    timestamp: float = 0.0,
-    source: str = "",
-    raw_text: str = "",
-    dat_guid: str = "",
-    lead_time: float = None,
+    magnitude: Optional[str] = None,
+    vtec_id: Optional[str] = None,
+    coords: Optional[str] = None,
+    timestamp: Optional[float] = None,
+    source: str = "NWS",
+    raw_text: Optional[str] = None,
+    dat_guid: Optional[str] = "",
+    lead_time: Optional[float] = None,
 ) -> None:
-    db = await get_events_db()
+    """Add or update a significant weather event."""
     try:
+        db = await get_events_db()
         await db.execute(
-            """INSERT INTO significant_events
-               (event_id, event_type, location, magnitude, vtec_id, coords,
-                timestamp, source, raw_text, dat_guid, lead_time)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """INSERT INTO significant_events (
+                 event_id, event_type, location, magnitude, vtec_id, coords,
+                 timestamp, source, raw_text, dat_guid, lead_time, gif_path, srh_0_1
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(event_id) DO UPDATE SET
                  magnitude = excluded.magnitude,
                  location  = excluded.location,
                  coords    = excluded.coords,
                  raw_text  = excluded.raw_text,
                  dat_guid  = CASE WHEN excluded.dat_guid != '' THEN excluded.dat_guid ELSE significant_events.dat_guid END,
-                 lead_time = CASE WHEN excluded.lead_time IS NOT NULL THEN excluded.lead_time ELSE significant_events.lead_time END""",
+                 lead_time = CASE WHEN excluded.lead_time IS NOT NULL THEN excluded.lead_time ELSE significant_events.lead_time END,
+                 gif_path  = CASE WHEN excluded.gif_path IS NOT NULL THEN excluded.gif_path ELSE significant_events.gif_path END,
+                 srh_0_1   = CASE WHEN excluded.srh_0_1 IS NOT NULL THEN excluded.srh_0_1 ELSE significant_events.srh_0_1 END""",
             (event_id, event_type, location, magnitude, vtec_id, coords,
-             timestamp or time.time(), source, raw_text, dat_guid, lead_time),
+             timestamp or time.time(), source, raw_text, dat_guid, lead_time, None, None),
         )
         await db.commit()
         _mark_dirty()
     except Exception as e:
         logger.warning(f"[EVENTS-DB] add_significant_event({event_id}) failed: {e}")
+
+
+async def update_event_environment(event_id: str, gif_path: str, srh_0_1: float) -> None:
+    """Add environmental data to an existing event."""
+    db = await get_events_db()
+    try:
+        await db.execute(
+            "UPDATE significant_events SET gif_path = ?, srh_0_1 = ? WHERE event_id = ?",
+            (gif_path, srh_0_1, event_id),
+        )
+        await db.commit()
+        _mark_dirty()
+        logger.info(f"[EVENTS-DB] Updated environment for {event_id} (SRH: {srh_0_1:.1f})")
+    except Exception as e:
+        logger.warning(f"[EVENTS-DB] update_event_environment({event_id}) failed: {e}")
+
 
 async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> Optional[Tuple[str, Optional[str], Optional[str], Optional[str]]]:
     """Attempt to link a DAT guid to a tornado based on the label.
@@ -482,6 +499,8 @@ async def get_recent_significant_events(
     except Exception as e:
         logger.warning(f"[EVENTS-DB] get_recent_significant_events failed: {e}")
         return []
+
+
 async def find_matching_tornado(
     source: str,
     timestamp: float,
@@ -565,6 +584,7 @@ async def snapshot_for_sync() -> None:
         logger.debug("[EVENTS-DB] Snapshot written to sync dir")
     except Exception as e:
         logger.warning(f"[EVENTS-DB] Snapshot failed: {e}")
+
 
 def restore_from_sync() -> None:
     """Copy the Syncthing-received snapshot into events.db before cogs load.

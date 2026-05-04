@@ -29,6 +29,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from config import NWS_ALERTS_WARNINGS_URL, WARNINGS_CHANNEL_ID
+from lib.vad_plotter.radar_coords import get_nearest_radar
 from utils.backoff import TaskBackoff
 from utils.http import http_get_bytes, http_get_bytes_conditional
 from utils.state_store import (
@@ -136,6 +137,65 @@ def parse_warning_polygon(
             continue
         coords.append((lat, lon))
     return coords or None
+
+
+def get_polygon_centroid(
+    coords: List[Tuple[float, float]]
+) -> Optional[Tuple[float, float]]:
+    """Calculate the simple arithmetic centroid of a list of (lat, lon) pairs."""
+    if not coords:
+        return None
+    lat_sum = sum(c[0] for c in coords)
+    lon_sum = sum(c[1] for c in coords)
+    n = len(coords)
+    return (lat_sum / n, lon_sum / n)
+
+
+class EnvironmentalView(discord.ui.View):
+    def __init__(self, event_id: str):
+        super().__init__(timeout=None) # Persistent
+        self.event_id = event_id
+
+    @discord.ui.button(label="View Environmental Evolution", style=discord.ButtonStyle.secondary, emoji="📊", custom_id="view_env_evo")
+    async def view_env(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        
+        from utils.events_db import get_events_db
+        db = await get_events_db()
+        async with db.execute(
+            "SELECT gif_path, srh_0_1, location FROM significant_events WHERE event_id = ?",
+            (self.event_id,)
+        ) as cur:
+            row = await cur.fetchone()
+
+        if not row or not row["gif_path"]:
+            # Check if there is an active mission
+            recorder = interaction.client.get_cog("RecorderCog")
+            is_active = False
+            if recorder:
+                # We'd need a way to check active missions by event_id
+                # For now, a generic message
+                await interaction.followup.send(
+                    "Environmental data is still being recorded or was not captured for this event. "
+                    "Try again in 90 minutes.", 
+                    ephemeral=True
+                )
+                return
+
+        # Post the GIF
+        gif_path = row["gif_path"]
+        if not os.path.exists(gif_path):
+             await interaction.followup.send("Archive file no longer exists on the server.", ephemeral=True)
+             return
+             
+        file = discord.File(gif_path, filename="evolution.gif")
+        embed = discord.Embed(
+            title=f"🌪️ Environmental Evolution - {row['location']}",
+            description=f"**Peak 0-1km SRH**: {row['srh_0_1']:.0f} m2/s2",
+            color=discord.Color.blue()
+        )
+        embed.set_image(url="attachment://evolution.gif")
+        await interaction.followup.send(embed=embed, file=file, ephemeral=True)
 
 
 # ── Cog ──────────────────────────────────────────────────────────────────────
@@ -1100,7 +1160,7 @@ class WarningsCog(commands.Cog):
             self.bot.state.active_warnings[vtec_id] = vtec
 
             # Log significant events (tornadoes, hail, wind) to DB
-            await self._check_and_log_significant_event(event, raw_text, vtec)
+            event_id = await self._check_and_log_significant_event(event, raw_text, vtec)
 
             emoji, display_event, color, footer_id = get_warning_style(event, raw_text)
             
@@ -1120,6 +1180,11 @@ class WarningsCog(commands.Cog):
                 footer_text += f" | {footer_id}"
             embed.set_footer(text=footer_text)
 
+            # Add Environmental Button for Tornado Warnings
+            view = None
+            if event == "Tornado Warning" and event_id:
+                view = EnvironmentalView(event_id)
+
             # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS)
             files = []
             if (vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS":
@@ -1131,7 +1196,7 @@ class WarningsCog(commands.Cog):
                     embed.set_image(url=f"attachment://{filename}")
 
             try:
-                msg = await channel.send(embed=embed, files=files)
+                msg = await channel.send(embed=embed, files=files, view=view)
                 logger.info(f"[WARN] Posted (iembot) {event} {vtec_id} ({'Update' if is_update else 'Issuance'})")
                 
                 # Simple area extraction for persistence
@@ -1201,6 +1266,25 @@ class WarningsCog(commands.Cog):
                 raw_text=raw_text
             )
             logger.info(f"[WARN] Logged confirmed tornado for {vtec_id} (match: {match_id is not None})")
+
+            # 2. Trigger VAD Recorder mission
+            try:
+                poly_coords = parse_warning_polygon(raw_text)
+                centroid = get_polygon_centroid(poly_coords)
+                if centroid:
+                    lat, lon = centroid
+                    radar_id = get_nearest_radar(lat, lon)
+                    if radar_id:
+                        recorder = self.bot.get_cog("RecorderCog")
+                        if recorder:
+                            recorder.start_mission(radar_id, time.time(), event_id=event_id)
+                            logger.info(f"[WARN] Triggered VAD recorder for {radar_id} near {lat:.2f}, {lon:.2f} (Event: {event_id})")
+            except Exception as e:
+                logger.warning(f"[WARN] Failed to trigger VAD recorder for {vtec_id}: {e}")
+
+            return event_id
+        
+        return None
 
     @app_commands.command(name="recenttornadoes", description="List confirmed tornadoes from recent warnings and reports")
     @app_commands.describe(range="Time range to look back")
