@@ -9,13 +9,9 @@ from unittest.mock import AsyncMock, MagicMock
 import discord
 import pytest
 
-from cogs.warnings import (
-    WarningsCog,
-    _extract_narrative,
-    get_warning_style,
-    parse_vtec,
-    parse_warning_polygon,
-)
+from cogs.warnings import WarningsCog
+from cogs.warning_format import _extract_narrative, get_warning_style
+from lib.vtec_parser import parse_vtec, parse_warning_polygon
 
 
 # Sample raw VTEC product — typical Severe Thunderstorm Warning shape.
