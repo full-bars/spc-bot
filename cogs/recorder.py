@@ -257,7 +257,7 @@ class RecorderCog(commands.Cog):
                 ts_start = dt.timestamp()
                 query += " AND timestamp BETWEEN ? AND ?"
                 params.extend([ts_start, ts_start + 86400])
-            except:
+            except ValueError:
                 await interaction.followup.send("Invalid date format.", ephemeral=True); return
         query += " ORDER BY timestamp DESC LIMIT 10"
         from utils.events_db import get_events_db

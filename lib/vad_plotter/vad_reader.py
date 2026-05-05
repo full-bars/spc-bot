@@ -340,7 +340,7 @@ async def _list_s3_vad_times(rid: str) -> list:
                     ts_str = "_".join(key.split("_")[2:])
                     ts = datetime.strptime(ts_str, "%Y_%m_%d_%H_%M_%S").replace(tzinfo=timezone.utc)
                     results.append((key, ts))
-                except:
+                except (ValueError, IndexError):
                     continue
             
             # Sort newest first
