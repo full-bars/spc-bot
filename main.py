@@ -243,8 +243,13 @@ async def send_bot_alert(
 # ── Events ───────────────────────────────────────────────────────────────────
 @bot.event
 async def on_ready():
+    logger.info("[ON_READY] Event fired")
     if bot.state.bot_start_time is None:
+        logger.info("[ON_READY] Setting bot_start_time")
         bot.state.bot_start_time = datetime.now(timezone.utc)
+        logger.info(f"[ON_READY] Set to {bot.state.bot_start_time}")
+    else:
+        logger.info(f"[ON_READY] bot_start_time already set to {bot.state.bot_start_time}")
 
     logger.info(f"Logged in as {bot.user} (id={bot.user.id}) | Version: v{__version__}")
 
