@@ -5,8 +5,6 @@ Handles TTL-based eviction of cached files to prevent disk space exhaustion.
 import logging
 import os
 import time
-from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger("spc_bot")
 
