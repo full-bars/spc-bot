@@ -200,7 +200,7 @@ if [ "$EUID" -eq 0 ] && command -v logrotate &>/dev/null; then
     info "Installing logrotate configuration..."
     sudo cp "${INSTALL_DIR}/config/logrotate.conf" "/etc/logrotate.d/${SERVICE_NAME}"
     sudo chmod 644 "/etc/logrotate.d/${SERVICE_NAME}"
-    info "Logrotate installed: daily rotation, 30-day retention, gzip compression."
+    info "Logrotate installed: 50 MB per file, 12 files (90+ days), gzip -9 compression."
 else
     if [ "$EUID" -ne 0 ]; then
         warn "Logrotate setup requires sudo. Skipping automated log rotation."
