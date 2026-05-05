@@ -8,7 +8,7 @@ A high-performance severe weather monitoring platform with near-zero latency ale
 
 **Real-Time Alerts:**
 > [!IMPORTANT]  
-> **Warning features are Beta.** Designed for low latency but should be considered experimental. Always rely on official NWS sources for life-safety decisions.
+> **Warning features are Beta.** Designed for ultra low latency but should be considered experimental. Always rely on official NWS sources for life-safety decisions.
 
 NWWS-OI (sub-1s latency), SPC watch alerts with deduplication, NWS warnings (TOR/SVR/FFW) with lifecycle tracking (CON/EXT/EXA), damage survey detection with DAT integration and photo carousels, automated 2.5h environmental evolution GIFs for observed tornadoes.
 
