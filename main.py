@@ -4,7 +4,7 @@ import json as _json
 import logging
 import os
 import signal
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import aiohttp
 import discord
@@ -159,6 +159,12 @@ async def setup_hook():
         logger.warning(f"[DB] validator hydration skipped: {e}")
 
     logger.info("[DB] Database ready")
+
+    # Clean up old cached files (7-day TTL) on startup
+    from utils.cache_utils import cleanup_old_cache_files
+    deleted, freed = await cleanup_old_cache_files()
+    if deleted > 0:
+        logger.info(f"[STARTUP] Cache cleanup complete: {deleted} file(s) deleted, {freed / (1024*1024):.1f} MB freed")
 
     # Register failover cog first so it can probe Upstash for the lease
     # before we decide whether to load the rest. Without this check, a
@@ -550,6 +556,43 @@ def _setup_signal_handlers(loop: asyncio.AbstractEventLoop):
         except (NotImplementedError, OSError) as e:
             # Windows doesn't support add_signal_handler
             logger.warning(f"Could not register signal {sig_name}: {e}")
+
+
+# ── Periodic cache maintenance ────────────────────────────────────────────────
+@bot.event
+async def on_ready():
+    """Schedule periodic cache cleanup on first ready event."""
+    if not hasattr(bot, "_cache_cleanup_scheduled"):
+        bot._cache_cleanup_scheduled = True
+        logger.info("[CACHE] Scheduling daily cache cleanup task")
+        asyncio.create_task(_periodic_cache_cleanup())
+
+
+async def _periodic_cache_cleanup():
+    """Run cache cleanup once per day."""
+    from utils.cache_utils import cleanup_old_cache_files
+
+    while True:
+        try:
+            # Run at 03:00 UTC daily
+            await bot.wait_until_ready()
+            now = datetime.now(timezone.utc)
+            # Calculate seconds until 03:00 UTC tomorrow
+            target = now.replace(hour=3, minute=0, second=0, microsecond=0)
+            if now >= target:
+                target += timedelta(days=1)
+            delay = (target - now).total_seconds()
+            await asyncio.sleep(delay)
+
+            # Run cleanup
+            deleted, freed = await cleanup_old_cache_files()
+            if deleted > 0:
+                logger.info(f"[CACHE] Daily cleanup: {deleted} file(s), {freed / (1024*1024):.1f} MB freed")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.exception(f"[CACHE] Cleanup task failed: {e}")
+            await asyncio.sleep(3600)  # Retry in 1 hour
 
 
 # ── Entrypoint ───────────────────────────────────────────────────────────────
