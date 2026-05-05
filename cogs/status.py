@@ -270,8 +270,8 @@ class StatusView(discord.ui.View):
         if nwws_tput is not None:
             perf_val += f"**NWWS Throughput:** `{nwws_tput * 60:.1f} msg/min`"
         else:
-            perf_val += f"**NWWS Throughput:** `---`"
-        perf_val += f"\n**IEMBot Delay:** `{iem_lat:.1f}s`*" if iem_lat is not None else f"\n**IEMBot Delay:** `---`"
+            perf_val += "**NWWS Throughput:** `---`"
+        perf_val += f"\n**IEMBot Delay:** `{iem_lat:.1f}s`*" if iem_lat is not None else "\n**IEMBot Delay:** `---`"
 
         embed.add_field(name="⏱️ Performance", value=perf_val, inline=True)
 
@@ -451,7 +451,7 @@ class TaskMgrView(discord.ui.View):
                     task_lines.append(f"{status} `{label:<28}`{next_iter}")
 
         if task_lines:
-            embed.description = f"```\n" + "\n".join(task_lines) + "\n```"
+            embed.description = "```\n" + "\n".join(task_lines) + "\n```"
 
         rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         embed.set_footer(text=f"Memory: {rss_kb / 1024:.1f} MB | Auto-refreshing every 30s")
@@ -510,7 +510,7 @@ class LogView(discord.ui.View):
             logs = ["No logs captured yet..."]
         
         content = "🛰️ **SPCBot Live Console Output**\n"
-        content += f"```ansi\n"
+        content += "```ansi\n"
         # Discord supports ANSI color codes in ```ansi blocks
         # We'll just provide the raw text for now, but in the future we could colorize
         content += "\n".join(logs)
