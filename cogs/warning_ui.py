@@ -10,7 +10,6 @@ from typing import Optional, Tuple
 
 import discord
 
-from lib.vtec_parser import parse_warning_polygon, get_polygon_centroid
 from cogs.warning_format import _vtec_url
 
 logger = logging.getLogger("spc_bot")

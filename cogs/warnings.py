@@ -45,7 +45,6 @@ from cogs.warning_format import (
     _vtec_url,
     _vtec_unix_ts,
     _area_with_state,
-    _extract_narrative,
     _download_warning_image,
 )
 from cogs.warning_ui import (
