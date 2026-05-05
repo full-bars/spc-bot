@@ -281,6 +281,12 @@ async def on_ready():
     except Exception as e:
         logger.exception(f"[on_ready] Unhandled error: {e}")
 
+    # Schedule periodic cache cleanup on first ready event
+    if not hasattr(bot, "_cache_cleanup_scheduled"):
+        bot._cache_cleanup_scheduled = True
+        logger.info("[CACHE] Scheduling daily cache cleanup task")
+        asyncio.create_task(_periodic_cache_cleanup())
+
 @tasks.loop(hours=24)
 async def periodic_sync():
     await bot.wait_until_ready()
@@ -565,15 +571,6 @@ def _setup_signal_handlers(loop: asyncio.AbstractEventLoop):
 
 
 # ── Periodic cache maintenance ────────────────────────────────────────────────
-@bot.event
-async def on_ready():
-    """Schedule periodic cache cleanup on first ready event."""
-    if not hasattr(bot, "_cache_cleanup_scheduled"):
-        bot._cache_cleanup_scheduled = True
-        logger.info("[CACHE] Scheduling daily cache cleanup task")
-        asyncio.create_task(_periodic_cache_cleanup())
-
-
 async def _periodic_cache_cleanup():
     """Run cache cleanup once per day."""
     from utils.cache_utils import cleanup_old_cache_files
