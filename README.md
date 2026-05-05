@@ -1,222 +1,89 @@
 # WxAlert / SPCBot
 
-A sophisticated severe weather monitoring platform featuring real-time warning lifecycle tracking, automated damage survey mapping, and professional RAOB/ACARS sounding plots. Engineered for near-zero latency, it leverages **NWWS-OI (XMPP)** to deliver NWS products in sub-second timeframes. Built for enthusiasts and researchers with high-availability failover and interactive dashboards.
+A high-performance severe weather monitoring platform with near-zero latency alerts, real-time warning lifecycle tracking, and automated scientific analysis. Uses **NWWS-OI (XMPP)** for <1s delivery of NWS products, with built-in high-availability failover and interactive Discord dashboards.
 
 ## Features
 
-### SPC Products
-| Feature | Details |
-|---|---|
-| Convective Outlooks | Day 1, 2, 3 and Day 4–8 with dynamic URL resolution |
-| Mesoscale Discussions | Cancellation tracking, high-probability watch detection, proactive sounding pre-warming |
-| SCP Graphics | NIU/Gensini CFSv2/GEFS supercell composite parameter maps, twice daily |
-| CSU-MLP Forecasts | Days 1–8 + 6-panel summaries, auto-posted daily; `/csu` slash command with interactive dropdown |
-| NCAR WxNext2 AI | Mean AI convective hazard Days 1–8, auto-posted daily; `/wxnext` slash command |
+**SPC Products:** Day 1–8 convective outlooks, mesoscale discussions with watch probability detection, SCP/CSU-MLP/NCAR AI forecasts.
 
-### Real-time Alerts
-> [!IMPORTANT]
-> **Warning and lifecycle tracking features are currently in active development (Beta).** While engineered for low latency, these features should be considered experimental. Always rely on official NWS sources for life-safety decisions.
+**Real-Time Alerts:**
+> [!IMPORTANT]  
+> **Warning features are Beta.** Designed for low latency but should be considered experimental. Always rely on official NWS sources for life-safety decisions.
 
-| Feature | Details |
-|---|---|
-| NWWS-OI (XMPP) | **Gold Standard** authority source; pushes raw NWS text products via XMPP with near-zero latency, beating API polling by up to 60s |
-| Watch Alerts | Tornado and severe thunderstorm watches via NWWS/IEM fast-paths; NWS API backup; persistent DB-backed pre-caching |
-| NWS Warnings | Immediate Tornado, Severe Tstorm, and Flash Flood warning posts with IEM Autoplot 208 maps; specialized PDS and Emergency formatting |
-| Update Pipeline | Real-time tracking of warning status changes (`CON`, `EXT`, `EXA`); automatically posts concise updates for storms changing intensity or moving into new counties; includes full support for Severe Weather Statements (`SVS`) and Flash Flood Statements (`FFS`) |
-| Tornado Dashboard | Single-card, chronological dashboard for `/recenttornadoes` and `/sigtor` with EF-rating distinctions, warning-to-report **Lead Time** tracking, and [Tornado Archive](https://tornadoarchive.com/) integration |
-| Tornado Surveys | DAMAGE SURVEY PNS detection; Autoplot 253 tornado-track maps; automatic linking to [NWS Damage Assessment Toolkit (DAT)](https://apps.dat.noaa.gov/stormdamage/damageviewer/) tracks with an interactive **Photo Carousel** of official damage photos |
-| VAD Forensics | **(New)** Automated 2.5h environmental evolution GIFs for `OBSERVED` tornado warnings; persistent DB-backed SRH archival and searchable forensics gallery |
+NWWS-OI (sub-1s latency), SPC watch alerts with deduplication, NWS warnings (TOR/SVR/FFW) with lifecycle tracking (CON/EXT/EXA), damage survey detection with DAT integration and photo carousels, automated 2.5h environmental evolution GIFs for observed tornadoes.
 
-### Soundings & Analytics
-| Feature | Details |
-|---|---|
-| `/sounding` | Observed RAOB plots via SounderPy; supports city names, radar codes, and station IDs with interactive time selection |
-| Watch-triggered soundings | Auto-posts soundings for RAOB stations near active watches — on issuance (any hour via IEM) and at 00z/12z synoptic cycles |
-| MDT/HIGH risk sweep | On Moderate or High Risk days sweeps every RAOB station and ACARS airport inside the categorical polygon (100 km buffer) as new soundings arrive |
-| `/hodograph` | VWP hodograph for any of 208 NEXRAD/TDWR sites; auto ASOS surface wind and storm parameter table; high-availability S3 fallback |
-| `/archive` | **(New)** Searchable directory of recorded environmental forensics (GIFs + Peak SRH) indexed by radar and date |
-| Radar Downloader | NEXRAD Level 2 from NOAA AWS S3 — single or multi-site ZIPs; Z-to-Z range, start+duration, explicit datetime, or N most recent files |
+**Scientific Tools:** Interactive RAOB/ACARS sounding plots (auto-posted near active watches), VWP hodographs, searchable environmental archive, NEXRAD Level 2 downloader.
 
-### System
-| Feature | Details |
-|---|---|
-| `/status` | Node roles (Primary/Standby), real-time task health, RSS memory usage, feed sync state |
-| High availability | Leader election via Upstash lease; automatic Primary/Standby failover with no HTTP tunnel required |
-| Watchdog | Dual-endpoint session probe (`api.weather.gov` + IEM); operator alerts to dev channel at 2/3 failures and on session reset |
+**System:** Real-time `/status` dashboard, automated `/taskmgr` and `/logs` monitoring, dual-endpoint watchdog, leader-election failover with Upstash Redis.
 
-## Prerequisites
+## Quick Start
 
-* Python 3.12+ (matches the Dockerfile; 3.10/3.11 may still work but CI runs on 3.12)
-* A Discord bot token and application ([Discord Developer Portal](https://discord.com/developers/applications))
-* Channel IDs and Guild ID for where the bot should post
-* An [Upstash Redis](https://upstash.com/) instance *(optional, free tier is sufficient)* — only required for Primary/Standby failover. The bot runs fine on a single node without it.
+### Prerequisites
+- Python 3.12+ or Docker
+- Discord bot token ([Discord Developer Portal](https://discord.com/developers/applications))
+- Channel IDs for your Discord server
+- (Optional) [Upstash Redis](https://upstash.com/) for high-availability failover
 
-## Setup
+### Docker (Recommended)
+```bash
+mkdir spc-bot && cd spc-bot
+curl -O https://raw.githubusercontent.com/full-bars/spc-bot/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/full-bars/spc-bot/main/.env.example
+cp .env.example .env
+# Edit .env with your Discord token and channel IDs
+docker compose up -d
+```
 
-### 🐳 Docker (Recommended for most users)
-
-The bot is now available as a pre-built image on GitHub Container Registry. This is the easiest way to run the bot with all scientific dependencies (MetPy, SounderPy) pre-configured.
-
-1.  **Download configuration:**
-    ```bash
-    mkdir spc-bot && cd spc-bot
-    curl -O https://raw.githubusercontent.com/full-bars/spc-bot/main/docker-compose.yml
-    curl -O https://raw.githubusercontent.com/full-bars/spc-bot/main/.env.example
-    cp .env.example .env
-    ```
-2.  **Configure:** Edit `.env` with your Discord token and channel IDs.
-3.  **Launch:** `docker compose up -d`
-
-### ⚡ Automatic Install (systemd-based linux)
-
-A portable deploy script is included that creates a virtual environment, configures your `.env` interactively, and installs a systemd service. The bot runs as your current user for seamless code and log management.
-
+### Systemd (Linux)
 ```bash
 git clone https://github.com/full-bars/spc-bot.git
 cd spc-bot
 sudo ./deploy.sh
 ```
+Creates systemd service and bash aliases: `spcon`, `spcoff`, `spcstatus`, `spclog`, `spcupdate`.
 
-The script will prompt you for your Discord bot token and setup the following aliases in your `.bashrc`:
+## Optional Features
 
-```bash
-spcon        # start the bot
-spcoff       # stop the bot
-spcrestart   # restart the bot
-spcstatus    # show status dashboard
-spclog       # follow live logs
-spclog50     # show last 50 log lines
-spcupdate    # pull latest code and restart
-```
+### High Availability (Primary/Standby Failover)
+Run two nodes with automatic failover via Upstash Redis. No HTTP tunnel required. Requires:
+- Upstash Redis instance
+- `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `FAILOVER_TOKEN` in `.env` on both nodes
+- `IS_PRIMARY=true` on primary, `IS_PRIMARY=false` on standby
 
-## High Availability (optional)
+**See [High Availability & Failover](https://github.com/full-bars/spc-bot/wiki/High-Availability-&-Failover) in the wiki for complete setup.**
 
-The bot supports an active/standby failover pair using Upstash Redis as a shared lease store. This section is only relevant if you want to run two nodes — a single install needs none of this.
+### Events Archive Sync (Syncthing)
+Replicate the tornado events database (`cache/events.db`) across nodes for seamless standby promotion:
+- Install [Syncthing](https://syncthing.net/) on both nodes
+- Create a shared folder for `cache/events_sync/`
+- Add `SYNCTHING_API_KEY` and `SYNCTHING_FOLDER_ID` to `.env`
 
-### How it works
+The bot automatically manages folder modes (send-only on Primary, receive-only on Standby).
 
-One node holds the Upstash lease and runs as **Primary** (posts to Discord, polls all feeds). The other runs as **Standby** (holds no lease, all cogs idle). If the Primary crashes or goes offline, the Standby detects the expired lease on its next heartbeat and promotes itself automatically — no manual intervention, no HTTP tunnel between nodes.
+## Documentation
 
-### Failover setup
+- **[PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)** — Full file tree, module descriptions, architecture overview, testing guide
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — Development setup, slash commands, auto-posting mechanics, persistence model, failover details, running tests
+- **[GitHub Wiki](https://github.com/full-bars/spc-bot/wiki)** — Feature guides (Alerting Authority, Warning Lifecycle, Soundings, Maintenance)
+- **[CHANGELOG.md](CHANGELOG.md)** — Release history and version-by-version improvements
 
-1. **Create an Upstash Redis database** (free tier is enough) and note the REST URL and token.
-2. **Set the following on both nodes** in `.env`:
-   ```env
-   UPSTASH_REDIS_REST_URL=https://your-upstash-url.upstash.io
-   UPSTASH_REDIS_REST_TOKEN=your-upstash-token
-   FAILOVER_TOKEN=some-long-random-shared-secret
-   ADMIN_USER_ID=your_discord_user_id
-   ```
-3. **Set the initial role** on each node:
-   ```env
-   IS_PRIMARY=true   # on the Primary
-   IS_PRIMARY=false  # on the Standby
-   ```
-   The bot uses leader election on every heartbeat regardless, so `IS_PRIMARY` only controls which cogs load at startup — it doesn't hard-lock a node to a role.
-4. Start both nodes. Use `/failover` in Discord (restricted to `ADMIN_USER_ID`) to trigger a manual role swap at any time.
+## Status
 
-### Syncthing — events archive sync (optional)
+Work in progress. Actively developed in free time. All 328 tests passing with zero spurious warnings.
 
-The significant-weather events archive (`cache/events.db`) is a standalone SQLite file that never syncs to Upstash. To replicate it across nodes so the Standby has a current copy if it promotes:
+## Built With
 
-1. **Install [Syncthing](https://syncthing.net/)** on both nodes and pair them.
-2. **Create a shared folder** pointing to the `cache/events_sync/` directory on each node. Note the folder ID Syncthing assigns.
-3. **Add to `.env`** on both nodes:
-   ```env
-   SYNCTHING_API_KEY=your_local_syncthing_api_key
-   SYNCTHING_FOLDER_ID=your-folder-id
-   ```
-4. The bot manages folder mode automatically — it sets the folder to **send-only** on the Primary and **receive-only** on the Standby, and flips the mode on promotion/demotion. No manual Syncthing configuration beyond pairing is required.
-
-## Project Structure
-
-```
-spc-bot/
-├── main.py                  # Bot entrypoint, watchdog, and signal handling
-├── deploy.sh                # Portable one-command deployment script
-├── Dockerfile               # Debian-based scientific stack image
-├── docker-compose.yml       # Docker orchestration
-├── install-hooks.sh         # Installs pre-push git hooks (syntax + test checks)
-├── config.py                # Configuration and centralized URL constants
-├── requirements.txt         # Runtime dependencies (what the bot needs to run)
-├── requirements-dev.txt     # Runtime + pytest/pytest-asyncio/pytest-cov/ruff for development & CI
-├── .env.example             # Template for required environment variables
-├── CREDITS.md               # Third-party attributions
-├── scripts/
-│   └── migrate_sqlite_to_upstash.py  # One-shot migration of local SQLite into Upstash
-├── utils/
-│   ├── http.py              # Async HTTP session management (centralized pooling, retry, conditional GET)
-│   ├── change_detection.py  # Content hashing and placeholder-image detection
-│   ├── cache.py             # Download orchestration; conditional-GET poll path (validators persist across restarts)
-│   ├── cache_utils.py       # TTL-based cache eviction with scheduled cleanup tasks (7-day default)
-│   ├── state.py             # BotState — HashStore + PostingLog + TimingTracker sub-stores
-│   ├── state_store.py       # Upstash Redis facade: read-through cache → Upstash → SQLite fallback;
-│   │                        # double-writes both backends, retries failed Upstash writes via a reconciler
-│   ├── events_db.py         # Standalone SQLite archive for significant events (tornadoes, hail, wind);
-│   │                        # separate from bot_state.db, never synced to Upstash
-│   ├── spc_urls.py          # SPC outlook URL resolution
-│   ├── spc_outlook.py       # SPC Day 1 categorical polygon (MDT/HIGH) with geodesic buffer
-├── backoff.py           # Exponential backoff tracker for task loops
-├── worker_pool.py       # Shared ProcessPoolExecutor for background rendering
-└── db.py                # Async SQLite backend used internally by state_store as the durable mirror; also home of http_validators
-
-├── cogs/
-│   ├── outlooks.py          # SPC Day 1-3 and Day 4-8 auto-posting
-│   ├── mesoscale.py         # SPC MD monitoring with watch probability detection and IEM fallbacks
-│   ├── iembot.py            # IEM iembot feed poller with persistent text-product caching
-│   ├── watches.py           # SPC watch monitoring via NWS API (stores affected_zones)
-│   ├── warnings.py          # NWS VTEC warning monitoring (SVR, TOR, FFW) — polling & deduplication logic
-│   ├── warning_format.py    # Warning styling, narrative extraction, URL generation (decoupled from warnings.py)
-│   ├── warning_ui.py        # Discord UI views for tornado data: EnvironmentalView, TornadoPhotoView, TornadoDashboardView
-│   ├── reports.py           # LSR and PNS monitoring; triggers Autoplot 253 tornado track posts
-│   ├── scp.py               # NIU/Gensini SCP graphics, twice daily
-│   ├── csu_mlp.py           # CSU-MLP consolidated /csu command with Choice dropdown
-│   ├── ncar.py              # NCAR WxNext2 AI severe weather forecast
-│   ├── sounding.py          # RAOB+ACARS sounding plots; auto-posts near active watches
-│   ├── sounding_utils.py    # Location resolution, IEM fetch (all hours), ACARS fetch, plot generation
-│   ├── sounding_views.py    # Discord UI: CombinedSoundingView, IEMTimeSelectionView, ACARS views
-│   ├── hodograph.py         # VWP hodograph generation via /hodograph
-│   ├── failover.py          # Leader election via an Upstash lease (no HTTP tunnel — v5+)
-│   ├── status.py            # Bot status and manual slash commands
-│   └── radar/
-│       ├── __init__.py      # Radar cog: /download with quick-start site+time+count params
-│       ├── s3.py            # S3 client, file listing, time parsing
-│       ├── downloads.py     # Download orchestration, zipping, progress
-│       └── views.py         # Discord UI views and modals
-├── config/
-│   └── logrotate.conf       # Log rotation config: size-based (50 MB), 12-file retention, gzip -9 compression
-├── lib/
-│   ├── vtec_parser.py       # VTEC/polygon parsing (reusable, zero Discord dependencies)
-│   └── vad_plotter/         # Hodograph library (vad-plotter by Tim Supinie)
-│       ├── vad.py           # Main entry point, called as subprocess
-│       ├── vad_reader.py    # NEXRAD VWP binary parser
-│       ├── plot.py          # Hodograph plotting with matplotlib
-│       ├── params.py        # Storm parameter computations
-│       ├── wsr88d.py        # Radar site info and filename utilities
-│       ├── asos.py          # ASOS surface wind fetching
-│       └── utils.py         # Shared exception types
-└── tests/                   # pytest suite (363 tests, see CONTRIBUTING.md)
-    ├── conftest.py          # Fixtures: fake_bot (real BotState), isolated_db, global patches
-    ├── test_fixtures.py     # Fixture invariants
-    ├── test_utils.py        # Utility and sounding parsing
-    ├── test_watches.py      # Watch VTEC parsing
-    ├── test_warnings.py     # Warning VTEC and LAT...LON polygon parsing
-    ├── test_surveys.py      # PNS date extraction and Autoplot 253 polling
-    ├── test_integration.py  # BotState, cog instantiation, function signatures
-    ├── test_state_split.py  # HashStore / PostingLog / TimingTracker delegation
-    ├── test_state_store.py  # Upstash-backed state store (cache, reconciler, SQLite fallback)
-    ├── test_db.py           # SQLite backend roundtrips
-    ├── test_http.py         # HTTP retry + conditional GET
-    ├── test_cache_conditional.py  # Partial-update poll with ETag/If-Modified-Since
-    ├── test_backoff.py      # TaskBackoff delay and alert logic
-    ├── test_main_lifecycle.py  # Shutdown guard, watchdog restart, startup smoke
-    ├── test_failover_coverage.py  # Lease election, promotion, demotion
-    ├── test_hodograph.py    # Hodograph cog
-    ├── test_iem_races.py    # IEM/SPC race logic and watch-triggered soundings
-    ├── test_spc_outlook.py  # Day 1 categorical polygon parsing + geodesic buffer
-    ├── test_iembot.py       # IEMBotCog seqnum persistence, feed filtering, dispatch paths
-    └── test_mesoscale.py    # MesoscaleCog MD cancellation, lag protection, year wraparound
-```
+* [discord.py](https://github.com/Rapptz/discord.py)
+* [aiohttp](https://github.com/aio-libs/aiohttp)
+* [aioboto3](https://github.com/aio-libs/aioboto3)
+* [aiosqlite](https://github.com/omnilib/aiosqlite)
+* [sounderpy](https://github.com/kylejgillett/sounderpy)
+* [MetPy](https://github.com/Unidata/MetPy)
+* [numpy](https://numpy.org)
+* [matplotlib](https://matplotlib.org)
+* [requests](https://requests.readthedocs.io)
+* [pytz](https://github.com/stub42/pytz)
+* [vad-plotter](https://github.com/tsupinie/vad-plotter) by Tim Supinie
 
 ## Status
 
