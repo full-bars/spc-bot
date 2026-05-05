@@ -10,7 +10,6 @@ from typing import Optional, Tuple
 
 import discord
 
-from lib.vtec_parser import parse_warning_polygon, get_polygon_centroid
 from cogs.warning_format import _vtec_url
 
 logger = logging.getLogger("spc_bot")
@@ -36,7 +35,6 @@ class EnvironmentalView(discord.ui.View):
         if not row or not row["gif_path"]:
             # Check if there is an active mission
             recorder = interaction.client.get_cog("RecorderCog")
-            is_active = False
             if recorder:
                 # We'd need a way to check active missions by event_id
                 # For now, a generic message
