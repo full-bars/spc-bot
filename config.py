@@ -87,6 +87,10 @@ CACHE_DIR = CONFIG["cache_file_dir"]
 RECORDING_DIR = os.path.join(CACHE_DIR, "vad_recordings")
 ARCHIVE_DIR = os.path.join(CACHE_DIR, "event_archive")
 
+# rclone backup config
+RCLONE_REMOTE = os.getenv("RCLONE_REMOTE", "gdrive")
+RCLONE_DEST_DIR = os.getenv("RCLONE_DEST_DIR", "spc-bot-forensics")
+
 os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(RECORDING_DIR, exist_ok=True)
 os.makedirs(ARCHIVE_DIR, exist_ok=True)

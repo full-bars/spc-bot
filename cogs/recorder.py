@@ -196,12 +196,15 @@ class RecorderCog(commands.Cog):
                     from lib.vad_plotter.met_engine import vec2comp, storm_motion_bunkers, storm_relative_helicity
                     for filename in files:
                         p = os.path.join(mission.dir, filename)
-                        if not os.path.exists(p): continue
-                        with open(p, 'rb') as f: vad = VADFile(f)
+                        if not os.path.exists(p):
+                            continue
+                        with open(p, 'rb') as f:
+                            vad = VADFile(f)
                         u, v = vec2comp(vad['wind_dir'], vad['wind_spd'])
                         sm = storm_motion_bunkers(u, v, vad['altitude'])
                         srh = storm_relative_helicity(u, v, vad['altitude'], 0, 1.0, *sm['right'])
-                        if not np.isnan(srh): peak_srh = max(peak_srh, srh)
+                        if not np.isnan(srh):
+                            peak_srh = max(peak_srh, srh)
                 except Exception as e:
                     logger.warning(f"[RECORDER] Peak SRH calc failed: {e}")
 
@@ -223,7 +226,8 @@ class RecorderCog(commands.Cog):
         try:
             from config import DEV_CHANNEL_ID
             channel = self.bot.get_channel(DEV_CHANNEL_ID)
-            if not channel: return
+            if not channel:
+                return
             first_eid = list(mission.event_ids)[0]
             from utils.events_db import get_events_db
             db = await get_events_db()
@@ -258,14 +262,16 @@ class RecorderCog(commands.Cog):
                 query += " AND timestamp BETWEEN ? AND ?"
                 params.extend([ts_start, ts_start + 86400])
             except ValueError:
-                await interaction.followup.send("Invalid date format.", ephemeral=True); return
+                await interaction.followup.send("Invalid date format.", ephemeral=True)
+                return
         query += " ORDER BY timestamp DESC LIMIT 10"
         from utils.events_db import get_events_db
         db = await get_events_db()
         async with db.execute(query, tuple(params)) as cur:
             rows = await cur.fetchall()
         if not rows:
-            await interaction.followup.send("No archived forensics found.", ephemeral=True); return
+            await interaction.followup.send("No archived forensics found.", ephemeral=True)
+            return
         embed = discord.Embed(title="📂 Forensic Archive Search", color=discord.Color.blue())
         for r in rows:
             time_str = datetime.fromtimestamp(r['timestamp'], timezone.utc).strftime('%Y-%m-%d %H:%MZ')
@@ -277,11 +283,13 @@ class RecorderCog(commands.Cog):
         from lib.vad_plotter.vad_reader import VADFile
         from lib.vad_plotter.plot import plot_vad
         try:
-            with open(input_path, 'rb') as f: vad = VADFile(f)
+            with open(input_path, 'rb') as f:
+                vad = VADFile(f)
             plot_vad(vad, rid, output_path, web=False, fixed=True)
             return True
         except Exception as e:
-            print(f"Frame render failed: {e}"); return False
+            print(f"Frame render failed: {e}")
+            return False
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(RecorderCog(bot))
