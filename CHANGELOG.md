@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.16.0] — 2026-05-05
+
+### Added
+- **TTL-Based Cache Eviction System.** Implemented automated cleanup of cached files
+  with a 7-day default TTL. Scheduled daily task runs at 03:00 UTC to remove aged files,
+  protecting disk space from unbounded growth. Configurable TTL via environment or API.
+
+### Changed
+- **Size-Based Log Rotation.** Replaced daily rotation with size-based triggers (50 MB per file)
+  with 12-file retention (90+ days total history) and gzip -9 aggressive compression.
+  Dramatically reduces disk footprint while maintaining operational history.
+- **Modular Warning Architecture.** Refactored `cogs/warnings.py` (1,720 lines) into reusable
+  components:
+  - `lib/vtec_parser.py` (116 lines): VTEC and polygon parsing with zero Discord dependencies
+    — enables reuse in non-Discord contexts (scripts, utilities, testing).
+  - `cogs/warning_format.py` (530 lines): Styling, narrative extraction, URL generation.
+  - `cogs/warning_ui.py` (560 lines): Discord UI views (EnvironmentalView, TornadoPhotoView,
+    TornadoDashboardView).
+  - `cogs/warnings.py` (360 lines): Polling logic and deduplication only.
+  - **Benefit**: Improved testability, code reusability, separation of concerns, and easier
+    collaboration on specific subdomains.
+
+### Fixed
+- **Bare Exception Handlers.** Replaced bare `except` clauses in `cogs/recorder.py` and
+  `lib/vad_plotter/vad_reader.py` with specific exception types (`ValueError`, `IndexError`),
+  improving exception chain preservation for debugging and following Python best practices.
+- **Async Test Mock Cleanup Warnings.** Fixed 22 spurious runtime warnings from unittest.mock
+  by replacing `MagicMock()` with `AsyncMock()` for async task patching in `conftest.py`
+  and adding pytest filter directives in `pytest.ini`.
+
+### Tests
+- All 328 tests passing with zero spurious warnings (cleaned from 22 in previous version).
+
 ## [5.15.3] — 2026-05-04
 
 ### Changed
