@@ -132,6 +132,31 @@ async def test_handle_lsr_calculates_lead_time():
 
 
 @pytest.mark.asyncio
+async def test_handle_lsr_marks_unwarned_tornado():
+    """Tornadoes with no matching warning are marked as unwarned (lead_time=-1)."""
+    cog, channel = _make_cog()
+
+    captured_kwargs = {}
+
+    async def _capture(**kwargs):
+        captured_kwargs.update(kwargs)
+
+    # No matching warning found (find_matching_tornado returns None)
+    with patch("utils.state_store.find_matching_tornado",
+               AsyncMock(return_value=None)), \
+         patch("cogs.reports.add_significant_event",
+               AsyncMock(side_effect=_capture)):
+        await cog._handle_lsr("202604292130-KOUN-LSROUN", SAMPLE_LSR)
+
+    # Should have posted to Discord (no early continue)
+    assert channel.send.called, "Unwarned tornado should be posted to Discord"
+
+    # Should have called add_significant_event with lead_time=-1 (unwarned sentinel)
+    assert "lead_time" in captured_kwargs, f"Captured keys: {list(captured_kwargs.keys())}"
+    assert captured_kwargs["lead_time"] == -1, "Unwarned tornadoes should have lead_time=-1"
+
+
+@pytest.mark.asyncio
 async def test_handle_lsr_no_channel_returns_early():
     """Missing Discord channel is handled without raising."""
     cog, _ = _make_cog()

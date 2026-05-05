@@ -450,7 +450,11 @@ class TornadoDashboardView(discord.ui.View):
         embed.add_field(name="Office", value=e['source'], inline=True)
 
         if e.get("lead_time") is not None:
-            embed.add_field(name="Lead Time", value=f"{e['lead_time']:.1f} min", inline=True)
+            if e["lead_time"] == -1:
+                # Sentinel value: explicitly marked as unwarned
+                embed.add_field(name="⚠️ Warning Status", value="UNWARNED", inline=True)
+            else:
+                embed.add_field(name="Lead Time", value=f"{e['lead_time']:.1f} min", inline=True)
 
         if e.get("vtec_id"):
             parts = e["vtec_id"].split(".")
