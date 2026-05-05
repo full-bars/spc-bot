@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.15.2] — 2026-05-04
+
+### Fixed
+- **Warning Double-Posting Race Condition.** Resolved a critical race where
+  identical warning updates arriving from multiple sources (IEMBot, NWWS-OI, and
+  NWS API) could bypass deduplication checks and post multiple times.
+  Implemented `posted_product_ids` for cross-feed normalization and tightened
+  in-flight locking to ensure strictly atomic issuance processing.
+
+### Tests
+- **Warning Deduplication Suite.** Added new regression tests in
+  `tests/test_warnings.py` covering high-concurrency race conditions and
+  multi-source product deduplication.
+
 ## [5.15.1] — 2026-05-04
 
 ### Changed
