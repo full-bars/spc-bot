@@ -1120,6 +1120,11 @@ class WarningsCog(commands.Cog):
         action = vtec["action"]
         office = vtec["office"]
 
+        # ── Pipeline fast-path for product deduplication ──────────────────────
+        # NWWS and IEMBot both send the same products. Normalize by product_id.
+        if product_id in self.bot.state.posted_product_ids:
+            return
+
         # PR D: Lifecycle fast-path (cancel/expire/upgrade)
         if action in ("CAN", "EXP", "UPG"):
             if vtec_id in self.bot.state.active_warnings:
@@ -1128,11 +1133,12 @@ class WarningsCog(commands.Cog):
                 vtec_to_use = vtec or self.bot.state.active_warnings.get(vtec_id)
                 await self._handle_cancellation(vtec_id, reason=reason, vtec=vtec_to_use)
                 self.bot.state.active_warnings.pop(vtec_id, None)
+                self.bot.state.posted_product_ids.add(product_id)
             return
 
         # ── Pipeline fast-path for updates (CON, EXT, EXA) ─────────────────────
         is_update = action in ("CON", "EXT", "EXA")
-        
+
         # We only treat it as an update if we have actually posted the issuance.
         # Otherwise (e.g. startup discovery), it proceeds as an issuance.
         if is_update and vtec_id not in self.bot.state.posted_warnings:
@@ -1149,21 +1155,28 @@ class WarningsCog(commands.Cog):
         # (e.g. concurrent NWWS and IEMBot triggers).
         if vtec_id in self._in_flight_vtecs:
             return
+
+        # Check product_id again after potential await context switches
+        if product_id in self.bot.state.posted_product_ids:
+            return
+
         self._in_flight_vtecs.add(vtec_id)
 
         try:
             # Claim the dedup key BEFORE any awaits so concurrent tasks
             # hitting the same path see the state immediately.
+            # For updates, we don't overwrite the dict yet, but we mark the product.
+            self.bot.state.posted_product_ids.add(product_id)
             if not is_update:
                 self.bot.state.posted_warnings[vtec_id] = {} # placeholder
-            
+
             self.bot.state.active_warnings[vtec_id] = vtec
 
             # Log significant events (tornadoes, hail, wind) to DB
             event_id = await self._check_and_log_significant_event(event, raw_text, vtec)
 
             emoji, display_event, color, footer_id = get_warning_style(event, raw_text)
-            
+
             prev_area = self.bot.state.posted_warnings.get(vtec_id, {}).get("area", "")
             concise_text = build_concise_warning_text(
                 display_event, vtec, raw_text=raw_text, is_update=is_update, prev_area=prev_area
@@ -1198,7 +1211,7 @@ class WarningsCog(commands.Cog):
             try:
                 msg = await channel.send(embed=embed, files=files, view=view)
                 logger.info(f"[WARN] Posted (iembot) {event} {vtec_id} ({'Update' if is_update else 'Issuance'})")
-                
+
                 # Simple area extraction for persistence
                 area_m = re.search(r"for (.+?) till", concise_text)
                 area_desc = area_m.group(1) if area_m else "affected area"
@@ -1210,6 +1223,8 @@ class WarningsCog(commands.Cog):
                 }
             except discord.HTTPException as e:
                 # Roll back the dedup claim on a hard send failure
+                if product_id in self.bot.state.posted_product_ids:
+                    self.bot.state.posted_product_ids.discard(product_id)
                 if not is_update and vtec_id in self.bot.state.posted_warnings:
                     del self.bot.state.posted_warnings[vtec_id]
                 logger.exception(
@@ -1219,12 +1234,15 @@ class WarningsCog(commands.Cog):
 
             try:
                 await add_posted_warning(vtec_id, msg.id, msg.channel.id, time.time(), area=area_desc)
+                # Keep product IDs pruned to today's set (roughly)
+                if len(self.bot.state.posted_product_ids) > 1000:
+                    # Very crude pruning — ideally we'd use a TTL but this is in-memory
+                    self.bot.state.posted_product_ids.clear() 
                 await prune_posted_warnings()
             except Exception as e:
                 logger.warning(f"[WARN] Failed to persist {vtec_id}: {e}")
         finally:
             self._in_flight_vtecs.discard(vtec_id)
-
     async def _check_and_log_significant_event(self, event: str, raw_text: str, vtec: dict):
         """Parse warning text for confirmed tornadoes and log to DB."""
         text_upper = (raw_text or "").upper()
@@ -1571,6 +1589,11 @@ class WarningsCog(commands.Cog):
             # Check in-flight set to avoid racing with concurrent NWWS triggers
             if issuance_id in self._in_flight_vtecs:
                 continue
+            
+            # Final check of posted_warnings to be absolutely sure
+            if issuance_id in self.bot.state.posted_warnings:
+                continue
+
             self._in_flight_vtecs.add(issuance_id)
 
             try:
@@ -1579,10 +1602,16 @@ class WarningsCog(commands.Cog):
                 if vtec_dict["action"] not in ("NEW", "CON", "EXT", "UPG"):
                     continue
 
+                # Claim the dedup key BEFORE any awaits
+                self.bot.state.posted_warnings[issuance_id] = {} # placeholder
+
                 try:
                     msg, area_desc = await self._post_warning(feature, channel, vtec_dict, event)
                 except discord.HTTPException as e:
                     logger.exception(f"[WARN] Send failed for {issuance_id}: {e}")
+                    # Roll back placeholder on failure
+                    if issuance_id in self.bot.state.posted_warnings and not self.bot.state.posted_warnings[issuance_id]:
+                        del self.bot.state.posted_warnings[issuance_id]
                     continue
 
                 self.bot.state.active_warnings[issuance_id] = vtec_dict
