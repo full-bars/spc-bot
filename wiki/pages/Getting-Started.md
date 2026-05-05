@@ -6,6 +6,7 @@ SPCBot is designed for flexibility, supporting both containerized and native Lin
 
 - **Python 3.13+** (matches current production stack).
 - **Discord Bot Token**: Create one at the [Discord Developer Portal](https://discord.com/developers/applications).
+- **Discord Channel IDs**: At minimum, one SPC channel and one model channel.
 - **Upstash Redis** (Optional): Required only for High Availability (Failover).
 - **Syncthing** (Optional): Required for cross-node `events.db` replication.
 
@@ -23,6 +24,12 @@ The easiest way to run SPCBot with all scientific dependencies (MetPy, Cartopy) 
 2. **Configure:** Edit `.env` with your token and channel IDs.
 3. **Launch:** `docker compose up -d`
 
+Check startup logs with:
+
+```bash
+docker compose logs -f bot
+```
+
 ## ⚡ Native Linux (systemd)
 
 Use the portable deploy script for an interactive setup on Ubuntu/Debian.
@@ -33,17 +40,37 @@ cd spc-bot
 sudo ./deploy.sh
 ```
 
-The script creates a virtual environment, configures your service, and installs aliases (`spcon`, `spcoff`, `spclog`) into your `.bashrc`.
+The script creates a virtual environment, configures your service, and installs aliases (`spcon`, `spcoff`, `spcstatus`, `spclog`, `spcupdate`) into your `.bashrc`.
 
 ## ⚙️ Core Configuration (`.env`)
 
-| Variable | Description |
+Minimum required variables for a single-node install:
+
+| Variable | Description | Required |
+|---|---|---|
+| `DISCORD_TOKEN` | Your bot token from Discord. | Yes |
+| `GUILD_ID` | The ID of your primary server. | Yes |
+| `SPC_CHANNEL_ID` | Default channel for SPC outlooks, watches, MDs, and fallback health posts. | Yes |
+| `MODELS_CHANNEL_ID` | Channel for model/science products such as CSU-MLP, WxNext2, and SCP. | Yes |
+| `FAILOVER_TOKEN` | Non-default shared secret used by failover/admin controls. | Yes |
+
+Optional production features:
+
+| Feature | Variables |
 |---|---|
-| `DISCORD_TOKEN` | Your bot token from Discord. |
-| `GUILD_ID` | The ID of your primary server. |
-| `LOG_CHANNEL_ID` | Channel for system alerts and errors. |
-| `NWWS_USER` | NWWS-OI XMPP username. |
-| `NWWS_PASSWORD` | NWWS-OI XMPP password. |
-| `IS_PRIMARY` | Set `true` for your main node. |
+| Warning channel split | `WARNINGS_CHANNEL_ID`, `HEALTH_CHANNEL_ID`, `SOUNDING_CHANNEL_ID`, `DEV_CHANNEL_ID` |
+| NWWS-OI fast path | `NWWS_USER`, `NWWS_PASSWORD`, `NWWS_SERVER` |
+| High availability | `IS_PRIMARY`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `ADMIN_USER_ID` |
+| Events DB sync | `EVENTS_DB_PATH`, `EVENTS_SYNC_DIR`, `SYNCTHING_API_KEY`, `SYNCTHING_FOLDER_ID` |
+| Off-server GIF backups | `RCLONE_REMOTE`, `RCLONE_DEST_DIR` |
 
 For a full list of configuration options, see the [Configuration Guide](Configuration-Guide).
+
+## ✅ Startup Verification
+
+After launch, confirm:
+
+1. Logs show the bot logged in and slash commands synced.
+2. `/status` shows the expected node role, uptime, Discord gateway, and data-source latency fields.
+3. `/spc1` or `/wxnext` can post in the expected channel.
+4. If using HA, only one node shows `PRIMARY`; the standby should not run posting loops.

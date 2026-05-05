@@ -19,9 +19,9 @@ NWWS-OI (sub-1s latency), SPC watch alerts with deduplication, NWS warnings (TOR
 ## Quick Start
 
 ### Prerequisites
-- Python 3.12+ or Docker
+- Python 3.13+ or Docker
 - Discord bot token ([Discord Developer Portal](https://discord.com/developers/applications))
-- Channel IDs for your Discord server
+- Discord channel IDs for SPC/model posts
 - (Optional) [Upstash Redis](https://upstash.com/) for high-availability failover
 
 ### Docker (Recommended)
@@ -32,6 +32,15 @@ curl -O https://raw.githubusercontent.com/full-bars/spc-bot/main/.env.example
 cp .env.example .env
 # Edit .env with your Discord token and channel IDs
 docker compose up -d
+```
+
+Minimum required `.env` for a single-node install:
+```env
+DISCORD_TOKEN=your_bot_token_here
+SPC_CHANNEL_ID=your_spc_channel_id
+MODELS_CHANNEL_ID=your_models_channel_id
+GUILD_ID=your_guild_id
+FAILOVER_TOKEN=your_non_default_shared_secret
 ```
 
 ### Systemd (Linux)
@@ -64,30 +73,13 @@ The bot automatically manages folder modes (send-only on Primary, receive-only o
 
 - **[PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)** — Full file tree, module descriptions, architecture overview, testing guide
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — Development setup, slash commands, auto-posting mechanics, persistence model, failover details, running tests
+- **[docs/testing.md](docs/testing.md)** — Focused test-running guide for local development and CI troubleshooting
 - **[GitHub Wiki](https://github.com/full-bars/spc-bot/wiki)** — Feature guides (Alerting Authority, Warning Lifecycle, Soundings, Maintenance)
 - **[CHANGELOG.md](CHANGELOG.md)** — Release history and version-by-version improvements
 
 ## Status
 
-Work in progress. Actively developed in free time. All 328 tests passing with zero spurious warnings.
-
-## Built With
-
-* [discord.py](https://github.com/Rapptz/discord.py)
-* [aiohttp](https://github.com/aio-libs/aiohttp)
-* [aioboto3](https://github.com/aio-libs/aioboto3)
-* [aiosqlite](https://github.com/omnilib/aiosqlite)
-* [sounderpy](https://github.com/kylejgillett/sounderpy)
-* [MetPy](https://github.com/Unidata/MetPy)
-* [numpy](https://numpy.org)
-* [matplotlib](https://matplotlib.org)
-* [requests](https://requests.readthedocs.io)
-* [pytz](https://github.com/stub42/pytz)
-* [vad-plotter](https://github.com/tsupinie/vad-plotter) by Tim Supinie
-
-## Status
-
-Work in progress. Actively developed in my free time, expect some bugs.
+Work in progress. Actively developed in free time; expect behavior to evolve between releases.
 
 ## Built With
 

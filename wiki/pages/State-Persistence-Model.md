@@ -34,3 +34,26 @@ For HA pairs, the `events.db` is replicated using **Syncthing**. The bot automat
 - **Primary:** Sets folder to `Send-Only`.
 - **Standby:** Sets folder to `Receive-Only`.
 - Mode flipping occurs automatically during promotion/demotion cycles.
+
+## 🧾 State Ownership Cheat Sheet
+
+| State | Primary Location | Mirror/Fallback | Purpose |
+|---|---|---|---|
+| Active runtime metrics | `bot.state` | None | Latency, uptime, role, current task health. |
+| Image hashes | Upstash / `bot_state.db` | In-memory cache | Prevent duplicate SPC/model image posts. |
+| Posted MD/watch/report IDs | Upstash / `bot_state.db` | In-memory cache | Deduplicate alert products across restarts and HA nodes. |
+| Posted warning metadata | Upstash / `bot_state.db` | In-memory cache | Track lifecycle updates and Discord message targets. |
+| Simple feature state | `bot_state` table | Upstash key/value state | CSU-MLP, NCAR, IEMBot sequence numbers, and similar feature flags. |
+| HTTP validators | `http_validators` table | In-memory LRU | Avoid unnecessary downloads using ETag/Last-Modified. |
+| Product text cache | `product_text_cache` table | Upstash when configured | Short-lived NWS/SPC product text cache. |
+| Significant event history | `events.db` | Syncthing copy in HA setups | Tornado/survey archive and DAT enrichment. |
+| VAD evolution GIFs | Filesystem archive | rclone remote when configured | Forensic media output. |
+
+## 🚀 Startup Hydration Flow
+
+1. `main.py` initializes SQLite and checks DB integrity.
+2. In-memory dedupe caches are hydrated from the state store.
+3. HTTP validators are loaded so conditional GETs work after restart.
+4. Startup cache cleanup runs before cogs begin regular polling.
+5. The failover cog checks the Upstash lease.
+6. Posting cogs load only if the node should run as primary.
