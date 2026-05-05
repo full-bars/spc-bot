@@ -148,6 +148,7 @@ spc-bot/
 │   ├── http.py              # Async HTTP session management (centralized pooling, retry, conditional GET)
 │   ├── change_detection.py  # Content hashing and placeholder-image detection
 │   ├── cache.py             # Download orchestration; conditional-GET poll path (validators persist across restarts)
+│   ├── cache_utils.py       # TTL-based cache eviction with scheduled cleanup tasks (7-day default)
 │   ├── state.py             # BotState — HashStore + PostingLog + TimingTracker sub-stores
 │   ├── state_store.py       # Upstash Redis facade: read-through cache → Upstash → SQLite fallback;
 │   │                        # double-writes both backends, retries failed Upstash writes via a reconciler
@@ -164,7 +165,9 @@ spc-bot/
 │   ├── mesoscale.py         # SPC MD monitoring with watch probability detection and IEM fallbacks
 │   ├── iembot.py            # IEM iembot feed poller with persistent text-product caching
 │   ├── watches.py           # SPC watch monitoring via NWS API (stores affected_zones)
-│   ├── warnings.py          # NWS VTEC warning monitoring (SVR, TOR, FFW) with map mapping
+│   ├── warnings.py          # NWS VTEC warning monitoring (SVR, TOR, FFW) — polling & deduplication logic
+│   ├── warning_format.py    # Warning styling, narrative extraction, URL generation (decoupled from warnings.py)
+│   ├── warning_ui.py        # Discord UI views for tornado data: EnvironmentalView, TornadoPhotoView, TornadoDashboardView
 │   ├── reports.py           # LSR and PNS monitoring; triggers Autoplot 253 tornado track posts
 │   ├── scp.py               # NIU/Gensini SCP graphics, twice daily
 │   ├── csu_mlp.py           # CSU-MLP consolidated /csu command with Choice dropdown
@@ -180,7 +183,10 @@ spc-bot/
 │       ├── s3.py            # S3 client, file listing, time parsing
 │       ├── downloads.py     # Download orchestration, zipping, progress
 │       └── views.py         # Discord UI views and modals
+├── config/
+│   └── logrotate.conf       # Log rotation config: size-based (50 MB), 12-file retention, gzip -9 compression
 ├── lib/
+│   ├── vtec_parser.py       # VTEC/polygon parsing (reusable, zero Discord dependencies)
 │   └── vad_plotter/         # Hodograph library (vad-plotter by Tim Supinie)
 │       ├── vad.py           # Main entry point, called as subprocess
 │       ├── vad_reader.py    # NEXRAD VWP binary parser

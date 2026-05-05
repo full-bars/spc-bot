@@ -175,6 +175,12 @@ changed (hash-based detection). Uses `MODELS_CHANNEL_ID`.
 4. **Archival**: Peak 0-1km SRH is calculated and saved to `events.db` along with the GIF path.
 5. **Resumption**: Mission state is persisted to Upstash, allowing the bot to survive restarts or failovers during a recording window.
 
+### Cache Management
+
+The bot implements automatic cleanup of cached files via `utils/cache_utils.py`. A scheduled task runs daily at 03:00 UTC and removes cache files older than 7 days (configurable via environment or function parameters). Disk space is logged on each cleanup cycle. This prevents unbounded cache directory growth while preserving recent operational data.
+
+**Log Rotation** is configured via `config/logrotate.conf` with size-based triggers (50 MB per file) and 12-file retention, preserving 90+ days of operational history with gzip -9 compression.
+
 ### Sounding Plots
 
 The `/sounding` command geocodes the location, finds nearby RAOB stations that have verified data in the Wyoming archive, and presents an interactive station and time picker. Plots are generated headlessly via SounderPy and posted to the channel where the command was used. Per-user dark mode preference is persisted to the local SQLite database. Auto-posting of soundings is active in three modes: (1) **proactive pre-warming** when the MD cog detects a mesoscale discussion with ≥80% watch issuance probability; (2) **immediately on watch issuance**, using the most recent IEM-available sounding time (any hour); (3) **at 00z/12z** for all active watches. Up to 3 RAOB stations and 2 ACARS profiles per watch. At 00z/12z, Wyoming and IEM are raced simultaneously — whichever returns data first wins.
@@ -263,7 +269,7 @@ python -m pytest tests/ \
     --cov-report=term-missing
 ```
 
-The suite currently collects **366 tests**.
+The suite currently collects **328 tests**.
 
 Lint (same selection CI uses):
 
