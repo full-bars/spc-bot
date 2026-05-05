@@ -77,7 +77,7 @@ class AnalyticsCog(commands.Cog):
         
         # #92: Days since Last Watch/Warning/Advisory by WFO
         # phenomena: TO, significance: W
-        url = f"https://mesonet.agron.iastate.edu/plotting/auto/plot/92/phenomena:TO::significance:W.png"
+        url = "https://mesonet.agron.iastate.edu/plotting/auto/plot/92/phenomena:TO::significance:W.png"
         
         embed = discord.Embed(
             title="⏳ Days Since Last Tornado Warning",

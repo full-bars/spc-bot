@@ -2,6 +2,7 @@
 narrative extraction, the iembot fast-path entry point, and the NWS API
 _tick poll path (disappeared detection, CON area updates, initial discovery)."""
 
+import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock
 
@@ -191,6 +192,7 @@ def _make_cog(posted: dict | None = None) -> WarningsCog:
     cog.bot.state.is_primary = True
     cog.bot.state.posted_warnings = posted if posted is not None else {}
     cog.bot.state.active_warnings = {}
+    cog.bot.state.posted_product_ids = set()
     channel = MagicMock()
     channel.send = AsyncMock()
     cog.bot.get_channel = MagicMock(return_value=channel)
@@ -305,6 +307,65 @@ async def test_post_warning_now_claims_key_before_send(monkeypatch):
         "Severe Thunderstorm Warning",
     )
     assert observed == [True], "vtec_id must be claimed before send"
+
+
+@pytest.mark.asyncio
+async def test_post_warning_now_dedups_by_product_id(monkeypatch):
+    """Identical products from different sources (IEMBot/NWWS) must be
+    deduplicated by product_id even if they are updates."""
+    cog = _make_cog()
+
+    import cogs.warnings as warnings_mod
+    monkeypatch.setattr(warnings_mod, "add_posted_warning", AsyncMock())
+    monkeypatch.setattr(warnings_mod, "prune_posted_warnings", AsyncMock())
+    monkeypatch.setattr(warnings_mod, "_download_warning_image", AsyncMock(return_value=None))
+
+    # First post (e.g. from IEMBot)
+    await cog.post_warning_now(
+        "PROD-123",
+        SAMPLE_RAW,
+        "Severe Thunderstorm Warning",
+    )
+    assert cog.bot.get_channel.return_value.send.call_count == 1
+    assert "PROD-123" in cog.bot.state.posted_product_ids
+
+    # Second post of the SAME product (e.g. from NWWS)
+    await cog.post_warning_now(
+        "PROD-123",
+        SAMPLE_RAW,
+        "Severe Thunderstorm Warning",
+    )
+    # Call count should still be 1
+    assert cog.bot.get_channel.return_value.send.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_post_warning_now_race_dedup(monkeypatch):
+    """If two triggers arrive for the same VTEC ID at the same time,
+    the second one must return early due to in-flight set."""
+    cog = _make_cog()
+
+    import cogs.warnings as warnings_mod
+    monkeypatch.setattr(warnings_mod, "add_posted_warning", AsyncMock())
+    monkeypatch.setattr(warnings_mod, "prune_posted_warnings", AsyncMock())
+
+    # Mock image download to be slow to create a race window
+    async def _slow_download(*args, **kwargs):
+        await asyncio.sleep(0.1)
+        return None
+    monkeypatch.setattr(warnings_mod, "_download_warning_image", _slow_download)
+
+    # Launch two concurrent tasks for different product IDs but same VTEC ID
+    await asyncio.gather(
+        cog.post_warning_now("PROD-1", SAMPLE_RAW, "Severe Thunderstorm Warning"),
+        cog.post_warning_now("PROD-2", SAMPLE_RAW, "Severe Thunderstorm Warning")
+    )
+
+    # Only one should have been posted because they share the same VTEC ID
+    assert cog.bot.get_channel.return_value.send.call_count == 1
+    assert "PROD-1" in cog.bot.state.posted_product_ids or "PROD-2" in cog.bot.state.posted_product_ids
+    # But only one product ID should be in the set if the second one returned early
+    assert len(cog.bot.state.posted_product_ids) == 1
 
 
 # ── get_warning_style ─────────────────────────────────────────────────────────

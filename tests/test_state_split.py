@@ -1,13 +1,5 @@
-"""Tests for the BotState sub-store split.
-
-The split's load-bearing property is that the legacy attribute surface
-(`state.posted_mds`, `state.auto_cache`, …) keeps working AND returns
-the same underlying container the sub-store owns, so existing
-in-place mutations (`state.posted_mds.add(x)`, dict updates) still
-reach the intended storage.
-"""
-
-from utils.state import BotState, HashStore, PostingLog, TimingTracker
+# tests/test_state_split.py
+from utils.state import BotState, PostingLog, TimingTracker, HashStore
 
 
 def test_substores_are_present():
@@ -18,32 +10,24 @@ def test_substores_are_present():
 
 
 def test_legacy_attribute_is_same_object_as_substore_field():
-    """Mutating via the legacy attribute must reach the sub-store."""
     s = BotState()
-    s.posted_mds.add("0100")
-    assert "0100" in s.posting.posted_mds
-
-    s.auto_cache["url"] = "hash"
-    assert s.hashes.auto_cache["url"] == "hash"
-
-    s.last_posted_urls["day1"] = ["u"]
-    assert s.timing.last_posted_urls["day1"] == ["u"]
+    # Reading via legacy property returns the container by reference
+    assert s.posted_mds is s.posting.posted_mds
+    assert s.auto_cache is s.hashes.auto_cache
+    assert s.last_post_times is s.timing.last_post_times
 
 
 def test_legacy_assignment_replaces_substore_field():
-    """`state.posted_mds = new_set` must update the sub-store too."""
     s = BotState()
-    new_set = {"A", "B"}
+    new_set = {"0001"}
     s.posted_mds = new_set
-    # The delegated setter replaced the field on the sub-store.
     assert s.posting.posted_mds is new_set
 
 
 def test_substore_mutation_visible_via_legacy_attr():
-    """The reverse direction — mutate sub-store, read via legacy attr."""
     s = BotState()
-    s.posting.posted_watches.add("0042")
-    assert "0042" in s.posted_watches
+    s.posting.posted_mds.add("9999")
+    assert "9999" in s.posted_mds
 
 
 def test_to_dict_output_shape_unchanged():
@@ -67,8 +51,8 @@ def test_to_dict_output_shape_unchanged():
         "active_warnings",
         "active_mds",
         "last_posted_urls",
-
         "last_post_times",
+        "posted_product_ids",
     }
     assert set(d.keys()) == expected_keys
     assert d["iembot_last_seqnum"] == 7

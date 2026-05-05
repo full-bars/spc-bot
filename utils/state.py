@@ -69,6 +69,7 @@ class PostingLog:
         "active_watches",
         "active_warnings",
         "posted_reports",
+        "posted_product_ids",
     )
 
     def __init__(self):
@@ -83,6 +84,7 @@ class PostingLog:
         # Currently-active VTEC IDs mapping to their latest vtec metadata dict
         self.active_warnings: Dict[str, dict] = {}
         self.posted_reports: Set[str] = set()
+        self.posted_product_ids: Set[str] = set()
 
 
 class TimingTracker:
@@ -173,6 +175,7 @@ class BotState:
     active_watches = _delegate("posting", "active_watches")
     active_warnings = _delegate("posting", "active_warnings")
     posted_reports = _delegate("posting", "posted_reports")
+    posted_product_ids = _delegate("posting", "posted_product_ids")
 
     last_post_times = _delegate("timing", "last_post_times")
     last_posted_urls = _delegate("timing", "last_posted_urls")
@@ -189,6 +192,7 @@ class BotState:
             "posted_watches": list(self.posted_watches),
             "posted_warnings": self.posted_warnings,
             "posted_reports": list(self.posted_reports),
+            "posted_product_ids": list(self.posted_product_ids),
             "csu_posted": list(self.csu_posted),
             "active_mds": list(self.active_mds),
             "active_warnings": list(self.active_warnings.keys()),
