@@ -195,6 +195,21 @@ if [ "$EUID" -eq 0 ]; then
     chmod 600 "$ENV_FILE"
 fi
 
+# ── Log rotation configuration ────────────────────────────────────────────────
+if [ "$EUID" -eq 0 ] && command -v logrotate &>/dev/null; then
+    info "Installing logrotate configuration..."
+    sudo cp "${INSTALL_DIR}/config/logrotate.conf" "/etc/logrotate.d/${SERVICE_NAME}"
+    sudo chmod 644 "/etc/logrotate.d/${SERVICE_NAME}"
+    info "Logrotate installed: daily rotation, 30-day retention, gzip compression."
+else
+    if [ "$EUID" -ne 0 ]; then
+        warn "Logrotate setup requires sudo. Skipping automated log rotation."
+        info "To set up manually, run: sudo cp config/logrotate.conf /etc/logrotate.d/spcbot"
+    else
+        info "logrotate not installed. Logs will grow unbounded."
+    fi
+fi
+
 # ── Systemd service ───────────────────────────────────────────────────────────
 info "Configuring systemd service..."
 sudo bash -c "cat > $SERVICE_FILE" << EOF
