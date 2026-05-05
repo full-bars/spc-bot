@@ -61,7 +61,7 @@ def global_suppress_create_task(request):
     if request.node.get_closest_marker("real_create_task"):
         yield
     else:
-        with patch("asyncio.create_task", return_value=MagicMock()):
+        with patch("asyncio.create_task", return_value=AsyncMock()):
             yield
 
 
