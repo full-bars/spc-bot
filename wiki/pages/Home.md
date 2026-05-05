@@ -1,6 +1,6 @@
 # Welcome to the SPCBot Wiki 🛰️
 
-**SPCBot** (v5.13.0) is a high-performance, severe weather monitoring Discord bot. Built for enthusiasts and researchers, it delivers near-zero latency alerts, real-time analytics, and automated scientific plots.
+**SPCBot** is a high-performance, severe weather monitoring Discord bot. Built for enthusiasts and researchers, it delivers near-zero latency alerts, real-time analytics, and automated scientific plots.
 
 > [!WARNING]
 > **Warning and lifecycle tracking features are in Beta.** These features are under active development and should be considered experimental. Always rely on official NWS sources for life-safety decisions.
@@ -18,19 +18,21 @@
 ### [Getting Started](Getting-Started)
 Learn how to install SPCBot via Docker or systemd, configure your environment, and get the bot online.
 
-### [Core Features](Core-Features)
+### Core Features
 - **[Alerting & Authority](Alerting-Authority-&-NWWS-OI)**: Hierarchy of data sources and latency advantages.
 - **[Warning Lifecycle & Updates](Warning-Lifecycle-&-Updates)**: How VTEC products are parsed and tracked.
 - **[Tornado Dashboard & DAT Integration](Tornado-Dashboard-&-DAT-Integration)**: Survey tracking and photo carousels.
 
-### [Scientific Tools](Scientific-Tools)
+### Scientific Tools
 - **[Soundings & Hodographs](Soundings-&-Hodographs)**: Observed data plotting and auto-posting logic.
 - **[Forecast Models](Forecast-Models)**: CSU-MLP, NCAR WxNext2, and SCP graphics.
+- **[Radar Downloader](Radar-Downloader)**: NOAA S3 Level 2 radar downloads and archive packaging.
 
-### [Advanced Architecture](Advanced-Architecture)
+### Advanced Architecture
 - **[High Availability & Failover](High-Availability-&-Failover)**: Primary/Standby logic and Upstash leases.
 - **[State Persistence Model](State-Persistence-Model)**: Hybrid Upstash Redis + SQLite architecture.
 
-### [Reference](Reference)
+### Reference
 - **[Slash Command Reference](Slash-Command-Reference)**: Complete guide to bot interactions.
 - **[Maintenance & Operations](Maintenance-&-Operations)**: Monitoring tools and admin commands.
+- **[Configuration Guide](Configuration-Guide)**: Environment variables and deployment options.
