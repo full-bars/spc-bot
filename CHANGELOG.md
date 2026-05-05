@@ -4,6 +4,35 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.16.1] — 2026-05-05
+
+### Added
+- **Unwarned Tornado Tracking.** Tornado Local Storm Reports without matching warnings now explicitly marked
+  with `lead_time=-1` sentinel value in the events database. Dashboard displays "⚠️ UNWARNED" badge,
+  giving operators visibility into tornadoes that occurred without a preceding warning.
+
+### Fixed
+- **Uptime Display Always Showing 'Unknown'.** Root cause was duplicate `@bot.event on_ready()` handlers
+  in main.py (lines 245 and 569), causing the second handler to overwrite the first. The first handler set
+  `bot_start_time` on Discord connection; the second (cache cleanup scheduling) overwrote it. Merged both
+  handlers into a single `on_ready()` that performs both initialization and scheduling.
+- **Version Sync Errors.** Hardcoded version in `config.py` was prone to human error (evidenced by version
+  showing 5.15.3 despite being on code from later commits). Implemented dynamic versioning using
+  `git describe --tags` to derive version from git history, with fallback to `VERSION` file for
+  non-git deployments. Version now always reflects accurate git state.
+- **Bot Start Time Reset on Reconnections.** Previously reset on every Discord `on_ready()` event
+  (which fires multiple times). Now only set once at process startup; subsequent Discord reconnections
+  preserve the original start time.
+
+### Changed
+- **Dynamic Version Reporting.** Bot now reports version derived from git tags at runtime instead of
+  hardcoded config value. Development builds show commit count ahead of tag (e.g., `5.16.0-10-g71c8002`).
+
+### Documentation
+- README restructured for improved clarity and maintainability.
+- Extracted project structure and architecture details into dedicated `PROJECT_STRUCTURE.md`.
+- Updated configuration and contribution guidelines.
+
 ## [5.16.0] — 2026-05-05
 
 ### Added
