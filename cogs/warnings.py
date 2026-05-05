@@ -14,7 +14,6 @@ This is the v1 baseline. Subsequent PRs add:
 """
 from __future__ import annotations
 
-import asyncio
 import json as _json
 import logging
 import re
@@ -51,7 +50,6 @@ from cogs.warning_format import (
 )
 from cogs.warning_ui import (
     EnvironmentalView,
-    TornadoPhotoView,
     TornadoDashboardView,
 )
 
