@@ -9,7 +9,6 @@ cached_*
 cache/
 GEMINI.md
 .claude/
-claude.md
 CLAUDE.md
 .pytest_cache/
 .coverage
