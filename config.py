@@ -3,11 +3,41 @@ import os
 import json
 import logging
 import pytz
+import subprocess
 from dotenv import load_dotenv
 
-# Single source of truth for the release displayed in /help.
-# Bump this in the same commit as the git tag.
-__version__ = "5.16.1"
+
+def _get_version() -> str:
+    """Get version from git tag, VERSION file, or fallback."""
+    try:
+        # Try to read from git tag (most accurate)
+        version = subprocess.check_output(
+            ["git", "describe", "--tags", "--always"],
+            cwd=os.path.dirname(__file__),
+            stderr=subprocess.DEVNULL,
+            text=True
+        ).strip()
+        # Remove leading 'v' if present (v5.16.1 → 5.16.1)
+        if version.startswith("v"):
+            version = version[1:]
+        return version
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+
+    # Fall back to VERSION file for non-git deployments
+    version_file = os.path.join(os.path.dirname(__file__), "VERSION")
+    if os.path.exists(version_file):
+        try:
+            with open(version_file) as f:
+                return f.read().strip()
+        except Exception:
+            pass
+
+    # Final fallback
+    return "unknown"
+
+
+__version__ = _get_version()
 
 load_dotenv()
 
