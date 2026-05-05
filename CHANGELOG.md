@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.15.3] — 2026-05-04
+
+### Changed
+- **Dependency Maintenance.** Consolidated batch update of core meteorological
+  and spatial libraries to their latest versions, including `metpy` (1.7.1),
+  `scipy` (1.17.1), `pyproj` (3.7.2), `slixmpp` (1.15.0), and `pytz` (2026.2).
+- **CI Infrastructure.** Upgraded `docker/setup-qemu-action` to v4 and updated
+  `pytest-cov` to 7.1.0.
+
 ## [5.15.2] — 2026-05-04
 
 ### Fixed
