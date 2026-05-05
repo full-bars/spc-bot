@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.17.0] — 2026-05-05
+
+### Added
+- **Automated Google Drive Backups.** Integrated `rclone` to provide off-server backups for VAD evolution GIFs. The bot automatically uploads finalized forensics to a configured Google Drive directory, ensuring long-term data preservation without local disk pressure.
+- **Configurable Backup Dest.** Added `RCLONE_REMOTE` and `RCLONE_DEST_DIR` to support various cloud providers supported by rclone.
+
+### Fixed
+- **Recorder Linting.** Resolved multiple "multiple statements on one line" linting errors in `cogs/recorder.py` to align with project standards.
+
 ## [5.16.1] — 2026-05-05
 
 ### Added

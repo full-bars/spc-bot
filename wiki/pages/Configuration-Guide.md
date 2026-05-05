@@ -38,6 +38,8 @@ SPCBot is configured via a `.env` file in the project root. Below is a comprehen
 | `EVENTS_DB_PATH` | Path to the historical events archive. | `cache/events.db` |
 | `SYNCTHING_API_KEY` | Local Syncthing API key for `events.db` sync. | (empty) |
 | `SYNCTHING_FOLDER_ID` | Syncthing folder ID for `events.db`. | `spcbot-events` |
+| `RCLONE_REMOTE` | rclone remote name for off-server backups. | `gdrive` |
+| `RCLONE_DEST_DIR` | Destination directory on the rclone remote. | `spc-bot-forensics` |
 
 ## 🧪 Science & Thresholds
 

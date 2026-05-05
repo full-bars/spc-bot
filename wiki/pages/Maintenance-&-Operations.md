@@ -28,6 +28,19 @@ The bot performs several background cleanup tasks every 24 hours:
 - **DB Retention:** Enforces a **365-day rolling retention** for the `events.db` archive and prunes ephemeral state from `bot_state.db`.
 - **Photo Cleanup:** Deletes cached DAT damage photos older than 30 days.
 
+## ☁️ Off-Server Backups (rclone)
+
+To prevent local disk pressure from high-resolution VAD evolution GIFs, the bot supports automated off-server backups via **rclone**.
+
+### Setup
+1. **Install rclone**: The bot expects `rclone` to be available in the system PATH.
+2. **Configure Remote**: Run `rclone config` to set up your target provider (e.g., Google Drive, AWS S3, B2).
+3. **Set environment variables**:
+   - `RCLONE_REMOTE`: The name of the remote you configured (e.g., `gdrive`).
+   - `RCLONE_DEST_DIR`: The target directory on that remote.
+
+Finalized GIFs are uploaded asynchronously after each recording mission. Local files are still managed by the 1GB budget cleanup task, but the remote copy provides a permanent meteorological archive.
+
 ## 🔄 Operations
 
 ### Failover Manual Swap
