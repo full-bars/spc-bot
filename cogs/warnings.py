@@ -211,7 +211,9 @@ class WarningsCog(commands.Cog):
 
             # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS)
             files = []
-            if (vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS":
+            has_etn = vtec.get("etn") and vtec["etn"] != "0"
+            logger.info(f"[WARN_IMG_CHECK] {vtec['vtec_id']}: has_etn={has_etn} phenom={vtec.get('phenom')}")
+            if has_etn or vtec.get("phenom") == "SPS":
                 image_url = iem_autoplot_url(vtec)
                 logger.info(f"[WARN_IMG_IEMBOT] {vtec['vtec_id']}: {image_url}")
                 filename = f"warning_{vtec_id.replace('.', '_')}.png"
@@ -219,6 +221,10 @@ class WarningsCog(commands.Cog):
                 if f:
                     files.append(f)
                     embed.set_image(url=f"attachment://{filename}")
+                else:
+                    logger.warning(f"[WARN_IMG_FAIL] {vtec['vtec_id']}: image download returned None")
+            else:
+                logger.info(f"[WARN_IMG_SKIP] {vtec['vtec_id']}: no ETN, not downloading image")
 
             try:
                 msg = await channel.send(embed=embed, files=files, view=view)
@@ -702,7 +708,9 @@ class WarningsCog(commands.Cog):
 
         # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS)
         files = []
-        if (vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS":
+        has_etn = vtec.get("etn") and vtec["etn"] != "0"
+        logger.info(f"[WARN_IMG_CHECK] {vtec_id}: has_etn={has_etn} phenom={vtec.get('phenom')}")
+        if has_etn or vtec.get("phenom") == "SPS":
             image_url = iem_autoplot_url(vtec)
             logger.info(f"[WARN_IMG_NWSAPI] {vtec_id}: {image_url}")
             filename = f"warning_{vtec_id.replace('.', '_')}.png"
@@ -710,6 +718,10 @@ class WarningsCog(commands.Cog):
             if f:
                 files.append(f)
                 embed.set_image(url=f"attachment://{filename}")
+            else:
+                logger.warning(f"[WARN_IMG_FAIL] {vtec_id}: image download returned None")
+        else:
+            logger.info(f"[WARN_IMG_SKIP] {vtec_id}: no ETN, not downloading image")
 
         msg = await channel.send(embed=embed, files=files)
         logger.info(f"Posted {event} {vtec_id}")
