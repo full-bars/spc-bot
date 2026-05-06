@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.20.0] — 2026-05-06
+
+### Added
+- **Rust Expansion Phases 1–6.** Implemented SRH/Bunkers calculator, VTEC parser, image cache batch validator, product ID normalizer, haversine distance calculator, and comprehensive Rust unit tests (803 LOC total).
+- **Dark/Light Mode Toggle.** Added UI button to sounding selection embed for theme switching while preserving station/ACARS data.
+
+### Fixed
+- **IEM Availability Check Performance.** Phase 0 optimization reduces `/sounding` "Checking Station Availability" step from 10–30s to 1–3s by using asyncio.Semaphore(5) concurrency limiting instead of unlimited concurrent requests (222 → 6 HTTP calls).
+- **Tornado Graphics Year.** Added defensive year validation (±10 years from current) to prevent fetching wrong-year images for tornado warnings.
+- **Tornado Warning Labels.** Fixed warning updates incorrectly showing "Severe Weather Statement" instead of "Tornado Warning" by using VTEC phenomenon/significance to override NWS event labels.
+
+### Performance
+- **VAD Hodograph Calculations.** Moved vec2comp, comp2vec, compute_bunkers, compute_srh, compute_critical_angle to Rust with Python fallback.
+- **Batch Image Processing.** Consolidated per-image operations (XXH3 hashing, placeholder detection) into single Rust call.
+- **Geospatial Queries.** Implemented haversine distance calculations in Rust for station lookups.
+
 ## [5.19.0] — 2026-05-06
 
 ### Added
