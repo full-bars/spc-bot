@@ -1,0 +1,20 @@
+[build-system]
+requires = ["maturin>=1.13,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "spc_rust_core"
+description = "Performance-critical Rust core components for spc-bot"
+authors = [
+    { name = "full-bars", email = "45684698+full-bars@users.noreply.github.com" }
+]
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+dynamic = ["version"]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+module-name = "spc_rust_core"
