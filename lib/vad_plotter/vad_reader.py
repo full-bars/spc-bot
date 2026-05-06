@@ -159,11 +159,11 @@ class VADFile(object):
 
         offset_symbology = self._read('i')
         offset_graphic   = self._read('i')
-        offset_tabular   = self._read('i')
+        self._tabular_offset = self._read('i')
 
         self._time = datetime(1969, 12, 31, 0, 0, 0) + timedelta(days=scan_date, seconds=scan_time)
 
-        return offset_symbology > 0, offset_graphic > 0, offset_tabular > 0
+        return offset_symbology > 0, offset_graphic > 0, self._tabular_offset > 0
 
     def _read_product_symbology_block(self) -> None:
         self._read('h')
@@ -281,6 +281,24 @@ class VADFile(object):
             return list(data)
 
     def _get_data(self) -> Dict[str, np.ndarray]:
+        # Try Rust optimized tabular parser first
+        if RUST_AVAILABLE:
+            try:
+                # Seek to tabular block offset in the original stream
+                offset_tabular = self._tabular_offset if hasattr(self, '_tabular_offset') else 0
+                
+                # Get the raw bytes from the BytesIO object
+                self._rpg.seek(0)
+                raw_bytes = self._rpg.read()
+                
+                res = spc_rust_core.parse_vwp_tabular_data(raw_bytes, offset_tabular)
+                if res:
+                    # Convert list values to numpy arrays for compatibility
+                    return {k: np.array(v) for k, v in res.items()}
+            except Exception as e:
+                logger.debug(f"Rust parse_vwp_tabular_data failed: {e}. Falling back to Python.")
+
+        # Fallback to pure Python parsing
         vad_list = []
         for page in self._text_message:
             if (page[0].strip())[:20] == "VAD Algorithm Output":
