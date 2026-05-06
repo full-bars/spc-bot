@@ -23,7 +23,7 @@ class TestChangeDetection:
 
         assert h1 == h2
         assert h1 != h3
-        assert len(h1) == 64  # SHA-256 hex
+        assert len(h1) in (16, 64)  # 16 = XXH3 (Rust), 64 = SHA-256 (Python)
 
     def test_is_placeholder_image_empty(self):
         from utils.change_detection import is_placeholder_image

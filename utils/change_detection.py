@@ -19,7 +19,7 @@ except ImportError:
 
 
 def calculate_hash_bytes(content: bytes) -> str:
-    """Calculate hash for change detection. Prefers Rust XXH3, falls back to SHA256."""
+    """Calculate hash for change detection. Prefers Rust XXH3, falls back to Python SHA256."""
     if RUST_AVAILABLE:
         try:
             return spc_rust_core.calculate_fast_hash(content)

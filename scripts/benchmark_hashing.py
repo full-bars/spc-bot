@@ -22,18 +22,27 @@ def main():
     for _ in range(iterations):
         _ = hashlib.sha256(data).hexdigest()
     python_time = time.perf_counter() - start
-    print(f"Python (SHA256): {python_time:.4f}s ({python_time/iterations:.6f}s per hash)")
+    print(f"Python (hashlib): {python_time:.4f}s ({python_time/iterations:.6f}s per hash)")
     
-    # 2. Rust (XXH3)
+    # 2. Rust (SHA256)
     if RUST_AVAILABLE:
         start = time.perf_counter()
         for _ in range(iterations):
-            _ = spc_rust_core.calculate_fast_hash(data)
+            _ = spc_rust_core.calculate_sha256(data)
         rust_time = time.perf_counter() - start
-        print(f"Rust (XXH3):     {rust_time:.4f}s ({rust_time/iterations:.6f}s per hash)")
+        print(f"Rust (sha2):      {rust_time:.4f}s ({rust_time/iterations:.6f}s per hash)")
         
         speedup = python_time / rust_time
-        print(f"\nSpeedup: {speedup:.1f}x faster")
+        print(f"\nSHA256 Speedup: {speedup:.1f}x faster")
+        
+        # 3. Rust (XXH3) for reference
+        start = time.perf_counter()
+        for _ in range(iterations):
+            _ = spc_rust_core.calculate_fast_hash(data)
+        xxh_time = time.perf_counter() - start
+        print(f"Rust (XXH3):      {xxh_time:.4f}s ({xxh_time/iterations:.6f}s per hash)")
+        print(f"XXH3 vs Python:   {python_time / xxh_time:.1f}x faster")
+        
     else:
         print("\nRust core not available for benchmark.")
 
