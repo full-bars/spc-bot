@@ -85,17 +85,28 @@ def iem_autoplot_url(vtec: dict) -> str:
     phenom = vtec["phenom"]
     sig = vtec["sig"]
     etn = vtec["etn"]
-    
+
     year = datetime.now(timezone.utc).year
     start = vtec.get("start") or ""
     if start and not _is_null_vtec_time(start):
         try:
-            year = 2000 + int(start[:2])
+            # VTEC timestamp is YYMMDDTHHMMZ; extract year code (first 2 digits)
+            # Validate it's reasonable (00-99)
+            year_code = int(start[:2])
+            extracted_year = 2000 + year_code
+            # Sanity check: year should not be too far in past or future
+            now_year = datetime.now(timezone.utc).year
+            if now_year - 10 <= extracted_year <= now_year + 10:
+                year = extracted_year
         except (ValueError, IndexError):
             pass
     elif vtec.get("end") and not _is_null_vtec_time(vtec["end"]):
         try:
-            year = 2000 + int(vtec["end"][:2])
+            year_code = int(vtec["end"][:2])
+            extracted_year = 2000 + year_code
+            now_year = datetime.now(timezone.utc).year
+            if now_year - 10 <= extracted_year <= now_year + 10:
+                year = extracted_year
         except (ValueError, IndexError):
             pass
 
