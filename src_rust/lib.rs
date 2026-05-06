@@ -25,6 +25,7 @@ fn spc_rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(compute_critical_angle, m)?)?;
     m.add_function(wrap_pyfunction!(parse_vtec, m)?)?;
     m.add_function(wrap_pyfunction!(validate_image_cache_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(normalize_product_id, m)?)?;
     Ok(())
 }
 
@@ -534,4 +535,32 @@ fn validate_image_cache_batch(
         results.push((url, hash_hex, is_placeholder));
     }
     Ok(results)
+}
+
+// ── Phase 4: NWWS product_id Normalizer ──────────────────────────────────────
+
+#[pyfunction]
+fn normalize_product_id(
+    office: &str,
+    ttaaii: &str,
+    afos_pil: &str,
+    issue_str: &str,
+) -> PyResult<String> {
+    let mut ts_str = issue_str.to_string();
+
+    // Normalize ISO8601 format to compact format for dedup consistency
+    if ts_str.contains("T") && ts_str.contains("Z") {
+        // Convert "2026-05-03T06:50:00Z" → "202605030650"
+        ts_str = ts_str.replace("-", "").replace("T", "").replace(":", "");
+        if let Some(pos) = ts_str.find("Z") {
+            ts_str.truncate(pos);
+        }
+    }
+
+    // Take first 12 characters (YYYYMMDDHHMM format)
+    if ts_str.len() > 12 {
+        ts_str.truncate(12);
+    }
+
+    Ok(format!("{}-{}-{}-{}", ts_str, office, ttaaii, afos_pil))
 }
