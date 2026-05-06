@@ -71,7 +71,8 @@ async def _url_is_image(url: str) -> bool:
         session = await ensure_session()
         async with session.head(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
             ct = resp.headers.get("Content-Type", "")
-            return resp.status == 200 and "image" in ct
+            is_img = resp.status == 200 and "image" in ct
+            return is_img
     except Exception as e:
         logger.debug(f"HEAD check failed for {url}: {e}")
         return False
@@ -220,7 +221,7 @@ class CSUMLPCog(commands.Cog):
         await interaction.response.defer()
         val = product.value
         if val == "panel12":
-            url, label = await _resolve_panel_url("hazards_fcst_6panel")
+            url, label = await _resolve_panel_url("hazards_fcst_6panel", allow_yesterday=True)
             if not url:
                 await interaction.followup.send("CSU-MLP Days 1-2 6-panel isn't available yet. Try after ~11am MT.")
                 return
@@ -233,7 +234,7 @@ class CSUMLPCog(commands.Cog):
                 files=[discord.File(cache_path)]
             )
         elif val == "panel38":
-            url, label = await _resolve_panel_url("severe_fcst_6panel")
+            url, label = await _resolve_panel_url("severe_fcst_6panel", allow_yesterday=True)
             if not url:
                 await interaction.followup.send("CSU-MLP Days 3-8 6-panel isn't available yet. Try after ~11am MT.")
                 return
