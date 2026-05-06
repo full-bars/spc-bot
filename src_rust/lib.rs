@@ -12,22 +12,17 @@ fn spc_rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-/// Formats the sum of two numbers as string.
 #[pyfunction]
 fn sum_as_string(a: usize, b: usize) -> PyResult<String> {
     Ok((a + b).to_string())
 }
 
-/// Calculate a high-performance XXH3 hash of a byte array and return as a hex string.
-/// XXH3 is optimized for modern CPUs and is significantly faster than SHA256.
 #[pyfunction]
 fn calculate_fast_hash(data: &[u8]) -> PyResult<String> {
     let hash = xxh3::xxh3_64(data);
     Ok(format!("{:016x}", hash))
 }
 
-/// Locate the NIDS Product 48 (VWP) message header offset.
-/// Ported from lib/vad_plotter/vad_reader.py for performance.
 #[pyfunction]
 fn find_vwp_header_offset(data: &[u8]) -> PyResult<Option<usize>> {
     if data.len() < 2 {
@@ -47,79 +42,98 @@ fn find_vwp_header_offset(data: &[u8]) -> PyResult<Option<usize>> {
 }
 
 struct VadRecord {
-    wind_dir: f64,
-    wind_spd: f64,
-    rms_error: f64,
-    divergence: f64,
-    slant_range: f64,
-    elev_angle: f64,
-    altitude: f64,
+    wind_dir: f64, wind_spd: f64, rms_error: f64, divergence: f64,
+    slant_range: f64, elev_angle: f64, altitude: f64,
 }
 
-/// Fast parser for VWP tabular data.
-/// Returns a dictionary of lists (wind_dir, wind_spd, etc.) sorted by altitude.
 #[pyfunction]
 fn parse_vwp_tabular_data<'py>(
     py: Python<'py>,
     data: &[u8],
-    offset_tabular: usize,
+    _offset_tabular: usize,
 ) -> PyResult<Option<Bound<'py, PyDict>>> {
-    if data.len() < 8 { return Ok(None); }
+    let marker = b"VAD Algorithm Output";
     
-    // Determine where to start searching. 
-    // Try the provided offset, but fallback to a full scan if that fails.
-    let marker = "VAD Algorithm Output";
-    
-    let mut search_slice = data;
-    if offset_tabular > 0 && offset_tabular < data.len() {
-        search_slice = &data[offset_tabular..];
+    // 1. Robust scan for the data section start
+    let mut found_marker = None;
+    for i in 0..(data.len().saturating_sub(marker.len())) {
+        if &data[i..i+marker.len()] == marker {
+            found_marker = Some(i);
+            break;
+        }
+    }
+
+    let marker_pos = match found_marker {
+        Some(idx) => idx,
+        None => return Ok(None),
+    };
+
+    // 2. Find the 82-byte line anchor (length header 0x0050)
+    let mut current_pos = 0;
+    for i in (0..marker_pos).rev() {
+        if i + 2 <= data.len() && data[i] == 0x00 && data[i+1] == 0x50 {
+            current_pos = i;
+            break;
+        }
     }
     
-    let block_str = String::from_utf8_lossy(search_slice);
-    let mut records = Vec::new();
+    if current_pos == 0 { return Ok(None); }
 
-    if let Some(start_idx) = block_str.find(marker) {
-        let table_section = &block_str[start_idx..];
-        // Python skips 3 lines: page[3:]
-        for line in table_section.lines().skip(3) {
+    let mut records = Vec::new();
+    let mut line_count = 0;
+
+    // 3. Iterate through 82-byte NIDS text lines
+    while current_pos + 82 <= data.len() {
+        let len = i16::from_be_bytes([data[current_pos], data[current_pos+1]]);
+        
+        // If we hit a non-80-char line or a terminator, check if it's just a page break
+        if len != 80 {
+            if len == -1 || len == 0 { break; }
+            // Move forward and try to find the next 80-char line
+            current_pos += 2;
+            continue;
+        }
+        
+        let line_bytes = &data[current_pos+2..current_pos+82];
+        let line = String::from_utf8_lossy(line_bytes);
+        
+        // Skip first 3 lines (marker line + 2 header lines)
+        if line_count >= 3 {
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() < 10 { continue; }
-            
-            let dir = parts[4].parse::<f64>().ok();
-            let spd = parts[5].parse::<f64>().ok();
-            let rms = parts[6].parse::<f64>().ok();
-            let div = if parts[7] == "NA" { Some(f64::NAN) } else { parts[7].parse::<f64>().ok() };
-            let slant = parts[8].parse::<f64>().ok();
-            let elev = parts[9].parse::<f64>().ok();
-            
-            if let (Some(d), Some(s), Some(r), Some(v), Some(sl), Some(e)) = (dir, spd, rms, div, slant, elev) {
-                // Calculate altitude
-                let slant_km: f64 = sl * (6067.1 / 3281.0);
-                let r_e: f64 = (4.0 / 3.0) * 6371.0;
-                let elev_rad: f64 = e.to_radians();
-                let alt = (r_e.powi(2) + slant_km.powi(2) + 2.0 * r_e * slant_km * elev_rad.sin()).sqrt() - r_e;
+            if parts.len() >= 10 {
+                let dir = parts[4].parse::<f64>().ok();
+                let spd = parts[5].parse::<f64>().ok();
+                let rms = parts[6].parse::<f64>().ok();
+                let div = if parts[7] == "NA" { Some(f64::NAN) } else { parts[7].parse::<f64>().ok() };
+                let slant = parts[8].parse::<f64>().ok();
+                let elev = parts[9].parse::<f64>().ok();
                 
-                records.push(VadRecord {
-                    wind_dir: d,
-                    wind_spd: s,
-                    rms_error: r,
-                    divergence: v,
-                    slant_range: sl,
-                    elev_angle: e,
-                    altitude: alt,
-                });
+                if let (Some(d), Some(s), Some(r), Some(v), Some(sl), Some(e)) = (dir, spd, rms, div, slant, elev) {
+                    let slant_km: f64 = sl * (6067.1 / 3281.0);
+                    let r_e: f64 = (4.0 / 3.0) * 6371.0;
+                    let elev_rad: f64 = e.to_radians();
+                    let alt = (r_e.powi(2) + slant_km.powi(2) + 2.0 * r_e * slant_km * elev_rad.sin()).sqrt() - r_e;
+                    
+                    records.push(VadRecord {
+                        wind_dir: d, wind_spd: s, rms_error: r, divergence: v,
+                        slant_range: sl, elev_angle: e, altitude: alt,
+                    });
+                }
             }
         }
+        
+        current_pos += 82;
+        line_count += 1;
+        if line_count > 1000 { break; }
     }
 
     if records.is_empty() {
         return Ok(None);
     }
 
-    // Sort by altitude (Python argsort logic)
+    // Sort by altitude
     records.sort_by(|a, b| a.altitude.partial_cmp(&b.altitude).unwrap_or(std::cmp::Ordering::Equal));
 
-    // Convert to PyDict
     let dict = PyDict::new_bound(py);
     let mut wind_dir = Vec::with_capacity(records.len());
     let mut wind_spd = Vec::with_capacity(records.len());
@@ -130,13 +144,9 @@ fn parse_vwp_tabular_data<'py>(
     let mut altitude = Vec::with_capacity(records.len());
 
     for r in records {
-        wind_dir.push(r.wind_dir);
-        wind_spd.push(r.wind_spd);
-        rms_error.push(r.rms_error);
-        divergence.push(r.divergence);
-        slant_range.push(r.slant_range);
-        elev_angle.push(r.elev_angle);
-        altitude.push(r.altitude);
+        wind_dir.push(r.wind_dir); wind_spd.push(r.wind_spd); rms_error.push(r.rms_error);
+        divergence.push(r.divergence); slant_range.push(r.slant_range);
+        elev_angle.push(r.elev_angle); altitude.push(r.altitude);
     }
 
     dict.set_item("wind_dir", wind_dir)?;
