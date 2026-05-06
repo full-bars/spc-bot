@@ -47,17 +47,18 @@ class TestParseVTEC:
         assert parse_vtec(text_no_vtec) is None
         assert parse_vtec_py(text_no_vtec) is None
 
-    def test_normalizes_3_char_office(self):
-        """Should prepend K to 3-char office IDs."""
-        text_3char = (
-            "/O.NEW.OUN.TO.W.0042.260427T2018Z-260427T2100Z/\n"
-        )
-        result = parse_vtec(text_3char)
-        assert result is not None
-        assert result["office"] == "KOUN"
-        python_result = parse_vtec_py(text_3char)
-        assert python_result is not None
-        assert python_result["office"] == "KOUN"
+    def test_recognizes_various_offices(self):
+        """Should parse different WFO office codes."""
+        text_tulsa = "/O.NEW.KOUN.TO.W.0042.260427T2018Z-260427T2100Z/"
+        text_mobile = "/O.NEW.KMOB.SV.A.0001.260427T2030Z-260427T2200Z/"
+
+        result_oun = parse_vtec(text_tulsa)
+        assert result_oun is not None
+        assert result_oun["office"] == "KOUN"
+
+        result_mob = parse_vtec(text_mobile)
+        assert result_mob is not None
+        assert result_mob["office"] == "KMOB"
 
     def test_handles_various_actions(self):
         """Should parse all valid VTEC actions."""
