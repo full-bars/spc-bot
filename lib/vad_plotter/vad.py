@@ -29,13 +29,13 @@ Author:     Tim Supinie (tsupinie@ou.edu)
 Modified:   2026 - HTTPS fix, ASOS auto surface wind, extra parameters, spc-bot integration
 """
 
-def is_vector(vec_str):
+def is_vector(vec_str: str) -> bool:
     return bool(re.match(r"[\d]{3}/[\d]{2}", vec_str))
 
-def parse_vector(vec_str):
+def parse_vector(vec_str: str) -> Tuple[int, int]:
     return tuple(int(v) for v in vec_str.strip().split("/"))
 
-def parse_time(time_str):
+def parse_time(time_str: str) -> datetime:
     no_my = False
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     if '-' not in time_str:
@@ -61,9 +61,18 @@ def parse_time(time_str):
     return plot_time
 
 
-async def vad_plotter(radar_id, storm_motion='right-mover', sfc_wind=None, time=None,
-                fname=None, local_path=None, cache_path=None, web=False, fixed=False,
-                executor=None):
+async def vad_plotter(
+    radar_id: str, 
+    storm_motion: str = 'right-mover', 
+    sfc_wind: Optional[str] = None, 
+    time: Optional[str] = None,
+    fname: Optional[str] = None, 
+    local_path: Optional[str] = None, 
+    cache_path: Optional[str] = None, 
+    web: bool = False, 
+    fixed: bool = False,
+    executor: Optional[Any] = None
+) -> None:
     plot_time = None
     if time:
         plot_time = parse_time(time)

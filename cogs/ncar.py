@@ -1,4 +1,5 @@
 # cogs/ncar.py
+import asyncio
 import json
 import logging
 from datetime import datetime, timedelta, timezone
@@ -183,8 +184,10 @@ class NCARCog(commands.Cog):
             return
         cache_path = get_cache_path_for_url(url)
         try:
-            with open(cache_path, "wb") as f:
-                f.write(content)
+            def _write_cache():
+                with open(cache_path, "wb") as f:
+                    f.write(content)
+            await asyncio.get_running_loop().run_in_executor(None, _write_cache)
             self.bot.state.manual_cache[url] = h
             await set_hash(url, h, "manual")
         except Exception as e:

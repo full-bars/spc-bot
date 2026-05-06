@@ -907,13 +907,16 @@ async def mirror_to_sqlite() -> None:
         
         # 2. Posted collections
         mds = await get_posted_mds()
-        for m in mds: await sqlite_backend.add_posted_md(m)
+        for m in mds:
+            await sqlite_backend.add_posted_md(m)
         
         watches = await get_posted_watches()
-        for w in watches: await sqlite_backend.add_posted_watch(w)
+        for w in watches:
+            await sqlite_backend.add_posted_watch(w)
         
         reports = await get_posted_reports()
-        for r in reports: await sqlite_backend.add_posted_report(r)
+        for r in reports:
+            await sqlite_backend.add_posted_report(r)
         
         # 3. State
         states_scan = await _upstash_cmd("SCAN", 0, "MATCH", f"{_k_state('*')}")

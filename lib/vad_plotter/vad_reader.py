@@ -6,6 +6,7 @@ import logging
 import asyncio
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import zlib
 from lib.vad_plotter.wsr88d import build_has_name
@@ -67,15 +68,18 @@ def _normalize_nids_bytes(raw_bytes: bytes) -> bytes:
 class VADFile(object):
     fields = ['wind_dir', 'wind_spd', 'rms_error', 'divergence', 'slant_range', 'elev_angle']
 
-    def __init__(self, file_or_bytes):
+    def __init__(self, file_or_bytes: Union[bytes, bytearray, BytesIO, Any]) -> None:
         if isinstance(file_or_bytes, (bytes, bytearray)):
             data = file_or_bytes
-        else:
+        elif hasattr(file_or_bytes, 'read'):
             data = file_or_bytes.read()
+        else:
+            data = bytes(file_or_bytes)
             
         normalized = _normalize_nids_bytes(data)
         self._rpg = BytesIO(normalized)
-        self._data = None
+        self._data: Optional[Dict[str, np.ndarray]] = None
+        self.rid: str = "" # Should be set externally or parsed
 
         self._read_headers()
         has_symbology_block, has_graphic_block, has_tabular_block = self._read_product_description_block()
@@ -92,7 +96,7 @@ class VADFile(object):
         self._data = self._get_data()
         return
 
-    def _read_headers(self):
+    def _read_headers(self) -> None:
         wmo_header = self._read('s30')
 
         message_code = self._read('h')
@@ -105,7 +109,7 @@ class VADFile(object):
 
         return
 
-    def _read_product_description_block(self):
+    def _read_product_description_block(self) -> Tuple[bool, bool, bool]:
         self._read('h')
         self._radar_latitude  = self._read('i') / 1000.
         self._radar_longitude = self._read('i') / 1000.
@@ -143,7 +147,7 @@ class VADFile(object):
 
         return offset_symbology > 0, offset_graphic > 0, offset_tabular > 0
 
-    def _read_product_symbology_block(self):
+    def _read_product_symbology_block(self) -> None:
         self._read('h')
         block_id = self._read('h')
 
@@ -187,7 +191,7 @@ class VADFile(object):
                     packet_value = -1
         return
 
-    def _read_tabular_block(self):
+    def _read_tabular_block(self) -> None:
         self._read('h')
         block_id = self._read('h')
         if block_id != 3:
@@ -245,7 +249,7 @@ class VADFile(object):
 
         return
 
-    def _read(self, type_string):
+    def _read(self, type_string: str) -> Any:
         if type_string[0] != 's':
             size = struct.calcsize(type_string)
             data = struct.unpack(">%s" % type_string, self._rpg.read(size))
@@ -258,7 +262,7 @@ class VADFile(object):
         else:
             return list(data)
 
-    def _get_data(self):
+    def _get_data(self) -> Dict[str, np.ndarray]:
         vad_list = []
         for page in self._text_message:
             if (page[0].strip())[:20] == "VAD Algorithm Output":
@@ -288,27 +292,27 @@ class VADFile(object):
             data[key] = val[order]
         return data
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> Any:
         if key == 'time':
             val = self._time
         else:
-            val = self._data[key]
+            val = self._data[key] # type: ignore
         return val
 
-    def add_surface_wind(self, sfc_wind):
+    def add_surface_wind(self, sfc_wind: Tuple[float, float]) -> None:
         sfc_dir, sfc_spd = sfc_wind
 
         keys = ['wind_dir', 'wind_spd', 'rms_error', 'altitude']
         vals = [float(sfc_dir), float(sfc_spd), 0., 0.01]
 
         for key, val in zip(keys, vals):
-            self._data[key] = np.append(val, self._data[key])
+            self._data[key] = np.append(val, self._data[key]) # type: ignore
 
 import aioboto3
 import botocore
 from botocore.config import Config
 
-async def _list_s3_vad_times(rid: str) -> list:
+async def _list_s3_vad_times(rid: str) -> List[Tuple[str, datetime]]:
     """List recent VAD files from S3 for a site."""
     rid_upper = rid.upper()
     # The S3 bucket is alphabetical. We'll try the current day first.
@@ -349,7 +353,7 @@ async def _list_s3_vad_times(rid: str) -> list:
         logger.warning(f"[VAD] S3 listing failed for {rid}: {e}")
         return []
 
-async def find_file_times(rid):
+async def find_file_times(rid: str) -> List[Tuple[str, datetime]]:
     host = "tgftp.nws.noaa.gov"
     
     # Try TGFTP if circuit is closed
@@ -358,31 +362,31 @@ async def find_file_times(rid):
         try:
             file_text = await http_get_text(url, timeout=10)
             if file_text:
-                file_list = re.findall("([\w]{3} [\d]{1,2} [\d]{2}:[\d]{2}) (sn.[\d]{4})", file_text)
+                file_list = re.findall(r"([\w]{3} [\d]{1,2} [\d]{2}:[\d]{2}) (sn.[\d]{4})", file_text)
                 if file_list:
-                    file_times, file_names = list(zip(*file_list))
-                    file_names = list(file_names)
+                    file_times_raw, file_names_raw = list(zip(*file_list))
+                    file_names = list(file_names_raw)
 
                     now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
                     year = now_utc.year
                     file_dts = []
-                    for ft in file_times:
+                    for ft in file_times_raw:
                         ft_dt = datetime.strptime("%d %s" % (year, ft), "%Y %b %d %H:%M")
                         if ft_dt > now_utc:
                             ft_dt = datetime.strptime("%d %s" % (year - 1, ft), "%Y %b %d %H:%M")
 
                         file_dts.append(ft_dt)
 
-                    file_list = list(zip(file_names, file_dts))
-                    file_list.sort(key=lambda fl: fl[1])
+                    file_list_zipped = list(zip(file_names, file_dts))
+                    file_list_zipped.sort(key=lambda fl: fl[1])
 
-                    file_names, file_dts = list(zip(*file_list))
-                    file_names = list(file_names)
+                    file_names_sorted, file_dts_sorted = list(zip(*file_list_zipped))
+                    file_names = list(file_names_sorted)
 
                     file_names[:-1] = file_names[1:]
                     file_names[-1] = 'sn.last'
 
-                    return list(zip(file_names, file_dts))[::-1]
+                    return list(zip(file_names, file_dts_sorted))[::-1]
         except Exception as e:
             logger.warning(f"[VAD] TGFTP listing failed for {rid}, recording failure: {e}")
             circuit_breaker.record_failure(host)
@@ -391,7 +395,12 @@ async def find_file_times(rid):
     logger.info(f"[VAD] Falling back to S3 listing for {rid}")
     return await _list_s3_vad_times(rid)
 
-async def download_vad(rid, time=None, file_id=None, cache_path=None):
+async def download_vad(
+    rid: str,
+    time: Optional[datetime] = None,
+    file_id: Optional[int] = None,
+    cache_path: Optional[str] = None,
+) -> VADFile:
     host = "tgftp.nws.noaa.gov"
     content = None
     status = None

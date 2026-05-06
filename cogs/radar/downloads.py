@@ -10,6 +10,7 @@ import time
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import discord
 
@@ -30,7 +31,7 @@ progress_lock = threading.Lock()
 
 
 # ── Utility functions ─────────────────────────────────────────────────────────
-def format_file_size(size_in_bytes):
+def format_file_size(size_in_bytes: float) -> str:
     for unit in ["B", "KB", "MB", "GB"]:
         if size_in_bytes < 1024.0:
             return f"{size_in_bytes:.2f} {unit}"
@@ -38,17 +39,23 @@ def format_file_size(size_in_bytes):
     return f"{size_in_bytes:.2f} TB"
 
 
-def get_progress_bar(progress_percentage, length=30):
+def get_progress_bar(progress_percentage: float, length: int = 30) -> str:
     filled = min(int(progress_percentage / (100 / length)), length)
     bar = "█" * filled + "░" * (length - filled)
     return f"{bar} {min(progress_percentage, 100):.1f}%"
 
 
-async def download_file(file_key, output_dir, start_time, file_size, filename):
+async def download_file(
+    file_key: str,
+    output_dir: Union[str, Path],
+    start_time: float,
+    file_size: int,
+    filename: str,
+) -> Tuple[Path, float, float]:
     output_path = Path(output_dir) / filename
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    def progress_callback(bytes_amount):
+    def progress_callback(bytes_amount: int) -> None:
         with progress_lock:
             if filename not in progress_data:
                 progress_data[filename] = {
@@ -106,7 +113,9 @@ async def download_file(file_key, output_dir, start_time, file_size, filename):
     raise last_err
 
 
-async def cleanup_old_files(directory, age_threshold):
+async def cleanup_old_files(
+    directory: Union[str, Path], age_threshold: int
+) -> None:
     now = time.time()
     path = Path(directory)
     if not path.exists():
@@ -125,14 +134,17 @@ async def cleanup_old_files(directory, age_threshold):
 
 
 async def split_and_zip_files(
-    file_paths, radar_sites, split_size, output_dir
-):
+    file_paths: List[Tuple[Path, Dict[str, Any]]],
+    radar_sites: List[str],
+    split_size: int,
+    output_dir: Union[str, Path],
+) -> List[Path]:
     """
     Zip files grouped by radar site. Each site gets its own zip(s).
     Returns a list of zip paths.
     """
 
-    def _zip_site(site, site_files):
+    def _zip_site(site: str, site_files: List[Tuple[Path, Dict[str, Any]]]) -> List[Path]:
         if not site_files:
             return []
         chunk_size = 0
@@ -207,7 +219,9 @@ async def split_and_zip_files(
         raise RuntimeError(f"Failed to create ZIP file: {e}") from e
 
 
-async def send_error(interaction, title, description):
+async def send_error(
+    interaction: discord.Interaction, title: str, description: str
+) -> None:
     """Send a clean error embed to the user."""
     embed = discord.Embed(
         title=f"❌ {title}",
@@ -224,14 +238,14 @@ async def send_error(interaction, title, description):
 
 
 async def run_download(
-    interaction,
-    radar_sites,
-    messages_to_delete,
-    start_dt,
-    end_dt,
-    dates_to_query=None,
-    max_files=None,
-):
+    interaction: discord.Interaction,
+    radar_sites: List[str],
+    messages_to_delete: List[discord.Message],
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+    dates_to_query: Optional[List[datetime]] = None,
+    max_files: Optional[int] = None,
+) -> None:
     now = datetime.now(timezone.utc)
 
     if not max_files and start_dt and start_dt > now:
@@ -320,12 +334,15 @@ async def run_download(
 
 
 async def download_and_zip(
-    interaction, filtered_files, radar_sites, messages_to_delete
-):
+    interaction: discord.Interaction,
+    filtered_files: List[Dict[str, Any]],
+    radar_sites: List[str],
+    messages_to_delete: List[discord.Message],
+) -> None:
     output_dir = OUTPUT_DIR
     channel = interaction.channel
     total_files = len(filtered_files)
-    file_paths = []
+    file_paths: List[Tuple[Path, Dict[str, Any]]] = []
     files_remaining = list(filtered_files)
     total_downloaded_size = 0
     total_download_time = 0
@@ -340,7 +357,7 @@ async def download_and_zip(
                 "completed": False,
             }
 
-    stats_by_site = {
+    stats_by_site: Dict[str, Dict[str, List[Dict[str, Any]]]] = {
         radar_site: {"files": []} for radar_site in radar_sites
     }
     for f in filtered_files:
@@ -361,10 +378,10 @@ async def download_and_zip(
 
     try:
         current_batch_size = min(MAX_CONCURRENT_DOWNLOADS, total_files)
-        avg_speed_history = []
+        avg_speed_history: List[float] = []
         last_update_time = time.time()
 
-        async def update_progress():
+        async def update_progress() -> None:
             nonlocal last_update_time
             current_time = time.time()
             if current_time - last_update_time < 1:
@@ -421,7 +438,9 @@ async def download_and_zip(
                 )
             last_update_time = current_time
 
-        async def download_with_progress(file_info, idx):
+        async def download_with_progress(
+            file_info: Dict[str, Any], idx: int
+        ) -> Tuple[Path, Dict[str, Any]]:
             nonlocal total_downloaded_size, total_download_time
             nonlocal files_completed
             file_start_time = time.time()

@@ -52,7 +52,7 @@ from cogs.warning_ui import (
     TornadoDashboardView,
 )
 
-logger = logging.getLogger("spc_bot")
+logger = logging.getLogger("spc_bot.warnings")
 
 
 class WarningsCog(commands.Cog):

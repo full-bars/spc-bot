@@ -15,7 +15,7 @@ from utils.cache import (
 )
 from utils.spc_urls import get_spc_urls
 
-logger = logging.getLogger("spc_bot")
+logger = logging.getLogger("spc_bot.outlooks")
 
 
 async def check_and_post_day(channel: discord.TextChannel, day: int, state):
@@ -36,7 +36,7 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
 
         fallback_urls = SPC_URLS_FALLBACK.get(day, [])
         if urls == fallback_urls and state.last_posted_urls.get(day_key) == urls:
-            logger.info(f"[Day {day}] Fallback URLs unchanged from last post — skipping")
+            logger.info(f"Day {day}: Fallback URLs unchanged from last post — skipping")
             return
 
         updated_count, total_count, downloaded_data = (
@@ -196,7 +196,8 @@ class OutlooksCog(commands.Cog):
         for day_key in day_keys:
             try:
                 day = int(day_key.replace("day", ""))
-            except Exception:
+            except Exception as e:
+                logger.debug(f"[MD] Failed to parse day from key {day_key}: {e}")
                 continue
             tasks_.append(check_and_post_day(channel, day, self.bot.state))
         if tasks_:
@@ -238,7 +239,8 @@ class OutlooksCog(commands.Cog):
         task = self.auto_post_spc.get_task()
         try:
             exc = task.exception() if task else None
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to get task exception: {e}")
             exc = None
         if exc:
             logger.error(
@@ -253,7 +255,8 @@ class OutlooksCog(commands.Cog):
         task = self.auto_post_spc48.get_task()
         try:
             exc = task.exception() if task else None
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to get task exception: {e}")
             exc = None
         if exc:
             logger.error(
@@ -268,7 +271,8 @@ class OutlooksCog(commands.Cog):
         task = self.aggressive_check_spc.get_task()
         try:
             exc = task.exception() if task and task.done() else None
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to get task exception: {e}")
             exc = None
         if exc:
             logger.error(
