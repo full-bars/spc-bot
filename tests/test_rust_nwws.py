@@ -1,6 +1,5 @@
 """Tests for Rust NWWS product_id normalization with Python fallback."""
 
-import pytest
 from cogs.nwws import normalize_product_id, normalize_product_id_py
 
 
