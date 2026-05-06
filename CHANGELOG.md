@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.18.0] — 2026-05-06
+
+### Fixed
+- **VTEC Year Bug.** Resolved a critical bug where warnings with the `000000T0000Z` null-start sentinel had their year incorrectly calculated as `2000`, causing the bot to fetch ancient IEM Autoplot maps and broken VTEC links. Implemented a fallback to the `end` field timestamp for year extraction in `CON/EXT` products.
+- **NWWS-OI Connection Error.** Fixed a `TypeError` in the `slixmpp` connection call by removing the unsupported `address=` keyword argument.
+- **Outlooks KeyError.** Fixed a race condition in the partial update logic where `partial_update_state` was accessed before initialization.
+- **Sounding Cog AttributeError.** Removed legacy calls to the non-existent `_persist_posted_state()` method.
+- **Recorder SRH Logic.** Resolved broken imports from a non-existent `met_engine` module and refactored SRH calculation to use the verified `lib.vad_plotter.params` module.
+- **Project-Wide Linting.** Fixed multiple `E701` (multiple statements) and `E741` (ambiguous variable) issues across core and utility modules.
+
+### Changed
+- **Hierarchical Named Loggers.** Transitioned all cogs to a hierarchical logger structure (e.g., `spc_bot.warnings`, `spc_bot.recorder`) and removed redundant bracketed string prefixes (`[WARN]`, `[NWWS]`) from log messages for improved readability and filtering.
+- **Startup Resilience.** Added a 5-second timeout to the `git describe` version lookup and relaxed NWWS credential requirements to allow limited bot operation without full environment setup.
+- **Dependency Pining.** Added upper bounds to development requirements (`pytest`, `ruff`) to prevent future breaking changes.
+
+### Added
+- **Recorder Finalization Tests.** Implemented `tests/test_recorder_finalize.py` to provide 100% coverage for the high-I/O mission finalization path.
+- **Comprehensive Type Hints.** Added type safety improvements to the `lib/vad_plotter` modules.
+
+### Refactored
+- **Main Setup Hook.** Split the 70+ line `setup_hook()` in `main.py` into focused private methods (`_hydrate_state`, `_check_failover`, `_run_startup_cleanup`) for better maintainability.
+
 ## [5.17.0] — 2026-05-05
 
 ### Added
