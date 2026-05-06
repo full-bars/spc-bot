@@ -566,6 +566,7 @@ class WarningsCog(commands.Cog):
 
             if issuance_id in self.bot.state.posted_warnings:
                 # Still active, ensures it stays in the active set
+                logger.info(f"[WARN_SKIP] {issuance_id} already posted (action={vtec_dict['action']})")
                 if issuance_id not in self.bot.state.active_warnings:
                     self.bot.state.active_warnings[issuance_id] = vtec_dict
 
