@@ -294,12 +294,14 @@ class VADFile(object):
                 
                 res = spc_rust_core.parse_vwp_tabular_data(raw_bytes, offset_tabular)
                 if res:
+                    logger.info("VWP tabular data parsed successfully using Rust engine")
                     # Convert list values to numpy arrays for compatibility
                     return {k: np.array(v) for k, v in res.items()}
             except Exception as e:
                 logger.debug(f"Rust parse_vwp_tabular_data failed: {e}. Falling back to Python.")
 
         # Fallback to pure Python parsing
+        logger.info("Parsing VWP tabular data using Python engine (fallback)")
         vad_list = []
         for page in self._text_message:
             if (page[0].strip())[:20] == "VAD Algorithm Output":
