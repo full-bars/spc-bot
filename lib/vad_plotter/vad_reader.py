@@ -12,7 +12,15 @@ import zlib
 from lib.vad_plotter.wsr88d import build_has_name
 from utils.http import http_get_bytes, http_get_text, circuit_breaker
 
-logger = logging.getLogger("spc_bot")
+logger = logging.getLogger("spc_bot.vad_reader")
+
+# Rust core fallback
+try:
+    import spc_rust_core
+    RUST_AVAILABLE = True
+except ImportError:
+    RUST_AVAILABLE = False
+    logger.debug("Rust core not available, using pure-python fallback for VWP header search")
 
 _base_url = "https://tgftp.nws.noaa.gov/SL.us008001/DF.of/DC.radar/DS.48vwp/"
 _S3_BUCKET = "unidata-nexrad-level3"
@@ -26,9 +34,9 @@ def _normalize_nids_bytes(raw_bytes: bytes) -> bytes:
         try:
             offset = raw_bytes.find(b"\x78\xda")
             raw_bytes = zlib.decompress(raw_bytes[offset:])
-            logger.debug(f"[VAD] Decompressed payload: {len(raw_bytes)} bytes")
+            logger.debug(f"Decompressed payload: {len(raw_bytes)} bytes")
         except Exception as e:
-            logger.warning(f"[VAD] Failed to decompress payload: {e}")
+            logger.warning(f"Failed to decompress payload: {e}")
 
     # 2. Locate the NIDS Message Header (Product Code 48 = 0x0030)
     # We look for 48 (h) at the start of the Product Description Block.
@@ -40,19 +48,28 @@ def _normalize_nids_bytes(raw_bytes: bytes) -> bytes:
     # If it's unwrapped, it might have 48 at offset 30 (18 Msg + 12 PDB).
     
     found_offset = -1
-    # Scan first 200 bytes for the product code 48 (h) 
-    # to find where to anchor our 30-byte dummy WMO header.
-    for i in range(200):
-        if i + 2 <= len(raw_bytes):
-            val = struct.unpack(">h", raw_bytes[i:i+2])[0]
-            if val == 48:
-                # Potential match. Verify it's likely a PDB by checking 
-                # if the Message Code at -30 bytes is also 48.
-                if i >= 30:
-                    msg_code = struct.unpack(">h", raw_bytes[i-30:i-30+2])[0]
-                    if msg_code == 48:
-                        found_offset = i
-                        break
+
+    # Try Rust optimized search first
+    if RUST_AVAILABLE:
+        try:
+            res = spc_rust_core.find_vwp_header_offset(raw_bytes)
+            if res is not None:
+                found_offset = res
+        except Exception as e:
+            logger.debug(f"Rust find_vwp_header_offset failed: {e}. Falling back to Python.")
+
+    if found_offset == -1:
+        # Fallback to Python loop if Rust failed or is unavailable
+        for i in range(200):
+            if i + 2 <= len(raw_bytes):
+                val = struct.unpack(">h", raw_bytes[i:i+2])[0]
+                if val == 48:
+                    # Potential match. Verify if the Message Code at -30 bytes is also 48.
+                    if i >= 30:
+                        msg_code = struct.unpack(">h", raw_bytes[i-30:i-30+2])[0]
+                        if msg_code == 48:
+                            found_offset = i
+                            break
     
     if found_offset != -1:
         # We want the message to start 60 bytes BEFORE the PDB product code
