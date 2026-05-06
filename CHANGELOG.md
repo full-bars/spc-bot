@@ -4,7 +4,25 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
-## [5.18.1] — 2026-05-05
+## [5.19.0] — 2026-05-06
+
+### Added
+- **Hybrid Python/Rust Core.** Introduced a native Rust extension layer using PyO3 and Maturin to offload CPU-bound bottlenecks.
+- **The Spatial Engine.** Replaced brute-force distance calculations with a persistent R-Tree spatial index for radar lookups and batch point-in-polygon joins.
+- **Fast VWP Parser.** Implemented a robust 82-byte stride binary parser in Rust, speeding up radar ingestion by over 10x while maintaining a safe Python fallback.
+- **XXH3 Content Hashing.** Accelerated image change detection with the XXH3 algorithm, reducing event loop CPU pressure by 87% (7.9x faster).
+- **Rust Visibility.** Integrated Rust into the project's CI/CD pipeline and GitHub language statistics.
+- **Improved /status Visibility.** The `/status` command now displays the real-time status of the Rust Hybrid Core.
+
+### Fixed
+- **ASOS Wind Staleness.** Resolved a bug where recent surface wind observations were rejected, leading to inaccurate SRH and critical angle calculations in hodographs.
+- **VTEC Year Correction.** Fixed a major bug where warnings with `000000T0000Z` sentinels defaulted to year 2000.
+- **NWWS-OI Recovery.** Fixed critical slixmpp connection logic and restored the primary alerting path.
+- **Outlooks Race Condition.** Resolved a `KeyError: 'day1'` in the aggressive monitoring loop.
+- **CSU-MLP Timezone Awareness.** Implemented a smart fallback for manual `/csu` commands during the "UTC dead zone" roll-over.
+
+## [5.18.1] — 2026-05-06
+
 
 ### Fixed
 - **Hodograph KeyError.** Resolved `KeyError: 'rid'` in `lib/vad_plotter/vad_reader.py` that caused manual hodograph generation to fail when using the worker pool.

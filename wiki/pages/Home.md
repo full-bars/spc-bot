@@ -12,6 +12,7 @@
 - **Tornado Dashboard:** Automated damage survey detection, official DAT photo carousels, and local OSM track rendering.
 - **Scientific Analysis:** Automated RAOB/ACARS sounding plots, VWP hodographs, and CSU-MLP/WxNext2 AI forecasts.
 - **High Availability:** Active/Standby failover with leader election and state synchronization.
+- **Hybrid Performance Core:** Performance-critical components (hashing, radar parsing, spatial indexing) implemented in Rust for sub-millisecond response times.
 
 ## 📖 Wiki Sections
 
