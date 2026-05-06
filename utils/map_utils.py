@@ -37,7 +37,8 @@ def render_tornado_track(paths: List[List[Tuple[float, float]]], output_path: st
     all_lats = []
     all_lons = []
     for path in paths:
-        if not path: continue
+        if not path:
+            continue
         lats, lons = zip(*path)
         all_lats.extend(lats)
         all_lons.extend(lons)
@@ -82,7 +83,8 @@ def render_tornado_track(paths: List[List[Tuple[float, float]]], output_path: st
     
     # 4. Plot paths
     for path in paths:
-        if not path: continue
+        if not path:
+            continue
         lats, lons = zip(*path)
         # Plot the main track with a white outline for visibility over tiles
         ax.plot(lons, lats, color='#ff0000', linewidth=3.5, transform=data_proj, 

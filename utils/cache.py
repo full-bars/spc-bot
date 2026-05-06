@@ -83,6 +83,7 @@ __all__ = [
     "save_downloaded_images",
     "check_all_urls_exist_parallel",
     "format_timedelta",
+    "fetch_with_validators",
     "MAX_TRACKED_MDS",
     "MAX_TRACKED_WATCHES",
 ]
@@ -369,3 +370,52 @@ async def check_all_urls_exist_parallel(urls: List[str]) -> bool:
             f"{[(u, r) for u, r in zip(urls, results, strict=True) if not r]}"
         )
     return ok
+async def fetch_with_validators(
+    url: str, 
+    retries: int = 3, 
+    timeout: int = 30,
+    retry_statuses: Optional[List[int]] = None
+) -> Tuple[Optional[bytes], Optional[int]]:
+    """
+    Fetch content using stored ETags/Last-Modified.
+    Updates the validator cache on 200 responses.
+
+    If retry_statuses is provided (e.g. [404, 400] for pending maps), it will 
+    retry up to `retries` times with exponential backoff if the server 
+    returns one of those statuses.
+    """
+    for attempt in range(retries + 1):
+        prev = _validators_get(url)
+        content, status, validators = await http_get_bytes_conditional(
+            url,
+            etag=prev.get("etag") or None,
+            last_modified=prev.get("last_modified") or None,
+            retries=1, # We handle retries here if retry_statuses is used
+            timeout=timeout,
+        )
+
+        if status == 200:
+            if validators and (validators.get("etag") or validators.get("last_modified")):
+                _validators_set(url, validators)
+                try:
+                    await set_validators(
+                        url,
+                        validators.get("etag", ""),
+                        validators.get("last_modified", ""),
+                    )
+                except Exception as e:
+                    logger.debug(f"[CACHE] set_validators failed for {url}: {e}")
+            return content, status
+
+        if status == 304:
+            return None, 304
+
+        if retry_statuses and status in retry_statuses and attempt < retries:
+            delay = min(2 ** (attempt + 1), 10)
+            logger.debug(f"[CACHE] Retrying {url} (status={status}) in {delay}s...")
+            await asyncio.sleep(delay)
+            continue
+
+        break
+
+    return content, status

@@ -26,7 +26,7 @@ from utils.state_store import (
 )
 from utils.http import http_get_bytes
 
-logger = logging.getLogger("spc_bot")
+logger = logging.getLogger("spc_bot.iembot")
 
 CACHE_TTL = 600  # 10 minutes
 
@@ -183,8 +183,8 @@ class IEMBotCog(commands.Cog):
                                 self.bot.state.iembot_latency = latency
                             else:
                                 self.bot.state.iembot_latency = (self.bot.state.iembot_latency * 0.9) + (latency * 0.1)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"[IEMBOT] Latency tracking failed: {e}")
 
                 if "WWUS20-SEL" in product_id or "WWUS40-SEL" in product_id:
                     t = asyncio.create_task(self._handle_watch(product_id))
@@ -214,7 +214,7 @@ class IEMBotCog(commands.Cog):
         text = _parse_watch_text(raw)
         if text:
             await set_product_cache(f"watch_{watch_num}", text, ttl=CACHE_TTL)
-            logger.info(f"[IEMBOT] Cached watch text for #{watch_num}")
+            logger.info(f"Cached watch text for #{watch_num}")
 
         # Determine watch type from raw text
         wtype = "TORNADO" if re.search(r"Tornado Watch", raw, re.IGNORECASE) else "SVR"
@@ -361,8 +361,8 @@ class IEMBotCog(commands.Cog):
                                 self.bot.state.iembot_latency = latency
                             else:
                                 self.bot.state.iembot_latency = (self.bot.state.iembot_latency * 0.9) + (latency * 0.1)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"[IEMBOT] Latency tracking failed: {e}")
 
                 pil_match = self._ISSUANCE_PIL_RE.search(product_id)
                 if pil_match:

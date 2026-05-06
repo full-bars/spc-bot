@@ -1,4 +1,5 @@
 import glob
+from datetime import datetime
 
 _radar_info = {
     'KABR': {'wfo': 'KABR', 'region': 3},
@@ -214,7 +215,7 @@ _radar_info = {
 }
 
 
-def find_local_file_name(path, radar_id, scan_time):
+def find_local_file_name(path: str, radar_id: str, scan_time: datetime) -> str:
     radar_info = _radar_info[radar_id]
     iname = "%s_SDUS?%d_NVW%s_%s" % (radar_info['wfo'], radar_info['region'], radar_id[1:],
                                      scan_time.strftime("%Y%m%d%H%M"))
@@ -223,7 +224,7 @@ def find_local_file_name(path, radar_id, scan_time):
         raise FileNotFoundError(f"Couldn't find local file from {radar_id} at {scan_time: %Y-%m-%d %H%M} UTC")
     return matches[0]
 
-def build_has_name(radar_id, scan_time):
+def build_has_name(radar_id: str, scan_time: datetime) -> str:
     radar_info = _radar_info[radar_id]
     iname = "%s_SDUS3%d_NVW%s_%s" % (radar_info['wfo'], radar_info['region'], radar_id[1:],
                                      scan_time.strftime("%Y%m%d%H%M"))

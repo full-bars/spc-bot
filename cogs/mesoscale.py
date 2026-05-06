@@ -21,7 +21,11 @@ from utils.change_detection import get_cache_path_for_url
 from utils.http import http_get_bytes, http_get_text, http_head_meta
 from utils.state_store import add_posted_md, get_state, prune_posted_mds, set_state
 
-logger = logging.getLogger("spc_bot")
+logger = logging.getLogger("spc_bot.mesoscale")
+
+def _log_task_exception(task: asyncio.Task) -> None:
+    if not task.cancelled() and (exc := task.exception()):
+        logger.exception("[MD] Unhandled exception in background task", exc_info=exc)
 
 _md_index_head: Optional[Dict[str, str]] = None
 _md_index_unreachable: Optional[bool] = None
@@ -174,7 +178,11 @@ async def fetch_md_details(
     page_url = f"https://www.spc.noaa.gov/products/md/md{md_number}.html"
 
     async def _fetch_spc():
-        return await http_get_text(page_url)
+        from utils.cache import fetch_with_validators
+        content, status = await fetch_with_validators(page_url)
+        if content and status == 200:
+            return content.decode("utf-8", errors="ignore")
+        return None
 
     async def _fetch_iem_early():
         # Self-import via module object so tests can monkeypatch
@@ -211,7 +219,7 @@ async def fetch_md_details(
     else:
         iem_result = first.result()
         try:
-            html = await asyncio.wait_for(asyncio.shield(spc_task), timeout=5.0)
+            html = await asyncio.wait_for(spc_task, timeout=5.0)
             if html:
                 logger.debug(f"[MD] SPC caught up for #{md_number}")
                 iem_result = None
@@ -536,7 +544,8 @@ class MesoscaleCog(commands.Cog):
                 logger.info(f"[MD] High watch probability ({prob}%) for MD #{md_num} — triggering sounding pre-warm")
                 sounding_cog = self.bot.cogs.get("SoundingCog")
                 if sounding_cog:
-                    asyncio.create_task(sounding_cog.prewarm_soundings_for_md(md_num, raw_text))
+                    t = asyncio.create_task(sounding_cog.prewarm_soundings_for_md(md_num, raw_text))
+                    t.add_done_callback(_log_task_exception)
         except Exception as e:
             logger.debug(f"[MD] Could not parse probability for MD #{md_num}: {e}")
 
@@ -598,7 +607,8 @@ class MesoscaleCog(commands.Cog):
         logger.info(f"[MD] iembot-triggered post for #{md_num}")
         image_url, summary, from_cache, raw_text = await fetch_md_details(md_num)
         if raw_text:
-            asyncio.create_task(self._check_prewarm(md_num, raw_text))
+            t = asyncio.create_task(self._check_prewarm(md_num, raw_text))
+            t.add_done_callback(_log_task_exception)
         full_text = extract_md_body(raw_text)
         cache_path = None
         if image_url:
@@ -713,7 +723,7 @@ class MesoscaleCog(commands.Cog):
                 if md_num in self.bot.state.posted_mds:
                     continue
 
-                logger.info(f"[MD] New MD detected: #{md_num}")
+                logger.info(f"New MD detected: #{md_num}")
                 image_url, summary, from_cache, raw_text = await fetch_md_details(md_num)
 
                 if not image_url:
@@ -723,7 +733,8 @@ class MesoscaleCog(commands.Cog):
                     continue
 
                 if raw_text:
-                    asyncio.create_task(self._check_prewarm(md_num, raw_text))
+                    t = asyncio.create_task(self._check_prewarm(md_num, raw_text))
+                    t.add_done_callback(lambda t: None if t.cancelled() else (logger.exception("[MD] Prewarm failed", exc_info=t.exception()) if t.exception() else None))
 
                 full_text = extract_md_body(raw_text)
 

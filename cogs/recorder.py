@@ -15,7 +15,7 @@ from config import RECORDING_DIR, ARCHIVE_DIR
 from utils.state_store import get_state, set_state
 from utils.worker_pool import get_executor
 
-logger = logging.getLogger("spc_bot")
+logger = logging.getLogger("spc_bot.recorder")
 
 STATE_KEY = "vad_active_missions"
 
@@ -37,7 +37,7 @@ class VADRecordingMission:
         self.end_ts = max(self.end_ts, new_trigger_ts + (90 * 60))
         if event_id:
             self.event_ids.add(event_id)
-        logger.info(f"[RECORDER] Extended mission for {self.site_id} until {datetime.fromtimestamp(self.end_ts, timezone.utc)} (Events: {len(self.event_ids)})")
+        logger.info(f"Extended mission for {self.site_id} until {datetime.fromtimestamp(self.end_ts, timezone.utc)} (Events: {len(self.event_ids)})")
 
     def to_dict(self) -> dict:
         return {
@@ -160,51 +160,71 @@ class RecorderCog(commands.Cog):
     async def _finalize_mission(self, mission: VADRecordingMission):
         """Build the evolution GIF and cleanup."""
         logger.info(f"[RECORDER] Finalizing mission for {mission.site_id}...")
-        
-        files = [f for f in os.listdir(mission.dir) if f.endswith(".has")]
+
+        loop = asyncio.get_running_loop()
+        try:
+            files = await loop.run_in_executor(None, os.listdir, mission.dir)
+            files = [f for f in files if f.endswith(".has")]
+        except FileNotFoundError:
+            logger.warning(f"[RECORDER] Mission dir {mission.dir} not found. Skipping.")
+            return
+
         if not files:
             logger.warning(f"[RECORDER] No data saved for mission {mission.site_id}. Skipping GIF.")
             return
         files.sort()
-        
+
         frame_paths = []
         try:
-            loop = asyncio.get_running_loop()
             for filename in files:
                 input_path = os.path.join(mission.dir, filename)
                 output_path = os.path.join(mission.dir, f"{filename}.png")
                 await loop.run_in_executor(self.executor, self._render_frame_worker, input_path, output_path, mission.site_id)
                 frame_paths.append(output_path)
-            
+
             if frame_paths:
                 gif_name = f"{mission.site_id}_{int(mission.trigger_ts)}_evolution.gif"
                 gif_path = os.path.join(ARCHIVE_DIR, gif_name)
-                
-                frames = [Image.open(f) for f in frame_paths]
-                frames[0].save(
-                    gif_path, format="GIF", append_images=frames[1:],
-                    save_all=True, duration=200, loop=0
-                )
-                
+
+                def _make_gif():
+                    frames = [Image.open(f) for f in frame_paths]
+                    frames[0].save(
+                        gif_path, format="GIF", append_images=frames[1:],
+                        save_all=True, duration=200, loop=0
+                    )
+
+                await loop.run_in_executor(self.executor, _make_gif)
+
                 logger.info(f"[RECORDER] Created evolution GIF: {gif_path}")
-                
+
                 # 4. Calculate Peak SRH
                 peak_srh = 0.0
                 try:
-                    import numpy as np
-                    from lib.vad_plotter.vad_reader import VADFile
-                    from lib.vad_plotter.met_engine import vec2comp, storm_motion_bunkers, storm_relative_helicity
-                    for filename in files:
-                        p = os.path.join(mission.dir, filename)
-                        if not os.path.exists(p):
-                            continue
-                        with open(p, 'rb') as f:
-                            vad = VADFile(f)
-                        u, v = vec2comp(vad['wind_dir'], vad['wind_spd'])
-                        sm = storm_motion_bunkers(u, v, vad['altitude'])
-                        srh = storm_relative_helicity(u, v, vad['altitude'], 0, 1.0, *sm['right'])
-                        if not np.isnan(srh):
-                            peak_srh = max(peak_srh, srh)
+                    def _calc_srh():
+                        import numpy as np
+                        from lib.vad_plotter.vad_reader import VADFile
+                        from lib.vad_plotter.params import compute_bunkers, compute_srh
+                        srh_max = 0.0
+                        for filename in files:
+                            p = os.path.join(mission.dir, filename)
+                            if not os.path.exists(p):
+                                continue
+                            try:
+                                with open(p, 'rb') as f:
+                                    vad = VADFile(f)
+                                if len(vad['wind_dir']) < 2:
+                                    continue
+                                
+                                # compute_bunkers returns (right, left, mean) vectors in (dir, spd)
+                                brm, _, _ = compute_bunkers(vad)
+                                srh = compute_srh(vad, brm, 1.0) # 1km SRH
+                                
+                                if not np.isnan(srh):
+                                    srh_max = max(srh_max, srh)
+                            except Exception:
+                                continue
+                        return srh_max
+                    peak_srh = await loop.run_in_executor(self.executor, _calc_srh)
                 except Exception as e:
                     logger.warning(f"[RECORDER] Peak SRH calc failed: {e}")
 
@@ -216,12 +236,13 @@ class RecorderCog(commands.Cog):
                     await self._post_forensic_summary(mission, gif_path, peak_srh)
 
                 import shutil
-                if os.path.exists(mission.dir):
-                    shutil.rmtree(mission.dir)
+                def _cleanup():
+                    if os.path.exists(mission.dir):
+                        shutil.rmtree(mission.dir)
+                await loop.run_in_executor(None, _cleanup)
                 logger.info(f"[RECORDER] Cleaned up temporary data for {mission.site_id}")
         except Exception as e:
             logger.error(f"[RECORDER] Finalization failed for {mission.site_id}: {e}")
-
     async def _post_forensic_summary(self, mission: VADRecordingMission, gif_path: str, peak_srh: float):
         try:
             from config import DEV_CHANNEL_ID

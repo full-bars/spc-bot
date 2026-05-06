@@ -59,13 +59,13 @@ bot.state = BotState()
 bot.log_handler = log_handler
 
 # Initialize HTTP latency tracking
-def _update_http_latency(l: float):
+def _update_http_latency(latency: float):
     try:
         curr = bot.state.http_latency
         if isinstance(curr, (int, float)):
-            bot.state.http_latency = (curr * 0.9) + (l * 0.1)
+            bot.state.http_latency = (curr * 0.9) + (latency * 0.1)
         else:
-            bot.state.http_latency = l
+            bot.state.http_latency = latency
     except Exception:
         pass
 
@@ -74,9 +74,8 @@ utils.http.set_latency_callback(_update_http_latency)
 IS_PRIMARY = os.getenv("IS_PRIMARY", "true").lower() == "true"
 bot.state.is_primary = IS_PRIMARY
 
-async def setup_hook():
-    """Hydrate state from DB before any cogs are loaded."""
-    # Initialize database
+async def _init_db():
+    """Initialize database and check integrity."""
     db_ok = await check_integrity()
     if not db_ok:
         logger.warning("[DB] Database integrity check failed — recreating")
@@ -85,7 +84,9 @@ async def setup_hook():
             os.rename(db_path, db_path + ".corrupted")
         await get_db()
 
-    # Restore in-memory caches from DB
+
+async def _hydrate_state():
+    """Restore in-memory caches from DB."""
     results = await asyncio.gather(
         get_all_hashes("auto"),
         get_all_hashes("manual"),
@@ -151,8 +152,8 @@ async def setup_hook():
         if isinstance(urls, list) and urls:
             bot.state.last_posted_urls[day_key] = urls
             logger.info(f"[DB] Restored posted URLs for {day_key}")
-    # Warm the conditional-GET validator cache so the first poll after
-    # restart doesn't redownload every URL.
+
+    # Warm the conditional-GET validator cache
     try:
         await hydrate_validators_from_store()
     except Exception as e:
@@ -160,18 +161,20 @@ async def setup_hook():
 
     logger.info("[DB] Database ready")
 
-    # Clean up old cached files (7-day TTL) on startup
+
+async def _run_startup_cleanup():
+    """Clean up old cached files on startup."""
     from utils.cache_utils import cleanup_old_cache_files
     deleted, freed = await cleanup_old_cache_files()
     if deleted > 0:
-        logger.info(f"[STARTUP] Cache cleanup complete: {deleted} file(s) deleted, {freed / (1024*1024):.1f} MB freed")
+        logger.info(
+            f"[STARTUP] Cache cleanup complete: {deleted} file(s) deleted, "
+            f"{freed / (1024*1024):.1f} MB freed"
+        )
 
-    # Register failover cog first so it can probe Upstash for the lease
-    # before we decide whether to load the rest. Without this check, a
-    # primary reboot races its own sync_loop: cogs start posting using
-    # stale in-memory state during the ~30s window before the first
-    # lease probe fires, duplicating anything the current lease holder
-    # posted while we were down.
+
+async def _check_failover() -> bool:
+    """Register failover cog and check if we should run as primary."""
     await bot.load_extension("cogs.failover")
     failover_cog = bot.get_cog("FailoverCog")
     should_run_primary = IS_PRIMARY
@@ -184,6 +187,16 @@ async def setup_hook():
                 f"falling back to IS_PRIMARY env value and deferring to "
                 f"sync_loop for reconciliation"
             )
+    return should_run_primary
+
+
+async def setup_hook():
+    """Hydrate state from DB before any cogs are loaded."""
+    await _init_db()
+    await _hydrate_state()
+    await _run_startup_cleanup()
+    
+    should_run_primary = await _check_failover()
 
     if should_run_primary:
         for ext in ALL_EXTENSIONS:
@@ -452,7 +465,7 @@ async def watchdog_task():
             inner = task.get_task()
             if inner is not None and not inner.done():
                 try:
-                    await asyncio.wait_for(asyncio.shield(inner), timeout=5.0)
+                    await asyncio.wait_for(inner, timeout=5.0)
                 except (asyncio.CancelledError, asyncio.TimeoutError):
                     pass
                 except Exception as e:

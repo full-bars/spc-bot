@@ -1,24 +1,25 @@
 import numpy as np
+from typing import Any, Dict, Tuple, Union
 
-def vec2comp(wdir, wspd):
+def vec2comp(wdir: Union[float, np.ndarray], wspd: Union[float, np.ndarray]) -> Tuple[Union[float, np.ndarray], Union[float, np.ndarray]]:
     u = -wspd * np.sin(np.radians(wdir))
     v = -wspd * np.cos(np.radians(wdir))
     return u, v
 
-def comp2vec(u, v):
+def comp2vec(u: Union[float, np.ndarray], v: Union[float, np.ndarray]) -> Tuple[Union[float, np.ndarray], Union[float, np.ndarray]]:
     vmag = np.hypot(u, v)
     vdir = 90 - np.degrees(np.arctan2(-v, -u))
     vdir = np.where(vdir < 0, vdir + 360, vdir)
     vdir = np.where(vdir >= 360, vdir - 360, vdir)
     return vdir, vmag
 
-def interp(u, v, altitude, hght):
+def interp(u: np.ndarray, v: np.ndarray, altitude: np.ndarray, hght: float) -> Tuple[float, float]:
     u_hght = np.interp(hght, altitude, u, left=np.nan, right=np.nan)
     v_hght = np.interp(hght, altitude, v, left=np.nan, right=np.nan)
-    return u_hght, v_hght
+    return float(u_hght), float(v_hght)
 
 
-def _clip_profile(prof, alt, clip_alt, intrp_prof):
+def _clip_profile(prof: np.ndarray, alt: np.ndarray, clip_alt: float, intrp_prof: float) -> np.ndarray:
     try:
         idx_clip = np.where((alt[:-1] <= clip_alt) & (alt[1:] > clip_alt))[0][0]
     except IndexError:
@@ -30,13 +31,13 @@ def _clip_profile(prof, alt, clip_alt, intrp_prof):
     return np.array(prof_clip)
 
 
-def compute_shear_mag(data, hght):
+def compute_shear_mag(data: Dict[str, Any], hght: float) -> float:
     u, v = vec2comp(data['wind_dir'], data['wind_spd'])
     u_hght, v_hght = interp(u, v, data['altitude'], hght)
-    return np.hypot(u_hght - u[0], v_hght - v[0])
+    return float(np.hypot(u_hght - u[0], v_hght - v[0]))
 
 
-def compute_srh(data, storm_motion, hght):
+def compute_srh(data: Dict[str, Any], storm_motion: Tuple[float, float], hght: float) -> float:
     u, v = vec2comp(data['wind_dir'], data['wind_spd'])
     if len(u) < 2 and len(v) < 2:
         return np.nan
@@ -51,10 +52,10 @@ def compute_srh(data, storm_motion, hght):
     srv_clip = _clip_profile(srv, data['altitude'], hght, srv_hght)
 
     layers = (sru_clip[1:] * srv_clip[:-1]) - (sru_clip[:-1] * srv_clip[1:])
-    return layers.sum()
+    return float(layers.sum())
 
 
-def compute_sr_flow(data, storm_motion, hght_bot, hght_top):
+def compute_sr_flow(data: Dict[str, Any], storm_motion: Tuple[float, float], hght_bot: float, hght_top: float) -> float:
     u, v = vec2comp(data['wind_dir'], data['wind_spd'])
     storm_u, storm_v = vec2comp(*storm_motion)
 
@@ -71,10 +72,10 @@ def compute_sr_flow(data, storm_motion, hght_bot, hght_top):
     if np.all(np.isnan(sr_mag)):
         return np.nan
 
-    return np.nanmean(sr_mag)
+    return float(np.nanmean(sr_mag))
 
 
-def compute_bunkers(data):
+def compute_bunkers(data: Dict[str, Any]) -> Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float]]:
     d = 7.5 * 1.94
     hght = 6
 
@@ -95,10 +96,14 @@ def compute_bunkers(data):
     lstu = mnu6 - (tmp * shrv)
     lstv = mnv6 + (tmp * shru)
 
-    return comp2vec(rstu, rstv), comp2vec(lstu, lstv), comp2vec(mnu6, mnv6)
+    return (
+        tuple(float(x) for x in comp2vec(rstu, rstv)), # type: ignore
+        tuple(float(x) for x in comp2vec(lstu, lstv)), # type: ignore
+        tuple(float(x) for x in comp2vec(mnu6, mnv6))  # type: ignore
+    )
 
 
-def compute_dtm(data):
+def compute_dtm(data: Dict[str, Any]) -> Tuple[float, float]:
     try:
         u, v = vec2comp(data['wind_dir'], data['wind_spd'])
         alt = data['altitude']
@@ -115,12 +120,13 @@ def compute_dtm(data):
         dtm_u = 0.7 * brm_u + 0.3 * mn_u_500
         dtm_v = 0.7 * brm_v + 0.3 * mn_v_500
 
-        return comp2vec(dtm_u, dtm_v)
+        res_dir, res_mag = comp2vec(dtm_u, dtm_v)
+        return float(res_dir), float(res_mag)
     except Exception:
         return (np.nan, np.nan)
 
 
-def compute_crit_angl(data, storm_motion):
+def compute_crit_angl(data: Dict[str, Any], storm_motion: Tuple[float, float]) -> float:
     u, v = vec2comp(data['wind_dir'], data['wind_spd'])
     storm_u, storm_v = vec2comp(*storm_motion)
 
@@ -136,11 +142,11 @@ def compute_crit_angl(data, storm_motion):
     len_ang = np.hypot(ang_u, ang_v)
 
     base_dot_ang = base_u * ang_u + base_v * ang_v
-    return np.degrees(np.arccos(base_dot_ang / (len_base * len_ang)))
+    return float(np.degrees(np.arccos(base_dot_ang / (len_base * len_ang))))
 
 
-def compute_parameters(data, storm_motion):
-    params = {}
+def compute_parameters(data: Dict[str, Any], storm_motion: str) -> Dict[str, Any]:
+    params: Dict[str, Any] = {}
 
     try:
         params['bunkers_right'], params['bunkers_left'], params['mean_wind'] = compute_bunkers(data)

@@ -256,9 +256,17 @@ async def fetch_watch_details(
     )
 
     # SPC main page and prob page are independent — fetch them in parallel.
+    from utils.cache import fetch_with_validators
+    
+    async def _get_text_with_val(u):
+        c, s = await fetch_with_validators(u)
+        if c and s == 200:
+            return c.decode("utf-8", errors="ignore")
+        return None
+
     html, prob_html = await asyncio.gather(
-        http_get_text(page_url),
-        http_get_text(prob_url),
+        _get_text_with_val(page_url),
+        _get_text_with_val(prob_url),
     )
 
     image_url = None

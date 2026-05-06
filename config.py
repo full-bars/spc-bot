@@ -7,19 +7,27 @@ import subprocess
 from dotenv import load_dotenv
 
 
-def _get_version() -> str:
-    """Get version from git tag, VERSION file, or fallback."""
+_cached_version = None
+
+def get_version() -> str:
+    """Get version from git tag, VERSION file, or fallback (cached)."""
+    global _cached_version
+    if _cached_version:
+        return _cached_version
+
     try:
         # Try to read from git tag (most accurate)
         version = subprocess.check_output(
             ["git", "describe", "--tags", "--always"],
             cwd=os.path.dirname(__file__),
             stderr=subprocess.DEVNULL,
-            text=True
+            text=True,
+            timeout=5
         ).strip()
         # Remove leading 'v' if present (v5.16.1 → 5.16.1)
         if version.startswith("v"):
             version = version[1:]
+        _cached_version = version
         return version
     except (subprocess.CalledProcessError, FileNotFoundError):
         pass
@@ -29,15 +37,22 @@ def _get_version() -> str:
     if os.path.exists(version_file):
         try:
             with open(version_file) as f:
-                return f.read().strip()
+                v = f.read().strip()
+                _cached_version = v
+                return v
         except Exception:
             pass
 
     # Final fallback
+    _cached_version = "unknown"
     return "unknown"
 
 
-__version__ = _get_version()
+def __getattr__(name):
+    if name == "__version__":
+        return get_version()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 load_dotenv()
 
