@@ -139,10 +139,24 @@ def iem_autoplot_url(vtec: dict) -> str:
         )
 
     # Standard VTEC events use Autoplot 208
+    # Build the valid time from start or end timestamp
+    valid_time = ""
+    if start and not _is_null_vtec_time(start):
+        # Parse YYMMDDTHHMMZ format
+        try:
+            yy, mm, dd, hh, min_ = int(start[0:2]), int(start[2:4]), int(start[4:6]), int(start[8:10]), int(start[10:12])
+            yyyy = 2000 + yy
+            valid_time = f"{yyyy:04d}-{mm:02d}-{dd:02d}%20{hh:02d}{min_:02d}"
+        except (ValueError, IndexError):
+            pass
+
+    valid_param = f"::valid:{valid_time}" if valid_time else ""
+    etn_padded = etn.zfill(4)  # Zero-pad to 4 digits
+
     return (
         f"https://mesonet.agron.iastate.edu/plotting/auto/plot/208/"
-        f"wfo:{office}::year:{year}::phenomena:{phenom}::significance:{sig}::"
-        f"etn:{etn.lstrip('0') or '0'}.png"
+        f"network:WFO::wfo:{office}::year:{year}::phenomenav:{phenom}::significancev:{sig}::"
+        f"etn:{etn_padded}{valid_param}.png"
     )
 
 
