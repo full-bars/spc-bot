@@ -33,15 +33,18 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v6
-      - name: Ensure Rust and Maturin are available
+      - name: Build Rust extensions
         run: |
           if ! command -v cargo &> /dev/null; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-            echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+            if [ -f "$HOME/.cargo/env" ]; then
+              source "$HOME/.cargo/env"
+            else
+              curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+              source "$HOME/.cargo/env"
+            fi
           fi
           pip install maturin
-      - name: Build Rust extensions
-        run: maturin develop --release
+          maturin develop --release
       - name: Run tests with coverage
         run: |
           python -m pytest tests/ \
