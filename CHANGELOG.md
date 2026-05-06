@@ -12,6 +12,18 @@ version numbers follow [SemVer](https://semver.org/).
 - **Forensic Recorder Regressions.** Refactored `cogs/recorder.py` to use `@staticmethod` workers for all background tasks, avoiding `PicklingError` from nested functions. Fixed a regression where the recorder attempted to call a non-existent `plot_vad` function.
 - **VAD Site Labeling.** Updated `download_vad` to ensure the radar site ID is correctly propagated to the plotting engine.
 
+## [5.18.1] — 2026-05-06
+
+### Fixed
+- **CSU-MLP Manual Fallback.** Fixed a logic bug where manual `/csu` commands would fail between 00:00 UTC and 17:00 UTC (the "UTC dead zone"). The command now intelligently falls back to the most recent available run from the previous day, while the automated polling loop remains strictly bound to the current operational day to prevent regressions.
+- **Sounding Cog Logging.** Completed the removal of bracketed log prefixes (`[SOUNDING-AUTO]`, etc.) in `cogs/sounding.py`, bringing it in line with the hierarchical logging standards introduced in v5.18.0.
+
+### Changed
+- **CSU Logging.** Switched `cogs/csu_mlp.py` to the hierarchical `spc_bot.csu_mlp` logger and removed redundant string prefixes.
+
+### Added
+- **Internal Documentation.** Added detailed `NOTE` blocks in `cogs/csu_mlp.py` explaining the deliberate distinction between manual (lenient) and automated (strict) fallback behaviors to prevent future maintainer confusion.
+
 ## [5.18.0] — 2026-05-06
 
 ### Fixed
