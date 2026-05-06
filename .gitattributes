@@ -1,0 +1,3 @@
+# Ensure Rust is recognized in the languages sidebar even if the byte count is low
+src_rust/*.rs linguist-language=Rust
+Cargo.toml linguist-language=Rust
