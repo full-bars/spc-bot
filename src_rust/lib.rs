@@ -598,3 +598,206 @@ fn haversine_batch(
     }
     Ok(distances)
 }
+
+// ── Rust Unit Tests ──────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vec2comp_north_wind() {
+        let (u, v) = vec2comp(0.0, 10.0).unwrap();
+        assert!(u.abs() < 0.01);
+        assert!((v - (-10.0)).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_vec2comp_east_wind() {
+        let (u, v) = vec2comp(90.0, 10.0).unwrap();
+        assert!((u - 10.0).abs() < 0.01);
+        assert!(v.abs() < 0.01);
+    }
+
+    #[test]
+    fn test_comp2vec_north() {
+        let (dir, spd) = comp2vec(0.0, -10.0).unwrap();
+        assert!((spd - 10.0).abs() < 0.01);
+        assert!(dir < 1.0 || dir > 359.0); // Should be ~0 or ~360
+    }
+
+    #[test]
+    fn test_comp2vec_magnitude() {
+        let (_, spd) = comp2vec(3.0, 4.0).unwrap();
+        assert!((spd - 5.0).abs() < 0.01); // 3-4-5 triangle
+    }
+
+    #[test]
+    fn test_haversine_zero_distance() {
+        let dist = haversine(0.0, 0.0, 0.0, 0.0).unwrap();
+        assert!(dist.abs() < 0.001);
+    }
+
+    #[test]
+    fn test_haversine_symmetry() {
+        let d1 = haversine(40.0, -100.0, 35.0, -95.0).unwrap();
+        let d2 = haversine(35.0, -95.0, 40.0, -100.0).unwrap();
+        assert!((d1 - d2).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_haversine_known_distance() {
+        // NYC to LA is approximately 3944 km
+        let dist = haversine(40.7128, -74.0060, 34.0522, -118.2437).unwrap();
+        assert!(dist > 3900.0 && dist < 4000.0);
+    }
+
+    #[test]
+    fn test_haversine_batch_single_target() {
+        let targets = vec![(0.0, 0.0)];
+        let dists = haversine_batch(0.0, 0.0, targets).unwrap();
+        assert_eq!(dists.len(), 1);
+        assert!(dists[0].abs() < 0.001);
+    }
+
+    #[test]
+    fn test_haversine_batch_multiple_targets() {
+        let targets = vec![(1.0, 0.0), (2.0, 0.0), (3.0, 0.0)];
+        let dists = haversine_batch(0.0, 0.0, targets).unwrap();
+        assert_eq!(dists.len(), 3);
+        // Distances should be increasing
+        assert!(dists[0] < dists[1]);
+        assert!(dists[1] < dists[2]);
+    }
+
+    #[test]
+    fn test_extract_latlon_valid() {
+        let text = "3567 9823 4521 10134";
+        let coords = extract_latlon_coords(text).unwrap();
+        assert_eq!(coords.len(), 2);
+        assert!((coords[0].0 - 35.67).abs() < 0.01);
+        assert!((coords[0].1 - (-98.23)).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_extract_latlon_out_of_range() {
+        let text = "1000 2000"; // Out of valid range
+        let coords = extract_latlon_coords(text).unwrap();
+        assert_eq!(coords.len(), 0);
+    }
+
+    #[test]
+    fn test_clip_profile_simple() {
+        let wind_dir = vec![250.0, 260.0, 270.0, 280.0];
+        let wind_spd = vec![10.0, 15.0, 20.0, 25.0];
+        let altitude = vec![0.0, 2000.0, 4000.0, 6000.0];
+        let (clipped_dir, clipped_spd, clipped_alt) = clip_profile(&wind_dir, &wind_spd, &altitude, 5000.0);
+        // Should include 0, 2000, 4000 but not 6000
+        assert_eq!(clipped_dir.len(), 3);
+        assert_eq!(clipped_spd.len(), 3);
+        assert_eq!(clipped_alt.len(), 3);
+    }
+
+    #[test]
+    fn test_compute_bunkers_valid_profile() {
+        let wind_dir = vec![250.0; 7];
+        let wind_spd = vec![5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0];
+        let altitude = vec![0.0, 1000.0, 2000.0, 3000.0, 4000.0, 5000.0, 6000.0];
+
+        let (mean, left, right) = compute_bunkers(wind_dir, wind_spd, altitude).unwrap();
+        // Each motion should be (direction, speed)
+        assert!(mean.1 > 0.0); // Mean wind speed should be positive
+        assert!(left.1 > 0.0); // Left motion speed should be positive
+        assert!(right.1 > 0.0); // Right motion speed should be positive
+    }
+
+    #[test]
+    fn test_compute_bunkers_empty_profile() {
+        let result = compute_bunkers(vec![], vec![], vec![]).unwrap();
+        assert!(result.0.0.is_nan());
+        assert!(result.0.1.is_nan());
+    }
+
+    #[test]
+    fn test_compute_srh_valid_profile() {
+        let wind_dir = vec![250.0; 7];
+        let wind_spd = vec![5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0];
+        let altitude = vec![0.0, 1000.0, 2000.0, 3000.0, 4000.0, 5000.0, 6000.0];
+
+        let srh = compute_srh(wind_dir, wind_spd, altitude, 250.0, 15.0, 3000.0).unwrap();
+        // SRH should be a finite number
+        assert!(srh.is_finite());
+    }
+
+    #[test]
+    fn test_compute_srh_empty_profile() {
+        let srh = compute_srh(vec![], vec![], vec![], 250.0, 15.0, 3000.0).unwrap();
+        assert!(srh.is_nan());
+    }
+
+    #[test]
+    fn test_xxh3_hash_consistency() {
+        let data1 = b"test data";
+        let hash1a = xxh3::xxh3_64(data1);
+        let hash1b = xxh3::xxh3_64(data1);
+        assert_eq!(hash1a, hash1b);
+    }
+
+    #[test]
+    fn test_xxh3_hash_different() {
+        let hash1 = xxh3::xxh3_64(b"test1");
+        let hash2 = xxh3::xxh3_64(b"test2");
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_vtec_regex_match() {
+        let pattern = r"/O\.(NEW|CON|EXP|CAN|UPG|EXA|EXT|ROU)\.([A-Z]{4})\.([A-Z]{2})\.([A-Z])\.(\d{4})\.(\d{6}T\d{4}Z)-(\d{6}T\d{4}Z)/";
+        let re = Regex::new(pattern).unwrap();
+        let text = "/O.NEW.KOUN.TO.W.0042.260427T2018Z-260427T2100Z/";
+        assert!(re.is_match(text));
+    }
+
+    #[test]
+    fn test_vtec_regex_no_match() {
+        let pattern = r"/O\.(NEW|CON|EXP|CAN|UPG|EXA|EXT|ROU)\.([A-Z]{4})\.([A-Z]{2})\.([A-Z])\.(\d{4})\.(\d{6}T\d{4}Z)-(\d{6}T\d{4}Z)/";
+        let re = Regex::new(pattern).unwrap();
+        let text = "No VTEC here";
+        assert!(!re.is_match(text));
+    }
+
+    #[test]
+    fn test_vtec_capture_groups() {
+        let pattern = r"/O\.(NEW|CON|EXP|CAN|UPG|EXA|EXT|ROU)\.([A-Z]{4})\.([A-Z]{2})\.([A-Z])\.(\d{4})\.(\d{6}T\d{4}Z)-(\d{6}T\d{4}Z)/";
+        let re = Regex::new(pattern).unwrap();
+        let text = "/O.NEW.KOUN.TO.W.0042.260427T2018Z-260427T2100Z/";
+        let caps = re.captures(text).unwrap();
+        assert_eq!(caps.get(1).unwrap().as_str(), "NEW");
+        assert_eq!(caps.get(2).unwrap().as_str(), "KOUN");
+        assert_eq!(caps.get(3).unwrap().as_str(), "TO");
+    }
+
+    #[test]
+    fn test_normalize_product_id_iso8601() {
+        let id = normalize_product_id("KOUN", "ACUS42", "SVDMX", "2026-05-03T06:50:00Z").unwrap();
+        assert_eq!(id, "202605030650-KOUN-ACUS42-SVDMX");
+    }
+
+    #[test]
+    fn test_normalize_product_id_compact() {
+        let id = normalize_product_id("KOUN", "ACUS42", "SVDMX", "202605030650").unwrap();
+        assert_eq!(id, "202605030650-KOUN-ACUS42-SVDMX");
+    }
+
+    #[test]
+    fn test_normalize_product_id_truncate() {
+        let id = normalize_product_id("KOUN", "ACUS42", "SVDMX", "20260503065030").unwrap();
+        assert_eq!(id, "202605030650-KOUN-ACUS42-SVDMX");
+    }
+
+    #[test]
+    fn test_sum_as_string() {
+        let result = sum_as_string(5, 3).unwrap();
+        assert_eq!(result, "8");
+    }
+}
