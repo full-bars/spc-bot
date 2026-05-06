@@ -104,6 +104,8 @@ class WarningsCog(commands.Cog):
         vtec = parse_vtec(raw_text)
         if vtec:
             logger.info(f"[WARN_VTEC] iembot {event}: {vtec['vtec_id']} phenom={vtec.get('phenom')}")
+            if "TO" in event or vtec.get("phenom") == "TO":
+                logger.info(f"[WARN_VTEC_RAW] iembot tornado: first 500 chars of raw_text: {raw_text[:500]}")
         if not vtec:
             if event == "Special Weather Statement":
                 # SPS usually lacks VTEC. Create a mock dict so formatting works.
