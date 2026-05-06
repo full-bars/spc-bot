@@ -102,6 +102,8 @@ class WarningsCog(commands.Cog):
             return
 
         vtec = parse_vtec(raw_text)
+        if vtec:
+            logger.debug(f"Parsed VTEC for {event}: {vtec['vtec_id']} phenom={vtec.get('phenom')} sig={vtec.get('sig')}")
         if not vtec:
             if event == "Special Weather Statement":
                 # SPS usually lacks VTEC. Create a mock dict so formatting works.
@@ -209,6 +211,7 @@ class WarningsCog(commands.Cog):
             files = []
             if (vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS":
                 image_url = iem_autoplot_url(vtec)
+                logger.debug(f"iembot image URL for {vtec['vtec_id']}: phenom={vtec.get('phenom')}")
                 filename = f"warning_{vtec_id.replace('.', '_')}.png"
                 f = await _download_warning_image(image_url, filename)
                 if f:
@@ -541,6 +544,7 @@ class WarningsCog(commands.Cog):
                 parsed = parse_vtec(v)
                 if parsed:
                     vtec_dict = parsed
+                    logger.debug(f"NWS API parsed VTEC for {event}: {parsed['vtec_id']} phenom={parsed.get('phenom')} sig={parsed.get('sig')}")
                     # We prefer NEW for the initial tracking, but take any for metadata
                     if parsed["action"] == "NEW":
                         break
@@ -697,6 +701,7 @@ class WarningsCog(commands.Cog):
         files = []
         if (vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS":
             image_url = iem_autoplot_url(vtec)
+            logger.debug(f"NWS API image URL for {vtec_id}: phenom={vtec.get('phenom')}")
             filename = f"warning_{vtec_id.replace('.', '_')}.png"
             f = await _download_warning_image(image_url, filename)
             if f:
