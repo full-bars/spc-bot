@@ -479,6 +479,7 @@ async def download_vad(
 
     if content:
         vad = VADFile(content)
+        vad.rid = rid
         if cache_path:
             iname = build_has_name(rid, vad['time'])
             with open("%s/%s" % (cache_path, iname), 'wb') as floc:

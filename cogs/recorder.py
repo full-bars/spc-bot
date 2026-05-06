@@ -186,45 +186,14 @@ class RecorderCog(commands.Cog):
                 gif_name = f"{mission.site_id}_{int(mission.trigger_ts)}_evolution.gif"
                 gif_path = os.path.join(ARCHIVE_DIR, gif_name)
 
-                def _make_gif():
-                    frames = [Image.open(f) for f in frame_paths]
-                    frames[0].save(
-                        gif_path, format="GIF", append_images=frames[1:],
-                        save_all=True, duration=200, loop=0
-                    )
-
-                await loop.run_in_executor(self.executor, _make_gif)
+                await loop.run_in_executor(self.executor, self._make_gif_worker, frame_paths, gif_path)
 
                 logger.info(f"Created evolution GIF: {gif_path}")
 
                 # 4. Calculate Peak SRH
                 peak_srh = 0.0
                 try:
-                    def _calc_srh():
-                        import numpy as np
-                        from lib.vad_plotter.vad_reader import VADFile
-                        from lib.vad_plotter.params import compute_bunkers, compute_srh
-                        srh_max = 0.0
-                        for filename in files:
-                            p = os.path.join(mission.dir, filename)
-                            if not os.path.exists(p):
-                                continue
-                            try:
-                                with open(p, 'rb') as f:
-                                    vad = VADFile(f)
-                                if len(vad['wind_dir']) < 2:
-                                    continue
-                                
-                                # compute_bunkers returns (right, left, mean) vectors in (dir, spd)
-                                brm, _, _ = compute_bunkers(vad)
-                                srh = compute_srh(vad, brm, 1.0) # 1km SRH
-                                
-                                if not np.isnan(srh):
-                                    srh_max = max(srh_max, srh)
-                            except Exception:
-                                continue
-                        return srh_max
-                    peak_srh = await loop.run_in_executor(self.executor, _calc_srh)
+                    peak_srh = await loop.run_in_executor(self.executor, self._calc_srh_worker, mission.dir, files)
                 except Exception as e:
                     logger.warning(f"Peak SRH calc failed: {e}")
 
@@ -235,14 +204,11 @@ class RecorderCog(commands.Cog):
                         await update_event_environment(eid, gif_path, peak_srh)
                     await self._post_forensic_summary(mission, gif_path, peak_srh)
 
-                import shutil
-                def _cleanup():
-                    if os.path.exists(mission.dir):
-                        shutil.rmtree(mission.dir)
-                await loop.run_in_executor(None, _cleanup)
+                await loop.run_in_executor(None, self._cleanup_worker, mission.dir)
                 logger.info(f"Cleaned up temporary data for {mission.site_id}")
         except Exception as e:
             logger.error(f"Finalization failed for {mission.site_id}: {e}")
+
     async def _post_forensic_summary(self, mission: VADRecordingMission, gif_path: str, peak_srh: float):
         try:
             from config import DEV_CHANNEL_ID
@@ -302,15 +268,58 @@ class RecorderCog(commands.Cog):
     @staticmethod
     def _render_frame_worker(input_path, output_path, rid):
         from lib.vad_plotter.vad_reader import VADFile
-        from lib.vad_plotter.plot import plot_vad
+        from lib.vad_plotter.plot import plot_hodograph
+        from lib.vad_plotter.params import compute_parameters
         try:
             with open(input_path, 'rb') as f:
                 vad = VADFile(f)
-            plot_vad(vad, rid, output_path, web=False, fixed=True)
+            vad.rid = rid
+            params = compute_parameters(vad, "right-mover")
+            plot_hodograph(vad, params, output_path, web=False, fixed=True)
             return True
         except Exception as e:
             print(f"Frame render failed: {e}")
             return False
+
+    @staticmethod
+    def _make_gif_worker(frame_paths, gif_path):
+        frames = [Image.open(f) for f in frame_paths]
+        frames[0].save(
+            gif_path, format="GIF", append_images=frames[1:],
+            save_all=True, duration=200, loop=0
+        )
+
+    @staticmethod
+    def _calc_srh_worker(mission_dir, files):
+        import numpy as np
+        from lib.vad_plotter.vad_reader import VADFile
+        from lib.vad_plotter.params import compute_bunkers, compute_srh
+        srh_max = 0.0
+        for filename in files:
+            p = os.path.join(mission_dir, filename)
+            if not os.path.exists(p):
+                continue
+            try:
+                with open(p, 'rb') as f:
+                    vad = VADFile(f)
+                if len(vad['wind_dir']) < 2:
+                    continue
+                
+                # compute_bunkers returns (right, left, mean) vectors in (dir, spd)
+                brm, _, _ = compute_bunkers(vad)
+                srh = compute_srh(vad, brm, 1.0) # 1km SRH
+                
+                if not np.isnan(srh):
+                    srh_max = max(srh_max, srh)
+            except Exception:
+                continue
+        return srh_max
+
+    @staticmethod
+    def _cleanup_worker(mission_dir):
+        import shutil
+        if os.path.exists(mission_dir):
+            shutil.rmtree(mission_dir)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(RecorderCog(bot))
