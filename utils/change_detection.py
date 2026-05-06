@@ -7,10 +7,25 @@ import os
 
 from config import CACHE_DIR
 
-logger = logging.getLogger("spc_bot")
+logger = logging.getLogger("spc_bot.change_detection")
+
+# Rust core fallback
+try:
+    import spc_rust_core
+    RUST_AVAILABLE = True
+except ImportError:
+    RUST_AVAILABLE = False
+    logger.debug("Rust core not available, using pure-python fallback for hashing")
 
 
 def calculate_hash_bytes(content: bytes) -> str:
+    """Calculate hash for change detection. Prefers Rust XXH3, falls back to Python SHA256."""
+    if RUST_AVAILABLE:
+        try:
+            return spc_rust_core.calculate_fast_hash(content)
+        except Exception as e:
+            logger.debug(f"Rust fast hash failed: {e}. Falling back to SHA256.")
+
     return hashlib.sha256(content).hexdigest()
 
 
@@ -53,5 +68,3 @@ def is_placeholder_image(content: bytes) -> bool:
         if h in _KNOWN_PLACEHOLDER_HASHES:
             return True
     return False
-
-

@@ -33,6 +33,8 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v6
+      - name: Build Rust extensions
+        run: maturin develop --release
       - name: Run tests with coverage
         run: |
           python -m pytest tests/ \
