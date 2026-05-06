@@ -28,6 +28,36 @@ from config import NWWS_USER, NWWS_PASSWORD, NWWS_SERVER, NWWS_FIREHOSE_LOG
 
 logger = logging.getLogger("spc_bot")
 
+# Rust core fallback
+try:
+    import spc_rust_core
+    _normalize_product_id_rust = spc_rust_core.normalize_product_id
+except (ImportError, AttributeError):
+    _normalize_product_id_rust = None
+
+
+def normalize_product_id_py(office: str, ttaaii: str, afos_pil: str, issue_str: str) -> str:
+    """Python fallback: normalize product ID for deduplication."""
+    ts_str = issue_str
+    # Normalize ISO8601 format to compact format for dedup consistency
+    if "T" in ts_str and "Z" in ts_str:
+        # Convert "2026-05-03T06:50:00Z" → "202605030650"
+        ts_str = ts_str.replace("-", "").replace("T", "").replace(":", "").split("Z")[0][:12]
+    else:
+        # Truncate to 12 characters (YYYYMMDDHHMM format)
+        ts_str = ts_str[:12]
+    return f"{ts_str}-{office}-{ttaaii}-{afos_pil}"
+
+
+def normalize_product_id(office: str, ttaaii: str, afos_pil: str, issue_str: str) -> str:
+    """Normalize product ID; try Rust first, fall back to Python."""
+    if _normalize_product_id_rust:
+        try:
+            return _normalize_product_id_rust(office, ttaaii, afos_pil, issue_str)
+        except Exception:
+            pass
+    return normalize_product_id_py(office, ttaaii, afos_pil, issue_str)
+
 # --- Secondary Firehose Logger ---
 # This logger writes EVERYTHING from NWWS to a separate file (capped at 10MB)
 # so the main log stays quiet.
@@ -210,17 +240,13 @@ class NWWSClient(ClientXMPP):
             # Construct a product_id matching the iembot format where possible.
             # Use the stable 'issue' timestamp from NWWS metadata so retransmits
             # don't get a new ID based on the current bot clock.
-            ts_str = payload['issue'] or time.strftime("%Y%m%d%H%M", time.gmtime())
-            # Normalize ISO8601 format to compact format for dedup consistency
-            if "T" in ts_str and "Z" in ts_str:
-                # Convert "2026-05-03T06:50:00Z" → "202605030650"
-                ts_str = ts_str.replace("-", "").replace("T", "").replace(":", "").split("Z")[0][:12]
-            product_id = f"{ts_str}-{office}-{ttaaii}-{afos_pil}"
+            issue_str = payload['issue'] or time.strftime("%Y%m%d%H%M", time.gmtime())
+            product_id = normalize_product_id(office, ttaaii, afos_pil, issue_str)
 
             # Track NWWS wire latency: time from product issue to reception
             # Skip latency tracking for archived messages (room history on reconnect)
             if not is_archived:
-                issue_val = payload['issue'] or ts_str
+                issue_val = payload['issue'] or issue_str
                 try:
                     from datetime import datetime as dt_class, timezone as tz_class
                     start_time = self.bot.state.bot_start_time

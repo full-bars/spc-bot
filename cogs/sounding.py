@@ -1103,7 +1103,7 @@ class SoundingCog(commands.Cog):
             description_lines.append("**\U0001f4e1 RAOB Upper Air Stations:**")
             for s in nearest:
                 sid = s.get("icao") or s.get("wmo")
-                avail = await get_available_sounding_times_iem(sid, hours_back=36, skip_cache=True)
+                avail = await get_available_sounding_times_iem(sid, hours_back=36)
                 time_strs = [f"`{t[3]}z`" for t in avail[:4]]
                 times_note = " | ".join(time_strs) if time_strs else "no recent data"
                 description_lines.append(
@@ -1132,6 +1132,8 @@ class SoundingCog(commands.Cog):
             time_args=time_args,
             dark_mode=dark_mode,
             original_user=interaction.user,
+            location_desc=location_desc,
+            description="\n".join(description_lines),
         )
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 

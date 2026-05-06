@@ -6,6 +6,7 @@ use std::sync::RwLock;
 use once_cell::sync::Lazy;
 use geo::{Polygon, Point, Coord};
 use geo::algorithm::contains::Contains;
+use regex::Regex;
 
 #[pymodule]
 fn spc_rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -17,6 +18,16 @@ fn spc_rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_radar_index, m)?)?;
     m.add_function(wrap_pyfunction!(find_nearest_radar, m)?)?;
     m.add_function(wrap_pyfunction!(filter_points_in_polygons, m)?)?;
+    m.add_function(wrap_pyfunction!(vec2comp, m)?)?;
+    m.add_function(wrap_pyfunction!(comp2vec, m)?)?;
+    m.add_function(wrap_pyfunction!(compute_bunkers, m)?)?;
+    m.add_function(wrap_pyfunction!(compute_srh, m)?)?;
+    m.add_function(wrap_pyfunction!(compute_critical_angle, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_vtec, m)?)?;
+    m.add_function(wrap_pyfunction!(validate_image_cache_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(normalize_product_id, m)?)?;
+    m.add_function(wrap_pyfunction!(haversine, m)?)?;
+    m.add_function(wrap_pyfunction!(haversine_batch, m)?)?;
     Ok(())
 }
 
@@ -87,7 +98,6 @@ fn parse_vwp_tabular_data<'py>(
         // Parse this page starting from line_start
         let mut current_pos = line_start;
         let mut line_count = 0;
-        let mut page_has_data = false;
 
         while current_pos + 82 <= data.len() {
             let len = i16::from_be_bytes([data[current_pos], data[current_pos+1]]);
@@ -123,7 +133,6 @@ fn parse_vwp_tabular_data<'py>(
                             wind_dir: d, wind_spd: s, rms_error: r, divergence: v,
                             slant_range: slant_km, elev_angle: e, altitude: alt,
                         });
-                        page_has_data = true;
                     }
                 }
             }
@@ -263,4 +272,532 @@ fn filter_points_in_polygons(
         }
     }
     Ok(result)
+}
+
+// ── Phase 1: SRH/Bunkers Calculator ──────────────────────────────────────────
+
+#[pyfunction]
+fn vec2comp(wdir: f64, wspd: f64) -> PyResult<(f64, f64)> {
+    let wdir_rad = wdir.to_radians();
+    let u = -wspd * wdir_rad.sin();
+    let v = -wspd * wdir_rad.cos();
+    Ok((u, v))
+}
+
+#[pyfunction]
+fn comp2vec(u: f64, v: f64) -> PyResult<(f64, f64)> {
+    let spd = (u * u + v * v).sqrt();
+    let dir = if spd > 0.0 {
+        let angle_rad = (-v).atan2(-u);
+        let angle_deg = angle_rad.to_degrees();
+        let dir_deg = (90.0 - angle_deg) % 360.0;
+        if dir_deg < 0.0 { dir_deg + 360.0 } else { dir_deg }
+    } else {
+        0.0
+    };
+    Ok((dir, spd))
+}
+
+fn clip_profile(wind_dir: &[f64], wind_spd: &[f64], altitude: &[f64], max_hght: f64) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    let mut clipped_dir = Vec::new();
+    let mut clipped_spd = Vec::new();
+    let mut clipped_alt = Vec::new();
+    for (i, &alt) in altitude.iter().enumerate() {
+        if alt <= max_hght {
+            clipped_dir.push(wind_dir[i]);
+            clipped_spd.push(wind_spd[i]);
+            clipped_alt.push(alt);
+        }
+    }
+    (clipped_dir, clipped_spd, clipped_alt)
+}
+
+fn _interp_linear(x: &[f64], y: &[f64], xi: f64) -> f64 {
+    if x.is_empty() { return f64::NAN; }
+    if xi <= x[0] { return if x[0].is_nan() { f64::NAN } else { y[0] }; }
+    if xi >= x[x.len() - 1] { return if x[x.len() - 1].is_nan() { f64::NAN } else { y[y.len() - 1] }; }
+    for i in 0..x.len() - 1 {
+        if x[i] <= xi && xi <= x[i + 1] {
+            let t = (xi - x[i]) / (x[i + 1] - x[i]);
+            return y[i] + t * (y[i + 1] - y[i]);
+        }
+    }
+    f64::NAN
+}
+
+#[pyfunction]
+fn compute_bunkers(
+    wind_dir: Vec<f64>,
+    wind_spd: Vec<f64>,
+    altitude: Vec<f64>,
+) -> PyResult<((f64, f64), (f64, f64), (f64, f64))> {
+    if wind_dir.is_empty() { return Ok(((f64::NAN, f64::NAN), (f64::NAN, f64::NAN), (f64::NAN, f64::NAN))); }
+
+    let (clipped_dir, clipped_spd, _clipped_alt) = clip_profile(&wind_dir, &wind_spd, &altitude, 6000.0);
+    if clipped_dir.is_empty() { return Ok(((f64::NAN, f64::NAN), (f64::NAN, f64::NAN), (f64::NAN, f64::NAN))); }
+
+    // Compute mean wind 0-6km: average of all clipped levels
+    let mean_dir = clipped_dir.iter().sum::<f64>() / clipped_dir.len() as f64;
+    let mean_spd = clipped_spd.iter().sum::<f64>() / clipped_spd.len() as f64;
+
+    let (u_mean, v_mean) = {
+        let wdir_rad = mean_dir.to_radians();
+        (-mean_spd * wdir_rad.sin(), -mean_spd * wdir_rad.cos())
+    };
+
+    // Shear vector: (u_top - u_bot, v_top - v_bot)
+    let u_bot = if !clipped_dir.is_empty() {
+        let wd = clipped_dir[0].to_radians();
+        -clipped_spd[0] * wd.sin()
+    } else { 0.0 };
+    let v_bot = if !clipped_dir.is_empty() {
+        let wd = clipped_dir[0].to_radians();
+        -clipped_spd[0] * wd.cos()
+    } else { 0.0 };
+
+    let u_top = if clipped_dir.len() > 1 {
+        let wd = clipped_dir[clipped_dir.len() - 1].to_radians();
+        -clipped_spd[clipped_spd.len() - 1] * wd.sin()
+    } else { u_bot };
+    let v_top = if clipped_dir.len() > 1 {
+        let wd = clipped_dir[clipped_dir.len() - 1].to_radians();
+        -clipped_spd[clipped_spd.len() - 1] * wd.cos()
+    } else { v_bot };
+
+    let shear_u = u_top - u_bot;
+    let shear_v = v_top - v_bot;
+    let shear_mag = (shear_u * shear_u + shear_v * shear_v).sqrt();
+
+    let displacement = 7.5 * 1.94; // 7.5 kts in m/s
+    let (du, dv) = if shear_mag > 0.01 {
+        let scale = displacement / shear_mag;
+        (scale * shear_v, -scale * shear_u)
+    } else {
+        (0.0, 0.0)
+    };
+
+    let (rleft_u, rleft_v) = (u_mean - du, v_mean - dv);
+    let (rright_u, rright_v) = (u_mean + du, v_mean + dv);
+
+    let right_dir = if rleft_u.abs() < 0.1 && rleft_v.abs() < 0.1 { 0.0 } else {
+        let angle = (-rleft_v).atan2(-rleft_u).to_degrees();
+        ((90.0 - angle) % 360.0 + 360.0) % 360.0
+    };
+    let right_spd = (rleft_u * rleft_u + rleft_v * rleft_v).sqrt();
+
+    let left_dir = if rright_u.abs() < 0.1 && rright_v.abs() < 0.1 { 0.0 } else {
+        let angle = (-rright_v).atan2(-rright_u).to_degrees();
+        ((90.0 - angle) % 360.0 + 360.0) % 360.0
+    };
+    let left_spd = (rright_u * rright_u + rright_v * rright_v).sqrt();
+
+    let mean_dir_result = if u_mean.abs() < 0.1 && v_mean.abs() < 0.1 { 0.0 } else {
+        let angle = (-v_mean).atan2(-u_mean).to_degrees();
+        ((90.0 - angle) % 360.0 + 360.0) % 360.0
+    };
+
+    Ok(((mean_dir_result, mean_spd), (left_dir, left_spd), (right_dir, right_spd)))
+}
+
+#[pyfunction]
+fn compute_srh(
+    wind_dir: Vec<f64>,
+    wind_spd: Vec<f64>,
+    altitude: Vec<f64>,
+    storm_dir: f64,
+    storm_spd: f64,
+    hght_km: f64,
+) -> PyResult<f64> {
+    if wind_dir.is_empty() { return Ok(f64::NAN); }
+
+    let (clipped_dir, clipped_spd, clipped_alt) = clip_profile(&wind_dir, &wind_spd, &altitude, hght_km * 1000.0);
+    if clipped_dir.is_empty() { return Ok(f64::NAN); }
+
+    let storm_rad = storm_dir.to_radians();
+    let (storm_u, storm_v) = (-storm_spd * storm_rad.sin(), -storm_spd * storm_rad.cos());
+
+    let mut srh = 0.0;
+    let mut prev_u = f64::NAN;
+    let mut prev_v = f64::NAN;
+    let mut prev_alt = f64::NAN;
+
+    for i in 0..clipped_dir.len() {
+        let wd = clipped_dir[i].to_radians();
+        let u = -clipped_spd[i] * wd.sin();
+        let v = -clipped_spd[i] * wd.cos();
+        let sr_u = (u - storm_u) / 1.94; // Convert to m/s
+        let sr_v = (v - storm_v) / 1.94;
+
+        if !prev_u.is_nan() && !prev_alt.is_nan() {
+            let dalt = (clipped_alt[i] - prev_alt) * 0.001; // km
+            let cross = prev_u * sr_v - prev_v * sr_u;
+            srh += cross * dalt;
+        }
+
+        prev_u = sr_u;
+        prev_v = sr_v;
+        prev_alt = clipped_alt[i];
+    }
+
+    Ok(srh)
+}
+
+#[pyfunction]
+fn compute_critical_angle(
+    wind_dir: Vec<f64>,
+    wind_spd: Vec<f64>,
+    altitude: Vec<f64>,
+    storm_dir: f64,
+    storm_spd: f64,
+) -> PyResult<f64> {
+    if wind_dir.is_empty() { return Ok(f64::NAN); }
+
+    let (clipped_dir, clipped_spd, _) = clip_profile(&wind_dir, &wind_spd, &altitude, 6000.0);
+    if clipped_dir.is_empty() { return Ok(f64::NAN); }
+
+    let storm_rad = storm_dir.to_radians();
+    let (storm_u, storm_v) = (-storm_spd * storm_rad.sin(), -storm_spd * storm_rad.cos());
+
+    let mut min_angle: f64 = 360.0;
+    for i in 0..clipped_dir.len() {
+        let wd = clipped_dir[i].to_radians();
+        let u = -clipped_spd[i] * wd.sin();
+        let v = -clipped_spd[i] * wd.cos();
+
+        let rel_u = u - storm_u;
+        let rel_v = v - storm_v;
+        let rel_dir = ((-rel_v).atan2(-rel_u).to_degrees() + 90.0) % 360.0;
+        let diff = (rel_dir - storm_dir).abs();
+        if diff > 180.0 {
+            min_angle = min_angle.min(360.0 - diff);
+        } else {
+            min_angle = min_angle.min(diff);
+        }
+    }
+
+    Ok(min_angle)
+}
+
+// ── Phase 2: VTEC Parser ─────────────────────────────────────────────────────
+
+#[pyfunction]
+fn parse_vtec<'py>(py: Python<'py>, text: &str) -> PyResult<Option<Bound<'py, PyDict>>> {
+    static VTEC_RE: Lazy<Regex> = Lazy::new(|| {
+        let pattern = r"/O\.(NEW|CON|EXP|CAN|UPG|EXA|EXT|ROU)\.([A-Z]{4})\.([A-Z]{2})\.([A-Z])\.(\d{4})\.(\d{6}T\d{4}Z)-(\d{6}T\d{4}Z)/";
+        Regex::new(pattern).unwrap()
+    });
+
+    if text.is_empty() {
+        return Ok(None);
+    }
+
+    if let Some(caps) = VTEC_RE.captures(text) {
+        let action = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+        let office_raw = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+        let phenom = caps.get(3).map(|m| m.as_str()).unwrap_or("");
+        let sig = caps.get(4).map(|m| m.as_str()).unwrap_or("");
+        let etn = caps.get(5).map(|m| m.as_str()).unwrap_or("");
+        let start = caps.get(6).map(|m| m.as_str()).unwrap_or("");
+        let end = caps.get(7).map(|m| m.as_str()).unwrap_or("");
+
+        // Normalize office: if 3 chars and starts with letter, prepend K
+        let office = if office_raw.len() == 3 && office_raw.chars().next().unwrap_or('Z').is_ascii_uppercase() {
+            format!("K{}", office_raw)
+        } else {
+            office_raw.to_string()
+        };
+
+        let vtec_id = format!("{}.{}.{}.{}", office, phenom, sig, etn);
+
+        let result = PyDict::new_bound(py);
+        result.set_item("action", action)?;
+        result.set_item("office", office)?;
+        result.set_item("phenom", phenom)?;
+        result.set_item("sig", sig)?;
+        result.set_item("etn", etn)?;
+        result.set_item("start", start)?;
+        result.set_item("end", end)?;
+        result.set_item("vtec_id", vtec_id)?;
+        return Ok(Some(result));
+    }
+
+    Ok(None)
+}
+
+// ── Phase 3: Image Cache Batch Validator ────────────────────────────────────
+
+#[pyfunction]
+fn validate_image_cache_batch(
+    items: Vec<(String, Vec<u8>)>
+) -> PyResult<Vec<(String, String, bool)>> {
+    let mut results = Vec::with_capacity(items.len());
+    for (url, content) in items {
+        let hash_hex = format!("{:016x}", xxh3::xxh3_64(&content));
+        let is_placeholder = content.len() < 2048;
+        results.push((url, hash_hex, is_placeholder));
+    }
+    Ok(results)
+}
+
+// ── Phase 4: NWWS product_id Normalizer ──────────────────────────────────────
+
+#[pyfunction]
+fn normalize_product_id(
+    office: &str,
+    ttaaii: &str,
+    afos_pil: &str,
+    issue_str: &str,
+) -> PyResult<String> {
+    let mut ts_str = issue_str.to_string();
+
+    // Normalize ISO8601 format to compact format for dedup consistency
+    if ts_str.contains("T") && ts_str.contains("Z") {
+        // Convert "2026-05-03T06:50:00Z" → "202605030650"
+        ts_str = ts_str.replace("-", "").replace("T", "").replace(":", "");
+        if let Some(pos) = ts_str.find("Z") {
+            ts_str.truncate(pos);
+        }
+    }
+
+    // Take first 12 characters (YYYYMMDDHHMM format)
+    if ts_str.len() > 12 {
+        ts_str.truncate(12);
+    }
+
+    Ok(format!("{}-{}-{}-{}", ts_str, office, ttaaii, afos_pil))
+}
+
+// ── Phase 5: Haversine Batch Calculator ──────────────────────────────────────
+
+#[pyfunction]
+fn haversine(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> PyResult<f64> {
+    // Great-circle distance formula
+    let lat1_rad = lat1.to_radians();
+    let lat2_rad = lat2.to_radians();
+    let delta_lat = (lat2 - lat1).to_radians();
+    let delta_lon = (lon2 - lon1).to_radians();
+
+    let a = (delta_lat / 2.0).sin().powi(2)
+        + lat1_rad.cos() * lat2_rad.cos() * (delta_lon / 2.0).sin().powi(2);
+    let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
+    let earth_radius_km = 6371.0;
+
+    Ok(earth_radius_km * c)
+}
+
+#[pyfunction]
+fn haversine_batch(
+    origin_lat: f64,
+    origin_lon: f64,
+    targets: Vec<(f64, f64)>,
+) -> PyResult<Vec<f64>> {
+    let mut distances = Vec::with_capacity(targets.len());
+    for (target_lat, target_lon) in targets {
+        let dist = haversine(origin_lat, origin_lon, target_lat, target_lon)?;
+        distances.push(dist);
+    }
+    Ok(distances)
+}
+
+// ── Rust Unit Tests ──────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vec2comp_north_wind() {
+        let (u, v) = vec2comp(0.0, 10.0).unwrap();
+        assert!(u.abs() < 0.01);
+        assert!((v - (-10.0)).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_vec2comp_east_wind() {
+        let (u, v) = vec2comp(90.0, 10.0).unwrap();
+        assert!((u - 10.0).abs() < 0.01);
+        assert!(v.abs() < 0.01);
+    }
+
+    #[test]
+    fn test_comp2vec_north() {
+        let (dir, spd) = comp2vec(0.0, -10.0).unwrap();
+        assert!((spd - 10.0).abs() < 0.01);
+        assert!(dir < 1.0 || dir > 359.0); // Should be ~0 or ~360
+    }
+
+    #[test]
+    fn test_comp2vec_magnitude() {
+        let (_, spd) = comp2vec(3.0, 4.0).unwrap();
+        assert!((spd - 5.0).abs() < 0.01); // 3-4-5 triangle
+    }
+
+    #[test]
+    fn test_haversine_zero_distance() {
+        let dist = haversine(0.0, 0.0, 0.0, 0.0).unwrap();
+        assert!(dist.abs() < 0.001);
+    }
+
+    #[test]
+    fn test_haversine_symmetry() {
+        let d1 = haversine(40.0, -100.0, 35.0, -95.0).unwrap();
+        let d2 = haversine(35.0, -95.0, 40.0, -100.0).unwrap();
+        assert!((d1 - d2).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_haversine_known_distance() {
+        // NYC to LA is approximately 3944 km
+        let dist = haversine(40.7128, -74.0060, 34.0522, -118.2437).unwrap();
+        assert!(dist > 3900.0 && dist < 4000.0);
+    }
+
+    #[test]
+    fn test_haversine_batch_single_target() {
+        let targets = vec![(0.0, 0.0)];
+        let dists = haversine_batch(0.0, 0.0, targets).unwrap();
+        assert_eq!(dists.len(), 1);
+        assert!(dists[0].abs() < 0.001);
+    }
+
+    #[test]
+    fn test_haversine_batch_multiple_targets() {
+        let targets = vec![(1.0, 0.0), (2.0, 0.0), (3.0, 0.0)];
+        let dists = haversine_batch(0.0, 0.0, targets).unwrap();
+        assert_eq!(dists.len(), 3);
+        // Distances should be increasing
+        assert!(dists[0] < dists[1]);
+        assert!(dists[1] < dists[2]);
+    }
+
+    #[test]
+    fn test_extract_latlon_valid() {
+        let text = "3567 9823 4521 10134";
+        let coords = extract_latlon_coords(text).unwrap();
+        assert_eq!(coords.len(), 2);
+        assert!((coords[0].0 - 35.67).abs() < 0.01);
+        assert!((coords[0].1 - (-98.23)).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_extract_latlon_out_of_range() {
+        let text = "1000 2000"; // Out of valid range
+        let coords = extract_latlon_coords(text).unwrap();
+        assert_eq!(coords.len(), 0);
+    }
+
+    #[test]
+    fn test_clip_profile_simple() {
+        let wind_dir = vec![250.0, 260.0, 270.0, 280.0];
+        let wind_spd = vec![10.0, 15.0, 20.0, 25.0];
+        let altitude = vec![0.0, 2000.0, 4000.0, 6000.0];
+        let (clipped_dir, clipped_spd, clipped_alt) = clip_profile(&wind_dir, &wind_spd, &altitude, 5000.0);
+        // Should include 0, 2000, 4000 but not 6000
+        assert_eq!(clipped_dir.len(), 3);
+        assert_eq!(clipped_spd.len(), 3);
+        assert_eq!(clipped_alt.len(), 3);
+    }
+
+    #[test]
+    fn test_compute_bunkers_valid_profile() {
+        let wind_dir = vec![250.0; 7];
+        let wind_spd = vec![5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0];
+        let altitude = vec![0.0, 1000.0, 2000.0, 3000.0, 4000.0, 5000.0, 6000.0];
+
+        let (mean, left, right) = compute_bunkers(wind_dir, wind_spd, altitude).unwrap();
+        // Each motion should be (direction, speed)
+        assert!(mean.1 > 0.0); // Mean wind speed should be positive
+        assert!(left.1 > 0.0); // Left motion speed should be positive
+        assert!(right.1 > 0.0); // Right motion speed should be positive
+    }
+
+    #[test]
+    fn test_compute_bunkers_empty_profile() {
+        let result = compute_bunkers(vec![], vec![], vec![]).unwrap();
+        assert!(result.0.0.is_nan());
+        assert!(result.0.1.is_nan());
+    }
+
+    #[test]
+    fn test_compute_srh_valid_profile() {
+        let wind_dir = vec![250.0; 7];
+        let wind_spd = vec![5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0];
+        let altitude = vec![0.0, 1000.0, 2000.0, 3000.0, 4000.0, 5000.0, 6000.0];
+
+        let srh = compute_srh(wind_dir, wind_spd, altitude, 250.0, 15.0, 3000.0).unwrap();
+        // SRH should be a finite number
+        assert!(srh.is_finite());
+    }
+
+    #[test]
+    fn test_compute_srh_empty_profile() {
+        let srh = compute_srh(vec![], vec![], vec![], 250.0, 15.0, 3000.0).unwrap();
+        assert!(srh.is_nan());
+    }
+
+    #[test]
+    fn test_xxh3_hash_consistency() {
+        let data1 = b"test data";
+        let hash1a = xxh3::xxh3_64(data1);
+        let hash1b = xxh3::xxh3_64(data1);
+        assert_eq!(hash1a, hash1b);
+    }
+
+    #[test]
+    fn test_xxh3_hash_different() {
+        let hash1 = xxh3::xxh3_64(b"test1");
+        let hash2 = xxh3::xxh3_64(b"test2");
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_vtec_regex_match() {
+        let pattern = r"/O\.(NEW|CON|EXP|CAN|UPG|EXA|EXT|ROU)\.([A-Z]{4})\.([A-Z]{2})\.([A-Z])\.(\d{4})\.(\d{6}T\d{4}Z)-(\d{6}T\d{4}Z)/";
+        let re = Regex::new(pattern).unwrap();
+        let text = "/O.NEW.KOUN.TO.W.0042.260427T2018Z-260427T2100Z/";
+        assert!(re.is_match(text));
+    }
+
+    #[test]
+    fn test_vtec_regex_no_match() {
+        let pattern = r"/O\.(NEW|CON|EXP|CAN|UPG|EXA|EXT|ROU)\.([A-Z]{4})\.([A-Z]{2})\.([A-Z])\.(\d{4})\.(\d{6}T\d{4}Z)-(\d{6}T\d{4}Z)/";
+        let re = Regex::new(pattern).unwrap();
+        let text = "No VTEC here";
+        assert!(!re.is_match(text));
+    }
+
+    #[test]
+    fn test_vtec_capture_groups() {
+        let pattern = r"/O\.(NEW|CON|EXP|CAN|UPG|EXA|EXT|ROU)\.([A-Z]{4})\.([A-Z]{2})\.([A-Z])\.(\d{4})\.(\d{6}T\d{4}Z)-(\d{6}T\d{4}Z)/";
+        let re = Regex::new(pattern).unwrap();
+        let text = "/O.NEW.KOUN.TO.W.0042.260427T2018Z-260427T2100Z/";
+        let caps = re.captures(text).unwrap();
+        assert_eq!(caps.get(1).unwrap().as_str(), "NEW");
+        assert_eq!(caps.get(2).unwrap().as_str(), "KOUN");
+        assert_eq!(caps.get(3).unwrap().as_str(), "TO");
+    }
+
+    #[test]
+    fn test_normalize_product_id_iso8601() {
+        let id = normalize_product_id("KOUN", "ACUS42", "SVDMX", "2026-05-03T06:50:00Z").unwrap();
+        assert_eq!(id, "202605030650-KOUN-ACUS42-SVDMX");
+    }
+
+    #[test]
+    fn test_normalize_product_id_compact() {
+        let id = normalize_product_id("KOUN", "ACUS42", "SVDMX", "202605030650").unwrap();
+        assert_eq!(id, "202605030650-KOUN-ACUS42-SVDMX");
+    }
+
+    #[test]
+    fn test_normalize_product_id_truncate() {
+        let id = normalize_product_id("KOUN", "ACUS42", "SVDMX", "20260503065030").unwrap();
+        assert_eq!(id, "202605030650-KOUN-ACUS42-SVDMX");
+    }
+
+    #[test]
+    fn test_sum_as_string() {
+        let result = sum_as_string(5, 3).unwrap();
+        assert_eq!(result, "8");
+    }
 }

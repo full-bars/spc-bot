@@ -503,12 +503,11 @@ async def get_available_sounding_times_iem(
     """
     Check IEM for all available sounding times for a station
     in the last N hours. Returns list of (year, month, day, hour) tuples.
-    Checks all hours concurrently for speed. Results are cached for 15 minutes.
-    Use skip_cache=True for auto-posting tasks that need fresh data.
+    Limits concurrency to avoid overwhelming IEM's rate limits. Results are cached for 15 minutes.
     """
     now = datetime.now(timezone.utc)
 
-    # Check cache (skip for auto-post tasks)
+    # Check cache
     cache_key = f"{station_id}:{hours_back}"
     if not skip_cache and cache_key in _AVAILABILITY_CACHE:
         cached_time, cached_result = _AVAILABILITY_CACHE[cache_key]
@@ -516,29 +515,31 @@ async def get_available_sounding_times_iem(
             logger.info(f"[IEM] Cache hit for {station_id} availability — skipping IEM check")
             return cached_result
 
-    async def check_hour(dt: datetime) -> Optional[tuple]:
-        # Skip 5-digit WMO IDs as IEM's json/raob.py has a 4-char limit
-        # and auto-prepends 'K' to numeric IDs, triggering 422 errors.
-        if station_id.isdigit() and len(station_id) > 4:
-            return None
+    # Skip 5-digit WMO IDs as IEM's json/raob.py has a 4-char limit
+    # and auto-prepends 'K' to numeric IDs, triggering 422 errors.
+    if station_id.isdigit() and len(station_id) > 4:
+        _AVAILABILITY_CACHE[cache_key] = (now, [])
+        return []
 
-        ts = dt.strftime("%Y-%m-%dT%H:00:00Z")
-        url = f"{IEM_RAOB_URL}?station={station_id}&ts={ts}"
-        try:
-            data = await http_get_json(url, retries=1, timeout=8)
-            if not data:
-                return None
-            profiles = data.get("profiles", [])
-            if profiles and profiles[0].get("profile"):
-                return (
-                    str(dt.year),
-                    str(dt.month).zfill(2),
-                    str(dt.day).zfill(2),
-                    str(dt.hour).zfill(2),
-                )
-        except Exception as e:
-            logger.debug(f"[SOUNDING] IEM profile probe failed for {station_id}: {e}")
-        return None
+    async def check_hour(dt: datetime, semaphore: asyncio.Semaphore) -> Optional[tuple]:
+        async with semaphore:
+            ts = dt.strftime("%Y-%m-%dT%H:00:00Z")
+            url = f"{IEM_RAOB_URL}?station={station_id}&ts={ts}"
+            try:
+                data = await http_get_json(url, retries=1, timeout=8)
+                if not data:
+                    return None
+                profiles = data.get("profiles", [])
+                if profiles and profiles[0].get("profile"):
+                    return (
+                        str(dt.year),
+                        str(dt.month).zfill(2),
+                        str(dt.day).zfill(2),
+                        str(dt.hour).zfill(2),
+                    )
+            except Exception as e:
+                logger.debug(f"[SOUNDING] IEM profile probe failed for {station_id}: {e}")
+            return None
 
     times_to_check = [
         now - timedelta(hours=h)
@@ -546,8 +547,11 @@ async def get_available_sounding_times_iem(
         if (now - timedelta(hours=h)) < now
     ]
 
-    results = await asyncio.gather(*[check_hour(dt) for dt in times_to_check])
+    # Limit concurrency to 5 simultaneous requests to avoid overwhelming IEM
+    semaphore = asyncio.Semaphore(5)
+    results = await asyncio.gather(*[check_hour(dt, semaphore) for dt in times_to_check])
     found = [r for r in results if r is not None]
+
     # Sort most recent first
     found.sort(key=lambda x: (x[0], x[1], x[2], x[3]), reverse=True)
     # Store in cache

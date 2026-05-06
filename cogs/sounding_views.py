@@ -14,6 +14,7 @@ from cogs.sounding_utils import (
     generate_plot,
     get_available_sounding_times_iem,
     get_recent_sounding_times,
+    set_user_dark_mode,
     sounding_quality_warning,
 )
 from config import CACHE_DIR
@@ -298,6 +299,8 @@ class CombinedSoundingView(View):
         time_args: tuple | None,
         dark_mode: bool,
         original_user: discord.User,
+        location_desc: str = "",
+        description: str = "",
     ):
         super().__init__(timeout=180)
         self.raob_stations = raob_stations
@@ -305,6 +308,8 @@ class CombinedSoundingView(View):
         self.time_args = time_args
         self.dark_mode = dark_mode
         self.original_user = original_user
+        self.location_desc = location_desc
+        self.description = description
         self._build_buttons()
 
     def _build_buttons(self):
@@ -428,6 +433,26 @@ class CombinedSoundingView(View):
             btn.callback = acars_cb
             self.add_item(btn)
             row = min(row + 1, 4)
+
+        # Mode toggle button in its own row
+        mode_label = "\U0001f319 Dark Mode" if not self.dark_mode else "☀️ Light Mode"
+        mode_btn = Button(label=mode_label, style=ButtonStyle.secondary, row=4)
+
+        async def mode_toggle_cb(interaction: discord.Interaction):
+            self.dark_mode = not self.dark_mode
+            await set_user_dark_mode(interaction.user.id, self.dark_mode)
+            self._build_buttons()
+            mode_str = "\U0001f319 Dark" if self.dark_mode else "☀️ Light"
+            embed = discord.Embed(
+                title=f"Nearest Sounding Data to {self.location_desc}",
+                description=self.description,
+                color=discord.Color.blurple(),
+            )
+            embed.set_footer(text="Mode: {} | Select below".format(mode_str))
+            await interaction.response.edit_message(embed=embed, view=self)
+
+        mode_btn.callback = mode_toggle_cb
+        self.add_item(mode_btn)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user != self.original_user:

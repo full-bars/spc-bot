@@ -1,6 +1,16 @@
 import numpy as np
 from typing import Any, Dict, Tuple, Union
 
+# Try to import Rust implementations; fall back to Python
+try:
+    from spc_rust_core import (
+        compute_bunkers as _compute_bunkers_rust,
+        compute_srh as _compute_srh_rust,
+    )
+    _rust_available = True
+except ImportError:
+    _rust_available = False
+
 def vec2comp(wdir: Union[float, np.ndarray], wspd: Union[float, np.ndarray]) -> Tuple[Union[float, np.ndarray], Union[float, np.ndarray]]:
     u = -wspd * np.sin(np.radians(wdir))
     v = -wspd * np.cos(np.radians(wdir))
@@ -37,7 +47,7 @@ def compute_shear_mag(data: Dict[str, Any], hght: float) -> float:
     return float(np.hypot(u_hght - u[0], v_hght - v[0]))
 
 
-def compute_srh(data: Dict[str, Any], storm_motion: Tuple[float, float], hght: float) -> float:
+def compute_srh_py(data: Dict[str, Any], storm_motion: Tuple[float, float], hght: float) -> float:
     u, v = vec2comp(data['wind_dir'], data['wind_spd'])
     if len(u) < 2 and len(v) < 2:
         return np.nan
@@ -53,6 +63,20 @@ def compute_srh(data: Dict[str, Any], storm_motion: Tuple[float, float], hght: f
 
     layers = (sru_clip[1:] * srv_clip[:-1]) - (sru_clip[:-1] * srv_clip[1:])
     return float(layers.sum())
+
+
+def compute_srh(data: Dict[str, Any], storm_motion: Tuple[float, float], hght: float) -> float:
+    if _rust_available:
+        try:
+            return float(_compute_srh_rust(
+                data['wind_dir'].tolist() if isinstance(data['wind_dir'], np.ndarray) else list(data['wind_dir']),
+                data['wind_spd'].tolist() if isinstance(data['wind_spd'], np.ndarray) else list(data['wind_spd']),
+                data['altitude'].tolist() if isinstance(data['altitude'], np.ndarray) else list(data['altitude']),
+                storm_motion[0], storm_motion[1], hght / 1000.0
+            ))
+        except Exception:
+            pass
+    return compute_srh_py(data, storm_motion, hght)
 
 
 def compute_sr_flow(data: Dict[str, Any], storm_motion: Tuple[float, float], hght_bot: float, hght_top: float) -> float:
@@ -75,7 +99,7 @@ def compute_sr_flow(data: Dict[str, Any], storm_motion: Tuple[float, float], hgh
     return float(np.nanmean(sr_mag))
 
 
-def compute_bunkers(data: Dict[str, Any]) -> Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float]]:
+def compute_bunkers_py(data: Dict[str, Any]) -> Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float]]:
     d = 7.5 * 1.94
     hght = 6
 
@@ -101,6 +125,20 @@ def compute_bunkers(data: Dict[str, Any]) -> Tuple[Tuple[float, float], Tuple[fl
         tuple(float(x) for x in comp2vec(lstu, lstv)), # type: ignore
         tuple(float(x) for x in comp2vec(mnu6, mnv6))  # type: ignore
     )
+
+
+def compute_bunkers(data: Dict[str, Any]) -> Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float]]:
+    if _rust_available:
+        try:
+            mean, left, right = _compute_bunkers_rust(
+                data['wind_dir'].tolist() if isinstance(data['wind_dir'], np.ndarray) else list(data['wind_dir']),
+                data['wind_spd'].tolist() if isinstance(data['wind_spd'], np.ndarray) else list(data['wind_spd']),
+                data['altitude'].tolist() if isinstance(data['altitude'], np.ndarray) else list(data['altitude']),
+            )
+            return (mean, left, right)  # type: ignore
+        except Exception:
+            pass
+    return compute_bunkers_py(data)
 
 
 def compute_dtm(data: Dict[str, Any]) -> Tuple[float, float]:
