@@ -43,7 +43,7 @@ class CircuitBreaker:
 
     def record_success(self, host: str):
         if host in self.failures:
-            logger.info(f"[CIRCUIT] {host} recovered. Closing circuit.")
+            logger.info(f"{host} recovered. Closing circuit.")
             self.failures.pop(host, None)
             self.last_failure_time.pop(host, None)
 
@@ -51,14 +51,14 @@ class CircuitBreaker:
         self.failures[host] = self.failures.get(host, 0) + 1
         self.last_failure_time[host] = time.time()
         if self.failures[host] == self.failure_threshold:
-            logger.warning(f"[CIRCUIT] {host} reached {self.failure_threshold} failures. Circuit OPEN.")
+            logger.warning(f"{host} reached {self.failure_threshold} failures. Circuit OPEN.")
 
     def is_open(self, host: str) -> bool:
         failures = self.failures.get(host, 0)
         if failures >= self.failure_threshold:
             # Check if recovery timeout has passed
             if time.time() - self.last_failure_time.get(host, 0) > self.recovery_timeout:
-                logger.info(f"[CIRCUIT] {host} recovery timeout elapsed. Half-open circuit.")
+                logger.info(f"{host} recovery timeout elapsed. Half-open circuit.")
                 # Half-open: allow one request through to test
                 self.failures[host] = self.failure_threshold - 1
                 return False
@@ -147,7 +147,7 @@ async def http_get_bytes_conditional(
     host = parsed.netloc
 
     if circuit_breaker.is_open(host):
-        logger.warning(f"[HTTP] Circuit open for {host}, failing fast: {url}")
+        logger.warning(f"Circuit open for {host}, failing fast: {url}")
         raise CircuitOpenError(f"Circuit breaker is open for {host}")
 
     headers: Dict[str, str] = dict(extra_headers) if extra_headers else {}
@@ -209,7 +209,7 @@ async def http_get_bytes_conditional(
         if status is None or status >= 500 or status == 429:
             circuit_breaker.record_failure(host)
             
-        logger.warning(f"[HTTP] Request failed for {url} after {retries} retries: {e}")
+        logger.warning(f"Request failed for {url} after {retries} retries: {e}")
         return None, status, None
 
 
@@ -299,7 +299,7 @@ async def http_get_json(url: str, retries: int = 1, timeout: int = TIMEOUT_STAND
                     r.request_info, r.history, status=r.status, message="Server returned retryable error"
                 )
             if r.status != 200:
-                logger.warning(f"[HTTP] JSON fetch failed for {url}: {r.status}")
+                logger.warning(f"JSON fetch failed for {url}: {r.status}")
                 circuit_breaker.record_failure(host)
                 return None
             circuit_breaker.record_success(host)
@@ -311,5 +311,5 @@ async def http_get_json(url: str, retries: int = 1, timeout: int = TIMEOUT_STAND
         status = getattr(e, "status", None)
         if status is None or status >= 500 or status == 429:
             circuit_breaker.record_failure(host)
-        logger.warning(f"[HTTP] JSON fetch error for {url}: {type(e).__name__}: {e}")
+        logger.warning(f"JSON fetch error for {url}: {type(e).__name__}: {e}")
         return None

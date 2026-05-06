@@ -72,10 +72,10 @@ class WarningsCog(commands.Cog):
             persisted = await get_all_posted_warnings()
             self.bot.state.posted_warnings.update(persisted)
             logger.info(
-                f"[WARN] Restored {len(persisted)} posted warning(s) from store"
+                f"Restored {len(persisted)} posted warning(s) from store"
             )
         except Exception as e:
-            logger.warning(f"[WARN] Could not restore posted_warnings: {e}")
+            logger.warning(f"Could not restore posted_warnings: {e}")
 
         self.auto_poll_warnings.start()
 
@@ -119,7 +119,7 @@ class WarningsCog(commands.Cog):
                 }
             else:
                 logger.warning(
-                    f"[WARN] iembot trigger: no VTEC in {product_id} — skipping"
+                    f"iembot trigger: no VTEC in {product_id} — skipping"
                 )
                 return
 
@@ -217,7 +217,7 @@ class WarningsCog(commands.Cog):
 
             try:
                 msg = await channel.send(embed=embed, files=files, view=view)
-                logger.info(f"[WARN] Posted (iembot) {event} {vtec_id} ({'Update' if is_update else 'Issuance'})")
+                logger.info(f"Posted (iembot) {event} {vtec_id} ({'Update' if is_update else 'Issuance'})")
 
                 # Simple area extraction for persistence
                 area_m = re.search(r"for (.+?) till", concise_text)
@@ -235,7 +235,7 @@ class WarningsCog(commands.Cog):
                 if not is_update and vtec_id in self.bot.state.posted_warnings:
                     del self.bot.state.posted_warnings[vtec_id]
                 logger.exception(
-                    f"[WARN] iembot send failed for {vtec_id}: {e}"
+                    f"iembot send failed for {vtec_id}: {e}"
                 )
                 return
 
@@ -247,7 +247,7 @@ class WarningsCog(commands.Cog):
                     self.bot.state.posted_product_ids.clear()
                 await prune_posted_warnings()
             except Exception as e:
-                logger.warning(f"[WARN] Failed to persist {vtec_id}: {e}")
+                logger.warning(f"Failed to persist {vtec_id}: {e}")
         finally:
             self._in_flight_vtecs.discard(vtec_id)
 
@@ -291,7 +291,7 @@ class WarningsCog(commands.Cog):
                 source=office,
                 raw_text=raw_text
             )
-            logger.info(f"[WARN] Logged confirmed tornado for {vtec_id} (match: {match_id is not None})")
+            logger.info(f"Logged confirmed tornado for {vtec_id} (match: {match_id is not None})")
 
             # 2. Trigger VAD Recorder mission
             try:
@@ -304,9 +304,9 @@ class WarningsCog(commands.Cog):
                         recorder = self.bot.get_cog("RecorderCog")
                         if recorder:
                             recorder.start_mission(radar_id, time.time(), event_id=event_id)
-                            logger.info(f"[WARN] Triggered VAD recorder for {radar_id} near {lat:.2f}, {lon:.2f} (Event: {event_id})")
+                            logger.info(f"Triggered VAD recorder for {radar_id} near {lat:.2f}, {lon:.2f} (Event: {event_id})")
             except Exception as e:
-                logger.warning(f"[WARN] Failed to trigger VAD recorder for {vtec_id}: {e}")
+                logger.warning(f"Failed to trigger VAD recorder for {vtec_id}: {e}")
 
             return event_id
 
@@ -456,7 +456,7 @@ class WarningsCog(commands.Cog):
                 if content and status == 200:
                     files.append(discord.File(BytesIO(content), filename=filename))
             except Exception as e:
-                logger.debug(f"[WARN] No cancellation image for {vtec_id}: {e}")
+                logger.debug(f"No cancellation image for {vtec_id}: {e}")
 
         embed = discord.Embed(
             description=description,
@@ -474,9 +474,9 @@ class WarningsCog(commands.Cog):
         try:
             await channel.send(embed=embed, files=files)
             self._cancelled_warnings.add(vtec_id)
-            logger.info(f"[WARN] Posted cancellation for {vtec_id}")
+            logger.info(f"Posted cancellation for {vtec_id}")
         except Exception as e:
-            logger.warning(f"[WARN] Failed to post cancellation for {vtec_id}: {e}")
+            logger.warning(f"Failed to post cancellation for {vtec_id}: {e}")
 
     @tasks.loop(seconds=30)
     async def auto_poll_warnings(self):
@@ -485,7 +485,7 @@ class WarningsCog(commands.Cog):
         try:
             await self._tick()
         except Exception as e:
-            logger.exception(f"[WARN] Tick failed: {e}")
+            logger.exception(f"Tick failed: {e}")
             await self._backoff.failure(self.bot)
 
     async def _tick(self):
@@ -495,7 +495,7 @@ class WarningsCog(commands.Cog):
 
         channel = self.bot.get_channel(WARNINGS_CHANNEL_ID)
         if not channel:
-            logger.warning("[WARN] Warnings channel not found — skipping poll")
+            logger.warning("Warnings channel not found — skipping poll")
             return
 
         content, status, validators = await http_get_bytes_conditional(
@@ -510,7 +510,7 @@ class WarningsCog(commands.Cog):
             return
         if not content or status != 200:
             logger.warning(
-                f"[WARN] NWS API returned status {status} — will retry next cycle"
+                f"NWS API returned status {status} — will retry next cycle"
             )
             await self._backoff.failure(self.bot)
             return
@@ -523,7 +523,7 @@ class WarningsCog(commands.Cog):
             from models.nws import NWSAlertResponse
             alert_response = NWSAlertResponse.model_validate(data)
         except Exception as e:
-            logger.warning(f"[WARN] JSON/Pydantic parse failed: {e}")
+            logger.warning(f"JSON/Pydantic parse failed: {e}")
             return
 
         current_vtec_data = {}
@@ -579,7 +579,7 @@ class WarningsCog(commands.Cog):
                                 try:
                                     await self._post_warning(feature, channel, vtec_dict, event, is_update=True)
                                 except discord.HTTPException as e:
-                                    logger.exception(f"[WARN] Update send failed for {issuance_id}: {e}")
+                                    logger.exception(f"Update send failed for {issuance_id}: {e}")
 
                                 # Update stored area so we don't spam updates for every poll
                                 self.bot.state.posted_warnings[issuance_id]["area"] = curr_area
@@ -616,7 +616,7 @@ class WarningsCog(commands.Cog):
                 try:
                     msg, area_desc = await self._post_warning(feature, channel, vtec_dict, event)
                 except discord.HTTPException as e:
-                    logger.exception(f"[WARN] Send failed for {issuance_id}: {e}")
+                    logger.exception(f"Send failed for {issuance_id}: {e}")
                     # Roll back placeholder on failure
                     if issuance_id in self.bot.state.posted_warnings and not self.bot.state.posted_warnings[issuance_id]:
                         del self.bot.state.posted_warnings[issuance_id]
@@ -633,7 +633,7 @@ class WarningsCog(commands.Cog):
                     await prune_posted_warnings()
                 except Exception as e:
                     logger.warning(
-                        f"[WARN] Failed to persist {issuance_id}: {e}"
+                        f"Failed to persist {issuance_id}: {e}"
                     )
             finally:
                 self._in_flight_vtecs.discard(issuance_id)
@@ -704,7 +704,7 @@ class WarningsCog(commands.Cog):
                 embed.set_image(url=f"attachment://{filename}")
 
         msg = await channel.send(embed=embed, files=files)
-        logger.info(f"[WARN] Posted {event} {vtec_id}")
+        logger.info(f"Posted {event} {vtec_id}")
         return msg, area_desc
 
     @auto_poll_warnings.after_loop
@@ -718,7 +718,7 @@ class WarningsCog(commands.Cog):
             exc = None
         if exc:
             logger.error(
-                f"[TASK] auto_poll_warnings stopped: "
+                f"auto_poll_warnings stopped: "
                 f"{type(exc).__name__}: {exc}",
                 exc_info=exc,
             )

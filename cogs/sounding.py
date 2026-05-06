@@ -102,7 +102,7 @@ class SoundingCog(commands.Cog):
         bot already covered today. Entries from previous UTC days are
         dropped on load."""
         self._restore_attempted = True
-        logger.info("[SOUNDING-AUTO] cog_load: restoring dedup state from state_store")
+        logger.info("cog_load: restoring dedup state from state_store")
         
         self.auto_sounding_watches.start()
         self.monitor_special_soundings.start()
@@ -113,7 +113,7 @@ class SoundingCog(commands.Cog):
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             last_date = await get_state("sounding_handled_date")
             if last_date != today:
-                logger.info(f"[SOUNDING-AUTO] New day {today}, clearing handled watches")
+                logger.info(f"New day {today}, clearing handled watches")
                 await clear_sounding_handled_watches()
                 await set_state("sounding_handled_date", today)
             
@@ -124,12 +124,12 @@ class SoundingCog(commands.Cog):
             self._handled_watches = await get_sounding_handled_watches()
             
             logger.info(
-                f"[SOUNDING-AUTO] Restored {len(self._posted_watch_soundings)} "
+                f"Restored {len(self._posted_watch_soundings)} "
                 f"posted-sounding keys and {len(self._handled_watches)} "
                 f"handled watches for {today}"
             )
         except Exception as e:
-            logger.exception(f"[SOUNDING-AUTO] Could not restore dedup state: {e}")
+            logger.exception(f"Could not restore dedup state: {e}")
 
     async def _mark_sounding_posted(self, pkey: str):
         """Mark a sounding as posted in memory and persistent store."""
@@ -225,7 +225,7 @@ class SoundingCog(commands.Cog):
         try:
             stations_df = await get_raob_stations()
         except Exception as e:
-            logger.exception(f"[SOUNDING-MONITOR] Failed to load station list: {e}")
+            logger.exception(f"Failed to load station list: {e}")
             return
 
         channel = self.bot.get_channel(SOUNDING_CHANNEL_ID)
@@ -281,7 +281,7 @@ class SoundingCog(commands.Cog):
         if not all_to_post:
             return
 
-        logger.info(f"[SOUNDING-MONITOR] Found {len(all_to_post)} new sounding(s) near active watches")
+        logger.info(f"Found {len(all_to_post)} new sounding(s) near active watches")
 
         # 3. Process new soundings (Fetch -> Plot -> Send)
         # To avoid flooding, we process them in small batches if there are many
@@ -335,10 +335,10 @@ class SoundingCog(commands.Cog):
                     
                 try:
                     await channel.send(caption, files=[discord.File(png_path)])
-                    logger.info(f"[SOUNDING-MONITOR] Posted special release {sid} {h}z")
+                    logger.info(f"Posted special release {sid} {h}z")
                     self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
                 except Exception as e:
-                    logger.exception(f"[SOUNDING-MONITOR] Failed to post {sid}: {e}")
+                    logger.exception(f"Failed to post {sid}: {e}")
 
             await self._persist_posted_state()
 
@@ -654,7 +654,7 @@ class SoundingCog(commands.Cog):
         
         affected_zones = nws_info.get("affected_zones", []) if isinstance(nws_info, dict) else []
         if not affected_zones:
-            logger.warning(f"[SOUNDING-AUTO] No affected zones for watch #{watch_num} — skipping")
+            logger.warning(f"No affected zones for watch #{watch_num} — skipping")
             return
 
         await self._mark_watch_handled(watch_num)
@@ -663,14 +663,14 @@ class SoundingCog(commands.Cog):
 
         centroid = await get_watch_area_centroid(affected_zones)
         if not centroid:
-            logger.warning(f"[SOUNDING-AUTO] Could not get centroid for watch #{watch_num}")
+            logger.warning(f"Could not get centroid for watch #{watch_num}")
             return
         lat, lon = centroid
 
         try:
             stations_df = await get_raob_stations()
         except Exception as e:
-            logger.exception(f"[SOUNDING-AUTO] Failed to load station list: {e}")
+            logger.exception(f"Failed to load station list: {e}")
             return
 
         candidates = find_nearest_stations(lat, lon, stations_df, n=6)
@@ -700,14 +700,14 @@ class SoundingCog(commands.Cog):
 
         # ── Phase 1: fetch all sounding data concurrently ─────────────────
         async def _fetch_raob(station, sid, y, mo, d, h, tkey, pkey):
-            logger.info(f"[SOUNDING-AUTO] Fetching {sid} {h}z near {watch_label} #{watch_num}")
+            logger.info(f"Fetching {sid} {h}z near {watch_label} #{watch_num}")
             data = await fetch_sounding(
                 sid, y, mo, d, h,
                 station_name=station["name"],
                 lat=station["lat"], lon=station["lon"],
             )
             if not data:
-                logger.warning(f"[SOUNDING-AUTO] No data for {sid} at {tkey}")
+                logger.warning(f"No data for {sid} at {tkey}")
             return station, sid, y, mo, d, h, data
 
         fetch_results = await asyncio.gather(*[_fetch_raob(*r) for r in to_fetch])
@@ -742,10 +742,10 @@ class SoundingCog(commands.Cog):
                 caption += f"\n{qwarn}"
             try:
                 await target_channel.send(caption, files=[discord.File(png_path)])
-                logger.info(f"[SOUNDING-AUTO] Posted {sid} for watch #{watch_num}")
+                logger.info(f"Posted {sid} for watch #{watch_num}")
                 self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
             except Exception as e:
-                logger.exception(f"[SOUNDING-AUTO] Failed to post {sid}: {e}")
+                logger.exception(f"Failed to post {sid}: {e}")
 
         acars_profiles = await get_acars_profiles_near(lat, lon, max_dist_km=300, hours_back=1)
         acars_eligible = []
@@ -759,7 +759,7 @@ class SoundingCog(commands.Cog):
                 acars_eligible.append(profile)
 
         async def _fetch_acars(p):
-            logger.info(f"[SOUNDING-AUTO] Fetching ACARS {p['airport']} near {watch_label} #{watch_num}")
+            logger.info(f"Fetching ACARS {p['airport']} near {watch_label} #{watch_num}")
             data = await fetch_acars_sounding(
                 p["profile_id"], p["year"], p["month"], p["day"], p["acars_hour"]
             )
@@ -799,10 +799,10 @@ class SoundingCog(commands.Cog):
                 # `channel` (the watches-announcement channel), which
                 # caused ACARS soundings to land in #weather-chat.
                 await target_channel.send(caption, files=[discord.File(png_path)])
-                logger.info(f"[SOUNDING-AUTO] Posted ACARS {p['airport']} for watch #{watch_num}")
+                logger.info(f"Posted ACARS {p['airport']} for watch #{watch_num}")
                 self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
             except Exception as e:
-                logger.exception(f"[SOUNDING-AUTO] Failed to post ACARS: {e}")
+                logger.exception(f"Failed to post ACARS: {e}")
 
         await self._persist_posted_state()
 
@@ -831,12 +831,12 @@ class SoundingCog(commands.Cog):
         if not channel:
             return
 
-        logger.info(f"[SOUNDING-AUTO] Checking {len(self.bot.state.active_watches)} active watches for {time_key}")
+        logger.info(f"Checking {len(self.bot.state.active_watches)} active watches for {time_key}")
 
         try:
             stations_df = await get_raob_stations()
         except Exception as e:
-            logger.exception(f"[SOUNDING-AUTO] Failed to load station list: {e}")
+            logger.exception(f"Failed to load station list: {e}")
             return
 
         year = now.strftime("%Y")
@@ -850,7 +850,7 @@ class SoundingCog(commands.Cog):
 
             centroid = await get_watch_area_centroid(affected_zones)
             if not centroid:
-                logger.warning(f"[SOUNDING-AUTO] Could not get centroid for watch #{watch_num}")
+                logger.warning(f"Could not get centroid for watch #{watch_num}")
                 continue
 
             lat, lon = centroid
@@ -859,7 +859,7 @@ class SoundingCog(commands.Cog):
 
             verified = await filter_stations_with_data(candidates)
             if not verified:
-                logger.info(f"[SOUNDING-AUTO] No verified stations near watch #{watch_num}")
+                logger.info(f"No verified stations near watch #{watch_num}")
                 continue
 
             wtype = info.get("type", "SVR") if isinstance(info, dict) else "SVR"
@@ -878,12 +878,12 @@ class SoundingCog(commands.Cog):
             # ── Phase 1: fetch all RAOB data concurrently ─────────────────
             async def _fetch_std(station, sid):
                 logger.info(
-                    f"[SOUNDING-AUTO] Fetching {sid} {sounding_time}z"
+                    f"Fetching {sid} {sounding_time}z"
                     f" near {watch_label} #{watch_num}"
                 )
                 data = await fetch_sounding(sid, year, month, day, sounding_time)
                 if not data:
-                    logger.warning(f"[SOUNDING-AUTO] No data for {sid} at {time_key}")
+                    logger.warning(f"No data for {sid} at {time_key}")
                 return station, sid, data
 
             fetch_results = await asyncio.gather(*[_fetch_std(s, sid) for s, sid in eligible])
@@ -922,10 +922,10 @@ class SoundingCog(commands.Cog):
                     caption += f"\n{qwarn}"
                 try:
                     await channel.send(caption, files=[discord.File(png_path)])
-                    logger.info(f"[SOUNDING-AUTO] Posted {sid} for watch #{watch_num}")
+                    logger.info(f"Posted {sid} for watch #{watch_num}")
                     self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
                 except Exception as e:
-                    logger.exception(f"[SOUNDING-AUTO] Failed to post: {e}")
+                    logger.exception(f"Failed to post: {e}")
 
         # ── ACARS auto-posting ────────────────────────────────────────────
             acars_profiles = await get_acars_profiles_near(lat, lon, max_dist_km=300, hours_back=1)
@@ -938,7 +938,7 @@ class SoundingCog(commands.Cog):
 
             async def _fetch_acars2(p):
                 logger.info(
-                    f"[SOUNDING-AUTO] Fetching ACARS {p['airport']}"
+                    f"Fetching ACARS {p['airport']}"
                     f" near {watch_label} #{watch_num}"
                 )
                 data = await fetch_acars_sounding(
@@ -976,10 +976,10 @@ class SoundingCog(commands.Cog):
                 )
                 try:
                     await channel.send(caption, files=[discord.File(png_path)])
-                    logger.info(f"[SOUNDING-AUTO] Posted ACARS {p['airport']} for watch #{watch_num}")
+                    logger.info(f"Posted ACARS {p['airport']} for watch #{watch_num}")
                     self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
                 except Exception as e:
-                    logger.exception(f"[SOUNDING-AUTO] Failed to post ACARS: {e}")
+                    logger.exception(f"Failed to post ACARS: {e}")
 
             await self._persist_posted_state()
 

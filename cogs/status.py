@@ -73,7 +73,7 @@ async def fetch_and_send_weather_images(
             else:
                 await source.send(msg)
         except discord.HTTPException as e:
-            logger.debug(f"[STATUS] Could not send fallback message: {e}")
+            logger.debug(f"Could not send fallback message: {e}")
         return
 
     files = await download_images_parallel(
@@ -96,7 +96,7 @@ async def fetch_and_send_weather_images(
             else:
                 await source.send(msg)
         except discord.HTTPException as e:
-            logger.debug(f"[STATUS] Could not send fallback message: {e}")
+            logger.debug(f"Could not send fallback message: {e}")
 
 
 class MDPaginatorView(discord.ui.View):
@@ -851,13 +851,13 @@ class StatusCog(commands.Cog):
         try:
             await get_high_risk_polygon()
         except Exception as e:
-            logger.debug(f"[STATUS] Outlook peek failed: {e}")
+            logger.debug(f"Outlook peek failed: {e}")
 
         # Update Discord gateway information
         try:
             await update_gateway_info(self.bot)
         except Exception as e:
-            logger.debug(f"[STATUS] Could not update gateway info: {e}")
+            logger.debug(f"Could not update gateway info: {e}")
 
         view = StatusView(self.bot, interaction)
         embeds = await view.build_embeds()
@@ -906,7 +906,7 @@ class StatusCog(commands.Cog):
                     "❌ You are not authorized to use this command.", ephemeral=True
                 )
         else:
-            logger.error(f"[STATUS] Command error: {error}")
+            logger.error(f"Command error: {error}")
 
 
 

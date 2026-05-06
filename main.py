@@ -183,7 +183,7 @@ async def _check_failover() -> bool:
             should_run_primary = await failover_cog.startup_lease_check()
         except Exception as e:
             logger.warning(
-                f"[FAILOVER] Startup lease check failed ({e!r}) — "
+                f"Startup lease check failed ({e!r}) — "
                 f"falling back to IS_PRIMARY env value and deferring to "
                 f"sync_loop for reconciliation"
             )
@@ -202,7 +202,7 @@ async def setup_hook():
         for ext in ALL_EXTENSIONS:
             await bot.load_extension(ext)
     else:
-        logger.info("[FAILOVER] Running as STANDBY — cogs suppressed until promoted")
+        logger.info("Running as STANDBY — cogs suppressed until promoted")
 
     watchdog_task.start()
 
@@ -280,7 +280,7 @@ async def on_ready():
             except Exception as e:
                 logger.exception(f"Failed to sync command tree: {e}")
         else:
-            logger.info("[FAILOVER] Standby — skipping command sync to preserve primary commands")
+            logger.info("Standby — skipping command sync to preserve primary commands")
         logger.info(f"All tasks started. Bot v{__version__} is ready.")
         if not periodic_sync.is_running():
             periodic_sync.start()
@@ -302,9 +302,9 @@ async def periodic_sync():
         return
     try:
         synced = await bot.tree.sync()
-        logger.info(f"[SYNC] Periodic command sync: {len(synced)} commands")
+        logger.info(f"Periodic command sync: {len(synced)} commands")
     except Exception as e:
-        logger.exception(f"[SYNC] Periodic command sync failed: {e}")
+        logger.exception(f"Periodic command sync failed: {e}")
 
 
 @bot.event
@@ -366,7 +366,7 @@ async def watchdog_task():
             ) as r:
                 return r.status < 500
         except Exception as e:
-            logger.warning(f"[WATCHDOG] Session probe to {url} failed: {e!r}")
+            logger.warning(f"Session probe to {url} failed: {e!r}")
             return False
 
     primary_ok = await _head_ok(_PROBE_PRIMARY)
@@ -374,13 +374,13 @@ async def watchdog_task():
 
     if probe_healthy:
         if _session_probe_failures > 0:
-            logger.info(f"[WATCHDOG] Session probe recovered after {_session_probe_failures} failure(s)")
+            logger.info(f"Session probe recovered after {_session_probe_failures} failure(s)")
         _session_probe_failures = 0
     else:
         _session_probe_failures += 1
         if _session_probe_failures >= 3:
             logger.warning(
-                f"[WATCHDOG] Session probe failed {_session_probe_failures} consecutive times — "
+                f"Session probe failed {_session_probe_failures} consecutive times — "
                 "tearing down and recreating"
             )
             try:
@@ -395,13 +395,13 @@ async def watchdog_task():
                     color=discord.Color.red(),
                 ))
             except Exception as alert_err:
-                logger.warning(f"[WATCHDOG] Could not send session-reset alert: {alert_err}")
+                logger.warning(f"Could not send session-reset alert: {alert_err}")
             await utils.http.close_session()
             await utils.http.ensure_session()
             _session_probe_failures = 0
         else:
             logger.info(
-                f"[WATCHDOG] Session probe failed ({_session_probe_failures}/3) — "
+                f"Session probe failed ({_session_probe_failures}/3) — "
                 "waiting for next cycle"
             )
             if _session_probe_failures == 2:
@@ -416,7 +416,7 @@ async def watchdog_task():
                         color=discord.Color.orange(),
                     ))
                 except Exception as alert_err:
-                    logger.warning(f"[WATCHDOG] Could not send degradation alert: {alert_err}")
+                    logger.warning(f"Could not send degradation alert: {alert_err}")
 
     # Grace period for startup race: tasks need a few ticks to schedule
     # their first iteration after wait_until_ready() unblocks.
@@ -457,7 +457,7 @@ async def watchdog_task():
                 if exc:
                     error_detail = f"\n**Last Error:** `{type(exc).__name__}: {exc}`"
             except (asyncio.CancelledError, asyncio.InvalidStateError) as e:
-                logger.debug(f"[WATCHDOG] Could not read task exception: {e}")
+                logger.debug(f"Could not read task exception: {e}")
 
         # Attempt to (re)start the task quietly
         try:
@@ -469,14 +469,14 @@ async def watchdog_task():
                 except (asyncio.CancelledError, asyncio.TimeoutError):
                     pass
                 except Exception as e:
-                    logger.debug(f"[WATCHDOG] Error while awaiting cancelled task: {e}")
+                    logger.debug(f"Error while awaiting cancelled task: {e}")
             task.start()
             
             log_fn = logger.info if name in _task_seen_running else logger.debug
-            log_fn(f"[WATCHDOG] Attempted to {'re' if name in _task_seen_running else ''}start '{name}'")
+            log_fn(f"Attempted to {'re' if name in _task_seen_running else ''}start '{name}'")
         except Exception as e:
             logger.exception(
-                f"[WATCHDOG] Failed to restart '{name}': {e}"
+                f"Failed to restart '{name}': {e}"
             )
 
         # Alerts — only for tasks we've seen running before to avoid startup noise

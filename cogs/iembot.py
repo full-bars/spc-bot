@@ -33,7 +33,7 @@ CACHE_TTL = 600  # 10 minutes
 
 def _log_task_exception(task: "asyncio.Task") -> None:
     if not task.cancelled() and (exc := task.exception()):
-        logger.exception("[IEMBOT] Unhandled exception in background task", exc_info=exc)
+        logger.exception("Unhandled exception in background task", exc_info=exc)
 
 
 async def get_cached_watch_text(watch_number: str) -> Optional[str]:
@@ -137,11 +137,11 @@ class IEMBotCog(commands.Cog):
                 if val:
                     self.bot.state.iembot_last_seqnum = int(val)
                     logger.info(
-                        f"[IEMBOT] Resuming from seqnum "
+                        f"Resuming from seqnum "
                         f"{self.bot.state.iembot_last_seqnum}"
                     )
             except Exception as e:
-                logger.warning(f"[IEMBOT] Could not load seqnum: {e}")
+                logger.warning(f"Could not load seqnum: {e}")
             self._seqnum_loaded = True
 
         try:
@@ -184,7 +184,7 @@ class IEMBotCog(commands.Cog):
                             else:
                                 self.bot.state.iembot_latency = (self.bot.state.iembot_latency * 0.9) + (latency * 0.1)
                 except Exception as e:
-                    logger.debug(f"[IEMBOT] Latency tracking failed: {e}")
+                    logger.debug(f"Latency tracking failed: {e}")
 
                 if "WWUS20-SEL" in product_id or "WWUS40-SEL" in product_id:
                     t = asyncio.create_task(self._handle_watch(product_id))
@@ -200,12 +200,12 @@ class IEMBotCog(commands.Cog):
                 await set_state("iembot_last_seqnum", str(new_seqnum))
 
         except Exception as e:
-            logger.warning(f"[IEMBOT] Poll error: {e}")
+            logger.warning(f"Poll error: {e}")
 
     async def _handle_watch(self, product_id: str):
         raw = await _fetch_product_text(product_id)
         if not raw:
-            logger.warning(f"[IEMBOT] Could not fetch watch text for {product_id}")
+            logger.warning(f"Could not fetch watch text for {product_id}")
             return
         m = re.search(r"(?:Tornado|Severe Thunderstorm)\s+Watch\s+Number\s+(\d+)", raw, re.IGNORECASE)
         if not m:
@@ -229,7 +229,7 @@ class IEMBotCog(commands.Cog):
     async def _handle_md(self, product_id: str):
         raw = await _fetch_product_text(product_id)
         if not raw:
-            logger.warning(f"[IEMBOT] Could not fetch MD text for {product_id}")
+            logger.warning(f"Could not fetch MD text for {product_id}")
             return
         m = re.search(r"Mesoscale Discussion\s+(\d+)", raw, re.IGNORECASE)
         if not m:
@@ -237,7 +237,7 @@ class IEMBotCog(commands.Cog):
         md_num = m.group(1).zfill(4)
         # Cache the FULL raw text so mesoscale.py can extract the body properly
         await set_product_cache(f"md_{md_num}", raw, ttl=CACHE_TTL)
-        logger.info(f"[IEMBOT] Cached full MD text for #{md_num}")
+        logger.info(f"Cached full MD text for #{md_num}")
 
         # Signal MesoscaleCog to post immediately
         mesoscale_cog = self.bot.cogs.get("MesoscaleCog")
@@ -290,11 +290,11 @@ class IEMBotCog(commands.Cog):
                 if val:
                     self.bot.state.iembot_botstalk_last_seqnum = int(val)
                     logger.info(
-                        f"[IEMBOT] Resuming botstalk from seqnum "
+                        f"Resuming botstalk from seqnum "
                         f"{self.bot.state.iembot_botstalk_last_seqnum}"
                     )
             except Exception as e:
-                logger.warning(f"[IEMBOT] Could not load botstalk seqnum: {e}")
+                logger.warning(f"Could not load botstalk seqnum: {e}")
             self._botstalk_seqnum_loaded = True
 
             # On a brand-new run (seqnum still 0), fast-forward to the current
@@ -313,10 +313,10 @@ class IEMBotCog(commands.Cog):
                             self.bot.state.iembot_botstalk_last_seqnum = tail
                             await set_state("iembot_botstalk_last_seqnum", str(tail))
                             logger.info(
-                                f"[IEMBOT] Botstalk first-run: fast-forwarded to seqnum {tail}"
+                                f"Botstalk first-run: fast-forwarded to seqnum {tail}"
                             )
                 except Exception as e:
-                    logger.warning(f"[IEMBOT] Botstalk seqnum fast-forward failed: {e}")
+                    logger.warning(f"Botstalk seqnum fast-forward failed: {e}")
                 return  # skip processing this tick; pick up new messages next cycle
 
         try:
@@ -362,7 +362,7 @@ class IEMBotCog(commands.Cog):
                             else:
                                 self.bot.state.iembot_latency = (self.bot.state.iembot_latency * 0.9) + (latency * 0.1)
                 except Exception as e:
-                    logger.debug(f"[IEMBOT] Latency tracking failed: {e}")
+                    logger.debug(f"Latency tracking failed: {e}")
 
                 pil_match = self._ISSUANCE_PIL_RE.search(product_id)
                 if pil_match:
@@ -376,7 +376,7 @@ class IEMBotCog(commands.Cog):
                 await set_state("iembot_botstalk_last_seqnum", str(new_seqnum))
 
         except Exception as e:
-            logger.warning(f"[IEMBOT] Botstalk poll error: {e}")
+            logger.warning(f"Botstalk poll error: {e}")
 
     _PIL_TO_EVENT = {
         "TOR": "Tornado Warning",
@@ -393,7 +393,7 @@ class IEMBotCog(commands.Cog):
         raw = await _fetch_product_text(product_id)
         if not raw:
             logger.warning(
-                f"[IEMBOT] Could not fetch warning text for {product_id}"
+                f"Could not fetch warning text for {product_id}"
             )
             return
 
