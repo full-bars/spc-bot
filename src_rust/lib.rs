@@ -26,6 +26,8 @@ fn spc_rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_vtec, m)?)?;
     m.add_function(wrap_pyfunction!(validate_image_cache_batch, m)?)?;
     m.add_function(wrap_pyfunction!(normalize_product_id, m)?)?;
+    m.add_function(wrap_pyfunction!(haversine, m)?)?;
+    m.add_function(wrap_pyfunction!(haversine_batch, m)?)?;
     Ok(())
 }
 
@@ -563,4 +565,36 @@ fn normalize_product_id(
     }
 
     Ok(format!("{}-{}-{}-{}", ts_str, office, ttaaii, afos_pil))
+}
+
+// ── Phase 5: Haversine Batch Calculator ──────────────────────────────────────
+
+#[pyfunction]
+fn haversine(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> PyResult<f64> {
+    // Great-circle distance formula
+    let lat1_rad = lat1.to_radians();
+    let lat2_rad = lat2.to_radians();
+    let delta_lat = (lat2 - lat1).to_radians();
+    let delta_lon = (lon2 - lon1).to_radians();
+
+    let a = (delta_lat / 2.0).sin().powi(2)
+        + lat1_rad.cos() * lat2_rad.cos() * (delta_lon / 2.0).sin().powi(2);
+    let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
+    let earth_radius_km = 6371.0;
+
+    Ok(earth_radius_km * c)
+}
+
+#[pyfunction]
+fn haversine_batch(
+    origin_lat: f64,
+    origin_lon: f64,
+    targets: Vec<(f64, f64)>,
+) -> PyResult<Vec<f64>> {
+    let mut distances = Vec::with_capacity(targets.len());
+    for (target_lat, target_lon) in targets {
+        let dist = haversine(origin_lat, origin_lon, target_lat, target_lon)?;
+        distances.push(dist);
+    }
+    Ok(distances)
 }
