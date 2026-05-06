@@ -211,7 +211,7 @@ class WarningsCog(commands.Cog):
             files = []
             if (vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS":
                 image_url = iem_autoplot_url(vtec)
-                logger.debug(f"iembot image URL for {vtec['vtec_id']}: phenom={vtec.get('phenom')}")
+                logger.debug(f"iembot image URL for {vtec['vtec_id']}: {image_url}")
                 filename = f"warning_{vtec_id.replace('.', '_')}.png"
                 f = await _download_warning_image(image_url, filename)
                 if f:
@@ -701,7 +701,7 @@ class WarningsCog(commands.Cog):
         files = []
         if (vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS":
             image_url = iem_autoplot_url(vtec)
-            logger.debug(f"NWS API image URL for {vtec_id}: phenom={vtec.get('phenom')}")
+            logger.debug(f"NWS API image URL for {vtec_id}: {image_url}")
             filename = f"warning_{vtec_id.replace('.', '_')}.png"
             f = await _download_warning_image(image_url, filename)
             if f:
