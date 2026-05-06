@@ -190,9 +190,23 @@ async def _check_failover() -> bool:
     return should_run_primary
 
 
+async def _init_rust_engine():
+    """Initialize the Rust spatial index with radar coordinates."""
+    try:
+        import spc_rust_core
+        from lib.vad_plotter.radar_coords import RADAR_COORDS
+        spc_rust_core.init_radar_index(RADAR_COORDS)
+        logger.info("Spatial Index initialized: using Rust hybrid core (R-Tree)")
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.warning(f"Failed to initialize Rust spatial index: {e}")
+
+
 async def setup_hook():
     """Hydrate state from DB before any cogs are loaded."""
     await _init_db()
+    await _init_rust_engine()
     await _hydrate_state()
     await _run_startup_cleanup()
     

@@ -8,6 +8,7 @@ These utilities have zero Discord dependencies and can be reused in CLI tools,
 batch processors, and other contexts.
 """
 import re
+import logging
 from typing import List, Optional, Tuple
 
 # VTEC string format (NWS Directive 10-1703):
@@ -70,26 +71,41 @@ _LATLON_RE = re.compile(
 )
 
 
+logger = logging.getLogger("spc_bot.vtec_parser")
+
+# Rust core fallback
+try:
+    import spc_rust_core
+    RUST_AVAILABLE = True
+    logger.info("Spatial Engine initialized: using Rust hybrid core (extract_latlon_coords)")
+except ImportError:
+    RUST_AVAILABLE = False
+    logger.debug("Rust core not available, using pure-python fallback for polygon parsing")
+
+
 def parse_warning_polygon(
     text: str,
 ) -> Optional[List[Tuple[float, float]]]:
-    """Parse the ``LAT...LON`` polygon block from a VTEC product.
-
-    Format: pairs of integer values, lat then lon, in degrees * 100,
-    space- or newline-delimited. Longitudes are reported as positive
-    integers; for the US they convert to negative decimal degrees.
-
-    Returns a list of (lat, lon) decimal-degree pairs, or ``None`` if
-    the block is missing or unparseable. Used by PR B's iembot
-    fallback to derive a polygon centroid when NWS API hasn't picked
-    up the alert yet.
-    """
+    """Parse the ``LAT...LON`` polygon block from a VTEC product."""
     if not text:
         return None
     m = _LATLON_RE.search(text)
     if not m:
         return None
-    nums = m.group(1).split()
+    
+    raw_coords_str = m.group(1)
+
+    # Try Rust optimized parser first
+    if RUST_AVAILABLE:
+        try:
+            coords = spc_rust_core.extract_latlon_coords(raw_coords_str)
+            if coords:
+                return coords
+        except Exception as e:
+            logger.debug(f"Rust extract_latlon_coords failed: {e}. Falling back to Python.")
+
+    # Fallback to Python
+    nums = raw_coords_str.split()
     coords: List[Tuple[float, float]] = []
     for i in range(0, len(nums) - 1, 2):
         try:
