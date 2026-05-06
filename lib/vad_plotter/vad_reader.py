@@ -94,6 +94,7 @@ class VADFile(object):
             self._read_tabular_block()
 
         self._data = self._get_data()
+        del self._rpg
         return
 
     def _read_headers(self) -> None:
@@ -295,6 +296,8 @@ class VADFile(object):
     def __getitem__(self, key: str) -> Any:
         if key == 'time':
             val = self._time
+        elif key == 'rid':
+            val = self.rid
         else:
             val = self._data[key] # type: ignore
         return val
