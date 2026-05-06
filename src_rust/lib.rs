@@ -52,6 +52,9 @@ struct VadRecord {
     slant_range: f64, elev_angle: f64, altitude: f64,
 }
 
+/// Fast parser for VWP tabular data.
+/// Returns a dictionary of lists (wind_dir, wind_spd, etc.) sorted by altitude.
+/// Processes all pages of multi-page VAD data and merges results.
 #[pyfunction]
 fn parse_vwp_tabular_data<'py>(
     py: Python<'py>,
@@ -59,64 +62,85 @@ fn parse_vwp_tabular_data<'py>(
     _offset_tabular: usize,
 ) -> PyResult<Option<Bound<'py, PyDict>>> {
     let marker = b"VAD Algorithm Output";
-    let mut found_marker = None;
-    for i in 0..(data.len().saturating_sub(marker.len())) {
-        if &data[i..i+marker.len()] == marker {
-            found_marker = Some(i);
-            break;
-        }
-    }
-    let marker_pos = match found_marker {
-        Some(idx) => idx,
-        None => return Ok(None),
-    };
-    let mut current_pos = 0;
-    for i in (0..marker_pos).rev() {
-        if i + 2 <= data.len() && data[i] == 0x00 && data[i+1] == 0x50 {
-            current_pos = i;
-            break;
-        }
-    }
-    if current_pos == 0 { return Ok(None); }
     let mut records = Vec::new();
-    let mut line_count = 0;
-    while current_pos + 82 <= data.len() {
-        let len = i16::from_be_bytes([data[current_pos], data[current_pos+1]]);
-        if len != 80 {
-            if len == -1 || len == 0 { break; }
-            current_pos += 2;
-            continue;
-        }
-        if line_count >= 3 {
-            let line_bytes = &data[current_pos+2..current_pos+82];
-            let line = String::from_utf8_lossy(line_bytes);
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 10 {
-                let dir = parts[4].parse::<f64>().ok();
-                let spd = parts[5].parse::<f64>().ok();
-                let rms = parts[6].parse::<f64>().ok();
-                let div = if parts[7] == "NA" { Some(f64::NAN) } else { parts[7].parse::<f64>().ok() };
-                let slant = parts[8].parse::<f64>().ok();
-                let elev = parts[9].parse::<f64>().ok();
-                if let (Some(d), Some(s), Some(r), Some(v), Some(sl), Some(e)) = (dir, spd, rms, div, slant, elev) {
-                    let slant_km: f64 = sl * (6067.1 / 3281.0);
-                    let r_e: f64 = (4.0 / 3.0) * 6371.0;
-                    let elev_rad: f64 = e.to_radians();
-                    let alt = (r_e.powi(2) + slant_km.powi(2) + 2.0 * r_e * slant_km * elev_rad.sin()).sqrt() - r_e;
-                    records.push(VadRecord {
-                        wind_dir: d, wind_spd: s, rms_error: r, divergence: v,
-                        slant_range: slant_km, elev_angle: e, altitude: alt,
-                    });
-                }
+    let mut search_start = 0;
+
+    // Find all occurrences of marker (handles multi-page VAD files)
+    while let Some(marker_pos) = data[search_start..].windows(marker.len()).position(|w| w == marker) {
+        let actual_pos = search_start + marker_pos;
+
+        // Find the 0x00 0x50 line start marker before this data marker
+        let mut line_start = 0;
+        for i in (0..actual_pos).rev() {
+            if i + 2 <= data.len() && data[i] == 0x00 && data[i+1] == 0x50 {
+                line_start = i;
+                break;
             }
         }
-        current_pos += 82;
-        line_count += 1;
-        if line_count > 1000 { break; }
+
+        if line_start == 0 {
+            search_start = actual_pos + marker.len();
+            if search_start >= data.len() { break; }
+            continue;
+        }
+
+        // Parse this page starting from line_start
+        let mut current_pos = line_start;
+        let mut line_count = 0;
+        let mut page_has_data = false;
+
+        while current_pos + 82 <= data.len() {
+            let len = i16::from_be_bytes([data[current_pos], data[current_pos+1]]);
+
+            if len != 80 {
+                if len == -1 || len == 0 { break; }
+                current_pos += 2;
+                continue;
+            }
+
+            // Skip first 3 lines of headers
+            if line_count >= 3 {
+                let line_bytes = &data[current_pos+2..current_pos+82];
+                // Use lossy UTF-8 conversion for just this line
+                let line = String::from_utf8_lossy(line_bytes);
+                let parts: Vec<&str> = line.split_whitespace().collect();
+
+                if parts.len() >= 10 {
+                    if let (Some(d), Some(s), Some(r), Some(v), Some(sl), Some(e)) = (
+                        parts[4].parse::<f64>().ok(),
+                        parts[5].parse::<f64>().ok(),
+                        parts[6].parse::<f64>().ok(),
+                        if parts[7] == "NA" { Some(f64::NAN) } else { parts[7].parse::<f64>().ok() },
+                        parts[8].parse::<f64>().ok(),
+                        parts[9].parse::<f64>().ok(),
+                    ) {
+                        let slant_km: f64 = sl * (6067.1 / 3281.0);
+                        let r_e: f64 = (4.0 / 3.0) * 6371.0;
+                        let elev_rad: f64 = e.to_radians();
+                        let alt = (r_e.powi(2) + slant_km.powi(2) + 2.0 * r_e * slant_km * elev_rad.sin()).sqrt() - r_e;
+
+                        records.push(VadRecord {
+                            wind_dir: d, wind_spd: s, rms_error: r, divergence: v,
+                            slant_range: slant_km, elev_angle: e, altitude: alt,
+                        });
+                        page_has_data = true;
+                    }
+                }
+            }
+
+            current_pos += 82;
+            line_count += 1;
+        }
+
+        search_start = actual_pos + marker.len();
+        if search_start >= data.len() { break; }
     }
+
     if records.is_empty() { return Ok(None); }
+
+    // Sort by altitude (all pages merged and sorted together)
     records.sort_by(|a, b| a.altitude.partial_cmp(&b.altitude).unwrap_or(std::cmp::Ordering::Equal));
-    records.dedup_by(|a, b| (a.altitude - b.altitude).abs() < 0.001);
+
     let dict = PyDict::new_bound(py);
     let mut wind_dir = Vec::with_capacity(records.len());
     let mut wind_spd = Vec::with_capacity(records.len());
@@ -125,11 +149,13 @@ fn parse_vwp_tabular_data<'py>(
     let mut slant_range = Vec::with_capacity(records.len());
     let mut elev_angle = Vec::with_capacity(records.len());
     let mut altitude = Vec::with_capacity(records.len());
+
     for r in records {
         wind_dir.push(r.wind_dir); wind_spd.push(r.wind_spd); rms_error.push(r.rms_error);
         divergence.push(r.divergence); slant_range.push(r.slant_range);
         elev_angle.push(r.elev_angle); altitude.push(r.altitude);
     }
+
     dict.set_item("wind_dir", wind_dir)?;
     dict.set_item("wind_spd", wind_spd)?;
     dict.set_item("rms_error", rms_error)?;
@@ -211,17 +237,12 @@ fn find_nearest_radar(lat: f64, lon: f64) -> PyResult<Option<String>> {
 
 // ── Pillar #3: Batch Spatial Joins ───────────────────────────────────────────
 
-/// Perform high-speed batch point-in-polygon filtering.
-/// Takes a list of points and a list of polygon point-lists.
-/// Returns a list of indices of points that are inside at least one polygon.
 #[pyfunction]
 fn filter_points_in_polygons(
     points: Vec<(f64, f64)>,
     polygons: Vec<Vec<(f64, f64)>>,
 ) -> PyResult<Vec<usize>> {
     let mut result = Vec::new();
-    
-    // Convert coordinate lists to geo::Polygon objects
     let geo_polys: Vec<Polygon<f64>> = polygons.into_iter()
         .filter(|p| p.len() >= 3)
         .map(|p| {
@@ -241,6 +262,5 @@ fn filter_points_in_polygons(
             }
         }
     }
-    
     Ok(result)
 }
