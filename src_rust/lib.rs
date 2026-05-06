@@ -24,6 +24,7 @@ fn spc_rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(compute_srh, m)?)?;
     m.add_function(wrap_pyfunction!(compute_critical_angle, m)?)?;
     m.add_function(wrap_pyfunction!(parse_vtec, m)?)?;
+    m.add_function(wrap_pyfunction!(validate_image_cache_batch, m)?)?;
     Ok(())
 }
 
@@ -518,4 +519,19 @@ fn parse_vtec<'py>(py: Python<'py>, text: &str) -> PyResult<Option<Bound<'py, Py
     }
 
     Ok(None)
+}
+
+// ── Phase 3: Image Cache Batch Validator ────────────────────────────────────
+
+#[pyfunction]
+fn validate_image_cache_batch(
+    items: Vec<(String, Vec<u8>)>
+) -> PyResult<Vec<(String, String, bool)>> {
+    let mut results = Vec::with_capacity(items.len());
+    for (url, content) in items {
+        let hash_hex = format!("{:016x}", xxh3::xxh3_64(&content));
+        let is_placeholder = content.len() < 2048;
+        results.push((url, hash_hex, is_placeholder));
+    }
+    Ok(results)
 }
