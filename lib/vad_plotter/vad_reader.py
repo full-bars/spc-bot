@@ -18,6 +18,7 @@ logger = logging.getLogger("spc_bot.vad_reader")
 try:
     import spc_rust_core
     RUST_AVAILABLE = True
+    logger.info("VAD engine initialized: using Rust hybrid core")
 except ImportError:
     RUST_AVAILABLE = False
     logger.debug("Rust core not available, using pure-python fallback for VWP header search")

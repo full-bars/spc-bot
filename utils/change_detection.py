@@ -13,6 +13,7 @@ logger = logging.getLogger("spc_bot.change_detection")
 try:
     import spc_rust_core
     RUST_AVAILABLE = True
+    logger.info("Hashing engine initialized: using Rust hybrid core (XXH3)")
 except ImportError:
     RUST_AVAILABLE = False
     logger.debug("Rust core not available, using pure-python fallback for hashing")
