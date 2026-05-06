@@ -16,7 +16,7 @@ from utils.cache import (
     download_single_image,
 )
 
-logger = logging.getLogger("spc_bot")
+logger = logging.getLogger("spc_bot.csu_mlp")
 
 BASE = "https://schumacher.atmos.colostate.edu/weather/csu_mlp/archive"
 VERSION = "2021"
@@ -43,18 +43,22 @@ def _build_panel_url(product: str, init_date: datetime) -> str:
     return f"{BASE}/severe_gefso_{VERSION}_day1/{date_str}00/{product}_{valid_str}12.png"
 
 
-async def _resolve_panel_url(product: str) -> tuple[str | None, str]:
-    """Resolve today's 6-panel URL. 00z only."""
+async def _resolve_panel_url(product: str, allow_yesterday: bool = False) -> tuple[str | None, str]:
+    """Resolve today's (or optionally yesterday's) 6-panel URL. 00z only."""
     now_utc = datetime.now(timezone.utc)
     today = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
     
-    # Strictly today only
-    url = _build_panel_url(product, today)
-    if await _url_is_image(url):
-        logger.debug(f"[CSU-MLP] {product}: resolved 00z -> {url}")
-        return url, "00z"
+    dates = [(today, "00z")]
+    if allow_yesterday:
+        dates.append((today - timedelta(days=1), "yesterday 00z"))
 
-    logger.warning(f"[CSU-MLP] {product}: no today's URL available")
+    for init_date, label in dates:
+        url = _build_panel_url(product, init_date)
+        if await _url_is_image(url):
+            logger.debug(f"{product}: resolved {label} -> {url}")
+            return url, label
+
+    logger.warning(f"{product}: no recent URL available")
     return None, ""
 
 
@@ -69,13 +73,13 @@ async def _url_is_image(url: str) -> bool:
             ct = resp.headers.get("Content-Type", "")
             return resp.status == 200 and "image" in ct
     except Exception as e:
-        logger.debug(f"[CSU-MLP] HEAD check failed for {url}: {e}")
+        logger.debug(f"HEAD check failed for {url}: {e}")
         return False
 
 
-async def _resolve_best_url(day: int, force_hour: str | None = None) -> tuple[str | None, str]:
+async def _resolve_best_url(day: int, force_hour: str | None = None, allow_yesterday: bool = False) -> tuple[str | None, str]:
     """
-    Try latest runs first (strictly today).
+    Try latest runs first.
     Days 1-3 have 12z and 00z. Days 4-8 only 00z.
     Returns (url, label) or (None, "").
     """
@@ -96,13 +100,21 @@ async def _resolve_best_url(day: int, force_hour: str | None = None) -> tuple[st
         # Days 4-8: 00z only
         candidates.append((today, "00", "00z"))
 
+    if allow_yesterday:
+        yesterday = today - timedelta(days=1)
+        if day <= 3:
+            candidates.append((yesterday, "12", "yesterday 12z"))
+            candidates.append((yesterday, "00", "yesterday 00z"))
+        else:
+            candidates.append((yesterday, "00", "yesterday 00z"))
+
     for init_date, init_hour, label in candidates:
         url = _build_url(day, init_date, init_hour)
         if await _url_is_image(url):
-            logger.debug(f"[CSU-MLP] Day {day}: resolved {label} -> {url}")
+            logger.debug(f"Day {day}: resolved {label} -> {url}")
             return url, label
 
-    logger.warning(f"[CSU-MLP] Day {day}: no today's {force_hour or ''} URL available")
+    logger.warning(f"Day {day}: no recent URL available")
     return None, ""
 
 
@@ -257,7 +269,7 @@ class CSUMLPCog(commands.Cog):
         # loop interval can't cause the window to be missed.
         if now_utc.hour >= 15 and self._last_reset_date != today_str:
             if self.bot.state.csu_posted:
-                logger.info("[CSU-MLP] Resetting daily posted state")
+                logger.info("Resetting daily posted state")
                 self.bot.state.csu_posted.clear()
                 _availability_log.clear()
                 await _save_posted_today(self.bot.state.csu_posted)
@@ -269,7 +281,7 @@ class CSUMLPCog(commands.Cog):
 
         channel = self.bot.get_channel(MODELS_CHANNEL_ID)
         if not channel:
-            logger.warning("[CSU-MLP] SCP channel not found")
+            logger.warning("SCP channel not found")
             return
 
         # Use the first available missing day to determine the best init hour
@@ -294,7 +306,7 @@ class CSUMLPCog(commands.Cog):
                 first_seen = now_utc.strftime("%Y-%m-%d %H:%MZ")
                 _availability_log[day] = first_seen
                 logger.info(
-                    f"[CSU-MLP] \U0001f4ca TIMING LOG — "
+                    f"\U0001f4ca TIMING LOG — "
                     f"Day {day} first available at {first_seen} ({label})"
                 )
 
@@ -302,7 +314,7 @@ class CSUMLPCog(commands.Cog):
                 url, MANUAL_CACHE_FILE, self.bot.state.manual_cache
             )
             if not cache_path:
-                logger.warning(f"[CSU-MLP] Download failed for Day {day}")
+                logger.warning(f"Download failed for Day {day}")
                 continue
 
             try:
@@ -318,7 +330,7 @@ class CSUMLPCog(commands.Cog):
                         break # Success
                     except (discord.DiscordServerError, discord.HTTPException) as e:
                         if attempt < 2:
-                            logger.warning(f"[CSU-MLP] Retrying Day {day} (attempt {attempt+2}) after error: {e}")
+                            logger.warning(f"Retrying Day {day} (attempt {attempt+2}) after error: {e}")
                             await asyncio.sleep(2 * (attempt + 1))
                         else:
                             raise
@@ -326,13 +338,13 @@ class CSUMLPCog(commands.Cog):
                 self.bot.state.csu_posted.add(str(day))
                 await _save_posted_today(self.bot.state.csu_posted)
                 self.bot.state.last_post_times[f"csu_day{day}"] = now_utc
-                logger.info(f"[CSU-MLP] Auto-posted Day {day} ({label})")
+                logger.info(f"Auto-posted Day {day} ({label})")
                 
                 # Small pause to avoid hammering Discord API/local networking stack
                 await asyncio.sleep(1.0)
             except Exception as e:
                 logger.exception(
-                    f"[CSU-MLP] Failed to post Day {day}: {e}"
+                    f"Failed to post Day {day}: {e}"
                 )
 
         # Auto-post 6-panel products
@@ -348,10 +360,10 @@ class CSUMLPCog(commands.Cog):
             if state_key not in _availability_log:
                 first_seen = now_utc.strftime("%Y-%m-%d %H:%MZ")
                 _availability_log[state_key] = first_seen
-                logger.info(f"[CSU-MLP] 📊 TIMING LOG — {label_name} first available at {first_seen} ({label})")
+                logger.info(f"📊 TIMING LOG — {label_name} first available at {first_seen} ({label})")
             cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE, self.bot.state.manual_cache)
             if not cache_path:
-                logger.warning(f"[CSU-MLP] Download failed for {label_name}")
+                logger.warning(f"Download failed for {label_name}")
                 continue
             try:
                 # Simple retry logic for transient network/Discord issues
@@ -364,7 +376,7 @@ class CSUMLPCog(commands.Cog):
                         break # Success
                     except (discord.DiscordServerError, discord.HTTPException) as e:
                         if attempt < 2:
-                            logger.warning(f"[CSU-MLP] Retrying {label_name} (attempt {attempt+2}) after error: {e}")
+                            logger.warning(f"Retrying {label_name} (attempt {attempt+2}) after error: {e}")
                             await asyncio.sleep(2 * (attempt + 1))
                         else:
                             raise
@@ -372,12 +384,12 @@ class CSUMLPCog(commands.Cog):
                 self.bot.state.csu_posted.add(state_key)
                 await _save_posted_today(self.bot.state.csu_posted)
                 self.bot.state.last_post_times[f"csu_{state_key}"] = now_utc
-                logger.info(f"[CSU-MLP] Auto-posted {label_name} ({label})")
+                logger.info(f"Auto-posted {label_name} ({label})")
                 
                 # Small pause to avoid hammering Discord API/local networking stack
                 await asyncio.sleep(1.0)
             except Exception as e:
-                logger.exception(f"[CSU-MLP] Failed to post {label_name}: {e}")
+                logger.exception(f"Failed to post {label_name}: {e}")
 
     @csu_mlp_daily_poll.after_loop
     async def after_csu_mlp_poll(self):
