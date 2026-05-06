@@ -5,7 +5,6 @@ from utils.change_detection import (
     validate_image_cache_batch,
     validate_image_cache_batch_py,
     calculate_hash_bytes,
-    is_placeholder_image,
 )
 
 
