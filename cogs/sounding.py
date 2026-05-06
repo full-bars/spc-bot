@@ -1132,6 +1132,8 @@ class SoundingCog(commands.Cog):
             time_args=time_args,
             dark_mode=dark_mode,
             original_user=interaction.user,
+            location_desc=location_desc,
+            description="\n".join(description_lines),
         )
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 

@@ -299,6 +299,8 @@ class CombinedSoundingView(View):
         time_args: tuple | None,
         dark_mode: bool,
         original_user: discord.User,
+        location_desc: str = "",
+        description: str = "",
     ):
         super().__init__(timeout=180)
         self.raob_stations = raob_stations
@@ -306,6 +308,8 @@ class CombinedSoundingView(View):
         self.time_args = time_args
         self.dark_mode = dark_mode
         self.original_user = original_user
+        self.location_desc = location_desc
+        self.description = description
         self._build_buttons()
 
     def _build_buttons(self):
@@ -440,8 +444,8 @@ class CombinedSoundingView(View):
             self._build_buttons()
             mode_str = "\U0001f319 Dark" if self.dark_mode else "☀️ Light"
             embed = discord.Embed(
-                title="Nearest Sounding Data",
-                description=f"Switched to **{mode_str}** mode",
+                title=f"Nearest Sounding Data to {self.location_desc}",
+                description=self.description,
                 color=discord.Color.blurple(),
             )
             embed.set_footer(text="Mode: {} | Select below".format(mode_str))
