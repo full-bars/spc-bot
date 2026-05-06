@@ -43,6 +43,9 @@ def normalize_product_id_py(office: str, ttaaii: str, afos_pil: str, issue_str: 
     if "T" in ts_str and "Z" in ts_str:
         # Convert "2026-05-03T06:50:00Z" → "202605030650"
         ts_str = ts_str.replace("-", "").replace("T", "").replace(":", "").split("Z")[0][:12]
+    else:
+        # Truncate to 12 characters (YYYYMMDDHHMM format)
+        ts_str = ts_str[:12]
     return f"{ts_str}-{office}-{ttaaii}-{afos_pil}"
 
 
