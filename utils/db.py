@@ -62,7 +62,7 @@ async def _write(sql: str, params: tuple, op: str) -> None:
     except Exception as e:
         _write_failure_count += 1
         level = logger.error if _write_failure_count >= _WRITE_FAILURE_ALERT_THRESHOLD else logger.warning
-        level(f"[DB] {op} failed ({_write_failure_count} consecutive): {e}")
+        level(f"{op} failed ({_write_failure_count} consecutive): {e}")
 
 
 async def _write_many(sql: str, rows: Iterable[tuple], op: str) -> None:
@@ -78,7 +78,7 @@ async def _write_many(sql: str, rows: Iterable[tuple], op: str) -> None:
     except Exception as e:
         _write_failure_count += 1
         level = logger.error if _write_failure_count >= _WRITE_FAILURE_ALERT_THRESHOLD else logger.warning
-        level(f"[DB] {op} failed ({_write_failure_count} consecutive): {e}")
+        level(f"{op} failed ({_write_failure_count} consecutive): {e}")
 
 
 async def get_db() -> aiosqlite.Connection:
@@ -107,7 +107,7 @@ async def _connect() -> aiosqlite.Connection:
 
     await _create_tables(db)
     await db.commit()
-    logger.info(f"[DB] Connected to {DB_PATH}")
+    logger.info(f"Connected to {DB_PATH}")
     return db
 
 
@@ -198,9 +198,9 @@ async def close_db():
     if _db is not None:
         try:
             await _db.close()
-            logger.info("[DB] Database connection closed")
+            logger.info("Database connection closed")
         except Exception as e:
-            logger.warning(f"[DB] Error closing database: {e}")
+            logger.warning(f"Error closing database: {e}")
         _db = None
 
 
@@ -212,10 +212,10 @@ async def check_integrity() -> bool:
             row = await cursor.fetchone()
             ok = row and row[0] == "ok"
             if not ok:
-                logger.error(f"[DB] Integrity check failed: {row}")
+                logger.error(f"Integrity check failed: {row}")
             return ok
     except Exception as e:
-        logger.exception(f"[DB] Integrity check error: {e}")
+        logger.exception(f"Integrity check error: {e}")
         return False
 
 
@@ -239,7 +239,7 @@ async def get_hash(url: str, cache_type: Optional[str] = None) -> Optional[str]:
             row = await cursor.fetchone()
             return row["hash"] if row else None
     except Exception as e:
-        logger.warning(f"[DB] get_hash failed for {url}: {e}")
+        logger.warning(f"get_hash failed for {url}: {e}")
         return None
 
 
@@ -271,7 +271,7 @@ async def get_all_hashes(cache_type: Optional[str] = None) -> dict:
                 rows = await cursor.fetchall()
         return {row["url"]: row["hash"] for row in rows}
     except Exception as e:
-        logger.warning(f"[DB] get_all_hashes failed: {e}")
+        logger.warning(f"get_all_hashes failed: {e}")
         return {}
 
 
@@ -298,7 +298,7 @@ async def get_posted_mds() -> set:
             rows = await cursor.fetchall()
             return {row["md_number"] for row in rows}
     except Exception as e:
-        logger.warning(f"[DB] get_posted_mds failed: {e}")
+        logger.warning(f"get_posted_mds failed: {e}")
         return set()
 
 
@@ -337,7 +337,7 @@ async def get_posted_watches() -> set:
             rows = await cursor.fetchall()
             return {row["watch_number"] for row in rows}
     except Exception as e:
-        logger.warning(f"[DB] get_posted_watches failed: {e}")
+        logger.warning(f"get_posted_watches failed: {e}")
         return set()
 
 
@@ -374,7 +374,7 @@ async def get_posted_surveys() -> set:
             rows = await cursor.fetchall()
             return {row["dat_guid"] for row in rows}
     except Exception as e:
-        logger.warning(f"[DB] get_posted_surveys failed: {e}")
+        logger.warning(f"get_posted_surveys failed: {e}")
         return set()
 
 
@@ -411,7 +411,7 @@ async def get_posted_reports() -> set:
             rows = await cursor.fetchall()
             return {row["product_id"] for row in rows}
     except Exception as e:
-        logger.warning(f"[DB] get_posted_reports failed: {e}")
+        logger.warning(f"get_posted_reports failed: {e}")
         return set()
 
 
@@ -457,7 +457,7 @@ async def get_all_posted_warnings() -> dict:
                 for row in rows
             }
     except Exception as e:
-        logger.warning(f"[DB] get_all_posted_warnings failed: {e}")
+        logger.warning(f"get_all_posted_warnings failed: {e}")
         return {}
 
 
@@ -472,7 +472,7 @@ async def get_posted_warning_timestamp(vtec_id: str) -> Optional[float]:
             row = await cursor.fetchone()
             return row["posted_at"] if row else None
     except Exception as e:
-        logger.warning(f"[DB] get_posted_warning_timestamp failed: {e}")
+        logger.warning(f"get_posted_warning_timestamp failed: {e}")
         return None
 
 
@@ -519,7 +519,7 @@ async def get_posted_soundings() -> set[str]:
             rows = await cursor.fetchall()
             return {row["pkey"] for row in rows}
     except Exception as e:
-        logger.warning(f"[DB] get_posted_soundings failed: {e}")
+        logger.warning(f"get_posted_soundings failed: {e}")
         return set()
 
 
@@ -550,7 +550,7 @@ async def get_sounding_handled_watches() -> set[str]:
             rows = await cursor.fetchall()
             return {row["watch_number"] for row in rows}
     except Exception as e:
-        logger.warning(f"[DB] get_sounding_handled_watches failed: {e}")
+        logger.warning(f"get_sounding_handled_watches failed: {e}")
         return set()
 
 
@@ -584,7 +584,7 @@ async def get_state(key: str) -> Optional[str]:
             row = await cursor.fetchone()
             return row["value"] if row else None
     except Exception as e:
-        logger.warning(f"[DB] get_state failed for {key}: {e}")
+        logger.warning(f"get_state failed for {key}: {e}")
         return None
 
 
@@ -596,7 +596,7 @@ async def get_all_state() -> dict:
             rows = await cursor.fetchall()
             return {row["key"]: row["value"] for row in rows}
     except Exception as e:
-        logger.warning(f"[DB] get_all_state failed: {e}")
+        logger.warning(f"get_all_state failed: {e}")
         return {}
 
 
@@ -633,7 +633,7 @@ async def get_posted_urls(day_key: str) -> list:
             if row:
                 return json.loads(row["urls"])
     except Exception as e:
-        logger.warning(f"[DB] get_posted_urls failed for {day_key}: {e}")
+        logger.warning(f"get_posted_urls failed for {day_key}: {e}")
     return []
 
 
@@ -645,7 +645,7 @@ async def get_all_posted_urls() -> dict:
             rows = await cursor.fetchall()
             return {row["day_key"]: json.loads(row["urls"]) for row in rows}
     except Exception as e:
-        logger.warning(f"[DB] get_all_posted_urls failed: {e}")
+        logger.warning(f"get_all_posted_urls failed: {e}")
         return {}
 
 
@@ -684,7 +684,7 @@ async def get_product_cache(product_id: str) -> Optional[str]:
                 return row["text"]
             return None
     except Exception as e:
-        logger.warning(f"[DB] get_product_cache failed for {product_id}: {e}")
+        logger.warning(f"get_product_cache failed for {product_id}: {e}")
         return None
 
 
@@ -703,7 +703,7 @@ async def get_validators(url: str) -> Optional[dict]:
                 return None
             return {"etag": row["etag"], "last_modified": row["last_modified"]}
     except Exception as e:
-        logger.warning(f"[DB] get_validators failed for {url}: {e}")
+        logger.warning(f"get_validators failed for {url}: {e}")
         return None
 
 
@@ -723,7 +723,7 @@ async def get_all_validators() -> dict:
                 for row in rows
             }
     except Exception as e:
-        logger.warning(f"[DB] get_all_validators failed: {e}")
+        logger.warning(f"get_all_validators failed: {e}")
         return {}
 
 
@@ -777,7 +777,7 @@ async def get_dirty_writes() -> list:
                 for r in rows
             ]
     except Exception as e:
-        logger.warning(f"[DB] get_dirty_writes failed: {e}")
+        logger.warning(f"get_dirty_writes failed: {e}")
         return []
 
 

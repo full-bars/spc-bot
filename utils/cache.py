@@ -68,7 +68,7 @@ async def hydrate_validators_from_store() -> int:
     if stored:
         _validators_cache.update(stored)
     _validators_hydrated = True
-    logger.info(f"[CACHE] Hydrated {len(_validators_cache)} HTTP validators from store")
+    logger.info(f"Hydrated {len(_validators_cache)} HTTP validators from store")
     return len(_validators_cache)
 
 logger = logging.getLogger("spc_bot")
@@ -138,7 +138,7 @@ async def should_use_cache_for_manual(urls: List[str]) -> bool:
     if day is None:
         return False
     if is_near_spc_update(day):
-        logger.debug(f"[CACHE] Near Day {day} update window - forcing fresh download")
+        logger.debug(f"Near Day {day} update window - forcing fresh download")
         return False
 
     paths = [get_cache_path_for_url(u) for u in urls]
@@ -149,9 +149,9 @@ async def should_use_cache_for_manual(urls: List[str]) -> bool:
     now = datetime.now()
     ages = [now - datetime.fromtimestamp(m) for m in mtimes]
     if ages and min(ages) > timedelta(hours=3):
-        logger.info("[CACHE] Cached files are older than 3 hours; refreshing")
+        logger.info("Cached files are older than 3 hours; refreshing")
         return False
-    logger.debug(f"[CACHE] Using cached files for Day {day} (min age: {min(ages)})")
+    logger.debug(f"Using cached files for Day {day} (min age: {min(ages)})")
     return True
 
 
@@ -221,7 +221,7 @@ async def download_single_image(
                 validators.get("last_modified", ""),
             )
         except Exception as e:
-            logger.debug(f"[CACHE] set_validators failed for {url}: {e}")
+            logger.debug(f"set_validators failed for {url}: {e}")
 
     if is_placeholder_image(content):
         logger.info(
@@ -300,7 +300,7 @@ async def check_partial_updates_parallel(
                     validators.get("last_modified", ""),
                 )
             except Exception as e:
-                logger.debug(f"[CACHE] set_validators failed for {url}: {e}")
+                logger.debug(f"set_validators failed for {url}: {e}")
 
         if is_placeholder_image(content):
             return url, 0
@@ -317,7 +317,7 @@ async def check_partial_updates_parallel(
 
     log = logger.info if updated_count > 0 else logger.debug
     log(
-        f"[CACHE] Partial check complete: {updated_count}/{total_count} updated "
+        f"Partial check complete: {updated_count}/{total_count} updated "
         f"({not_modified_count}/{total_count} returned 304 Not Modified)"
     )
     return updated_count, total_count, downloaded_data
@@ -404,7 +404,7 @@ async def fetch_with_validators(
                         validators.get("last_modified", ""),
                     )
                 except Exception as e:
-                    logger.debug(f"[CACHE] set_validators failed for {url}: {e}")
+                    logger.debug(f"set_validators failed for {url}: {e}")
             return content, status
 
         if status == 304:
@@ -412,7 +412,7 @@ async def fetch_with_validators(
 
         if retry_statuses and status in retry_statuses and attempt < retries:
             delay = min(2 ** (attempt + 1), 10)
-            logger.debug(f"[CACHE] Retrying {url} (status={status}) in {delay}s...")
+            logger.debug(f"Retrying {url} (status={status}) in {delay}s...")
             await asyncio.sleep(delay)
             continue
 

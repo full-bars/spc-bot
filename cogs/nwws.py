@@ -101,16 +101,16 @@ class NWWSClient(ClientXMPP):
         try:
             await self.get_roster()
         except (IqError, IqTimeout):
-            logger.error("[NWWS] Error fetching roster")
+            logger.error("Error fetching roster")
         
         # Join the NWWS-OI Multi-User Chat
-        logger.info(f"[NWWS] Joining room {self.room} as {self.nick}...")
+        logger.info(f"Joining room {self.room} as {self.nick}...")
         self.plugin['xep_0045'].join_muc(self.room, self.nick)
-        logger.info(f"[NWWS] XMPP Session Started as {self.boundjid}")
+        logger.info(f"XMPP Session Started as {self.boundjid}")
 
     def on_disconnect(self, event):
         self.is_connected = False
-        logger.warning("[NWWS] XMPP Disconnected")
+        logger.warning("XMPP Disconnected")
 
     def message(self, msg):
         # The specification says weather products arrive as 'groupchat' messages
@@ -174,7 +174,7 @@ class NWWSClient(ClientXMPP):
                 self.bot.state.nwws_last_window_time = now
                 # Set initial throughput estimate after first message
                 self.bot.state.nwws_throughput = 0.2  # Conservative initial estimate
-                logger.info("[NWWS] First realtime message received, throughput tracking started")
+                logger.info("First realtime message received, throughput tracking started")
             else:
                 elapsed = (now - last_time).total_seconds()
                 if elapsed >= 5:
@@ -185,13 +185,13 @@ class NWWSClient(ClientXMPP):
                     else:
                         # 70/30 rolling average: favor recent data
                         self.bot.state.nwws_throughput = (self.bot.state.nwws_throughput * 0.7) + (throughput * 0.3)
-                    logger.debug(f"[NWWS] Throughput update: {self.bot.state.nwws_throughput:.2f} msg/s ({self.bot.state.nwws_msg_count} in {elapsed:.1f}s)")
+                    logger.debug(f"Throughput update: {self.bot.state.nwws_throughput:.2f} msg/s ({self.bot.state.nwws_msg_count} in {elapsed:.1f}s)")
                     # Reset window
                     self.bot.state.nwws_msg_count = 0
                     self.bot.state.nwws_last_window_time = now
         else:
             # Log archived messages separately to understand reconnection behavior
-            logger.debug(f"[NWWS] Skipping archived message ({payload['awipsid']})")
+            logger.debug(f"Skipping archived message ({payload['awipsid']})")
 
         # Capture receive timestamp for accurate wire latency measurement
         from datetime import datetime as dt_class, timezone as tz_class
@@ -244,7 +244,7 @@ class NWWSClient(ClientXMPP):
                             else:
                                 self.bot.state.nwws_latency = (self.bot.state.nwws_latency * 0.7) + (latency * 0.3)
                 except Exception as e:
-                    logger.debug(f"[NWWS] Latency calculation failed ({issue_val}): {e}")
+                    logger.debug(f"Latency calculation failed ({issue_val}): {e}")
 
             # 2. Routing Logic
             
@@ -263,7 +263,7 @@ class NWWSClient(ClientXMPP):
                         
                         wtype = "TORNADO" if "Tornado Watch" in raw_text else "SVR"
                         await watches_cog.post_watch_now(watch_num, {"type": wtype, "expires": None, "affected_zones": []})
-                        logger.info(f"[NWWS] Triggered Watch {watch_num} via XMPP")
+                        logger.info(f"Triggered Watch {watch_num} via XMPP")
 
             # MDs (SWOMCD)
             elif "SWOMCD" in afos_pil:
@@ -275,7 +275,7 @@ class NWWSClient(ClientXMPP):
                         from utils.state_store import set_product_cache
                         await set_product_cache(f"md_{md_num}", raw_text, ttl=600)
                         await mesoscale_cog.post_md_now(md_num)
-                        logger.info(f"[NWWS] Triggered MD {md_num} via XMPP")
+                        logger.info(f"Triggered MD {md_num} via XMPP")
 
             # WARNINGS (TOR, SVR, FFW, etc)
             elif any(afos_pil.startswith(x) for x in ("TOR", "SVR", "FFW", "SVS", "FFS", "SPS")):
@@ -301,7 +301,7 @@ class NWWSClient(ClientXMPP):
                     pil_prefix = next((p for p in event_map if afos_pil.startswith(p)), None)
                     if pil_prefix:
                         await warnings_cog.post_warning_now(product_id, cleaned_text, event_map[pil_prefix])
-                        logger.info(f"[NWWS] Triggered {pil_prefix} Warning via XMPP")
+                        logger.info(f"Triggered {pil_prefix} Warning via XMPP")
 
             # REPORTS (LSR, PNS)
             elif any(afos_pil.startswith(x) for x in ("LSR", "PNS")):
@@ -309,10 +309,10 @@ class NWWSClient(ClientXMPP):
                 if reports_cog:
                     pil_prefix = "LSR" if afos_pil.startswith("LSR") else "PNS"
                     await reports_cog.post_report_now(product_id, raw_text, pil_prefix)
-                    logger.info(f"[NWWS] Triggered {pil_prefix} via XMPP")
+                    logger.info(f"Triggered {pil_prefix} via XMPP")
 
         except Exception as e:
-            logger.exception(f"[NWWS] Error processing XMPP message: {e}")
+            logger.exception(f"Error processing XMPP message: {e}")
 
 class NWWSCog(commands.Cog):
     MANAGED_TASK_NAMES = [("monitor_connection", "nwws_connection")]
@@ -324,7 +324,7 @@ class NWWSCog(commands.Cog):
 
     async def cog_load(self):
         if not all([NWWS_USER, NWWS_PASSWORD]):
-            logger.warning("[NWWS] Credentials missing, NWWS cog disabled")
+            logger.warning("Credentials missing, NWWS cog disabled")
             return
         
         self._should_be_connected = True
@@ -350,7 +350,7 @@ class NWWSCog(commands.Cog):
         """Maintain persistent connection to NWWS-OI."""
         if not self.bot.state.is_primary or not self._should_be_connected:
             if self.xmpp_client and self.xmpp_client.is_connected:
-                logger.info("[NWWS] Node is Standby — disconnecting NWWS")
+                logger.info("Node is Standby — disconnecting NWWS")
                 self.xmpp_client.disconnect()
             return
 
@@ -367,14 +367,14 @@ class NWWSCog(commands.Cog):
             self.xmpp_client.disconnect()
             self.xmpp_client = None
 
-        logger.info(f"[NWWS] Connecting to {NWWS_SERVER}...")
+        logger.info(f"Connecting to {NWWS_SERVER}...")
         jid = f"{NWWS_USER}@{NWWS_SERVER}"
         self.xmpp_client = NWWSClient(jid, NWWS_PASSWORD, self.bot)
         
         try:
             self.xmpp_client.connect(address=(NWWS_SERVER, 5222))
         except Exception as e:
-            logger.error(f"[NWWS] Connection attempt failed: {e}")
+            logger.error(f"Connection attempt failed: {e}")
             self.xmpp_client = None
 
     @monitor_connection.before_loop

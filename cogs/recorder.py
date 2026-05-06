@@ -78,7 +78,7 @@ class RecorderCog(commands.Cog):
             data = {sid: m.to_dict() for sid, m in self.active_missions.items()}
             await set_state(STATE_KEY, json.dumps(data))
         except Exception as e:
-            logger.error(f"[RECORDER] Failed to persist missions: {e}")
+            logger.error(f"Failed to persist missions: {e}")
 
     async def _load_missions(self):
         """Reload active missions from shared state store."""
@@ -89,16 +89,16 @@ class RecorderCog(commands.Cog):
                 for sid, m_dict in data.items():
                     self.active_missions[sid] = VADRecordingMission.from_dict(m_dict)
                 if self.active_missions:
-                    logger.info(f"[RECORDER] Resumed {len(self.active_missions)} missions from state store")
+                    logger.info(f"Resumed {len(self.active_missions)} missions from state store")
         except Exception as e:
-            logger.error(f"[RECORDER] Failed to load missions: {e}")
+            logger.error(f"Failed to load missions: {e}")
 
     async def start_mission(self, site_id: str, trigger_ts: float, event_id: str = None):
         if site_id in self.active_missions:
             self.active_missions[site_id].extend(trigger_ts, event_id=event_id)
         else:
             self.active_missions[site_id] = VADRecordingMission(site_id, trigger_ts, {event_id} if event_id else None)
-            logger.info(f"[RECORDER] Started NEW mission for {site_id} (Initial Event: {event_id})")
+            logger.info(f"Started NEW mission for {site_id} (Initial Event: {event_id})")
         
         await self._persist_missions()
 
@@ -150,27 +150,27 @@ class RecorderCog(commands.Cog):
                     try:
                         await download_vad(mission.site_id, time=dt_utc, cache_path=mission.dir)
                         mission.processed_timestamps.add(ts)
-                        logger.debug(f"[RECORDER] Saved scan for {mission.site_id} @ {dt_utc}")
+                        logger.debug(f"Saved scan for {mission.site_id} @ {dt_utc}")
                     except Exception as e:
-                        logger.warning(f"[RECORDER] Failed to fetch {mission.site_id} @ {dt_utc}: {e}")
+                        logger.warning(f"Failed to fetch {mission.site_id} @ {dt_utc}: {e}")
                         
         except Exception as e:
-            logger.error(f"[RECORDER] Step failed for {mission.site_id}: {e}")
+            logger.error(f"Step failed for {mission.site_id}: {e}")
 
     async def _finalize_mission(self, mission: VADRecordingMission):
         """Build the evolution GIF and cleanup."""
-        logger.info(f"[RECORDER] Finalizing mission for {mission.site_id}...")
+        logger.info(f"Finalizing mission for {mission.site_id}...")
 
         loop = asyncio.get_running_loop()
         try:
             files = await loop.run_in_executor(None, os.listdir, mission.dir)
             files = [f for f in files if f.endswith(".has")]
         except FileNotFoundError:
-            logger.warning(f"[RECORDER] Mission dir {mission.dir} not found. Skipping.")
+            logger.warning(f"Mission dir {mission.dir} not found. Skipping.")
             return
 
         if not files:
-            logger.warning(f"[RECORDER] No data saved for mission {mission.site_id}. Skipping GIF.")
+            logger.warning(f"No data saved for mission {mission.site_id}. Skipping GIF.")
             return
         files.sort()
 
@@ -195,7 +195,7 @@ class RecorderCog(commands.Cog):
 
                 await loop.run_in_executor(self.executor, _make_gif)
 
-                logger.info(f"[RECORDER] Created evolution GIF: {gif_path}")
+                logger.info(f"Created evolution GIF: {gif_path}")
 
                 # 4. Calculate Peak SRH
                 peak_srh = 0.0
@@ -226,7 +226,7 @@ class RecorderCog(commands.Cog):
                         return srh_max
                     peak_srh = await loop.run_in_executor(self.executor, _calc_srh)
                 except Exception as e:
-                    logger.warning(f"[RECORDER] Peak SRH calc failed: {e}")
+                    logger.warning(f"Peak SRH calc failed: {e}")
 
                 # 5. Update DB for all events
                 if mission.event_ids:
@@ -240,9 +240,9 @@ class RecorderCog(commands.Cog):
                     if os.path.exists(mission.dir):
                         shutil.rmtree(mission.dir)
                 await loop.run_in_executor(None, _cleanup)
-                logger.info(f"[RECORDER] Cleaned up temporary data for {mission.site_id}")
+                logger.info(f"Cleaned up temporary data for {mission.site_id}")
         except Exception as e:
-            logger.error(f"[RECORDER] Finalization failed for {mission.site_id}: {e}")
+            logger.error(f"Finalization failed for {mission.site_id}: {e}")
     async def _post_forensic_summary(self, mission: VADRecordingMission, gif_path: str, peak_srh: float):
         try:
             from config import DEV_CHANNEL_ID
@@ -265,7 +265,7 @@ class RecorderCog(commands.Cog):
             embed.set_image(url="attachment://evolution.gif")
             await channel.send(embed=embed, file=file)
         except Exception as e:
-            logger.error(f"[RECORDER] Summary post failed: {e}")
+            logger.error(f"Summary post failed: {e}")
 
     @app_commands.command(name="archive", description="Search the environmental forensics archive")
     @app_commands.describe(radar="4-letter radar ID", date="YYYY-MM-DD")

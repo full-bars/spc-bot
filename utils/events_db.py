@@ -51,7 +51,7 @@ async def get_events_db() -> aiosqlite.Connection:
     await _create_tables(conn)
     await conn.commit()
     _db = conn
-    logger.info(f"[EVENTS-DB] Connected to {_EVENTS_DB_PATH}")
+    logger.info(f"Connected to {_EVENTS_DB_PATH}")
     return _db
 
 
@@ -129,7 +129,7 @@ async def add_significant_event(
         await db.commit()
         _mark_dirty()
     except Exception as e:
-        logger.warning(f"[EVENTS-DB] add_significant_event({event_id}) failed: {e}")
+        logger.warning(f"add_significant_event({event_id}) failed: {e}")
 
 
 async def update_event_environment(event_id: str, gif_path: str, srh_0_1: float) -> None:
@@ -142,9 +142,9 @@ async def update_event_environment(event_id: str, gif_path: str, srh_0_1: float)
         )
         await db.commit()
         _mark_dirty()
-        logger.info(f"[EVENTS-DB] Updated environment for {event_id} (SRH: {srh_0_1:.1f})")
+        logger.info(f"Updated environment for {event_id} (SRH: {srh_0_1:.1f})")
     except Exception as e:
-        logger.warning(f"[EVENTS-DB] update_event_environment({event_id}) failed: {e}")
+        logger.warning(f"update_event_environment({event_id}) failed: {e}")
 
 
 async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> Optional[Tuple[str, Optional[str], Optional[str], Optional[str]]]:
@@ -186,11 +186,11 @@ async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> Opti
             )
             await db.commit()
             _mark_dirty()
-            logger.info(f"[EVENTS-DB] Linked DAT {guid} to event {best_id}")
+            logger.info(f"Linked DAT {guid} to event {best_id}")
             return (best_id, best_row["location"], best_row["magnitude"], best_row["coords"])
             
     except Exception as e:
-        logger.warning(f"[EVENTS-DB] link_dat_guid_to_tornado failed: {e}")
+        logger.warning(f"link_dat_guid_to_tornado failed: {e}")
     return None
 
 
@@ -214,7 +214,7 @@ async def backfill_dat_guids(days: int = 30):
     try:
         data = await http_get_json(url, retries=1, timeout=15)
         if not data or "features" not in data:
-            logger.debug(f"[EVENTS-DB] No DAT updates found in last {days} days")
+            logger.debug(f"No DAT updates found in last {days} days")
             return
 
         # 2. Get un-linked tornadoes from our DB
@@ -268,10 +268,10 @@ async def backfill_dat_guids(days: int = 30):
         if linked_count > 0:
             await db.commit()
             _mark_dirty()
-            logger.info(f"[EVENTS-DB] Backfilled {linked_count} DAT GUIDs via geographic matching")
+            logger.info(f"Backfilled {linked_count} DAT GUIDs via geographic matching")
 
     except Exception as e:
-        logger.warning(f"[EVENTS-DB] backfill_dat_guids failed: {e}")
+        logger.warning(f"backfill_dat_guids failed: {e}")
 
 
 async def fetch_dat_photos(
@@ -497,7 +497,7 @@ async def get_recent_significant_events(
             rows = await cur.fetchall()
             return [dict(r) for r in rows]
     except Exception as e:
-        logger.warning(f"[EVENTS-DB] get_recent_significant_events failed: {e}")
+        logger.warning(f"get_recent_significant_events failed: {e}")
         return []
 
 
@@ -534,7 +534,7 @@ async def find_matching_tornado(
         return None
 
     except Exception as e:
-        logger.warning(f"[EVENTS-DB] find_matching_tornado failed: {e}")
+        logger.warning(f"find_matching_tornado failed: {e}")
         return None
 
 
@@ -551,10 +551,10 @@ async def prune_old_significant_events(days: int = 365) -> int:
         await db.commit()
         if count > 0:
             _mark_dirty()
-            logger.info(f"[EVENTS-DB] Pruned {count} events older than {days} days")
+            logger.info(f"Pruned {count} events older than {days} days")
         return count
     except Exception as e:
-        logger.warning(f"[EVENTS-DB] Pruning failed: {e}")
+        logger.warning(f"Pruning failed: {e}")
         return 0
 
 
@@ -581,34 +581,34 @@ async def snapshot_for_sync() -> None:
             await db.backup(dst)
         os.replace(tmp, _SYNC_PATH)
         _db_dirty = False
-        logger.debug("[EVENTS-DB] Snapshot written to sync dir")
+        logger.debug("Snapshot written to sync dir")
     except Exception as e:
-        logger.warning(f"[EVENTS-DB] Snapshot failed: {e}")
+        logger.warning(f"Snapshot failed: {e}")
 
 
 def restore_from_sync() -> None:
     """Copy the Syncthing-received snapshot into events.db before cogs load.
     Called synchronously at promotion time before the event loop is busy."""
     if not os.path.exists(_SYNC_PATH):
-        logger.info("[EVENTS-DB] No sync snapshot found — starting fresh events.db")
+        logger.info("No sync snapshot found — starting fresh events.db")
         return
     
     global _db
     if _db is not None:
-        logger.warning("[EVENTS-DB] Cannot restore while DB is open — close it first")
+        logger.warning("Cannot restore while DB is open — close it first")
         return
 
     try:
         os.makedirs(os.path.dirname(_EVENTS_DB_PATH), exist_ok=True)
         # Ensure we don't copy over a corrupted or partial sync file
         if os.path.getsize(_SYNC_PATH) < 4096: # Minimal SQLite file size
-             logger.warning("[EVENTS-DB] Sync snapshot too small, skipping restore")
+             logger.warning("Sync snapshot too small, skipping restore")
              return
              
         shutil.copy2(_SYNC_PATH, _EVENTS_DB_PATH)
-        logger.info("[EVENTS-DB] Restored events.db from sync snapshot")
+        logger.info("Restored events.db from sync snapshot")
     except Exception as e:
-        logger.warning(f"[EVENTS-DB] Restore from sync failed: {e}")
+        logger.warning(f"Restore from sync failed: {e}")
 
 
 # ── Syncthing folder-mode flipping ───────────────────────────────────────────
@@ -628,7 +628,7 @@ async def set_syncthing_folder_mode(mode: str) -> None:
                 f"{url_base}/rest/config/folders/{folder_id}", headers=headers, timeout=_aiohttp.ClientTimeout(total=5)
             ) as resp:
                 if resp.status != 200:
-                    logger.warning(f"[EVENTS-DB] Syncthing folder fetch failed: {resp.status}")
+                    logger.warning(f"Syncthing folder fetch failed: {resp.status}")
                     return
                 folder_cfg = await resp.json()
             folder_cfg["type"] = mode
@@ -639,8 +639,8 @@ async def set_syncthing_folder_mode(mode: str) -> None:
                 timeout=_aiohttp.ClientTimeout(total=5),
             ) as resp:
                 if resp.status in (200, 201):
-                    logger.info(f"[EVENTS-DB] Syncthing folder set to {mode}")
+                    logger.info(f"Syncthing folder set to {mode}")
                 else:
-                    logger.warning(f"[EVENTS-DB] Syncthing folder update failed: {resp.status}")
+                    logger.warning(f"Syncthing folder update failed: {resp.status}")
     except Exception as e:
-        logger.warning(f"[EVENTS-DB] Syncthing API call failed: {e}")
+        logger.warning(f"Syncthing API call failed: {e}")

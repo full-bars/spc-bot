@@ -68,9 +68,9 @@ async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
                 for w in _nws_last_parsed.values():
                     if w.get("expires"):
                         w["expires"] = datetime.fromisoformat(w["expires"])
-                logger.info(f"[WATCH] Resumed {len(_nws_last_parsed)} watches from state store")
+                logger.info(f"Resumed {len(_nws_last_parsed)} watches from state store")
             except Exception as e:
-                logger.warning(f"[WATCH] Failed to load last_parsed state: {e}")
+                logger.warning(f"Failed to load last_parsed state: {e}")
                 _nws_last_parsed = {}
         else:
             _nws_last_parsed = {}
@@ -88,7 +88,7 @@ async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
         return _nws_last_parsed
         
     if not content or status != 200:
-        logger.warning(f"[WATCH] NWS API returned status {status} — will retry next cycle")
+        logger.warning(f"NWS API returned status {status} — will retry next cycle")
         return None
 
     # 3. Update validators
@@ -102,7 +102,7 @@ async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
     try:
         data = _json.loads(content)
     except Exception as e:
-        logger.warning(f"[WATCH] NWS API JSON parse error: {e}")
+        logger.warning(f"NWS API JSON parse error: {e}")
         return None
 
     result = {}
@@ -125,7 +125,7 @@ async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
                         timezone.utc
                     )
                 except (ValueError, TypeError) as e:
-                    logger.debug(f"[WATCH] Could not parse expires {expires_str!r}: {e}")
+                    logger.debug(f"Could not parse expires {expires_str!r}: {e}")
             
             affected_zones = props.get("affectedZones", [])
             result[watch_num] = {
@@ -156,12 +156,12 @@ async def fetch_latest_watch_numbers() -> List[Tuple[str, str]]:
     """
     nws = await fetch_active_watches_nws()
     if nws is None:
-        logger.warning("[WATCH] NWS API fetch failed — skipping, no fallback for auto loop")
+        logger.warning("NWS API fetch failed — skipping, no fallback for auto loop")
         return []
     if nws:
         return [(num, info["type"]) for num, info in nws.items()]
 
-    logger.warning("[WATCH] NWS API empty, falling back to SPC HTML scrape")
+    logger.warning("NWS API empty, falling back to SPC HTML scrape")
     html = await http_get_text(SPC_WATCH_INDEX_URL)
     if not html:
         return []
@@ -236,10 +236,10 @@ async def fetch_watch_details_iem(watch_number: str) -> Tuple[Optional[str], Opt
                     if len(prelim_lines) > 1:
                         probs = "\n".join(prelim_lines)
 
-                    logger.info(f"[WATCH] Got details from IEM watches API for #{watch_number}")
+                    logger.info(f"Got details from IEM watches API for #{watch_number}")
                     break
     except Exception as e:
-        logger.warning(f"[WATCH] IEM watches API failed for #{watch_number}: {e}")
+        logger.warning(f"IEM watches API failed for #{watch_number}: {e}")
 
     # No image available from IEM — SPC image will be retried separately
     return text_summary, None, probs
@@ -428,33 +428,33 @@ async def fetch_watch_details(
             if prob_lines:
                 probs = "\n".join(prob_lines)
             logger.info(
-                f"[WATCH] Parsed {len(pairs)} prob entries "
+                f"Parsed {len(pairs)} prob entries "
                 f"for #{watch_number}"
             )
         else:
             logger.warning(
-                f"[WATCH] No prob pairs parsed for #{watch_number}"
+                f"No prob pairs parsed for #{watch_number}"
             )
 
     # Check iembot real-time cache first (populated within seconds of issuance)
     cached_text = await get_cached_watch_text(watch_number)
     if cached_text and not text_summary:
         text_summary = cached_text
-        logger.info(f"[WATCH] Got text from iembot cache for #{watch_number}")
+        logger.info(f"Got text from iembot cache for #{watch_number}")
 
     # IEM fallback: if SPC page was unreachable, try IEM watches API
     if not html:
-        logger.warning(f"[WATCH] SPC unreachable for #{watch_number} — using IEM data")
+        logger.warning(f"SPC unreachable for #{watch_number} — using IEM data")
         iem_summary, iem_img, iem_probs = await fetch_watch_details_iem(watch_number)
         if iem_summary and not text_summary:
             text_summary = iem_summary
-            logger.info(f"[WATCH] Got text from IEM for #{watch_number}")
+            logger.info(f"Got text from IEM for #{watch_number}")
         if iem_img and not image_url:
             image_url = iem_img
-            logger.info(f"[WATCH] Got image from IEM for #{watch_number}")
+            logger.info(f"Got image from IEM for #{watch_number}")
         if iem_probs and not probs:
             probs = iem_probs
-            logger.info(f"[WATCH] Got preliminary probs from IEM for #{watch_number}")
+            logger.info(f"Got preliminary probs from IEM for #{watch_number}")
 
     return image_url, text_summary, probs
 
@@ -601,7 +601,7 @@ class WatchPaginatorView(discord.ui.View):
             try:
                 await self.message.edit(view=self)
             except discord.HTTPException as e:
-                logger.debug(f"[WATCH] Could not disable view on timeout: {e}")
+                logger.debug(f"Could not disable view on timeout: {e}")
 
 
 async def _execute_watches(interaction: discord.Interaction, bot: commands.Bot):
@@ -723,7 +723,7 @@ class WatchesCog(commands.Cog):
                     )
                     files = _watch_files(watch_num, cache_path)
                     await message.edit(embed=embed, attachments=files)
-                    logger.info(f"[WATCH] Full upgrade complete for #{watch_num}")
+                    logger.info(f"Full upgrade complete for #{watch_num}")
                     return
 
                 # If we only have Probs, or we're on the last attempt, do a 
@@ -751,11 +751,11 @@ class WatchesCog(commands.Cog):
                     if has_real_probs:
                         # We have real probs but still no image. 
                         # Break to Stage 2 for dedicated image slow-poll.
-                        logger.info(f"[WATCH] Probs updated for #{watch_num}; transitioning to slow-poll for image")
+                        logger.info(f"Probs updated for #{watch_num}; transitioning to slow-poll for image")
                         break
 
             except Exception as e:
-                logger.warning(f"[WATCH] Upgrade attempt {attempt+1} failed for #{watch_num}: {e}")
+                logger.warning(f"Upgrade attempt {attempt+1} failed for #{watch_num}: {e}")
 
         # ── Stage 2: Slow poll specifically for the Image ──────────────────
         # Sometimes SPC takes 15-20 minutes to generate the GIF during high load.
@@ -792,13 +792,13 @@ class WatchesCog(commands.Cog):
                 )
                 files = _watch_files(watch_num, cache_path)
                 await message.edit(embed=embed, attachments=files)
-                logger.info(f"[WATCH] Image finally backfilled for #{watch_num} after slow-poll")
+                logger.info(f"Image finally backfilled for #{watch_num} after slow-poll")
                 return
 
             except Exception as e:
-                logger.debug(f"[WATCH] Slow-poll image check failed for #{watch_num}: {e}")
+                logger.debug(f"Slow-poll image check failed for #{watch_num}: {e}")
 
-        logger.info(f"[WATCH] Gave up on image backfill for #{watch_num} after 30 minutes")
+        logger.info(f"Gave up on image backfill for #{watch_num} after 30 minutes")
 
     async def post_watch_now(self, watch_num: str, nws_info: dict):
         """
@@ -819,7 +819,7 @@ class WatchesCog(commands.Cog):
         color = discord.Color.red() if is_tornado else discord.Color.orange()
         now_utc = datetime.now(timezone.utc)
 
-        logger.info(f"[WATCH] iembot-triggered post for #{watch_num} ({wtype})")
+        logger.info(f"iembot-triggered post for #{watch_num} ({wtype})")
         image_url, text_summary, probs = await fetch_watch_details(watch_num)
         cache_path = None
         if image_url:
@@ -850,7 +850,7 @@ class WatchesCog(commands.Cog):
             await add_posted_watch(str(watch_num))
             await prune_posted_watches()
             self.bot.state.last_post_times["watch"] = now_utc
-            logger.info(f"[WATCH] iembot-triggered: posted watch #{watch_num}")
+            logger.info(f"iembot-triggered: posted watch #{watch_num}")
             sounding_cog = self.bot.cogs.get("SoundingCog")
             if sounding_cog and isinstance(nws_info, dict) and nws_info.get("affected_zones"):
                 asyncio.create_task(
@@ -865,7 +865,7 @@ class WatchesCog(commands.Cog):
                 self._pending_tasks.add(t)
                 t.add_done_callback(self._pending_tasks.discard)
         except discord.HTTPException as e:
-            logger.exception(f"[WATCH] iembot-triggered send failed for #{watch_num}: {e}")
+            logger.exception(f"iembot-triggered send failed for #{watch_num}: {e}")
 
     @tasks.loop(minutes=2)
     async def auto_post_watches(self):
@@ -883,7 +883,7 @@ class WatchesCog(commands.Cog):
             nws_watches = await fetch_active_watches_nws()
             if nws_watches is None:
                 logger.warning(
-                    "[WATCH] NWS API fetch failed — skipping cycle, active set unchanged"
+                    "NWS API fetch failed — skipping cycle, active set unchanged"
                 )
                 return
             now_utc = datetime.now(timezone.utc)
@@ -906,7 +906,7 @@ class WatchesCog(commands.Cog):
                 self.bot.state.active_watches.pop(watch_num, None)
                 reason = "expired" if expired_by_time else "no longer active"
                 logger.info(
-                    f"[WATCH] Watch #{watch_num} {reason} — "
+                    f"Watch #{watch_num} {reason} — "
                     f"posting cancellation"
                 )
                 watch_label = (
@@ -926,11 +926,11 @@ class WatchesCog(commands.Cog):
                 try:
                     await channel.send(embed=embed)
                     logger.info(
-                        f"[WATCH] Posted cancellation for #{watch_num}"
+                        f"Posted cancellation for #{watch_num}"
                     )
                 except discord.HTTPException as e:
                     logger.exception(
-                        f"[WATCH] Failed to send cancellation "
+                        f"Failed to send cancellation "
                         f"for #{watch_num}: {e}"
                     )
                     self.bot.state.active_watches[watch_num] = info
@@ -968,7 +968,7 @@ class WatchesCog(commands.Cog):
                 )
 
                 logger.info(
-                    f"[WATCH] New watch detected: #{watch_num} ({wtype})"
+                    f"New watch detected: #{watch_num} ({wtype})"
                 )
                 image_url, text_summary, probs = await fetch_watch_details(
                     watch_num
@@ -998,7 +998,7 @@ class WatchesCog(commands.Cog):
                     await add_posted_watch(str(watch_num))
                     await prune_posted_watches()
                     self.bot.state.last_post_times["watch"] = datetime.now(timezone.utc)
-                    logger.info(f"[WATCH] Posted watch #{watch_num}")
+                    logger.info(f"Posted watch #{watch_num}")
                     sounding_cog = self.bot.cogs.get("SoundingCog")
                     if sounding_cog:
                         asyncio.create_task(
@@ -1014,14 +1014,14 @@ class WatchesCog(commands.Cog):
                         t.add_done_callback(self._pending_tasks.discard)
                 except discord.HTTPException as e:
                     logger.exception(
-                        f"[WATCH] Discord send failed for #{watch_num}: {e}"
+                        f"Discord send failed for #{watch_num}: {e}"
                     )
 
             self._watches_backoff.success()
 
         except Exception as e:
             logger.exception(
-                f"[WATCH] Unexpected error in auto_post_watches: {e}",
+                f"Unexpected error in auto_post_watches: {e}",
             )
             await self._watches_backoff.failure(self.bot)
 

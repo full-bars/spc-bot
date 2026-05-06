@@ -25,7 +25,7 @@ logger = logging.getLogger("spc_bot.mesoscale")
 
 def _log_task_exception(task: asyncio.Task) -> None:
     if not task.cancelled() and (exc := task.exception()):
-        logger.exception("[MD] Unhandled exception in background task", exc_info=exc)
+        logger.exception("Unhandled exception in background task", exc_info=exc)
 
 _md_index_head: Optional[Dict[str, str]] = None
 _md_index_unreachable: Optional[bool] = None
@@ -46,7 +46,7 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> Tuple[Optional[List[st
         (md_numbers, is_fallback)
     """
     global _md_index_head, _md_index_unreachable
-    logger.debug(f"[MD] Fetching MD numbers (fresh={fresh})")
+    logger.debug(f"Fetching MD numbers (fresh={fresh})")
 
     # 1. Load persistent state on first run
     if _md_index_head is None:
@@ -66,7 +66,7 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> Tuple[Optional[List[st
                 if meta.get(key):
                     checks.append(meta[key] == _md_index_head.get(key))
             if checks and all(checks):
-                logger.debug("[MD] Index unchanged (HEAD match)")
+                logger.debug("Index unchanged (HEAD match)")
                 return None, False
         if meta:
             _md_index_head.update(meta)
@@ -76,14 +76,14 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> Tuple[Optional[List[st
         _md_index_head = {}
         await set_state("md_index_head", "{}")
 
-    logger.debug(f"[MD] Requesting SPC index: {SPC_MD_INDEX_URL}")
+    logger.debug(f"Requesting SPC index: {SPC_MD_INDEX_URL}")
     html = await http_get_text(SPC_MD_INDEX_URL)
 
     # If SPC is unreachable, try to scrape from IEM
     if not html:
-        logger.warning("[MD] SPC index HTML empty/failed, falling back to IEM")
+        logger.warning("SPC index HTML empty/failed, falling back to IEM")
         if not _md_index_unreachable:
-            logger.warning("[MD] SPC index unreachable — falling back to IEM for active MD list")
+            logger.warning("SPC index unreachable — falling back to IEM for active MD list")
             _md_index_unreachable = True
             await set_state("md_index_unreachable", "true")
         try:
@@ -98,17 +98,17 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> Tuple[Optional[List[st
                 for m in matches:
                     md_nums.add(m.zfill(4))
                 
-                logger.info(f"[MD] IEM fallback returned {len(md_nums)} MDs from last 24h")
+                logger.info(f"IEM fallback returned {len(md_nums)} MDs from last 24h")
                 return sorted(list(md_nums), reverse=True), True
             else:
-                logger.warning("[MD] IEM fallback returned empty text")
+                logger.warning("IEM fallback returned empty text")
         except Exception as e:
-            logger.exception(f"[MD] IEM fallback for index failed: {e}")
+            logger.exception(f"IEM fallback for index failed: {e}")
         
         return None, True
 
     if _md_index_unreachable:
-        logger.info("[MD] SPC index reachable again")
+        logger.info("SPC index reachable again")
         _md_index_unreachable = False
         await set_state("md_index_unreachable", "false")
 
@@ -120,7 +120,7 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> Tuple[Optional[List[st
             seen.add(n)
             result.append(n.zfill(4))
     
-    logger.debug(f"[MD] Scraped {len(result)} MD numbers from SPC index")
+    logger.debug(f"Scraped {len(result)} MD numbers from SPC index")
     return result, False
 
 
@@ -163,7 +163,7 @@ async def fetch_md_details_iem(md_number: str) -> Tuple[Optional[str], Optional[
                         summary = " ".join(lines[:3])[:200]
                     break
     except Exception as e:
-        logger.warning(f"[MD] IEM text fallback failed for #{md_number}: {e}")
+        logger.warning(f"IEM text fallback failed for #{md_number}: {e}")
 
     return iem_image_url, summary, raw_text
 
@@ -206,25 +206,25 @@ async def fetch_md_details(
     if first is spc_task:
         html = first.result()
         if html:
-            logger.debug(f"[MD] SPC won race for #{md_number}")
+            logger.debug(f"SPC won race for #{md_number}")
             for t in pending:
                 t.cancel()
         else:
-            logger.warning(f"[MD] SPC page failed for #{md_number} — waiting for IEM")
+            logger.warning(f"SPC page failed for #{md_number} — waiting for IEM")
             if pending:
                 try:
                     iem_result = await pending.pop()
                 except Exception as e:
-                    logger.debug(f"[MD] IEM fallback also failed for #{md_number}: {e}")
+                    logger.debug(f"IEM fallback also failed for #{md_number}: {e}")
     else:
         iem_result = first.result()
         try:
             html = await asyncio.wait_for(spc_task, timeout=5.0)
             if html:
-                logger.debug(f"[MD] SPC caught up for #{md_number}")
+                logger.debug(f"SPC caught up for #{md_number}")
                 iem_result = None
         except asyncio.TimeoutError:
-            logger.warning(f"[MD] SPC timed out for #{md_number} — using IEM")
+            logger.warning(f"SPC timed out for #{md_number} — using IEM")
             spc_task.cancel()
 
     if not html:
@@ -235,19 +235,19 @@ async def fetch_md_details(
         cached_text = await get_cached_md_text(md_number)
         
         if os.path.exists(cached_path):
-            logger.info(f"[MD] SPC unreachable for #{md_number}, serving image from cache")
+            logger.info(f"SPC unreachable for #{md_number}, serving image from cache")
             return fallback_url, None, True, cached_text
         if iem_result:
             iem_img, iem_summary, iem_raw = iem_result
             if iem_img:
-                logger.info(f"[MD] Got MD #{md_number} from IEM")
+                logger.info(f"Got MD #{md_number} from IEM")
                 return iem_img, iem_summary, True, iem_raw or cached_text
         
         if cached_text:
-            logger.info(f"[MD] SPC/IEM unreachable for #{md_number}, but found text in iembot cache")
+            logger.info(f"SPC/IEM unreachable for #{md_number}, but found text in iembot cache")
             return None, None, False, cached_text
 
-        logger.warning(f"[MD] SPC unreachable for #{md_number} and no cache or IEM available")
+        logger.warning(f"SPC unreachable for #{md_number} and no cache or IEM available")
         return None, None, False, None
 
     img_match = re.search(
@@ -265,7 +265,7 @@ async def fetch_md_details(
     # Check iembot real-time cache first (populated within seconds of issuance)
     summary = await get_cached_md_text(md_number)
     if summary:
-        logger.info(f"[MD] Got summary from iembot cache for #{md_number}")
+        logger.info(f"Got summary from iembot cache for #{md_number}")
 
     if not summary:
         concerning = re.search(r"(CONCERNING[^\n<]{10,120})", html, re.IGNORECASE)
@@ -541,13 +541,13 @@ class MesoscaleCog(commands.Cog):
         try:
             prob = int(m.group(1))
             if prob >= 80:
-                logger.info(f"[MD] High watch probability ({prob}%) for MD #{md_num} — triggering sounding pre-warm")
+                logger.info(f"High watch probability ({prob}%) for MD #{md_num} — triggering sounding pre-warm")
                 sounding_cog = self.bot.cogs.get("SoundingCog")
                 if sounding_cog:
                     t = asyncio.create_task(sounding_cog.prewarm_soundings_for_md(md_num, raw_text))
                     t.add_done_callback(_log_task_exception)
         except Exception as e:
-            logger.debug(f"[MD] Could not parse probability for MD #{md_num}: {e}")
+            logger.debug(f"Could not parse probability for MD #{md_num}: {e}")
 
     async def _upgrade_md_message(
         self,
@@ -585,13 +585,13 @@ class MesoscaleCog(commands.Cog):
                 if recovered:
                     full_text = recovered
                     changed = True
-                    logger.info(f"[MD] Recovered text for #{md_num}")
+                    logger.info(f"Recovered text for #{md_num}")
             if not cache_path:
                 cp, _, _ = await download_single_image(image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache)
                 if cp:
                     cache_path = cp
                     changed = True
-                    logger.info(f"[MD] Recovered image for #{md_num}")
+                    logger.info(f"Recovered image for #{md_num}")
             if changed:
                 await _push_edit()
             if cache_path and full_text:
@@ -604,7 +604,7 @@ class MesoscaleCog(commands.Cog):
         if not channel:
             return
         self.bot.state.posted_mds.add(md_num)
-        logger.info(f"[MD] iembot-triggered post for #{md_num}")
+        logger.info(f"iembot-triggered post for #{md_num}")
         image_url, summary, from_cache, raw_text = await fetch_md_details(md_num)
         if raw_text:
             t = asyncio.create_task(self._check_prewarm(md_num, raw_text))
@@ -632,9 +632,9 @@ class MesoscaleCog(commands.Cog):
                 t = asyncio.create_task(self._upgrade_md_message(md_num, msg, full_text))
                 self._pending_tasks.add(t)
                 t.add_done_callback(self._pending_tasks.discard)
-            logger.info(f"[MD] iembot-triggered: posted MD #{md_num}")
+            logger.info(f"iembot-triggered: posted MD #{md_num}")
         except Exception as e:
-            logger.exception(f"[MD] iembot send failed: {e}")
+            logger.exception(f"iembot send failed: {e}")
     @tasks.loop(seconds=30)
     async def auto_post_md(self):
         try:
@@ -676,13 +676,13 @@ class MesoscaleCog(commands.Cog):
                                    (num_int < current_max and current_max - num_int > 8000)
                         if is_newer:
                             logger.info(
-                                f"[MD] Index lagging (highest is {current_max:04d}) — "
+                                f"Index lagging (highest is {current_max:04d}) — "
                                 f"sparing #{md_num} from cancellation"
                             )
                             continue
 
                     logger.info(
-                        f"[MD] MD #{md_num} no longer on index — "
+                        f"MD #{md_num} no longer on index — "
                         f"posting cancellation"
                     )
                     embed = discord.Embed(
@@ -699,16 +699,15 @@ class MesoscaleCog(commands.Cog):
                         self.bot.state.active_mds.discard(md_num)
                         self._cancelled_mds.add(md_num)
                         self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
-                        logger.info(
-                            f"[MD] Posted cancellation for #{md_num}"
-                        )
+                        logger.info(f"Posted cancellation for #{md_num}")
+
                     except discord.HTTPException as e:
                         logger.exception(
-                            f"[MD] Failed to send cancellation "
+                            f"Failed to send cancellation "
                             f"for #{md_num}: {e}"
                         )
             else:
-                logger.debug("[MD] In fallback mode — skipping cancellation check")
+                logger.debug("In fallback mode — skipping cancellation check")
 
             # ── New MDs ────────────────────────────────────────────────────
             for md_num in md_numbers:
@@ -728,13 +727,13 @@ class MesoscaleCog(commands.Cog):
 
                 if not image_url:
                     logger.warning(
-                        f"[MD] Could not resolve image URL for MD #{md_num}"
+                        f"Could not resolve image URL for MD #{md_num}"
                     )
                     continue
 
                 if raw_text:
                     t = asyncio.create_task(self._check_prewarm(md_num, raw_text))
-                    t.add_done_callback(lambda t: None if t.cancelled() else (logger.exception("[MD] Prewarm failed", exc_info=t.exception()) if t.exception() else None))
+                    t.add_done_callback(lambda t: None if t.cancelled() else (logger.exception("Prewarm failed", exc_info=t.exception()) if t.exception() else None))
 
                 full_text = extract_md_body(raw_text)
 
@@ -765,14 +764,14 @@ class MesoscaleCog(commands.Cog):
                     await add_posted_md(str(md_num))
                     await prune_posted_mds()
                     self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
-                    logger.info(f"[MD] Posted MD #{md_num}")
+                    logger.info(f"Posted MD #{md_num}")
                 except Exception as e:
-                    logger.exception(f"[MD] auto_post_md send failed for #{md_num}: {e}")
+                    logger.exception(f"auto_post_md send failed for #{md_num}: {e}")
             self._md_backoff.success()
 
         except Exception as e:
             logger.exception(
-                f"[MD] Unexpected error in auto_post_md: {e}"
+                f"Unexpected error in auto_post_md: {e}"
             )
             await self._md_backoff.failure(self.bot)
 
