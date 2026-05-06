@@ -372,7 +372,7 @@ class NWWSCog(commands.Cog):
         self.xmpp_client = NWWSClient(jid, NWWS_PASSWORD, self.bot)
         
         try:
-            self.xmpp_client.connect(address=(NWWS_SERVER, 5222))
+            self.xmpp_client.connect((NWWS_SERVER, 5222))
         except Exception as e:
             logger.error(f"Connection attempt failed: {e}")
             self.xmpp_client = None

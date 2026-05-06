@@ -340,7 +340,7 @@ class SoundingCog(commands.Cog):
                 except Exception as e:
                     logger.exception(f"Failed to post {sid}: {e}")
 
-            await self._persist_posted_state()
+    
 
     @tasks.loop(minutes=15)
     async def monitor_high_risk_soundings(self):
@@ -363,7 +363,7 @@ class SoundingCog(commands.Cog):
         try:
             await self._tick_high_risk_soundings()
         except Exception as e:
-            logger.exception(f"[SOUNDING-RISK] Tick failed: {e}")
+            logger.exception(f"Tick failed: {e}")
 
     async def _tick_high_risk_soundings(self):
         await self.bot.wait_until_ready()
@@ -379,7 +379,7 @@ class SoundingCog(commands.Cog):
         try:
             stations_df = await get_raob_stations()
         except Exception as e:
-            logger.exception(f"[SOUNDING-RISK] Failed to load station list: {e}")
+            logger.exception(f"Failed to load station list: {e}")
             return
 
         channel = self.bot.get_channel(SOUNDING_CHANNEL_ID)
@@ -419,7 +419,7 @@ class SoundingCog(commands.Cog):
 
         if not in_area:
             logger.debug(
-                f"[SOUNDING-RISK] No RAOB stations inside Day 1 "
+                f"No RAOB stations inside Day 1 "
                 f"{sorted(labels)} polygon"
             )
             return
@@ -431,7 +431,7 @@ class SoundingCog(commands.Cog):
         #  {"MDT","HIGH"} → "High-Risk"  (HIGH dominates; covers both)
         caption_prefix = "High-Risk" if "HIGH" in labels else "MDT-Risk"
         logger.info(
-            f"[SOUNDING-RISK] {labels_str} active — "
+            f"{labels_str} active — "
             f"{len(in_area)} RAOB stations inside polygon"
         )
 
@@ -461,7 +461,7 @@ class SoundingCog(commands.Cog):
 
         if to_post:
             logger.info(
-                f"[SOUNDING-RISK] Found {len(to_post)} new RAOB sounding(s) "
+                f"Found {len(to_post)} new RAOB sounding(s) "
                 f"inside {labels_str} polygon"
             )
 
@@ -512,11 +512,11 @@ class SoundingCog(commands.Cog):
                     try:
                         await channel.send(caption, files=[discord.File(png_path)])
                         logger.info(
-                            f"[SOUNDING-RISK] Posted {sid} {h}z ({labels_str})"
+                            f"Posted {sid} {h}z ({labels_str})"
                         )
                         self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
                     except Exception as e:
-                        logger.exception(f"[SOUNDING-RISK] Failed to post {sid}: {e}")
+                        logger.exception(f"Failed to post {sid}: {e}")
 
         # ── ACARS sweep ───────────────────────────────────────────────────
         try:
@@ -524,7 +524,7 @@ class SoundingCog(commands.Cog):
                 polygon, hours_back=2, max_results=15
             )
         except Exception as e:
-            logger.warning(f"[SOUNDING-RISK] ACARS poll failed: {e}")
+            logger.warning(f"ACARS poll failed: {e}")
             acars_in_poly = []
 
         acars_to_post = []
@@ -539,7 +539,7 @@ class SoundingCog(commands.Cog):
 
         if acars_to_post:
             logger.info(
-                f"[SOUNDING-RISK] Found {len(acars_to_post)} new ACARS profile(s) "
+                f"Found {len(acars_to_post)} new ACARS profile(s) "
                 f"inside {labels_str} polygon"
             )
 
@@ -583,15 +583,15 @@ class SoundingCog(commands.Cog):
                     try:
                         await channel.send(caption, files=[discord.File(png_path)])
                         logger.info(
-                            f"[SOUNDING-RISK] Posted ACARS {p['airport']} ({labels_str})"
+                            f"Posted ACARS {p['airport']} ({labels_str})"
                         )
                         self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
                     except Exception as e:
                         logger.exception(
-                            f"[SOUNDING-RISK] Failed to post ACARS {p['airport']}: {e}"
+                            f"Failed to post ACARS {p['airport']}: {e}"
                         )
 
-        await self._persist_posted_state()
+
 
     @monitor_high_risk_soundings.after_loop
     async def after_high_risk_loop(self):
@@ -804,7 +804,7 @@ class SoundingCog(commands.Cog):
             except Exception as e:
                 logger.exception(f"Failed to post ACARS: {e}")
 
-        await self._persist_posted_state()
+
 
     @tasks.loop(minutes=30)
     async def auto_sounding_watches(self):
@@ -981,7 +981,7 @@ class SoundingCog(commands.Cog):
                 except Exception as e:
                     logger.exception(f"Failed to post ACARS: {e}")
 
-            await self._persist_posted_state()
+    
 
     @discord.app_commands.command(
         name="sounding",

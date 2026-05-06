@@ -69,10 +69,24 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
             updated_count = len([v for v in downloaded_data.values() if v is not None])
 
         if updated_count < total_count:
+            if day_key not in state.partial_update_state:
+                state.partial_update_state[day_key] = {
+                    "start_time": datetime.now(timezone.utc),
+                    "downloaded_data": downloaded_data,
+                }
+                logger.info(
+                    f"[Day {day}] Partial update ({updated_count}/{total_count}). "
+                    f"Entering aggressive check mode."
+                )
+                if day == 1:
+                    return # Start waiting cycle for Day 1
+            
+            # Now we know it's in the state
+            elapsed = (
+                datetime.now(timezone.utc) - state.partial_update_state[day_key]["start_time"]
+            ).total_seconds() / 60
+
             if day == 1 and updated_count > 0:
-                elapsed = (
-                    datetime.now(timezone.utc) - state.partial_update_state[day_key]["start_time"]
-                ).total_seconds() / 60
                 if elapsed > 5: # If 5 mins have passed, post what we have
                     logger.info(f"[Day 1] Posting partial update after {elapsed:.1f} min.")
                     state.partial_update_state.pop(day_key, None)
@@ -81,33 +95,19 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
                     logger.info(f"[Day 1] Waiting for more images ({updated_count}/{total_count}, {elapsed:.1f} min elapsed)")
                     return
             else:
-                if day_key not in state.partial_update_state:
-                    state.partial_update_state[day_key] = {
-                        "start_time": datetime.now(timezone.utc),
-                        "downloaded_data": downloaded_data,
-                    }
-                    logger.info(
-                        f"[Day {day}] Partial update ({updated_count}/{total_count}). "
-                        f"Entering aggressive check mode."
+                if elapsed > 20:
+                    logger.warning(
+                        f"[Day {day}] Timeout after {elapsed:.1f} min. "
+                        f"Posting {updated_count}/{total_count} images."
                     )
+                    state.partial_update_state.pop(day_key, None)
+                    # Proceed to post...
                 else:
-                    elapsed = (
-                        datetime.now(timezone.utc) - state.partial_update_state[day_key]["start_time"]
-                    ).total_seconds() / 60
-
-                    if elapsed > 20:
-                        logger.warning(
-                            f"[Day {day}] Timeout after {elapsed:.1f} min. "
-                            f"Posting {updated_count}/{total_count} images."
-                        )
-                        state.partial_update_state.pop(day_key, None)
-                        # Proceed to post...
-                    else:
-                        logger.info(
-                            f"[Day {day}] Waiting: {updated_count}/{total_count} ready "
-                            f"({elapsed:.1f} min elapsed)"
-                        )
-                        return
+                    logger.info(
+                        f"[Day {day}] Waiting: {updated_count}/{total_count} ready "
+                        f"({elapsed:.1f} min elapsed)"
+                    )
+                    return
         else:
             # All images updated
             if day_key in state.partial_update_state:
