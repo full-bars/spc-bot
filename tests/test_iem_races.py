@@ -18,11 +18,9 @@ class TestFetchWatchDetailsRace:
     @pytest.mark.asyncio
     async def test_returns_tuple_of_three(self):
         """fetch_watch_details always returns a 3-tuple regardless of outcome."""
-        with patch("cogs.watches.http_get_text", new_callable=AsyncMock) as mt, \
-             patch("cogs.watches.http_get_bytes", new_callable=AsyncMock) as mb, \
+        with patch("utils.cache.fetch_with_validators", new_callable=AsyncMock) as mv, \
              patch("cogs.watches.fetch_watch_details_iem", new_callable=AsyncMock) as mi:
-            mt.return_value = None
-            mb.return_value = (None, 404)
+            mv.return_value = (None, 404)
             mi.return_value = (None, None, None)
             from cogs.watches import fetch_watch_details
             result = await fetch_watch_details("0102")
@@ -32,11 +30,9 @@ class TestFetchWatchDetailsRace:
     @pytest.mark.asyncio
     async def test_iem_text_used_when_spc_fails(self):
         """When SPC page fails, IEM text summary is surfaced in the result."""
-        with patch("cogs.watches.http_get_text", new_callable=AsyncMock) as mt, \
-             patch("cogs.watches.http_get_bytes", new_callable=AsyncMock) as mb, \
+        with patch("utils.cache.fetch_with_validators", new_callable=AsyncMock) as mv, \
              patch("cogs.watches.fetch_watch_details_iem", new_callable=AsyncMock) as mi:
-            mt.return_value = None
-            mb.return_value = (None, 404)
+            mv.return_value = (None, 404)
             mi.return_value = ("IEM summary", "http://iem.example/img.png", None)
             from cogs.watches import fetch_watch_details
             image_url, text_summary, probs = await fetch_watch_details("0102")
@@ -45,11 +41,9 @@ class TestFetchWatchDetailsRace:
     @pytest.mark.asyncio
     async def test_both_fail_no_crash(self):
         """When both SPC and IEM fail, function returns without raising."""
-        with patch("cogs.watches.http_get_text", new_callable=AsyncMock) as mt, \
-             patch("cogs.watches.http_get_bytes", new_callable=AsyncMock) as mb, \
+        with patch("utils.cache.fetch_with_validators", new_callable=AsyncMock) as mv, \
              patch("cogs.watches.fetch_watch_details_iem", new_callable=AsyncMock) as mi:
-            mt.return_value = None
-            mb.return_value = (None, 404)
+            mv.return_value = (None, 404)
             mi.return_value = (None, None, None)
             from cogs.watches import fetch_watch_details
             result = await fetch_watch_details("0102")
@@ -65,10 +59,10 @@ class TestFetchMdDetailsRace:
     async def test_spc_wins_returns_image(self):
         """fetch_md_details returns image URL from SPC when available."""
         fake_html = '<img src="mcd0398.png">'
-        with patch("cogs.mesoscale.http_get_text", new_callable=AsyncMock) as mt, \
+        with patch("utils.cache.fetch_with_validators", new_callable=AsyncMock) as mv, \
              patch("cogs.mesoscale.fetch_md_details_iem", new_callable=AsyncMock) as mi, \
              patch("cogs.mesoscale.get_cached_md_text", new_callable=AsyncMock) as mc:
-            mt.return_value = fake_html
+            mv.return_value = (fake_html.encode("utf-8"), 200)
             mi.return_value = (None, None, None)
             mc.return_value = None
             from cogs.mesoscale import fetch_md_details
@@ -82,12 +76,12 @@ class TestFetchMdDetailsRace:
         # Use real asyncio primitives but mock the fetchers to control timing.
         async def slow_spc(*args, **kwargs):
             await asyncio.sleep(0.05)
-            return None
+            return None, 404
 
         async def fast_iem(*args, **kwargs):
             return ("http://iem.example/mcd0398.png", "IEM summary", "IEM raw")
 
-        with patch("cogs.mesoscale.http_get_text", side_effect=slow_spc), \
+        with patch("utils.cache.fetch_with_validators", side_effect=slow_spc), \
              patch("cogs.mesoscale.fetch_md_details_iem", side_effect=fast_iem), \
              patch("cogs.mesoscale.os.path.exists", return_value=False), \
              patch("cogs.mesoscale.get_cached_md_text", return_value=None):
@@ -101,11 +95,11 @@ class TestFetchMdDetailsRace:
     @pytest.mark.asyncio
     async def test_cache_returned_when_both_fail(self):
         """When SPC fails and IEM returns nothing, cached file is used."""
-        with patch("cogs.mesoscale.http_get_text", new_callable=AsyncMock) as mt, \
+        with patch("utils.cache.fetch_with_validators", new_callable=AsyncMock) as mv, \
              patch("cogs.mesoscale.fetch_md_details_iem", new_callable=AsyncMock) as mi, \
              patch("cogs.mesoscale.os.path.exists", return_value=True), \
              patch("cogs.mesoscale.get_cached_md_text", return_value=None):
-            mt.return_value = None
+            mv.return_value = (None, 404)
             mi.return_value = (None, None, None)
             from cogs.mesoscale import fetch_md_details
             image_url, summary, from_cache, raw_text = await fetch_md_details("0398")
