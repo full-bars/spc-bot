@@ -35,7 +35,7 @@ jobs:
       - uses: actions/checkout@v6
       - name: Build Rust extensions
         run: |
-          # 1. Ensure Cargo is in PATH
+          # 1. Ensure Rust is in PATH
           export PATH="$HOME/.cargo/bin:/root/.cargo/bin:$PATH"
           
           # 2. Install Rust if missing
@@ -44,13 +44,10 @@ jobs:
             . "$HOME/.cargo/env" || . "/root/.cargo/env"
           fi
           
-          # 3. Ensure a default toolchain is selected
-          if command -v rustup &> /dev/null; then
-            rustup default stable || true
-          fi
-          
+          # 3. Build and install extension
           pip install maturin
-          maturin develop --release
+          maturin build --release --out dist
+          pip install dist/*.whl
       - name: Run tests with coverage
         run: |
           python -m pytest tests/ \
