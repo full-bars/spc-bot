@@ -11,3 +11,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.21.2", features = ["extension-module"] }
+xxhash-rust = { version = "0.8.12", features = ["xxh3", "const_xxh3"] }
