@@ -17,6 +17,11 @@ fn spc_rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_radar_index, m)?)?;
     m.add_function(wrap_pyfunction!(find_nearest_radar, m)?)?;
     m.add_function(wrap_pyfunction!(filter_points_in_polygons, m)?)?;
+    m.add_function(wrap_pyfunction!(vec2comp, m)?)?;
+    m.add_function(wrap_pyfunction!(comp2vec, m)?)?;
+    m.add_function(wrap_pyfunction!(compute_bunkers, m)?)?;
+    m.add_function(wrap_pyfunction!(compute_srh, m)?)?;
+    m.add_function(wrap_pyfunction!(compute_critical_angle, m)?)?;
     Ok(())
 }
 
@@ -87,7 +92,6 @@ fn parse_vwp_tabular_data<'py>(
         // Parse this page starting from line_start
         let mut current_pos = line_start;
         let mut line_count = 0;
-        let mut page_has_data = false;
 
         while current_pos + 82 <= data.len() {
             let len = i16::from_be_bytes([data[current_pos], data[current_pos+1]]);
@@ -123,7 +127,6 @@ fn parse_vwp_tabular_data<'py>(
                             wind_dir: d, wind_spd: s, rms_error: r, divergence: v,
                             slant_range: slant_km, elev_angle: e, altitude: alt,
                         });
-                        page_has_data = true;
                     }
                 }
             }
@@ -263,4 +266,208 @@ fn filter_points_in_polygons(
         }
     }
     Ok(result)
+}
+
+// ── Phase 1: SRH/Bunkers Calculator ──────────────────────────────────────────
+
+#[pyfunction]
+fn vec2comp(wdir: f64, wspd: f64) -> PyResult<(f64, f64)> {
+    let wdir_rad = wdir.to_radians();
+    let u = -wspd * wdir_rad.sin();
+    let v = -wspd * wdir_rad.cos();
+    Ok((u, v))
+}
+
+#[pyfunction]
+fn comp2vec(u: f64, v: f64) -> PyResult<(f64, f64)> {
+    let spd = (u * u + v * v).sqrt();
+    let dir = if spd > 0.0 {
+        let angle_rad = (-v).atan2(-u);
+        let angle_deg = angle_rad.to_degrees();
+        let dir_deg = (90.0 - angle_deg) % 360.0;
+        if dir_deg < 0.0 { dir_deg + 360.0 } else { dir_deg }
+    } else {
+        0.0
+    };
+    Ok((dir, spd))
+}
+
+fn clip_profile(wind_dir: &[f64], wind_spd: &[f64], altitude: &[f64], max_hght: f64) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    let mut clipped_dir = Vec::new();
+    let mut clipped_spd = Vec::new();
+    let mut clipped_alt = Vec::new();
+    for (i, &alt) in altitude.iter().enumerate() {
+        if alt <= max_hght {
+            clipped_dir.push(wind_dir[i]);
+            clipped_spd.push(wind_spd[i]);
+            clipped_alt.push(alt);
+        }
+    }
+    (clipped_dir, clipped_spd, clipped_alt)
+}
+
+fn _interp_linear(x: &[f64], y: &[f64], xi: f64) -> f64 {
+    if x.is_empty() { return f64::NAN; }
+    if xi <= x[0] { return if x[0].is_nan() { f64::NAN } else { y[0] }; }
+    if xi >= x[x.len() - 1] { return if x[x.len() - 1].is_nan() { f64::NAN } else { y[y.len() - 1] }; }
+    for i in 0..x.len() - 1 {
+        if x[i] <= xi && xi <= x[i + 1] {
+            let t = (xi - x[i]) / (x[i + 1] - x[i]);
+            return y[i] + t * (y[i + 1] - y[i]);
+        }
+    }
+    f64::NAN
+}
+
+#[pyfunction]
+fn compute_bunkers(
+    wind_dir: Vec<f64>,
+    wind_spd: Vec<f64>,
+    altitude: Vec<f64>,
+) -> PyResult<((f64, f64), (f64, f64), (f64, f64))> {
+    if wind_dir.is_empty() { return Ok(((f64::NAN, f64::NAN), (f64::NAN, f64::NAN), (f64::NAN, f64::NAN))); }
+
+    let (clipped_dir, clipped_spd, _clipped_alt) = clip_profile(&wind_dir, &wind_spd, &altitude, 6000.0);
+    if clipped_dir.is_empty() { return Ok(((f64::NAN, f64::NAN), (f64::NAN, f64::NAN), (f64::NAN, f64::NAN))); }
+
+    // Compute mean wind 0-6km: average of all clipped levels
+    let mean_dir = clipped_dir.iter().sum::<f64>() / clipped_dir.len() as f64;
+    let mean_spd = clipped_spd.iter().sum::<f64>() / clipped_spd.len() as f64;
+
+    let (u_mean, v_mean) = {
+        let wdir_rad = mean_dir.to_radians();
+        (-mean_spd * wdir_rad.sin(), -mean_spd * wdir_rad.cos())
+    };
+
+    // Shear vector: (u_top - u_bot, v_top - v_bot)
+    let u_bot = if !clipped_dir.is_empty() {
+        let wd = clipped_dir[0].to_radians();
+        -clipped_spd[0] * wd.sin()
+    } else { 0.0 };
+    let v_bot = if !clipped_dir.is_empty() {
+        let wd = clipped_dir[0].to_radians();
+        -clipped_spd[0] * wd.cos()
+    } else { 0.0 };
+
+    let u_top = if clipped_dir.len() > 1 {
+        let wd = clipped_dir[clipped_dir.len() - 1].to_radians();
+        -clipped_spd[clipped_spd.len() - 1] * wd.sin()
+    } else { u_bot };
+    let v_top = if clipped_dir.len() > 1 {
+        let wd = clipped_dir[clipped_dir.len() - 1].to_radians();
+        -clipped_spd[clipped_spd.len() - 1] * wd.cos()
+    } else { v_bot };
+
+    let shear_u = u_top - u_bot;
+    let shear_v = v_top - v_bot;
+    let shear_mag = (shear_u * shear_u + shear_v * shear_v).sqrt();
+
+    let displacement = 7.5 * 1.94; // 7.5 kts in m/s
+    let (du, dv) = if shear_mag > 0.01 {
+        let scale = displacement / shear_mag;
+        (scale * shear_v, -scale * shear_u)
+    } else {
+        (0.0, 0.0)
+    };
+
+    let (rleft_u, rleft_v) = (u_mean - du, v_mean - dv);
+    let (rright_u, rright_v) = (u_mean + du, v_mean + dv);
+
+    let right_dir = if rleft_u.abs() < 0.1 && rleft_v.abs() < 0.1 { 0.0 } else {
+        let angle = (-rleft_v).atan2(-rleft_u).to_degrees();
+        ((90.0 - angle) % 360.0 + 360.0) % 360.0
+    };
+    let right_spd = (rleft_u * rleft_u + rleft_v * rleft_v).sqrt();
+
+    let left_dir = if rright_u.abs() < 0.1 && rright_v.abs() < 0.1 { 0.0 } else {
+        let angle = (-rright_v).atan2(-rright_u).to_degrees();
+        ((90.0 - angle) % 360.0 + 360.0) % 360.0
+    };
+    let left_spd = (rright_u * rright_u + rright_v * rright_v).sqrt();
+
+    let mean_dir_result = if u_mean.abs() < 0.1 && v_mean.abs() < 0.1 { 0.0 } else {
+        let angle = (-v_mean).atan2(-u_mean).to_degrees();
+        ((90.0 - angle) % 360.0 + 360.0) % 360.0
+    };
+
+    Ok(((mean_dir_result, mean_spd), (left_dir, left_spd), (right_dir, right_spd)))
+}
+
+#[pyfunction]
+fn compute_srh(
+    wind_dir: Vec<f64>,
+    wind_spd: Vec<f64>,
+    altitude: Vec<f64>,
+    storm_dir: f64,
+    storm_spd: f64,
+    hght_km: f64,
+) -> PyResult<f64> {
+    if wind_dir.is_empty() { return Ok(f64::NAN); }
+
+    let (clipped_dir, clipped_spd, clipped_alt) = clip_profile(&wind_dir, &wind_spd, &altitude, hght_km * 1000.0);
+    if clipped_dir.is_empty() { return Ok(f64::NAN); }
+
+    let storm_rad = storm_dir.to_radians();
+    let (storm_u, storm_v) = (-storm_spd * storm_rad.sin(), -storm_spd * storm_rad.cos());
+
+    let mut srh = 0.0;
+    let mut prev_u = f64::NAN;
+    let mut prev_v = f64::NAN;
+    let mut prev_alt = f64::NAN;
+
+    for i in 0..clipped_dir.len() {
+        let wd = clipped_dir[i].to_radians();
+        let u = -clipped_spd[i] * wd.sin();
+        let v = -clipped_spd[i] * wd.cos();
+        let sr_u = (u - storm_u) / 1.94; // Convert to m/s
+        let sr_v = (v - storm_v) / 1.94;
+
+        if !prev_u.is_nan() && !prev_alt.is_nan() {
+            let dalt = (clipped_alt[i] - prev_alt) * 0.001; // km
+            let cross = prev_u * sr_v - prev_v * sr_u;
+            srh += cross * dalt;
+        }
+
+        prev_u = sr_u;
+        prev_v = sr_v;
+        prev_alt = clipped_alt[i];
+    }
+
+    Ok(srh)
+}
+
+#[pyfunction]
+fn compute_critical_angle(
+    wind_dir: Vec<f64>,
+    wind_spd: Vec<f64>,
+    altitude: Vec<f64>,
+    storm_dir: f64,
+    storm_spd: f64,
+) -> PyResult<f64> {
+    if wind_dir.is_empty() { return Ok(f64::NAN); }
+
+    let (clipped_dir, clipped_spd, _) = clip_profile(&wind_dir, &wind_spd, &altitude, 6000.0);
+    if clipped_dir.is_empty() { return Ok(f64::NAN); }
+
+    let storm_rad = storm_dir.to_radians();
+    let (storm_u, storm_v) = (-storm_spd * storm_rad.sin(), -storm_spd * storm_rad.cos());
+
+    let mut min_angle: f64 = 360.0;
+    for i in 0..clipped_dir.len() {
+        let wd = clipped_dir[i].to_radians();
+        let u = -clipped_spd[i] * wd.sin();
+        let v = -clipped_spd[i] * wd.cos();
+
+        let rel_u = u - storm_u;
+        let rel_v = v - storm_v;
+        let rel_dir = ((-rel_v).atan2(-rel_u).to_degrees() + 90.0) % 360.0;
+        let diff = (rel_dir - storm_dir).abs();
+        if diff > 180.0 {
+            min_angle = min_angle.min(360.0 - diff);
+        } else {
+            min_angle = min_angle.min(diff);
+        }
+    }
+
+    Ok(min_angle)
 }
