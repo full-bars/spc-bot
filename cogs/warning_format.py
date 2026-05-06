@@ -33,8 +33,24 @@ def _is_null_vtec_time(s: str) -> bool:
     return bool(s) and s.startswith("000000")
 
 
-def get_warning_style(event: str, text: str, params: dict = None) -> Tuple[str, str, discord.Color, Optional[str]]:
-    """Determine (emoji, display_event_name, color, footer_id) based on event type and severity tags."""
+def get_warning_style(event: str, text: str, params: dict = None, vtec: dict = None) -> Tuple[str, str, discord.Color, Optional[str]]:
+    """Determine (emoji, display_event_name, color, footer_id) based on event type and severity tags.
+
+    If VTEC is provided, use its phenomenon/significance to override event label mismatch
+    (e.g., a CON/UPG to a tornado warning might be labeled "Statement" by NWS API).
+    """
+    # Correct event label based on VTEC if they disagree
+    # This handles CON/UPG actions where NWS labels as "Statement" but VTEC shows tornado/severe/etc
+    if vtec:
+        phenom = vtec.get("phenom", "")
+        sig = vtec.get("sig", "")
+        if phenom == "TO" and sig == "W" and event != "Tornado Warning":
+            event = "Tornado Warning"
+        elif phenom == "SV" and sig == "W" and event != "Severe Thunderstorm Warning":
+            event = "Severe Thunderstorm Warning"
+        elif phenom == "FF" and sig == "W" and event != "Flash Flood Warning":
+            event = "Flash Flood Warning"
+
     emoji, color = _WARNING_STYLE.get(event, ("⚠️", discord.Color.orange()))
     display_event = event
     footer_id = None

@@ -182,7 +182,7 @@ class WarningsCog(commands.Cog):
             # Log significant events (tornadoes, hail, wind) to DB
             event_id = await self._check_and_log_significant_event(event, raw_text, vtec)
 
-            emoji, display_event, color, footer_id = get_warning_style(event, raw_text)
+            emoji, display_event, color, footer_id = get_warning_style(event, raw_text, vtec=vtec)
 
             prev_area = self.bot.state.posted_warnings.get(vtec_id, {}).get("area", "")
             concise_text = build_concise_warning_text(
@@ -426,7 +426,7 @@ class WarningsCog(commands.Cog):
         # unless it's a Tornado Warning, but we can't easily distinguish Emergency vs PDS
         # without the text or params.
         event_base = self._PHENOM_EVENT.get((phenom, sig), f"{phenom}.{sig} Warning")
-        _, display_event, _, footer_id = get_warning_style(event_base, "")
+        _, display_event, _, footer_id = get_warning_style(event_base, "", vtec=vtec)
 
         action_verb = "cancels" if reason == "Cancelled" else "expires"
         area_str = f" for {area}" if area else ""
@@ -664,7 +664,7 @@ class WarningsCog(commands.Cog):
         props = feature.properties
         description = props.description or ""
         params = props.parameters.model_dump() if props.parameters else {}
-        emoji, display_event, color, footer_id = get_warning_style(event, description, params)
+        emoji, display_event, color, footer_id = get_warning_style(event, description, params, vtec=vtec)
         vtec_id = vtec["vtec_id"]
 
         ugc_codes = (props.geocode.UGC or []) if props.geocode else []
