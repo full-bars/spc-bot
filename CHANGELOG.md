@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.18.1] — 2026-05-05
+
+### Fixed
+- **Hodograph KeyError.** Resolved `KeyError: 'rid'` in `lib/vad_plotter/vad_reader.py` that caused manual hodograph generation to fail when using the worker pool.
+- **VAD Pickling.** Ensured `VADFile` objects are picklable by deleting the transient `BytesIO` buffer after parsing, preventing failures when passing VAD objects to the `ProcessPoolExecutor` in background tasks.
+- **Forensic Recorder Regressions.** Refactored `cogs/recorder.py` to use `@staticmethod` workers for all background tasks, avoiding `PicklingError` from nested functions. Fixed a regression where the recorder attempted to call a non-existent `plot_vad` function.
+- **VAD Site Labeling.** Updated `download_vad` to ensure the radar site ID is correctly propagated to the plotting engine.
+
 ## [5.18.0] — 2026-05-06
 
 ### Fixed
