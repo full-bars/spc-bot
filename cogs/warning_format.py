@@ -5,6 +5,7 @@ and warning description text construction. Async image downloading for
 IEM Autoplot maps.
 """
 import asyncio
+import logging
 import re
 import time
 from datetime import datetime, timezone
@@ -15,6 +16,8 @@ import discord
 
 from utils.http import http_get_bytes
 
+logger = logging.getLogger("spc_bot.warnings")
+
 _WARNING_STYLE = {
     "Tornado Warning":             ("🌪️", discord.Color.red()),
     "Severe Thunderstorm Warning": ("⛈️", discord.Color.gold()),
@@ -23,6 +26,11 @@ _WARNING_STYLE = {
     "Flash Flood Statement":       ("🌊", discord.Color.dark_blue()),
     "Special Weather Statement":   ("☁️", discord.Color.blue()),
 }
+
+
+def _is_null_vtec_time(s: str) -> bool:
+    """True when `s` is the NWS null-start sentinel '000000T0000Z'."""
+    return bool(s) and s.startswith("000000")
 
 
 def get_warning_style(event: str, text: str, params: dict = None) -> Tuple[str, str, discord.Color, Optional[str]]:
@@ -77,10 +85,17 @@ def iem_autoplot_url(vtec: dict) -> str:
     phenom = vtec["phenom"]
     sig = vtec["sig"]
     etn = vtec["etn"]
+    
     year = datetime.now(timezone.utc).year
-    if vtec.get("start"):
+    start = vtec.get("start") or ""
+    if start and not _is_null_vtec_time(start):
         try:
-            year = 2000 + int(vtec["start"][:2])
+            year = 2000 + int(start[:2])
+        except (ValueError, IndexError):
+            pass
+    elif vtec.get("end") and not _is_null_vtec_time(vtec["end"]):
+        try:
+            year = 2000 + int(vtec["end"][:2])
         except (ValueError, IndexError):
             pass
 
@@ -107,11 +122,16 @@ def iem_autoplot_url(vtec: dict) -> str:
 def _vtec_url(vtec: dict) -> str:
     """Build an IEM VTEC event page URL from a parsed vtec dict."""
     start = vtec.get("start", "")
-    if start and len(start) >= 11:
-        # '260429T0228Z' → '2026-04-29T02:28Z'
+    end = vtec.get("end", "")
+    
+    # Use end time when start is missing or is the null-start sentinel (CON/EXT/CAN/EXP products)
+    ref = start if (start and len(start) >= 11 and not _is_null_vtec_time(start)) \
+              else (end if (end and len(end) >= 11 and not _is_null_vtec_time(end)) else "")
+              
+    if ref:
         try:
-            year = 2000 + int(start[:2])
-            iso = f"{year}-{start[2:4]}-{start[4:6]}T{start[7:9]}:{start[9:11]}Z"
+            year = 2000 + int(ref[:2])
+            iso = f"{year}-{ref[2:4]}-{ref[4:6]}T{ref[7:9]}:{ref[9:11]}Z"
         except (ValueError, IndexError):
             now = datetime.now(timezone.utc)
             year = now.year
@@ -120,10 +140,11 @@ def _vtec_url(vtec: dict) -> str:
         now = datetime.now(timezone.utc)
         year = now.year
         iso = now.strftime("%Y-%m-%dT%H:%MZ")
+        
     action = vtec.get("action", "NEW")
     office = vtec.get("office", "")
-    phenom = vtec.get("phenom", "")
-    sig = vtec.get("sig", "")
+    phenom = vtec["phenom"]
+    sig = vtec["sig"]
     etn = int(vtec.get("etn", "0") or "0")
     return (
         f"https://mesonet.agron.iastate.edu/vtec/f/"
@@ -134,7 +155,7 @@ def _vtec_url(vtec: dict) -> str:
 def _vtec_unix_ts(vtec: dict) -> int:
     """Return the Unix timestamp for the VTEC start time, or now if unavailable."""
     start = vtec.get("start", "")
-    if start and len(start) >= 11:
+    if start and len(start) >= 11 and not _is_null_vtec_time(start):
         try:
             year = 2000 + int(start[:2])
             month = int(start[2:4])
@@ -440,18 +461,14 @@ async def _download_warning_image(image_url: str, filename: str) -> discord.File
                 await asyncio.sleep(delay)
                 continue
 
-            import logging
-            logger = logging.getLogger("spc_bot")
             logger.warning(
-                f"[WARN] Failed to download IEM image after 8 attempts: {image_url} (status={status})"
+                f"Failed to download IEM image after 8 attempts: {image_url} (status={status})"
             )
         except Exception as e:
             if attempt < 7:
                 delay = min(2 ** (attempt + 1), 10)
                 await asyncio.sleep(delay)
                 continue
-            import logging
-            logger = logging.getLogger("spc_bot")
-            logger.warning(f"[WARN] Error downloading IEM image after 8 attempts: {e}")
+            logger.warning(f"Error downloading IEM image after 8 attempts: {e}")
         break
     return None
