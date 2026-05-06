@@ -236,6 +236,11 @@ class StatusView(discord.ui.View):
         embed.add_field(name="🖥️ System", value=system_val, inline=True)
 
         # Connectivity
+        import importlib.util
+        rust_status = "⚪ UNAVAILABLE"
+        if importlib.util.find_spec("spc_rust_core"):
+            rust_status = "🟢 ACTIVE"
+
         nwws_status = "🔴 DISCONNECTED"
         nwws_cog = self.bot.get_cog("NWWSCog")
         if nwws_cog and nwws_cog.xmpp_client:
@@ -255,6 +260,7 @@ class StatusView(discord.ui.View):
         http_lat = self.bot.state.http_latency
         session_ok = _http.http_session is not None and not _http.http_session.closed
         conn_val = (
+            f"**Rust Core:** {rust_status}\n"
             f"**NWWS-OI:** {nwws_status}" + (f" (`{nwws_ping:.0f}ms`)\n" if nwws_ping else "\n") +
             f"**IEMBot:** {iembot_status}" + (f" (`{iembot_ping:.0f}ms`)\n" if iembot_ping else "\n") +
             f"**HTTP:** {'🟢 OK' if session_ok else '🔴 CLOSED'}" + (f" (`{http_lat * 1000:.1f}ms`)" if http_lat else "")
