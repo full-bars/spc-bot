@@ -292,7 +292,9 @@ class VADFile(object):
                 self._rpg.seek(0)
                 raw_bytes = self._rpg.read()
                 
-                res = spc_rust_core.parse_vwp_tabular_data(raw_bytes, offset_tabular)
+                # Correct absolute offset (30 bytes WMO + NIDS relative offset)
+                abs_offset = 30 + offset_tabular
+                res = spc_rust_core.parse_vwp_tabular_data(raw_bytes, abs_offset)
                 if res:
                     logger.info("VWP tabular data parsed successfully using Rust engine")
                     # Convert list values to numpy arrays for compatibility

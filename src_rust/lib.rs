@@ -64,21 +64,24 @@ fn parse_vwp_tabular_data<'py>(
     data: &[u8],
     offset_tabular: usize,
 ) -> PyResult<Option<Bound<'py, PyDict>>> {
-    if offset_tabular == 0 || offset_tabular >= data.len() {
-        return Ok(None);
-    }
-
-    let block_data = &data[offset_tabular..];
-    if block_data.len() < 8 { return Ok(None); }
+    if data.len() < 8 { return Ok(None); }
     
-    let block_str = String::from_utf8_lossy(block_data);
+    // Determine where to start searching. 
+    // Try the provided offset, but fallback to a full scan if that fails.
     let marker = "VAD Algorithm Output";
     
+    let mut search_slice = data;
+    if offset_tabular > 0 && offset_tabular < data.len() {
+        search_slice = &data[offset_tabular..];
+    }
+    
+    let block_str = String::from_utf8_lossy(search_slice);
     let mut records = Vec::new();
 
     if let Some(start_idx) = block_str.find(marker) {
         let table_section = &block_str[start_idx..];
-        for line in table_section.lines().skip(2) {
+        // Python skips 3 lines: page[3:]
+        for line in table_section.lines().skip(3) {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() < 10 { continue; }
             
@@ -91,9 +94,9 @@ fn parse_vwp_tabular_data<'py>(
             
             if let (Some(d), Some(s), Some(r), Some(v), Some(sl), Some(e)) = (dir, spd, rms, div, slant, elev) {
                 // Calculate altitude
-                let slant_km = sl * (6067.1 / 3281.0);
-                let r_e = (4.0 / 3.0) * 6371.0;
-                let elev_rad = e.to_radians();
+                let slant_km: f64 = sl * (6067.1 / 3281.0);
+                let r_e: f64 = (4.0 / 3.0) * 6371.0;
+                let elev_rad: f64 = e.to_radians();
                 let alt = (r_e.powi(2) + slant_km.powi(2) + 2.0 * r_e * slant_km * elev_rad.sin()).sqrt() - r_e;
                 
                 records.push(VadRecord {
