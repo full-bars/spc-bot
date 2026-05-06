@@ -57,8 +57,12 @@ spc-bot/
 │       └── views.py         # Discord UI views and modals
 ├── config/
 │   └── logrotate.conf       # Log rotation config: size-based (50 MB), 12-file retention, gzip -9 compression
+├── src_rust/
+│   ├── lib.rs               # PyO3 Rust extension: VAD calculations, VTEC parsing, haversine distance, batch operations (803 LOC)
+│   └── Cargo.toml           # Rust dependencies (pyo3, xxhash_rust, regex, rstar, geo)
 ├── lib/
-│   ├── vtec_parser.py       # VTEC/polygon parsing (reusable, zero Discord dependencies)
+│   ├── vtec_parser.py       # VTEC/polygon parsing (reusable, zero Discord dependencies); Rust bridge with Python fallback
+│   ├── geo.py               # Geospatial utilities; haversine distance wrapper with Rust bridge
 │   └── vad_plotter/         # Hodograph library (vad-plotter by Tim Supinie)
 │       ├── vad.py           # Main entry point, called as subprocess
 │       ├── vad_reader.py    # NEXRAD VWP binary parser
@@ -67,7 +71,7 @@ spc-bot/
 │       ├── wsr88d.py        # Radar site info and filename utilities
 │       ├── asos.py          # ASOS surface wind fetching
 │       └── utils.py         # Shared exception types
-└── tests/                   # pytest suite (328 tests, see CONTRIBUTING.md)
+└── tests/                   # pytest suite (380 tests, see CONTRIBUTING.md)
     ├── conftest.py          # Fixtures: fake_bot (real BotState), isolated_db, global patches
     ├── test_fixtures.py     # Fixture invariants
     ├── test_utils.py        # Utility and sounding parsing
@@ -87,7 +91,12 @@ spc-bot/
     ├── test_iem_races.py    # IEM/SPC race logic and watch-triggered soundings
     ├── test_spc_outlook.py  # Day 1 categorical polygon parsing + geodesic buffer
     ├── test_iembot.py       # IEMBotCog seqnum persistence, feed filtering, dispatch paths
-    └── test_mesoscale.py    # MesoscaleCog MD cancellation, lag protection, year wraparound
+    ├── test_mesoscale.py    # MesoscaleCog MD cancellation, lag protection, year wraparound
+    ├── test_rust_params.py  # Rust SRH/Bunkers calculator and Python fallback
+    ├── test_rust_vtec.py    # Rust VTEC string parser and Python fallback
+    ├── test_rust_cache.py   # Rust image cache batch validator and Python fallback
+    ├── test_rust_nwws.py    # Rust product_id normalizer and Python fallback
+    └── test_rust_geo.py     # Rust haversine distance calculator and Python fallback
 ```
 
 ## Architecture Overview
@@ -97,6 +106,17 @@ The bot operates a multi-source authority hierarchy for weather data:
 - **NWWS-OI (Primary)**: Direct push via XMPP for <1s latency
 - **IEMBot (Secondary)**: Polled every 15s as fallback
 - **NWS API (Tertiary)**: Polled every 30-60s for final truth and outage resilience
+
+### Rust Integration (v5.20.0+)
+High-performance Rust core via PyO3 with Python fallback for all operations:
+- **VAD Hodograph Calculations** (Phase 1): vec2comp, comp2vec, compute_bunkers, compute_srh, compute_critical_angle
+- **VTEC String Parser** (Phase 2): Regex-based action/office/phenom/sig/ETN extraction
+- **Image Cache Batch Validator** (Phase 3): XXH3 hashing and placeholder detection (<2048 bytes threshold)
+- **NWWS Product ID Normalizer** (Phase 4): ISO8601 timestamp conversion and product ID deduplication
+- **Haversine Distance Calculator** (Phase 5): Geospatial queries for station lookups
+- **Comprehensive Unit Tests** (Phase 6): 30+ tests covering all Rust internals
+
+All Rust functions maintain pure-Python fallback implementations. FFI detection at runtime gracefully downgrades to Python if Rust extension is unavailable.
 
 ### Modular Refactoring (v5.16.0+)
 Large feature modules are split into focused, reusable components:
@@ -127,16 +147,18 @@ See [High Availability & Failover](CONTRIBUTING.md#failover) in CONTRIBUTING.md 
 
 ## Testing
 
-The test suite has **328 tests** covering:
+The test suite has **380 tests** covering:
 - Unit tests for parsers (VTEC, polygons, narratives)
 - Integration tests for bot state and cog lifecycle
 - Failover scenarios and race conditions
 - HTTP caching and retry logic
 - Forecasting model parsing
+- **Rust FFI tests** (Phases 1–6): SRH/Bunkers, VTEC parser, image cache validator, product ID normalizer, haversine distance, with Python fallback verification
 
 Run tests with:
 ```bash
 pip install -r requirements-dev.txt
+VIRTUAL_ENV=venv maturin develop --release  # Build Rust extension
 python -m pytest tests/ -v
 ```
 

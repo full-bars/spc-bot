@@ -8,6 +8,8 @@ The `/sounding` command plots RAOB (weather balloon) and ACARS (aircraft) data u
 - **Location Support:** Accepts 3-letter site IDs (e.g., `OUN`), 4-letter ICAO codes (`KOUN`), or city names (`Norman, OK`).
 - **Data Sources:** Automatically tries **IEM**, **Wyoming**, and **GSL** (FSL) in a prioritized hierarchy with circuit-breaker logic.
 - **Interactive UI:** Users can select specific times (e.g., `00z`, `12z`) or recent special releases (e.g., `18z`, `20z`) via a dropdown menu.
+- **Performance:** As of v5.20.0, the initial "Checking Station Availability..." step is optimized with concurrent request limiting (max 5 simultaneous), reducing lookup time from 10–30s to 1–3s.
+- **Dark Mode:** Toggle between light and dark plot themes using the built-in mode switch button (preserves station data on mode change).
 
 ## 🌪️ Watch-Triggered Soundings
 
@@ -22,6 +24,7 @@ The `/hodograph` command generates a Vertical Wind Profile (VWP) hodograph for a
 - **High-Availability:** Uses **AWS S3** as a primary data source with automatic fallback to **TGFTP**, ensuring reliability during NWS server outages.
 - **Real-time Surface Wind:** Automatically fetches the latest ASOS surface observation near the radar to provide an accurate surface-to-1km profile.
 - **Parameter Table:** Includes a comprehensive storm-parameter table (Bunkers motion, SRH, Shear) rendered alongside the plot.
+- **Performance (v5.20.0+):** Hodograph storm-parameter calculations (Bunkers displacement, Storm-Relative Helicity, Critical Angle) are accelerated using Rust with Python fallback, reducing computation time for large profiles.
 
 ## 🎥 VAD Forensics
 
