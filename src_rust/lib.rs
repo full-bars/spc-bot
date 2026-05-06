@@ -2,7 +2,6 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use xxhash_rust::xxh3;
 
-/// A Python module implemented in Rust for spc-bot.
 #[pymodule]
 fn spc_rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sum_as_string, m)?)?;
@@ -25,9 +24,7 @@ fn calculate_fast_hash(data: &[u8]) -> PyResult<String> {
 
 #[pyfunction]
 fn find_vwp_header_offset(data: &[u8]) -> PyResult<Option<usize>> {
-    if data.len() < 2 {
-        return Ok(None);
-    }
+    if data.len() < 2 { return Ok(None); }
     let search_limit = std::cmp::min(data.len() - 2, 200);
     for i in 0..=search_limit {
         if data[i] == 0x00 && data[i+1] == 0x30 {
@@ -52,87 +49,84 @@ fn parse_vwp_tabular_data<'py>(
     data: &[u8],
     _offset_tabular: usize,
 ) -> PyResult<Option<Bound<'py, PyDict>>> {
+    // Robust strategy: Find ALL occurrences of the marker.
+    // Each marker marks the start of a page of text.
     let marker = b"VAD Algorithm Output";
+    let mut markers = Vec::new();
     
-    // 1. Robust scan for the data section start
-    let mut found_marker = None;
     for i in 0..(data.len().saturating_sub(marker.len())) {
         if &data[i..i+marker.len()] == marker {
-            found_marker = Some(i);
-            break;
+            markers.push(i);
         }
     }
 
-    let marker_pos = match found_marker {
-        Some(idx) => idx,
-        None => return Ok(None),
-    };
-
-    // 2. Find the 82-byte line anchor (length header 0x0050)
-    let mut current_pos = 0;
-    for i in (0..marker_pos).rev() {
-        if i + 2 <= data.len() && data[i] == 0x00 && data[i+1] == 0x50 {
-            current_pos = i;
-            break;
-        }
-    }
-    
-    if current_pos == 0 { return Ok(None); }
+    if markers.is_empty() { return Ok(None); }
 
     let mut records = Vec::new();
-    let mut line_count = 0;
 
-    // 3. Iterate through 82-byte NIDS text lines
-    while current_pos + 82 <= data.len() {
-        let len = i16::from_be_bytes([data[current_pos], data[current_pos+1]]);
-        
-        // If we hit a non-80-char line or a terminator, check if it's just a page break
-        if len != 80 {
-            if len == -1 || len == 0 { break; }
-            // Move forward and try to find the next 80-char line
-            current_pos += 2;
-            continue;
-        }
-        
-        let line_bytes = &data[current_pos+2..current_pos+82];
-        let line = String::from_utf8_lossy(line_bytes);
-        
-        // Skip first 3 lines (marker line + 2 header lines)
-        if line_count >= 3 {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 10 {
-                let dir = parts[4].parse::<f64>().ok();
-                let spd = parts[5].parse::<f64>().ok();
-                let rms = parts[6].parse::<f64>().ok();
-                let div = if parts[7] == "NA" { Some(f64::NAN) } else { parts[7].parse::<f64>().ok() };
-                let slant = parts[8].parse::<f64>().ok();
-                let elev = parts[9].parse::<f64>().ok();
-                
-                if let (Some(d), Some(s), Some(r), Some(v), Some(sl), Some(e)) = (dir, spd, rms, div, slant, elev) {
-                    let slant_km: f64 = sl * (6067.1 / 3281.0);
-                    let r_e: f64 = (4.0 / 3.0) * 6371.0;
-                    let elev_rad: f64 = e.to_radians();
-                    let alt = (r_e.powi(2) + slant_km.powi(2) + 2.0 * r_e * slant_km * elev_rad.sin()).sqrt() - r_e;
-                    
-                    records.push(VadRecord {
-                        wind_dir: d, wind_spd: s, rms_error: r, divergence: v,
-                        slant_range: sl, elev_angle: e, altitude: alt,
-                    });
-                }
+    for marker_pos in markers {
+        // Find the start of the 80-char line containing the marker
+        let mut line_start = 0;
+        for i in (0..marker_pos).rev() {
+            if i + 2 <= data.len() && data[i] == 0x00 && data[i+1] == 0x50 {
+                line_start = i;
+                break;
             }
         }
-        
-        current_pos += 82;
-        line_count += 1;
-        if line_count > 1000 { break; }
+        if line_start == 0 { continue; }
+
+        let mut current_pos = line_start;
+        let mut line_count = 0;
+
+        // Parse lines in this page until -1 or end of buffer
+        while current_pos + 82 <= data.len() {
+            let len = i16::from_be_bytes([data[current_pos], data[current_pos+1]]);
+            if len != 80 {
+                if len == -1 || len == 0 { break; }
+                current_pos += 2;
+                continue;
+            }
+
+            // Only parse data rows (starting after line 3)
+            if line_count >= 3 {
+                let line_bytes = &data[current_pos+2..current_pos+82];
+                let line = String::from_utf8_lossy(line_bytes);
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                
+                if parts.len() >= 10 {
+                    let dir = parts[4].parse::<f64>().ok();
+                    let spd = parts[5].parse::<f64>().ok();
+                    let rms = parts[6].parse::<f64>().ok();
+                    let div = if parts[7] == "NA" { Some(f64::NAN) } else { parts[7].parse::<f64>().ok() };
+                    let slant = parts[8].parse::<f64>().ok();
+                    let elev = parts[9].parse::<f64>().ok();
+                    
+                    if let (Some(d), Some(s), Some(r), Some(v), Some(sl), Some(e)) = (dir, spd, rms, div, slant, elev) {
+                        // Calculate altitude AND slant range in KM (important!)
+                        let slant_km: f64 = sl * (6067.1 / 3281.0);
+                        let r_e: f64 = (4.0 / 3.0) * 6371.0;
+                        let elev_rad: f64 = e.to_radians();
+                        let alt = (r_e.powi(2) + slant_km.powi(2) + 2.0 * r_e * slant_km * elev_rad.sin()).sqrt() - r_e;
+                        
+                        records.push(VadRecord {
+                            wind_dir: d, wind_spd: s, rms_error: r, divergence: v,
+                            slant_range: slant_km, elev_angle: e, altitude: alt,
+                        });
+                    }
+                }
+            }
+            
+            current_pos += 82;
+            line_count += 1;
+            if line_count > 200 { break; }
+        }
     }
 
-    if records.is_empty() {
-        return Ok(None);
-    }
+    if records.is_empty() { return Ok(None); }
 
-    // Sort by altitude
+    // Sort and deduplicate by altitude
     records.sort_by(|a, b| a.altitude.partial_cmp(&b.altitude).unwrap_or(std::cmp::Ordering::Equal));
+    records.dedup_by(|a, b| (a.altitude - b.altitude).abs() < 0.001);
 
     let dict = PyDict::new_bound(py);
     let mut wind_dir = Vec::with_capacity(records.len());
