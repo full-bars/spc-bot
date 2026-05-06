@@ -65,7 +65,7 @@ async def get_asos_surface_wind(
         if str(wdir).upper() == "VRB":
             wdir = 0
 
-        if obs_ts > ref_ts - 600:
+        if obs_ts > ref_ts + 60:
             continue
         if obs_ts < ref_ts - 5400:
             continue
