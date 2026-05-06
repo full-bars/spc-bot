@@ -143,6 +143,7 @@ class BotState:
         # Latency tracking (seconds)
         self.iembot_latency: Optional[float] = None
         self.http_latency: Optional[float] = None
+        self.nwws_latency: Optional[float] = None
 
         # Network pings (milliseconds)
         self.nwws_ping: Optional[float] = None

@@ -139,10 +139,24 @@ def iem_autoplot_url(vtec: dict) -> str:
         )
 
     # Standard VTEC events use Autoplot 208
+    # Build the valid time from start or end timestamp
+    valid_time = ""
+    if start and not _is_null_vtec_time(start):
+        # Parse YYMMDDTHHMMZ format
+        try:
+            yy, mm, dd, hh, min_ = int(start[0:2]), int(start[2:4]), int(start[4:6]), int(start[8:10]), int(start[10:12])
+            yyyy = 2000 + yy
+            valid_time = f"{yyyy:04d}-{mm:02d}-{dd:02d}%20{hh:02d}{min_:02d}"
+        except (ValueError, IndexError):
+            pass
+
+    valid_param = f"::valid:{valid_time}" if valid_time else ""
+    etn_padded = etn.zfill(4)  # Zero-pad to 4 digits
+
     return (
         f"https://mesonet.agron.iastate.edu/plotting/auto/plot/208/"
-        f"wfo:{office}::year:{year}::phenomena:{phenom}::significance:{sig}::"
-        f"etn:{etn.lstrip('0') or '0'}.png"
+        f"network:WFO::wfo:{office}::year:{year}::phenomenav:{phenom}::significancev:{sig}::"
+        f"etn:{etn_padded}{valid_param}.png"
     )
 
 
@@ -476,11 +490,15 @@ async def _download_warning_image(image_url: str, filename: str) -> discord.File
     Retries on 404 (IEM map not yet generated), 400 (bad request/pending),
     or network errors with exponential backoff.
     """
+    logger.info(f"[IMG_DL_START] Attempting to download: {image_url}")
     for attempt in range(8):
         try:
             content, status = await http_get_bytes(image_url, retries=1, timeout=15)
             if content and status == 200:
+                logger.info(f"[IMG_DL_SUCCESS] {filename}: got {len(content)} bytes")
                 return discord.File(BytesIO(content), filename=filename)
+
+            logger.info(f"[IMG_DL_RETRY] Attempt {attempt+1}/8: status={status}, content_len={len(content) if content else 0}")
 
             # Map might be pending (404/400). Use exponential backoff: 2s, 4s, 8s, 10s...
             if attempt < 7:
@@ -489,13 +507,14 @@ async def _download_warning_image(image_url: str, filename: str) -> discord.File
                 continue
 
             logger.warning(
-                f"Failed to download IEM image after 8 attempts: {image_url} (status={status})"
+                f"[IMG_DL_FAIL] {filename}: Failed after 8 attempts (final status={status})"
             )
         except Exception as e:
+            logger.info(f"[IMG_DL_ERROR] Attempt {attempt+1}/8: {e}")
             if attempt < 7:
                 delay = min(2 ** (attempt + 1), 10)
                 await asyncio.sleep(delay)
                 continue
-            logger.warning(f"Error downloading IEM image after 8 attempts: {e}")
+            logger.warning(f"[IMG_DL_FAIL] {filename}: Exception after 8 attempts: {e}")
         break
     return None
