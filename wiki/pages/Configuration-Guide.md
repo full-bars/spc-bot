@@ -4,11 +4,13 @@ SPCBot is configured via a `.env` file in the project root. Below is a comprehen
 
 ## 🔑 Required
 
-| Variable | Description |
-|---|---|
-| `DISCORD_TOKEN` | Your Discord bot token. |
-| `GUILD_ID` | The ID of the Discord server where the bot operates. |
-| `LOG_CHANNEL_ID` | Channel ID for system alerts and errors. |
+| Variable | Description | Default |
+|---|---|---|
+| `DISCORD_TOKEN` | Your Discord bot token. | Required |
+| `GUILD_ID` | The ID of the Discord server where the bot operates. | Required |
+| `SPC_CHANNEL_ID` | Default channel for SPC outlooks, watches, MDs, reports, and health fallback posts. | Required |
+| `MODELS_CHANNEL_ID` | Channel for model/science products such as CSU-MLP, WxNext2, and SCP. | Required |
+| `FAILOVER_TOKEN` | Non-default shared secret used by failover/admin controls. | Required |
 
 ## 📡 Alerting & Data Sources
 
@@ -17,8 +19,10 @@ SPCBot is configured via a `.env` file in the project root. Below is a comprehen
 | `NWWS_USER` | NWWS-OI XMPP username. | (empty) |
 | `NWWS_PASSWORD` | NWWS-OI XMPP password. | (empty) |
 | `NWWS_SERVER` | NWWS-OI XMPP server address. | `nwws-oi.weather.gov` |
-| `WARNINGS_CHANNEL_ID` | Channel for TOR/SVR/FFW alerts. | (Required) |
-| `OUTLOOKS_CHANNEL_ID` | Channel for SPC outlook posts. | (Required) |
+| `WARNINGS_CHANNEL_ID` | Channel for TOR/SVR/FFW alerts. | `SPC_CHANNEL_ID` |
+| `HEALTH_CHANNEL_ID` | Channel for health alerts and watchdog notifications. | `SPC_CHANNEL_ID` |
+| `SOUNDING_CHANNEL_ID` | Channel for automated sounding posts. | `SPC_CHANNEL_ID` |
+| `DEV_CHANNEL_ID` | Channel for developer/admin operational alerts. | `HEALTH_CHANNEL_ID`, then `SPC_CHANNEL_ID` |
 
 ## 🔄 High Availability (Failover)
 
@@ -27,8 +31,7 @@ SPCBot is configured via a `.env` file in the project root. Below is a comprehen
 | `IS_PRIMARY` | Set initial role (`true`/`false`). | `true` |
 | `UPSTASH_REDIS_REST_URL` | Your Upstash Redis REST URL. | (empty) |
 | `UPSTASH_REDIS_REST_TOKEN` | Your Upstash Redis REST token. | (empty) |
-| `FAILOVER_TOKEN` | Shared secret for `/failover` command auth. | (Required for HA) |
-| `ADMIN_USER_ID` | Your Discord User ID (for owner-only commands). | (Required) |
+| `ADMIN_USER_ID` | Discord user ID authorized to use `/failover`. | `0` |
 
 ## 💾 Persistence & Sync
 
@@ -36,22 +39,27 @@ SPCBot is configured via a `.env` file in the project root. Below is a comprehen
 |---|---|---|
 | `CACHE_DIR` | Path to store DBs and image caches. | `cache/` |
 | `EVENTS_DB_PATH` | Path to the historical events archive. | `cache/events.db` |
+| `EVENTS_SYNC_DIR` | Directory used for Syncthing event DB exchange. | `cache/events_sync` |
+| `LOG_FILE` | Main bot log path. | `spc_bot.log` |
+| `NWWS_FIREHOSE_LOG` | Rotating raw NWWS firehose log path inside `CACHE_DIR`. | `nwws_firehose.log` |
+| `MANUAL_CACHE_FILE` | Legacy manual hash cache filename. | `posted_records.json` |
+| `AUTO_CACHE_FILE` | Legacy automatic hash cache filename. | `auto_posted_records.json` |
 | `SYNCTHING_API_KEY` | Local Syncthing API key for `events.db` sync. | (empty) |
 | `SYNCTHING_FOLDER_ID` | Syncthing folder ID for `events.db`. | `spcbot-events` |
 | `RCLONE_REMOTE` | rclone remote name for off-server backups. | `gdrive` |
 | `RCLONE_DEST_DIR` | Destination directory on the rclone remote. | `spc-bot-forensics` |
 
-## 🧪 Science & Thresholds
-
-| Variable | Description | Default |
-|---|---|---|
-| `SOUNDING_TRIGGER_RADIUS` | Radius (km) to find stations near watches. | `150` |
-| `MAX_RADAR_FILES` | Max files allowed per `/download` request. | `50` |
-| `AGGRESSIVE_SPC_POLL` | Use faster polling on High Risk days. | `true` |
-
 ## 🖥️ System
 
 | Variable | Description | Default |
 |---|---|---|
-| `LOG_LEVEL` | Logging verbosity (`DEBUG`, `INFO`, `ERROR`). | `INFO` |
 | `PYTHONUNBUFFERED` | Ensures logs stream immediately in Docker. | `1` |
+
+## Deployment Profiles
+
+| Profile | Required | Optional |
+|---|---|---|
+| Single node | `DISCORD_TOKEN`, `GUILD_ID`, `SPC_CHANNEL_ID`, `MODELS_CHANNEL_ID`, `FAILOVER_TOKEN` | NWWS credentials for lower-latency text products |
+| Single node with split channels | Single-node variables plus any channel override IDs | `HEALTH_CHANNEL_ID`, `WARNINGS_CHANNEL_ID`, `SOUNDING_CHANNEL_ID`, `DEV_CHANNEL_ID` |
+| High availability | Single-node variables plus Upstash credentials, `ADMIN_USER_ID`, and opposite `IS_PRIMARY` values on each node | Syncthing for `events.db` replication |
+| Forensics archive | Single-node variables plus `RCLONE_REMOTE` and `RCLONE_DEST_DIR` | Syncthing if also running HA |
