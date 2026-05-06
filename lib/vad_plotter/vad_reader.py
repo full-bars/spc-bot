@@ -299,8 +299,10 @@ class VADFile(object):
                     logger.info("VWP tabular data parsed successfully using Rust engine")
                     # Convert list values to numpy arrays for compatibility
                     return {k: np.array(v) for k, v in res.items()}
+                else:
+                    logger.warning(f"Rust parse_vwp_tabular_data returned None for offset {abs_offset}")
             except Exception as e:
-                logger.debug(f"Rust parse_vwp_tabular_data failed: {e}. Falling back to Python.")
+                logger.warning(f"Rust parse_vwp_tabular_data failed: {e}. Falling back to Python.")
 
         # Fallback to pure Python parsing
         logger.info("Parsing VWP tabular data using Python engine (fallback)")
