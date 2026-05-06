@@ -37,12 +37,16 @@ jobs:
         run: |
           if ! command -v cargo &> /dev/null; then
             if [ -f "$HOME/.cargo/env" ]; then
-              source "$HOME/.cargo/env"
+              . "$HOME/.cargo/env"
+            elif [ -f "/root/.cargo/env" ]; then
+              . "/root/.cargo/env"
             else
               curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-              source "$HOME/.cargo/env"
+              . "$HOME/.cargo/env" || . "/root/.cargo/env"
             fi
           fi
+          # Ensure cargo is in path even if sourcing failed
+          export PATH="$HOME/.cargo/bin:/root/.cargo/bin:$PATH"
           pip install maturin
           maturin develop --release
       - name: Run tests with coverage
