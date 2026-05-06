@@ -243,7 +243,7 @@ class NWWSClient(ClientXMPP):
             # Track NWWS wire latency: time from product issue to reception
             # Skip latency tracking for archived messages (room history on reconnect)
             if not is_archived:
-                issue_val = payload['issue'] or ts_str
+                issue_val = payload['issue'] or issue_str
                 try:
                     from datetime import datetime as dt_class, timezone as tz_class
                     start_time = self.bot.state.bot_start_time
