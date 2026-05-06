@@ -44,7 +44,12 @@ def _build_panel_url(product: str, init_date: datetime) -> str:
 
 
 async def _resolve_panel_url(product: str, allow_yesterday: bool = False) -> tuple[str | None, str]:
-    """Resolve today's (or optionally yesterday's) 6-panel URL. 00z only."""
+    """Resolve today's (or optionally yesterday's) 6-panel URL. 00z only.
+
+    NOTE: allow_yesterday=True is used for manual commands to handle the
+    'UTC dead zone' (between 00:00 UTC and ~17:00 UTC when today's data is
+    actually posted). Auto-poll uses False to prevent re-posting old data.
+    """
     now_utc = datetime.now(timezone.utc)
     today = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
     
@@ -287,6 +292,10 @@ class CSUMLPCog(commands.Cog):
 
         # Use the first available missing day to determine the best init hour
         # for the current batch (either 12z or 00z).
+        # 
+        # NOTE: We do NOT use allow_yesterday=True here. The auto-poll only
+        # cares about fresh data for the current operational day. Manual
+        # commands are more lenient to handle requests after midnight UTC.
         current_init_hour = None
         
         for day in range(1, 9):
