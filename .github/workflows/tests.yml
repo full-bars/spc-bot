@@ -34,13 +34,15 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Build Rust extensions
+        env:
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
         run: |
           # 1. Ensure Rust is in PATH
           export PATH="$HOME/.cargo/bin:/root/.cargo/bin:$PATH"
           
           # 2. Install Rust if missing
           if ! command -v cargo &> /dev/null; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
             . "$HOME/.cargo/env" || . "/root/.cargo/env"
           fi
           
