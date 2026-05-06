@@ -219,7 +219,30 @@ RADAR_COORDS: Dict[str, Tuple[float, float]] = {
 }
 
 
+import logging
+
+logger = logging.getLogger("spc_bot.radar_coords")
+
+# Rust core fallback
+try:
+    import spc_rust_core
+    RUST_AVAILABLE = True
+except ImportError:
+    RUST_AVAILABLE = False
+    logger.debug("Rust core not available, using pure-python fallback for radar lookup")
+
+
 def get_nearest_radar(lat: float, lon: float) -> Optional[str]:
+    # Try Rust optimized R-Tree lookup first
+    if RUST_AVAILABLE:
+        try:
+            res = spc_rust_core.find_nearest_radar(lat, lon)
+            if res:
+                return res
+        except Exception as e:
+            logger.debug(f"Rust find_nearest_radar failed: {e}. Falling back to Python.")
+
+    # Fallback to linear search in Python
     best_id = None
     min_dist = float('inf')
     for rid, coords in RADAR_COORDS.items():
