@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.20.1] — 2026-05-06
+
+### Fixed
+- **Tornado Warning Graphics.** Corrected IEM Autoplot 208 URL parameter names (`phenomenav`/`significancev` vs `phenomena`/`significance`), added `network:WFO::` prefix, zero-padded 4-digit ETN format, and included valid timestamp for accurate product filtering. Tornado and severe weather warnings now display correct graphics.
+
 ## [5.20.0] — 2026-05-06
 
 ### Added
