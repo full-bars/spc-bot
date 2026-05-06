@@ -166,7 +166,7 @@ class CSUMLPCog(commands.Cog):
 
 
     async def _fetch_and_send(self, source, day: int):
-        url, label = await _resolve_best_url(day)
+        url, label = await _resolve_best_url(day, allow_yesterday=True)
         if not url:
             msg = (
                 f"CSU-MLP Day {day} isn't available yet. "
