@@ -33,7 +33,7 @@ _VTEC_RE = re.compile(
 )
 
 
-def parse_vtec(text: str) -> Optional[dict]:
+def parse_vtec_py(text: str) -> Optional[dict]:
     """Parse the first VTEC string in ``text`` and return its components.
 
     Returns a dict with ``action``, ``office``, ``phenom``, ``sig``,
@@ -63,6 +63,16 @@ def parse_vtec(text: str) -> Optional[dict]:
     }
 
 
+def parse_vtec(text: str) -> Optional[dict]:
+    """Parse VTEC string; try Rust first, fall back to Python."""
+    if _parse_vtec_rust:
+        try:
+            return _parse_vtec_rust(text)
+        except Exception:
+            pass
+    return parse_vtec_py(text)
+
+
 # ── Polygon parsing (LAT...LON block) ────────────────────────────────────────
 
 _LATLON_RE = re.compile(
@@ -77,9 +87,11 @@ logger = logging.getLogger("spc_bot.vtec_parser")
 try:
     import spc_rust_core
     RUST_AVAILABLE = True
-    logger.info("Spatial Engine initialized: using Rust hybrid core (extract_latlon_coords)")
-except ImportError:
+    _parse_vtec_rust = spc_rust_core.parse_vtec
+    logger.info("Spatial Engine initialized: using Rust hybrid core (extract_latlon_coords, parse_vtec)")
+except (ImportError, AttributeError):
     RUST_AVAILABLE = False
+    _parse_vtec_rust = None
     logger.debug("Rust core not available, using pure-python fallback for polygon parsing")
 
 

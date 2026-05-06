@@ -6,6 +6,7 @@ use std::sync::RwLock;
 use once_cell::sync::Lazy;
 use geo::{Polygon, Point, Coord};
 use geo::algorithm::contains::Contains;
+use regex::Regex;
 
 #[pymodule]
 fn spc_rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -22,6 +23,7 @@ fn spc_rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(compute_bunkers, m)?)?;
     m.add_function(wrap_pyfunction!(compute_srh, m)?)?;
     m.add_function(wrap_pyfunction!(compute_critical_angle, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_vtec, m)?)?;
     Ok(())
 }
 
@@ -470,4 +472,50 @@ fn compute_critical_angle(
     }
 
     Ok(min_angle)
+}
+
+// ── Phase 2: VTEC Parser ─────────────────────────────────────────────────────
+
+#[pyfunction]
+fn parse_vtec<'py>(py: Python<'py>, text: &str) -> PyResult<Option<Bound<'py, PyDict>>> {
+    static VTEC_RE: Lazy<Regex> = Lazy::new(|| {
+        let pattern = r"/O\.(NEW|CON|EXP|CAN|UPG|EXA|EXT|ROU)\.([A-Z]{4})\.([A-Z]{2})\.([A-Z])\.(\d{4})\.(\d{6}T\d{4}Z)-(\d{6}T\d{4}Z)/";
+        Regex::new(pattern).unwrap()
+    });
+
+    if text.is_empty() {
+        return Ok(None);
+    }
+
+    if let Some(caps) = VTEC_RE.captures(text) {
+        let action = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+        let office_raw = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+        let phenom = caps.get(3).map(|m| m.as_str()).unwrap_or("");
+        let sig = caps.get(4).map(|m| m.as_str()).unwrap_or("");
+        let etn = caps.get(5).map(|m| m.as_str()).unwrap_or("");
+        let start = caps.get(6).map(|m| m.as_str()).unwrap_or("");
+        let end = caps.get(7).map(|m| m.as_str()).unwrap_or("");
+
+        // Normalize office: if 3 chars and starts with letter, prepend K
+        let office = if office_raw.len() == 3 && office_raw.chars().next().unwrap_or('Z').is_ascii_uppercase() {
+            format!("K{}", office_raw)
+        } else {
+            office_raw.to_string()
+        };
+
+        let vtec_id = format!("{}.{}.{}.{}", office, phenom, sig, etn);
+
+        let result = PyDict::new_bound(py);
+        result.set_item("action", action)?;
+        result.set_item("office", office)?;
+        result.set_item("phenom", phenom)?;
+        result.set_item("sig", sig)?;
+        result.set_item("etn", etn)?;
+        result.set_item("start", start)?;
+        result.set_item("end", end)?;
+        result.set_item("vtec_id", vtec_id)?;
+        return Ok(Some(result));
+    }
+
+    Ok(None)
 }
