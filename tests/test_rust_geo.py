@@ -1,6 +1,5 @@
 """Tests for Rust haversine distance calculation with Python fallback."""
 
-import math
 from utils.geo import haversine, haversine_py, haversine_batch
 
 
