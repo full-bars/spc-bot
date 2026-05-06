@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 from lib.vad_plotter.params import (
-    compute_bunkers, compute_bunkers_py,
-    compute_srh, compute_srh_py,
+    compute_bunkers,
+    compute_srh,
     vec2comp, comp2vec,
 )
 
