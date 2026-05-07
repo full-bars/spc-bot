@@ -470,40 +470,270 @@ MAX WIND GUST...60 MPH
 
 ## Flash Flood Warnings
 
-### Flash Flood Emergency
+### Standard Flash Flood Warning (Complete Product)
+
+**Source:** Real-time 2026-05-07 06:02 UTC, KFFC (Peachtree City, GA)
 
 ```
-URGENT - WEATHER MESSAGE
-Flash Flood Emergency
+616 
+WGUS52 KFFC 070602
+FFWFFC
+GAC145-215-071200-
+/O.NEW.KFFC.FF.W.0005.260507T0602Z-260507T1200Z/
+/00000.0.ER.000000T0000Z.000000T0000Z.000000T0000Z.OO/
 
-A FLASH FLOOD EMERGENCY is in effect for portions of the area.
+BULLETIN - EAS ACTIVATION REQUESTED
+Flash Flood Warning
+National Weather Service Peachtree City GA
+202 AM EDT Thu May 7 2026
 
-FLASH FLOOD EMERGENCY FOR...significant and destructive flooding expected.
+The National Weather Service in Peachtree City has issued a
 
-Life-threatening flooding is imminent or already occurring.
+* Flash Flood Warning for...
+  Southern Harris County in west central Georgia...
+  Northern Muscogee County in west central Georgia...
+
+* Until 800 AM EDT.
+
+* At 202 AM EDT, Doppler radar indicated thunderstorms producing
+  heavy rain across the warned area. Between 2 and 3 inches of rain
+  have fallen. Additional rainfall amounts of 1 to 2 inches are
+  possible in the warned area. Flash flooding is ongoing or expected
+  to begin shortly.
+
+  HAZARD...Flash flooding caused by thunderstorms.
+
+  SOURCE...Radar indicated.
+
+  IMPACT...Flash flooding of small creeks and streams, urban areas,
+           highways, streets and underpasses as well as other poor
+           drainage and low-lying areas.
+
+* Some locations that will experience flash flooding include...
+  Waverly Hall, Bibb City, Upatoi, Fortson, Cataula, Flat Rock,
+  Mulberry Grove, Midland, Ellerslie, Columbus Metropolitan Airport,
+  Kenwood, Laurel Hills, Edgewood, Green Island Hills, Highland Park,
+  Mountain Hill, Rose Hill, Goat Rock Lake and Lake Harding.
+
+PRECAUTIONARY/PREPAREDNESS ACTIONS...
+
+Turn around, don't drown when encountering flooded roads. Most flood
+deaths occur in vehicles.
+
+Be especially cautious at night when it is harder to recognize the
+dangers of flooding.
+
+Flooding is occurring or is imminent. It is important to know where
+you are relative to streams, rivers, or creeks which can become
+killers in heavy rains. Campers and hikers should avoid streams or
+creeks.
+
+&&
+
+LAT...LON 3270 8512 3272 8510 3273 8496 3272 8472
+      3265 8470 3258 8470 3253 8471 3249 8485
+      3247 8500 3249 8499 3251 8500 3254 8502
+      3258 8507 3262 8509 3264 8508 3264 8510
+      3266 8509 3267 8509 3268 8511
+
+FLASH FLOOD...RADAR INDICATED
+
+$$
 ```
 
 **Detection:**
-- Severity: `emergency` (contains "FLASH FLOOD EMERGENCY")
+- Severity: `standard` (no EMERGENCY designation)
+- VTEC: `KFFC.FF.W.0005` — New warning
+- Rainfall: 2-3 inches fallen, 1-2 inches additional expected
+- Key markers: "FLASH FLOOD WARNING" without emergency language
 
 ---
 
-### Standard Flash Flood Warning
+### Flash Flood Emergency (Complete Product - Issuance)
+
+**Source:** Real-time 2025-11-20 19:29 UTC, KSJT (San Angelo, TX)
 
 ```
-URGENT - WEATHER MESSAGE
+936 
+WGUS54 KSJT 201929
+FFWSJT
+TXC095-307-327-202230-
+/O.NEW.KSJT.FF.W.0116.251120T1929Z-251120T2230Z/
+/00000.0.ER.000000T0000Z.000000T0000Z.000000T0000Z.OO/
+
+BULLETIN - EAS ACTIVATION REQUESTED
 Flash Flood Warning
+National Weather Service San Angelo TX
+129 PM CST Thu Nov 20 2025
 
-...FLASH FLOOD WARNING REMAINS IN EFFECT UNTIL 730 PM CDT...
+...FLASH FLOOD EMERGENCY FOR MENARD...
 
-At 715 PM CDT, Doppler radar indicated heavy rainfall moving through
-the area. Minor to moderate street flooding is expected.
+The National Weather Service in San Angelo has issued a
 
-Locations impacted include...
+* Flash Flood Warning for...
+  Southeastern Concho County in west central Texas...
+  Western McCulloch County in west central Texas...
+  Central Menard County in west central Texas...
+
+* Until 430 PM CST.
+
+* At 126 PM CST, Doppler radar and automated rain gauges indicated 
+  thunderstorms producing heavy rain across the warned area. Between 
+  6 and 9 inches of rain have fallen. Additional rainfall amounts of 
+  3 to 5 inches are possible in the warned area. Flash flooding is 
+  already occurring. Heavy rainfall will continue to occur over the 
+  next few hours which will worsen existing flooding.
+
+  This is a FLASH FLOOD EMERGENCY for Menard. This is a PARTICULARLY 
+  DANGEROUS SITUATION. SEEK HIGHER GROUND NOW!
+
+  HAZARD...Life threatening flash flooding. Thunderstorms
+           producing flash flooding.
+
+  SOURCE...Radar and automated gauges.
+
+  IMPACT...This is a PARTICULARLY DANGEROUS SITUATION. SEEK
+           HIGHER GROUND NOW! Life threatening flash flooding of
+           low water crossings, small creeks and streams, urban
+           areas, highways, streets and underpasses.
+
+* Some locations that will experience flash flooding include...
+  Menard and The Intersection Of Us-83 And Highway 29.
+
+This includes the following Low Water Crossings...
+Decker St. crossing San Saba River, County Road 128 crossing Reubes 
+Creek, County Road 126 crossing Saddle Creek, County Road 124 
+crossing Saddle Creek, Ranch Road 2291 crossing Las Moras Creek and 
+Callan Lane crossing. Five-Mile Crossing at Farm to Market 2092
+
+PRECAUTIONARY/PREPAREDNESS ACTIONS...
+
+Move to higher ground now! This is an extremely dangerous and 
+life-threatening situation. Do not attempt to travel unless you are 
+fleeing an area subject to flooding or under an evacuation order.
+
+Turn around, don't drown when encountering flooded roads. Most flood 
+deaths occur in vehicles.
+
+Be aware of your surroundings and do not drive on flooded roads.
+
+In hilly terrain there are hundreds of low water crossings which are 
+potentially dangerous in heavy rain. Do not attempt to cross flooded 
+roads. Find an alternate route.
+
+Remain alert for flooding even in locations not receiving rain. 
+Arroyos, streams, and rivers can become raging killer currents in a 
+matter of minutes, even from distant rainfall.
+
+&&
+
+LAT...LON 3082 9997 3109 9974 3120 9964 3111 9949
+      3101 9960 3077 9986
+
+FLASH FLOOD...RADAR AND GAUGE INDICATED
+FLASH FLOOD DAMAGE THREAT...CATASTROPHIC
+
+$$
 ```
 
 **Detection:**
-- Severity: `standard` (standard Flash Flood Warning)
+- Severity: `emergency` (contains "FLASH FLOOD EMERGENCY FOR MENARD" + "PARTICULARLY DANGEROUS SITUATION")
+- VTEC: `KSJT.FF.W.0116` — New warning
+- Rainfall: 6-9 inches fallen, 3-5 inches additional possible
+- Damage threat: CATASTROPHIC
+- Key markers: "FLASH FLOOD EMERGENCY", "PARTICULARLY DANGEROUS SITUATION", "Life threatening", "SEEK HIGHER GROUND NOW!"
+
+---
+
+### Flash Flood Emergency (Continuation)
+
+**Source:** Real-time 2025-11-20 20:54 UTC, KSJT (same event, CON update)
+
+```
+154 
+WGUS74 KSJT 202054
+FFSSJT
+
+Flash Flood Statement
+National Weather Service San Angelo TX
+254 PM CST Thu Nov 20 2025
+
+TXC095-307-327-202230-
+/O.CON.KSJT.FF.W.0116.000000T0000Z-251120T2230Z/
+/00000.0.ER.000000T0000Z.000000T0000Z.000000T0000Z.OO/
+Concho TX-McCulloch TX-Menard TX-
+254 PM CST Thu Nov 20 2025
+
+...FLASH FLOOD EMERGENCY FOR MENARD...
+
+...FLASH FLOOD WARNING REMAINS IN EFFECT UNTIL 430 PM CST THIS 
+AFTERNOON FOR SOUTHEASTERN CONCHO, WEST CENTRAL MCCULLOCH AND 
+CENTRAL MENARD COUNTIES...
+
+At 251 PM CST, Doppler radar and automated rain gauges indicated 
+thunderstorms producing heavy rain across the warned area. Between 6 
+and 9 inches of rain have fallen. Additional rainfall amounts of 1 
+to 2 inches are possible in the warned area. Flash flooding is 
+already occurring. In addition, local emergency management reported 
+that water was entering homes in the Harris Hollow section of town.
+
+This is a FLASH FLOOD EMERGENCY for Menard. This is a PARTICULARLY 
+DANGEROUS SITUATION. SEEK HIGHER GROUND NOW!
+
+HAZARD...Life threatening flash flooding. Thunderstorms producing
+         flash flooding.
+
+SOURCE...Radar and automated gauges.
+
+IMPACT...This is a PARTICULARLY DANGEROUS SITUATION. SEEK HIGHER
+         GROUND NOW! Life threatening flash flooding of low water
+         crossings, small creeks and streams, urban areas,
+         highways, streets and underpasses.
+
+Some locations that will experience flash flooding include...
+  Menard and The Intersection Of Us-83 And Highway 29.
+
+This includes the following Low Water Crossings...
+Decker St. crossing San Saba River, County Road 128 crossing Reubes 
+Creek, County Road 126 crossing Saddle Creek, County Road 124 
+crossing Saddle Creek, Ranch Road 2291 crossing Las Moras Creek and 
+Callan Lane crossing. Five-Mile Crossing at Farm to Market 2092
+
+PRECAUTIONARY/PREPAREDNESS ACTIONS...
+
+Move to higher ground now! This is an extremely dangerous and 
+life-threatening situation. Do not attempt to travel unless you are 
+fleeing an area subject to flooding or under an evacuation order.
+
+Turn around, don't drown when encountering flooded roads. Most flood 
+deaths occur in vehicles.
+
+Be aware of your surroundings and do not drive on flooded roads.
+
+In hilly terrain there are hundreds of low water crossings which are 
+potentially dangerous in heavy rain. Do not attempt to cross flooded 
+roads. Find an alternate route.
+
+Remain alert for flooding even in locations not receiving rain. 
+Arroyos, streams, and rivers can become raging killer currents in a 
+matter of minutes, even from distant rainfall.
+
+&&
+
+LAT...LON 3082 9997 3109 9974 3120 9964 3111 9949
+      3101 9960 3077 9986
+
+FLASH FLOOD...RADAR AND GAUGE INDICATED
+FLASH FLOOD DAMAGE THREAT...CATASTROPHIC
+
+$$
+```
+
+**Detection:**
+- Severity: `emergency` (maintains emergency designation on CON update)
+- VTEC: `KSJT.FF.W.0116` — Continuation (CON) update
+- Product type: Flash Flood Statement (FFS) instead of primary FFW
+- Escalation: Now mentions homes being flooded (worsening situation)
 
 ---
 
