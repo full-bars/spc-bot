@@ -1,7 +1,10 @@
 # Warning Format Examples
 
-This document contains real examples of NWS warnings processed by SPC-Bot on 2026-05-06.
+This document contains real examples of NWS warnings processed by SPC-Bot.
 Use these as reference for warning text patterns when debugging or adding new detection logic.
+
+**Note:** Prior to 2026-05-07, tornado warning text was truncated to 500 characters in logs.
+From 2026-05-07 forward, complete untruncated warning products are logged and can be added to this file.
 
 ## Tornado Warnings
 
@@ -181,3 +184,19 @@ Locations impacted include...
 - `tornadoDamageThreat`: "CATASTROPHIC" (emergency), "CONSIDERABLE" (PDS)
 - `thunderstormDamageThreat`: "DESTRUCTIVE" (EWX), "CONSIDERABLE" (EWX)
 - `flashFloodDamageThreat`: "CATASTROPHIC" (emergency)
+
+---
+
+## How to Add Complete Examples
+
+When severe warnings occur (Tornado Emergency, destructive SVR, etc.):
+
+1. Look in `spc_bot.log` for `[WARN_VTEC_RAW]` entries (tornado warnings only)
+2. Extract the complete raw NWS product text (from WFUS/WWUS header through final line)
+3. Add to this file under appropriate section with:
+   - Full product text in code block
+   - Timestamp it occurred
+   - Which attributes it demonstrates (confidence/severity combo)
+4. Commit with reference to VTEC ID
+
+Complete products capture everything needed for accurate pattern matching.
