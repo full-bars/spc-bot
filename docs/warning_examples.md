@@ -239,39 +239,232 @@ Locations impacted include...
 
 ## Severe Thunderstorm Warnings
 
-### Destructive Damage Threat
+### Destructive Damage Threat (Complete Product)
+
+**Source:** Real-time 2026-05-06 21:11 UTC, KBMX
 
 ```
-URGENT - WEATHER MESSAGE
+648 
+WUUS54 KBMX 070011
+SVRBMX
+ALC063-065-091-105-119-070115-
+/O.NEW.KBMX.SV.W.0064.260507T0011Z-260507T0115Z/
+
+BULLETIN - EAS ACTIVATION REQUESTED
 Severe Thunderstorm Warning
+National Weather Service Birmingham AL
+711 PM CDT Wed May 6 2026
 
-A DESTRUCTIVE severe thunderstorm capable of producing damaging winds
-is moving through the area.
+The National Weather Service in Birmingham has issued a
 
-DAMAGING WINDS...DESTRUCTIVE...CAPABLE OF PRODUCING SIGNIFICANT DAMAGE
-LARGE HAIL...LOCALLY UP TO 2.75 INCHES...DAMAGE TO VEHICLES IS EXPECTED
+* Severe Thunderstorm Warning for...
+  Northeastern Marengo County in southwestern Alabama...
+  Perry County in central Alabama...
+  Southeastern Greene County in west central Alabama...
+  Southern Hale County in west central Alabama...
+  Southeastern Sumter County in west central Alabama...
+
+* Until 815 PM CDT.
+
+* At 710 PM CDT, a severe thunderstorm was located near Forkland, or
+  9 miles northwest of Demopolis, moving east at 45 mph.
+
+  THIS IS A DESTRUCTIVE STORM IN GREENE, HALE, AND NORTHERN MARENGO 
+COUNTIES.
+
+  HAZARD...Three inch hail and 70 mph wind gusts.
+
+  SOURCE...Radar indicated.
+
+  IMPACT...People and animals outdoors will be severely injured. 
+           Expect shattered windows, extensive damage to roofs, 
+           siding, and vehicles.
+
+* Locations impacted include...
+  Demopolis, Marion, Greensboro, Uniontown, Forkland, Boligee,
+  Newbern, Faunsdale, Vaiden, Walden Quarters, Thornhill, Arcola, Dug
+  Hill, Tishabee, Greensboro Municipal Airport, Duffys Bend,
+  Sawyerville, Coatopa, Radford, and Old Spring Hill.
+
+PRECAUTIONARY/PREPAREDNESS ACTIONS...
+
+Remain alert for a possible tornado! Tornadoes can develop quickly
+from severe thunderstorms. If you spot a tornado go at once into the
+basement or small central room in a sturdy structure.
+
+This storm is producing destructive winds and large damaging hail.
+SEEK SHELTER NOW inside a sturdy structure and stay away from
+windows!
+
+Large hail, damaging wind, and continuous cloud to ground lightning
+are occurring with this storm. Move indoors immediately. Lightning is
+one of nature's leading killers. Remember, if you can hear thunder,
+you are close enough to be struck by lightning.
+
+Torrential rainfall is occurring with this storm, and may lead to
+flash flooding. Do not drive your vehicle through flooded roadways.
+
+A Tornado Watch remains in effect until 1100 PM CDT for south
+central, central, southwestern and west central Alabama.
+
+LAT...LON 3277 8803 3274 8702 3258 8706 3257 8708
+      3249 8711 3248 8742 3231 8742 3250 8814
+TIME...MOT...LOC 0010Z 275DEG 39KT 3261 8792 
+
+TORNADO...POSSIBLE
+THUNDERSTORM DAMAGE THREAT...DESTRUCTIVE
+HAIL THREAT...RADAR INDICATED
+MAX HAIL SIZE...3.00 IN
+WIND THREAT...RADAR INDICATED
+MAX WIND GUST...70 MPH
 ```
 
 **Detection:**
 - Severity: `EWX` (Extreme Weather Warning - DESTRUCTIVE damage threat)
+- VTEC: `KBMX.SV.W.0064` — New warning
+- Key markers: "THIS IS A DESTRUCTIVE STORM" + "THUNDERSTORM DAMAGE THREAT...DESTRUCTIVE"
 
 ---
 
-### Considerable Damage Threat (PDS-equivalent)
+### Considerable Damage Threat (Complete Product - Continuation)
+
+**Source:** Real-time 2026-05-06 21:35 UTC, KBMX (CON update to same event)
 
 ```
-URGENT - WEATHER MESSAGE
-Severe Thunderstorm Warning
+662 
+WWUS54 KBMX 070035
+SVSBMX
 
-A SIGNIFICANT severe thunderstorm capable of producing considerable damage
-is moving rapidly through the area.
+Severe Weather Statement
+National Weather Service Birmingham AL
+735 PM CDT Wed May 6 2026
 
-DAMAGING WINDS...CONSIDERABLE...CAPABLE OF PRODUCING CONSIDERABLE DAMAGE
-LARGE HAIL...UP TO 2.00 INCHES...DAMAGE TO VEHICLES IS LIKELY
+ALC065-091-105-070115-
+/O.CON.KBMX.SV.W.0064.000000T0000Z-260507T0115Z/
+Marengo AL-Perry AL-Hale AL-
+735 PM CDT Wed May 6 2026
+
+...A SEVERE THUNDERSTORM WARNING REMAINS IN EFFECT UNTIL 815 PM CDT
+FOR NORTHEASTERN MARENGO...PERRY AND SOUTHEASTERN HALE COUNTIES...
+
+At 735 PM CDT, a severe thunderstorm was located near Newbern, or 8
+miles south of Greensboro, moving east at 45 mph.
+
+HAZARD...Tennis ball size hail and 60 mph wind gusts.
+
+SOURCE...Radar indicated.
+
+IMPACT...People and animals outdoors will be injured. Expect hail 
+         damage to roofs, siding, windows, and vehicles. Expect wind 
+         damage to roofs, siding, and trees.
+
+Locations impacted include...
+Marion, Greensboro, Uniontown, Newbern, Faunsdale, Greensboro
+Municipal Airport, Vaiden, Perry County Correctional Center, Judson
+College, Radford, Old Spring Hill, Gallion, Folsom, Suttle, Sprott,
+Vaiden Field Airport, Laneville, and Cedarville.
+
+PRECAUTIONARY/PREPAREDNESS ACTIONS...
+
+A Tornado Watch remains in effect until 1100 PM CDT for south
+central, central, southwestern and west central Alabama.
+
+Remain alert for a possible tornado! Tornadoes can develop quickly
+from severe thunderstorms. If you spot a tornado go at once into the
+basement or small central room in a sturdy structure.
+
+This storm is producing destructive winds and large damaging hail.
+SEEK SHELTER NOW inside a sturdy structure and stay away from
+windows.
+
+Torrential rainfall is occurring with this storm, and may lead to
+flash flooding. Do not drive your vehicle through flooded roadways.
+
+LAT...LON 3273 8766 3272 8705 3249 8711 3248 8742
+      3231 8742 3242 8781 3259 8775 3259 8774
+      3260 8775 3262 8774
+TIME...MOT...LOC 0035Z 275DEG 39KT 3258 8758 
+
+TORNADO...POSSIBLE
+THUNDERSTORM DAMAGE THREAT...CONSIDERABLE
+HAIL THREAT...RADAR INDICATED
+MAX HAIL SIZE...2.50 IN
+WIND THREAT...RADAR INDICATED
+MAX WIND GUST...60 MPH
 ```
 
 **Detection:**
 - Severity: `EWX` (CONSIDERABLE damage threat)
+- VTEC: `KBMX.SV.W.0064` — Continuation (CON) update
+- Product type: Severe Weather Statement (SVS) instead of primary SVR
+- Key markers: "THUNDERSTORM DAMAGE THREAT...CONSIDERABLE" with 2.5" hail and 60 mph winds
+
+---
+
+### Standard Severe Thunderstorm Warning (Considerable, no extreme designation)
+
+**Source:** Real-time 2026-05-06 21:49 UTC, KBMX
+
+```
+955 
+WUUS54 KBMX 070049
+SVRBMX
+ALC047-070115-
+/O.NEW.KBMX.SV.W.0065.260507T0049Z-260507T0115Z/
+
+BULLETIN - EAS ACTIVATION REQUESTED
+Severe Thunderstorm Warning
+National Weather Service Birmingham AL
+749 PM CDT Wed May 6 2026
+
+The National Weather Service in Birmingham has issued a
+
+* Severe Thunderstorm Warning for...
+  West central Dallas County in south central Alabama...
+
+* Until 815 PM CDT.
+
+* At 748 PM CDT, a severe thunderstorm was located near Vaiden, or
+  near Uniontown, moving east at 45 mph.
+
+  HAZARD...Tennis ball size hail and 60 mph wind gusts.
+
+  SOURCE...Radar indicated.
+
+  IMPACT...People and animals outdoors will be injured. Expect hail 
+           damage to roofs, siding, windows, and vehicles. Expect 
+           wind damage to roofs, siding, and trees.
+
+* Locations impacted include...
+  Orrville, Marion Junction, Bogue Chitto, Whites Bluff, and Hazen.
+
+PRECAUTIONARY/PREPAREDNESS ACTIONS...
+
+Remain alert for a possible tornado! Tornadoes can develop quickly
+from severe thunderstorms. If you spot a tornado go at once into the
+basement or small central room in a sturdy structure.
+
+For your protection move to an interior room on the lowest floor of a
+building.
+
+A Tornado Watch remains in effect until 1100 PM CDT for south central
+and central Alabama.
+
+LAT...LON 3231 8742 3248 8742 3249 8711 3225 8718
+TIME...MOT...LOC 0048Z 274DEG 39KT 3253 8746 
+
+TORNADO...POSSIBLE
+THUNDERSTORM DAMAGE THREAT...CONSIDERABLE
+HAIL THREAT...RADAR INDICATED
+MAX HAIL SIZE...2.50 IN
+WIND THREAT...RADAR INDICATED
+MAX WIND GUST...60 MPH
+```
+
+**Detection:**
+- Severity: `standard` (no EWX designation despite "CONSIDERABLE" damage threat)
+- VTEC: `KBMX.SV.W.0065` — New warning
+- Key difference: No special designation markers like "DESTRUCTIVE STORM"
 
 ---
 
