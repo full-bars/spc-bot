@@ -84,45 +84,139 @@ $$
 
 ---
 
-### Tornado Emergency + Confirmed
+### Tornado Emergency + Observed + PDS (Complete Product)
+
+**Source:** Real-time 2026-05-06 21:01 UTC, KJAN
 
 ```
-...TORNADO EMERGENCY FOR Bude, Meadeville, McCall Creek, Brookhaven, 
-Bogue Chitto...
+288 
+WWUS54 KJAN 070101
+SVSJAN
 
-The National Weather Service in Jackson has issued a
+Severe Weather Statement
+National Weather Service Jackson MS
+801 PM CDT Wed May 6 2026
 
-* Tornado Warning for...
-  Lincoln County in south central Mississippi...
-  Eastern Franklin County in southwestern Mississippi...
+MSC085-070115-
+/O.CON.KJAN.TO.W.0035.000000T0000Z-260507T0115Z/
+Lincoln MS-
+801 PM CDT Wed May 6 2026
 
-* Until 815 PM CDT
+...TORNADO EMERGENCY FOR Brookhaven, Bogue Chitto...
 
-At 710 PM CDT, a confirmed tornado was located near
-Bogue Chitto, moving east at 35 mph.
+...A TORNADO WARNING REMAINS IN EFFECT UNTIL 815 PM CDT FOR EASTERN
+LINCOLN COUNTY...
+
+At 801 PM CDT, a confirmed large and destructive tornado was located
+over East Lincoln, or 10 miles southeast of Brookhaven, moving east
+at 50 mph.
+
+TORNADO EMERGENCY for Brookhaven, Bogue Chitto. This is a 
+PARTICULARLY DANGEROUS SITUATION. TAKE COVER NOW!
+
+HAZARD...Deadly tornado.
+
+SOURCE...Radar confirmed tornado.
+
+IMPACT...You are in a life-threatening situation. Flying debris may 
+         be deadly to those caught without shelter. Mobile homes 
+         will be destroyed. Considerable damage to homes, 
+         businesses, and vehicles is likely and complete destruction 
+         is possible.
+
+This tornadic thunderstorm will remain over mainly rural areas of
+eastern Lincoln County.
+
+PRECAUTIONARY/PREPAREDNESS ACTIONS...
+
+To repeat, a large, extremely dangerous, and potentially deadly
+tornado is on the ground. To protect your life, TAKE COVER NOW! Move
+to an interior room on the lowest floor of a sturdy building. Avoid
+windows. If in a mobile home, a vehicle or outdoors, move to the
+closest substantial shelter and protect yourself from flying debris.
+
+LAT...LON 3157 9050 3168 9034 3154 9025 3141 9024
+      3141 9049
+TIME...MOT...LOC 0101Z 260DEG 43KT 3150 9030 
+
+TORNADO...OBSERVED
+TORNADO DAMAGE THREAT...CATASTROPHIC
+MAX HAIL SIZE...1.75 IN
 ```
 
 **Detection:**
-- Confidence: `observed` (contains "confirmed tornado")
-- Severity: `emergency` (contains "TORNADO EMERGENCY")
+- Confidence: `observed` (contains "TORNADO...OBSERVED" + "confirmed large and destructive tornado")
+- Severity: `emergency` (contains "TORNADO EMERGENCY" AND "TORNADO DAMAGE THREAT...CATASTROPHIC")
+- **Also contains PDS:** "PARTICULARLY DANGEROUS SITUATION" (secondary designation alongside EMERGENCY)
+- VTEC: `KJAN.TO.W.0035` — Continuation (CON) update of existing warning
+- Product type: Severe Weather Statement (SVS, not the primary TOR product)
 
 ---
 
-### PDS (Particularly Dangerous Situation) + Confirmed
+### PDS (Particularly Dangerous Situation) + Observed (Complete Product)
+
+**Source:** Real-time 2026-05-06 20:51 UTC, KJAN
 
 ```
-...A TORNADO WARNING REMAINS IN EFFECT UNTIL 745 PM CDT FOR NORTH
-CENTRAL AMITE COUNTY...
+327 
+WWUS54 KJAN 070051
+SVSJAN
 
-At 711 PM CDT, a confirmed large and extremely dangerous tornado was
-located near Meadville, moving east at 40 mph.
+Severe Weather Statement
+National Weather Service Jackson MS
+751 PM CDT Wed May 6 2026
 
-This is a PARTICULARLY DANGEROUS SITUATION. TAKE COVER
+MSC085-070115-
+/O.CON.KJAN.TO.W.0035.000000T0000Z-260507T0115Z/
+Lincoln MS-
+751 PM CDT Wed May 6 2026
+
+...A TORNADO WARNING REMAINS IN EFFECT UNTIL 815 PM CDT FOR EASTERN
+LINCOLN COUNTY...
+
+At 751 PM CDT, a confirmed large and extremely dangerous tornado was
+located near Bogue Chitto, or 7 miles south of Brookhaven, moving
+east at 50 mph.
+
+This is a PARTICULARLY DANGEROUS SITUATION. TAKE COVER NOW!
+
+HAZARD...Damaging tornado.
+
+SOURCE...Radar confirmed tornado.
+
+IMPACT...You are in a life-threatening situation. Flying debris may 
+         be deadly to those caught without shelter. Mobile homes 
+         will be destroyed. Considerable damage to homes, 
+         businesses, and vehicles is likely and complete destruction 
+         is possible.
+
+The tornado will be near...
+  Brookhaven, Enterprise, and East Lincoln around 755 PM CDT.
+
+PRECAUTIONARY/PREPAREDNESS ACTIONS...
+
+To repeat, a large, extremely dangerous and potentially deadly
+tornado is on the ground. To protect your life, TAKE COVER NOW! Move
+to a basement or an interior room on the lowest floor of a sturdy
+building. Avoid windows. If you are outdoors, in a mobile home, or in
+a vehicle, move to the closest substantial shelter and protect
+yourself from flying debris.
+
+LAT...LON 3157 9057 3170 9035 3154 9025 3141 9024
+      3141 9055
+TIME...MOT...LOC 0051Z 260DEG 43KT 3148 9045 
+
+TORNADO...OBSERVED
+TORNADO DAMAGE THREAT...CONSIDERABLE
+MAX HAIL SIZE...1.75 IN
 ```
 
 **Detection:**
-- Confidence: `observed` (contains "confirmed")
-- Severity: `pds` (contains "PARTICULARLY DANGEROUS SITUATION")
+- Confidence: `observed` (contains "TORNADO...OBSERVED" + "confirmed large and extremely dangerous tornado")
+- Severity: `pds` (contains "PARTICULARLY DANGEROUS SITUATION" and "TORNADO DAMAGE THREAT...CONSIDERABLE")
+- VTEC: `KJAN.TO.W.0035` — Continuation (CON) update
+- Product type: Severe Weather Statement (SVS)
+- **Key difference from Emergency:** CONSIDERABLE damage threat instead of CATASTROPHIC
 
 ---
 
