@@ -220,23 +220,6 @@ MAX HAIL SIZE...1.75 IN
 
 ---
 
-### Standard Tornado Warning (Radar Indicated)
-
-```
-...A TORNADO WARNING REMAINS IN EFFECT UNTIL 730 PM CDT...
-
-At 715 PM CDT, Doppler radar indicated a rotating thunderstorm capable
-of producing a tornado. A tornado warning remains in effect.
-
-Locations impacted include...
-```
-
-**Detection:**
-- Confidence: `radar_indicated` (default, no "OBSERVED" or "CONFIRMED" markers)
-- Severity: `standard` (no EMERGENCY or PDS designation)
-
----
-
 ## Severe Thunderstorm Warnings
 
 ### Destructive Damage Threat (Complete Product)
