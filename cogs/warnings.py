@@ -606,6 +606,7 @@ class WarningsCog(commands.Cog):
 
                                 # Update stored area so we don't spam updates for every poll
                                 self.bot.state.posted_warnings[issuance_id]["area"] = curr_area
+                                description = props.description or ""
                                 params = props.parameters.model_dump() if props.parameters else {}
                                 tornado_confidence, tornado_severity = get_tornado_attributes(event, description, params)
                                 await add_posted_warning(
