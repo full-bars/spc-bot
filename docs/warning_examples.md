@@ -3,10 +3,86 @@
 This document contains real examples of NWS warnings processed by SPC-Bot.
 Use these as reference for warning text patterns when debugging or adding new detection logic.
 
-**Note:** Prior to 2026-05-07, tornado warning text was truncated to 500 characters in logs.
-From 2026-05-07 forward, complete untruncated warning products are logged and can be added to this file.
+**Note on Examples:** 
+- Prior to 2026-05-07, tornado warning text was truncated to 500 characters in logs
+- From 2026-05-07 forward, complete untruncated warning products are logged (see `[WARN_VTEC_RAW]` entries in `spc_bot.log`)
+- Some examples below are reconstructed from partial logs; new complete examples will be added as severe warnings occur
+- IEM AFOS archive is used for backfill when available
 
 ## Tornado Warnings
+
+### Standard Radar-Indicated (Complete Example from Archive)
+
+**Source:** IEM AFOS Archive, 2026-05-06 22:38 UTC
+
+```
+528 
+WFUS54 KJAN 070338
+TORJAN
+MSC065-077-085-091-070445-
+/O.NEW.KJAN.TO.W.0040.260507T0338Z-260507T0445Z/
+
+BULLETIN - EAS ACTIVATION REQUESTED
+Tornado Warning
+National Weather Service Jackson MS
+1038 PM CDT Wed May 6 2026
+
+The National Weather Service in Jackson has issued a
+
+* Tornado Warning for...
+  Northern Marion County in south central Mississippi...
+  Southeastern Lincoln County in south central Mississippi...
+  Southern Lawrence County in south central Mississippi...
+  Southwestern Jefferson Davis County in south central Mississippi...
+
+* Until 1145 PM CDT.
+
+* At 1038 PM CDT, a severe thunderstorm capable of producing a
+  tornado was located near Ruth, or 12 miles northeast of Mccomb,
+  moving east at 40 mph.
+
+  HAZARD...Tornado.
+
+  SOURCE...Radar indicated rotation.
+
+  IMPACT...Flying debris will be dangerous to those caught without 
+           shelter. Mobile homes will be damaged or destroyed. 
+           Damage to roofs, windows, and vehicles will occur.  Tree 
+           damage is likely.
+
+* This dangerous storm will be near...
+  Jayess and Topeka around 1045 PM CDT.
+  Holly Springs and Tilton around 1055 PM CDT.
+  Oak Vale and Morgantown around 1100 PM CDT.
+  Goss and Society Hill around 1105 PM CDT.
+  Columbia and Bunker Hill around 1110 PM CDT.
+
+PRECAUTIONARY/PREPAREDNESS ACTIONS...
+
+TAKE COVER NOW! Move to a basement or an interior room on the lowest
+floor of a sturdy building. Avoid windows. If you are outdoors, in a
+mobile home, or in a vehicle, move to the closest substantial shelter
+and protect yourself from flying debris.
+
+&&
+
+LAT...LON 3118 9003 3134 9004 3133 9008 3135 9011
+      3135 9036 3140 9039 3151 8985 3139 8974
+      3118 8973
+TIME...MOT...LOC 0338Z 263DEG 34KT 3133 9029 
+
+TORNADO...RADAR INDICATED
+MAX HAIL SIZE...<.75 IN
+
+$$
+```
+
+**Detection:**
+- Confidence: `radar_indicated` (contains "Radar indicated rotation" + "TORNADO...RADAR INDICATED")
+- Severity: `standard` (no EMERGENCY or PDS designation)
+- VTEC: `KJAN.TO.W.0040` — Office: KJAN (Jackson), Phenom: TO (Tornado), Sig: W (Warning), ETN: 0040
+
+---
 
 ### Tornado Emergency + Confirmed
 
