@@ -103,9 +103,9 @@ class WarningsCog(commands.Cog):
 
         vtec = parse_vtec(raw_text)
         if vtec:
-            logger.info(f"[WARN_VTEC] iembot {event}: {vtec['vtec_id']} phenom={vtec.get('phenom')}")
+            logger.debug(f"[WARN_VTEC] iembot {event}: {vtec['vtec_id']} phenom={vtec.get('phenom')}")
             if "TO" in event or vtec.get("phenom") == "TO":
-                logger.info(f"[WARN_VTEC_RAW] iembot tornado: first 500 chars of raw_text: {raw_text[:500]}")
+                logger.debug(f"[WARN_VTEC_RAW] iembot tornado: first 500 chars of raw_text: {raw_text[:500]}")
         if not vtec:
             if event == "Special Weather Statement":
                 # SPS usually lacks VTEC. Create a mock dict so formatting works.
@@ -212,10 +212,10 @@ class WarningsCog(commands.Cog):
             # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS)
             files = []
             has_etn = vtec.get("etn") and vtec["etn"] != "0"
-            logger.info(f"[WARN_IMG_CHECK] {vtec['vtec_id']}: has_etn={has_etn} phenom={vtec.get('phenom')}")
+            logger.debug(f"[WARN_IMG_CHECK] {vtec['vtec_id']}: has_etn={has_etn} phenom={vtec.get('phenom')}")
             if has_etn or vtec.get("phenom") == "SPS":
                 image_url = iem_autoplot_url(vtec)
-                logger.info(f"[WARN_IMG_IEMBOT] {vtec['vtec_id']}: {image_url}")
+                logger.debug(f"[WARN_IMG_IEMBOT] {vtec['vtec_id']}: {image_url}")
                 filename = f"warning_{vtec_id.replace('.', '_')}.png"
                 f = await _download_warning_image(image_url, filename)
                 if f:
@@ -224,7 +224,7 @@ class WarningsCog(commands.Cog):
                 else:
                     logger.warning(f"[WARN_IMG_FAIL] {vtec['vtec_id']}: image download returned None")
             else:
-                logger.info(f"[WARN_IMG_SKIP] {vtec['vtec_id']}: no ETN, not downloading image")
+                logger.debug(f"[WARN_IMG_SKIP] {vtec['vtec_id']}: no ETN, not downloading image")
 
             try:
                 msg = await channel.send(embed=embed, files=files, view=view)
@@ -552,7 +552,7 @@ class WarningsCog(commands.Cog):
                 parsed = parse_vtec(v)
                 if parsed:
                     vtec_dict = parsed
-                    logger.info(f"[WARN_VTEC] nws-api {event}: {parsed['vtec_id']} phenom={parsed.get('phenom')}")
+                    logger.debug(f"[WARN_VTEC] nws-api {event}: {parsed['vtec_id']} phenom={parsed.get('phenom')}")
                     # We prefer NEW for the initial tracking, but take any for metadata
                     if parsed["action"] == "NEW":
                         break
@@ -574,7 +574,7 @@ class WarningsCog(commands.Cog):
 
             if issuance_id in self.bot.state.posted_warnings:
                 # Still active, ensures it stays in the active set
-                logger.info(f"[WARN_SKIP] {issuance_id} already posted (action={vtec_dict['action']})")
+                logger.debug(f"[WARN_SKIP] {issuance_id} already posted (action={vtec_dict['action']})")
                 if issuance_id not in self.bot.state.active_warnings:
                     self.bot.state.active_warnings[issuance_id] = vtec_dict
 
@@ -709,10 +709,10 @@ class WarningsCog(commands.Cog):
         # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS)
         files = []
         has_etn = vtec.get("etn") and vtec["etn"] != "0"
-        logger.info(f"[WARN_IMG_CHECK] {vtec_id}: has_etn={has_etn} phenom={vtec.get('phenom')}")
+        logger.debug(f"[WARN_IMG_CHECK] {vtec_id}: has_etn={has_etn} phenom={vtec.get('phenom')}")
         if has_etn or vtec.get("phenom") == "SPS":
             image_url = iem_autoplot_url(vtec)
-            logger.info(f"[WARN_IMG_NWSAPI] {vtec_id}: {image_url}")
+            logger.debug(f"[WARN_IMG_NWSAPI] {vtec_id}: {image_url}")
             filename = f"warning_{vtec_id.replace('.', '_')}.png"
             f = await _download_warning_image(image_url, filename)
             if f:
@@ -721,7 +721,7 @@ class WarningsCog(commands.Cog):
             else:
                 logger.warning(f"[WARN_IMG_FAIL] {vtec_id}: image download returned None")
         else:
-            logger.info(f"[WARN_IMG_SKIP] {vtec_id}: no ETN, not downloading image")
+            logger.debug(f"[WARN_IMG_SKIP] {vtec_id}: no ETN, not downloading image")
 
         msg = await channel.send(embed=embed, files=files)
         logger.info(f"Posted {event} {vtec_id}")

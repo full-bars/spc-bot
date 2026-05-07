@@ -490,15 +490,15 @@ async def _download_warning_image(image_url: str, filename: str) -> discord.File
     Retries on 404 (IEM map not yet generated), 400 (bad request/pending),
     or network errors with exponential backoff.
     """
-    logger.info(f"[IMG_DL_START] Attempting to download: {image_url}")
+    logger.debug(f"[IMG_DL_START] Attempting to download: {image_url}")
     for attempt in range(8):
         try:
             content, status = await http_get_bytes(image_url, retries=1, timeout=15)
             if content and status == 200:
-                logger.info(f"[IMG_DL_SUCCESS] {filename}: got {len(content)} bytes")
+                logger.debug(f"[IMG_DL_SUCCESS] {filename}: got {len(content)} bytes")
                 return discord.File(BytesIO(content), filename=filename)
 
-            logger.info(f"[IMG_DL_RETRY] Attempt {attempt+1}/8: status={status}, content_len={len(content) if content else 0}")
+            logger.debug(f"[IMG_DL_RETRY] Attempt {attempt+1}/8: status={status}, content_len={len(content) if content else 0}")
 
             # Map might be pending (404/400). Use exponential backoff: 2s, 4s, 8s, 10s...
             if attempt < 7:
@@ -510,7 +510,7 @@ async def _download_warning_image(image_url: str, filename: str) -> discord.File
                 f"[IMG_DL_FAIL] {filename}: Failed after 8 attempts (final status={status})"
             )
         except Exception as e:
-            logger.info(f"[IMG_DL_ERROR] Attempt {attempt+1}/8: {e}")
+            logger.debug(f"[IMG_DL_ERROR] Attempt {attempt+1}/8: {e}")
             if attempt < 7:
                 delay = min(2 ** (attempt + 1), 10)
                 await asyncio.sleep(delay)
