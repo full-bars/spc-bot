@@ -95,6 +95,41 @@ def get_warning_style(event: str, text: str, params: dict = None, vtec: dict = N
     return emoji, display_event, color, footer_id
 
 
+def get_tornado_attributes(event: str, text: str, params: dict = None) -> Tuple[Optional[str], Optional[str]]:
+    """Extract tornado confidence and severity from warning text and parameters.
+
+    Returns (confidence, severity) where:
+      - confidence: "observed" or "radar_indicated" (None if not a tornado warning)
+      - severity: "emergency", "pds", or "standard" (None if not a tornado warning)
+    """
+    if event != "Tornado Warning":
+        return None, None
+
+    text_upper = (text or "").upper()
+
+    # Extract confidence: observed vs radar_indicated
+    confidence = "radar_indicated"  # default
+    if "TORNADO...OBSERVED" in text_upper or "CONFIRMED TORNADO" in text_upper:
+        confidence = "observed"
+
+    # Extract severity: emergency > pds > standard
+    severity = "standard"  # default
+    if "TORNADO EMERGENCY" in text_upper:
+        severity = "emergency"
+    elif "PARTICULARLY DANGEROUS SITUATION" in text_upper:
+        severity = "pds"
+
+    # Check params for NWS API path
+    if params:
+        t_threat = params.get("tornadoDamageThreat") or []
+        if "CATASTROPHIC" in t_threat:
+            severity = "emergency"
+        elif "CONSIDERABLE" in t_threat:
+            severity = "pds"
+
+    return confidence, severity
+
+
 def iem_autoplot_url(vtec: dict) -> str:
     """Return the IEM Autoplot URL (#208 for VTEC, #217 for SPS)."""
     office = vtec["office"]

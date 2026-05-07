@@ -143,7 +143,9 @@ async def _create_tables(db: aiosqlite.Connection):
             message_id INTEGER NOT NULL DEFAULT 0,
             channel_id INTEGER NOT NULL DEFAULT 0,
             posted_at  REAL NOT NULL DEFAULT 0,
-            area       TEXT
+            area       TEXT,
+            tornado_confidence TEXT,
+            tornado_severity TEXT
         );
 
         CREATE TABLE IF NOT EXISTS posted_soundings (
@@ -185,11 +187,19 @@ async def _create_tables(db: aiosqlite.Connection):
         );
     """)
 
-    # Migration: add area column if it doesn't exist
+    # Migrations: add columns if they don't exist
     try:
         await db.execute("ALTER TABLE posted_warnings ADD COLUMN area TEXT")
     except Exception:
-        pass # already exists
+        pass  # already exists
+    try:
+        await db.execute("ALTER TABLE posted_warnings ADD COLUMN tornado_confidence TEXT")
+    except Exception:
+        pass  # already exists
+    try:
+        await db.execute("ALTER TABLE posted_warnings ADD COLUMN tornado_severity TEXT")
+    except Exception:
+        pass  # already exists
 
 
 async def close_db():
@@ -477,19 +487,31 @@ async def get_posted_warning_timestamp(vtec_id: str) -> Optional[float]:
 
 
 async def add_posted_warning(
-    vtec_id: str, message_id: int, channel_id: int, posted_at: float = 0.0, area: str = ""
+    vtec_id: str,
+    message_id: int,
+    channel_id: int,
+    posted_at: float = 0.0,
+    area: str = "",
+    tornado_confidence: Optional[str] = None,
+    tornado_severity: Optional[str] = None,
 ):
     """Mark a warning as posted. ``vtec_id`` is the VTEC event identity
     (office.phenom.sig.etn), which stays stable across the warning's
-    lifecycle so it doubles as our dedup key."""
+    lifecycle so it doubles as our dedup key.
+
+    For tornado warnings, ``tornado_confidence`` is 'observed' or 'radar_indicated',
+    and ``tornado_severity`` is 'standard', 'pds', or 'emergency'.
+    """
     await _write(
-        """INSERT INTO posted_warnings (vtec_id, message_id, channel_id, posted_at, area)
-           VALUES (?, ?, ?, ?, ?)
+        """INSERT INTO posted_warnings (vtec_id, message_id, channel_id, posted_at, area, tornado_confidence, tornado_severity)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(vtec_id) DO UPDATE SET
              message_id=excluded.message_id,
              channel_id=excluded.channel_id,
-             area=excluded.area""",
-        (vtec_id, message_id, channel_id, posted_at, area),
+             area=excluded.area,
+             tornado_confidence=excluded.tornado_confidence,
+             tornado_severity=excluded.tornado_severity""",
+        (vtec_id, message_id, channel_id, posted_at, area, tornado_confidence, tornado_severity),
         f"add_posted_warning({vtec_id})",
     )
 

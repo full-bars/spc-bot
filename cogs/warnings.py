@@ -40,6 +40,7 @@ from utils.state_store import (
 )
 from cogs.warning_format import (
     get_warning_style,
+    get_tornado_attributes,
     iem_autoplot_url,
     build_concise_warning_text,
     _vtec_url,
@@ -251,7 +252,16 @@ class WarningsCog(commands.Cog):
                 return
 
             try:
-                await add_posted_warning(vtec_id, msg.id, msg.channel.id, time.time(), area=area_desc)
+                tornado_confidence, tornado_severity = get_tornado_attributes(event, raw_text)
+                await add_posted_warning(
+                    vtec_id,
+                    msg.id,
+                    msg.channel.id,
+                    time.time(),
+                    area=area_desc,
+                    tornado_confidence=tornado_confidence,
+                    tornado_severity=tornado_severity,
+                )
                 # Keep product IDs pruned to today's set (roughly)
                 if len(self.bot.state.posted_product_ids) > 1000:
                     # Very crude pruning — ideally we'd use a TTL but this is in-memory
@@ -596,11 +606,15 @@ class WarningsCog(commands.Cog):
 
                                 # Update stored area so we don't spam updates for every poll
                                 self.bot.state.posted_warnings[issuance_id]["area"] = curr_area
+                                params = props.parameters.model_dump() if props.parameters else {}
+                                tornado_confidence, tornado_severity = get_tornado_attributes(event, description, params)
                                 await add_posted_warning(
                                     issuance_id,
                                     stored_info["message_id"],
                                     stored_info["channel_id"],
-                                    area=curr_area
+                                    area=curr_area,
+                                    tornado_confidence=tornado_confidence,
+                                    tornado_severity=tornado_severity,
                                 )
                             finally:
                                 self._in_flight_vtecs.discard(issuance_id)
@@ -642,7 +656,18 @@ class WarningsCog(commands.Cog):
                     "area": area_desc,
                 }
                 try:
-                    await add_posted_warning(issuance_id, msg.id, msg.channel.id, time.time(), area=area_desc)
+                    description = props.description or ""
+                    params = props.parameters.model_dump() if props.parameters else {}
+                    tornado_confidence, tornado_severity = get_tornado_attributes(event, description, params)
+                    await add_posted_warning(
+                        issuance_id,
+                        msg.id,
+                        msg.channel.id,
+                        time.time(),
+                        area=area_desc,
+                        tornado_confidence=tornado_confidence,
+                        tornado_severity=tornado_severity,
+                    )
                     await prune_posted_warnings()
                 except Exception as e:
                     logger.warning(

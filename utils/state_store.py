@@ -272,8 +272,20 @@ async def _replay(op: str, args: tuple) -> None:
         (product_id,) = args
         await _upstash_cmd("SADD", _k_posted_reports(), product_id)
     elif op == "add_posted_warning":
-        vtec_id, message_id, channel_id, _, area = args
-        data = {"message_id": message_id, "channel_id": channel_id, "area": area}
+        # Handle both old (5-element) and new (7-element) formats
+        vtec_id = args[0]
+        message_id = args[1]
+        channel_id = args[2]
+        area = args[4] if len(args) > 4 else ""
+        tornado_confidence = args[5] if len(args) > 5 else None
+        tornado_severity = args[6] if len(args) > 6 else None
+        data = {
+            "message_id": message_id,
+            "channel_id": channel_id,
+            "area": area,
+            "tornado_confidence": tornado_confidence,
+            "tornado_severity": tornado_severity,
+        }
         await _upstash_cmd("HSET", _k_posted_warnings(), vtec_id, json.dumps(data))
     elif op == "set_state":
         key, value = args
@@ -645,16 +657,33 @@ async def get_all_posted_warnings() -> Dict[str, dict]:
 
 
 async def add_posted_warning(
-    vtec_id: str, message_id: int, channel_id: int, posted_at: float = 0.0, area: str = ""
+    vtec_id: str,
+    message_id: int,
+    channel_id: int,
+    posted_at: float = 0.0,
+    area: str = "",
+    tornado_confidence: Optional[str] = None,
+    tornado_severity: Optional[str] = None,
 ) -> None:
     _cache_invalidate("posted_warnings")
-    await sqlite_backend.add_posted_warning(vtec_id, message_id, channel_id, posted_at, area)
-    data = {"message_id": message_id, "channel_id": channel_id, "area": area}
+    await sqlite_backend.add_posted_warning(
+        vtec_id, message_id, channel_id, posted_at, area, tornado_confidence, tornado_severity
+    )
+    data = {
+        "message_id": message_id,
+        "channel_id": channel_id,
+        "area": area,
+        "tornado_confidence": tornado_confidence,
+        "tornado_severity": tornado_severity,
+    }
     try:
         await _upstash_cmd("HSET", _k_posted_warnings(), vtec_id, json.dumps(data))
     except _UpstashUnavailable as e:
         logger.warning(f"[STATE] add_posted_warning({vtec_id}) queued: {e}")
-        await _enqueue_dirty("add_posted_warning", (vtec_id, message_id, channel_id, posted_at, area))
+        await _enqueue_dirty(
+            "add_posted_warning",
+            (vtec_id, message_id, channel_id, posted_at, area, tornado_confidence, tornado_severity),
+        )
 
 
 async def prune_posted_warnings(max_size: int = 500) -> None:
