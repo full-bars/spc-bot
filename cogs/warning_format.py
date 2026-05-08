@@ -276,17 +276,24 @@ def _area_with_state(area_desc: str, ugc_codes: List[str]) -> str:
     # Split county list by state group counts
     parts = []
     idx = 0
+    state_regex = r"[\s,]+(?:[A-Z]{2}|ALABAMA|ALASKA|ARIZONA|ARKANSAS|CALIFORNIA|COLORADO|CONNECTICUT|DELAWARE|FLORIDA|GEORGIA|HAWAII|IDAHO|ILLINOIS|INDIANA|IOWA|KANSAS|KENTUCKY|LOUISIANA|MAINE|MARYLAND|MASSACHUSETTS|MICHIGAN|MINNESOTA|MISSISSIPPI|MISSOURI|MONTANA|NEBRASKA|NEVADA|NEW\s+HAMPSHIRE|NEW\s+JERSEY|NEW\s+MEXICO|NEW\s+YORK|NORTH\s+CAROLINA|NORTH\s+DAKOTA|OHIO|OKLAHOMA|OREGON|PENNSYLVANIA|RHODE\s+ISLAND|SOUTH\s+CAROLINA|SOUTH\s+DAKOTA|TENNESSEE|TEXAS|UTAH|VERMONT|VIRGINIA|WASHINGTON|WEST\s+VIRGINIA|WISCONSIN|WYOMING)$"
     for state, count in state_counts.items():
         group = counties[idx:idx + count]
         if group:
-            parts.append(f"{', '.join(group)} [{state}]")
+            # Clean up county names that already have state info (e.g. "Caddo, OK" -> "Caddo")
+            cleaned_group = []
+            for c in group:
+                c = re.sub(state_regex, "", c, flags=re.I)
+                cleaned_group.append(c)
+            parts.append(f"{', '.join(cleaned_group)} [{state}]")
         idx += count
 
     # Any leftover counties (mismatch in UGC/areaDesc lengths) appended to last group
     if idx < len(counties):
         remainder = counties[idx:]
+        cleaned_remainder = [re.sub(state_regex, "", r, flags=re.I) for r in remainder]
         if parts:
-            parts[-1] = parts[-1] + f", {', '.join(remainder)}"
+            parts[-1] = parts[-1] + f", {', '.join(cleaned_remainder)}"
         else:
             return area_desc
 
@@ -394,20 +401,30 @@ def build_concise_warning_text(
     if feature:
         area = feature.get("properties", {}).get("areaDesc", area)
     elif raw_text:
-        m_area = re.search(r"(?:Warning for|Statement for|IMPACT)\s+(.+?)(?=\n\s*\*|\n\s*At\s+|$)", raw_text, re.I | re.DOTALL)
+        # Improved regex to capture area between known headers
+        m_area = re.search(r"(?:Warning for|Statement for|IMPACT)\s+(.+?)(?=\n\s*\*|\n\s*At\s+|\n\s*LAT\.\.\.LON|$)", raw_text, re.I | re.DOTALL)
         if m_area:
             raw_list = m_area.group(1)
-            parts = re.split(r"\n|\.\.\.|\s+AND\s+", raw_list, flags=re.I)
+            # Split by common delimiters
+            parts = re.split(r"\n|\.\.\.|\s+AND\s+|;", raw_list, flags=re.I)
             counties = []
             for p in parts:
                 c = p.strip().strip(".")
                 if not c or len(c) < 3:
                     continue
-                if any(x in c.upper() for x in ["THROUGH", "UNTIL", "PORTIONS", "AM", "PM", "EDT", "CDT", "MDT", "PDT", "HST", "AKDT"]):
+                # Skip lines that look like timestamps or structural text
+                if any(x in c.upper() for x in ["THROUGH", "UNTIL", "PORTIONS", "AM", "PM", "EDT", "CDT", "MDT", "PDT", "HST", "AKDT", "LOCATED"]):
                     continue
+                # Strip directional prefixes
                 c = re.sub(r"^(?:Northeastern|Northwestern|Southeastern|Southwestern|Northern|Southern|Eastern|Western|Central)\s+", "", c, flags=re.I)
+                # Handle "X in Y State"
                 c = re.split(r"\s+in\s+", c, flags=re.I)[0]
-                c = re.sub(r"\s+Count[iy].*$", "", c, flags=re.I)
+                # Strip "County" or "Parish"
+                c = re.sub(r"\s+(?:Count[iy]|Parish).*$", "", c, flags=re.I)
+                
+                # Strip existing state names/abbreviations to prevent "Caddo, OK [OK]"
+                c = re.sub(r"[\s,]+(?:[A-Z]{2}|ALABAMA|ALASKA|ARIZONA|ARKANSAS|CALIFORNIA|COLORADO|CONNECTICUT|DELAWARE|FLORIDA|GEORGIA|HAWAII|IDAHO|ILLINOIS|INDIANA|IOWA|KANSAS|KENTUCKY|LOUISIANA|MAINE|MARYLAND|MASSACHUSETTS|MICHIGAN|MINNESOTA|MISSISSIPPI|MISSOURI|MONTANA|NEBRASKA|NEVADA|NEW\s+HAMPSHIRE|NEW\s+JERSEY|NEW\s+MEXICO|NEW\s+YORK|NORTH\s+CAROLINA|NORTH\s+DAKOTA|OHIO|OKLAHOMA|OREGON|PENNSYLVANIA|RHODE\s+ISLAND|SOUTH\s+CAROLINA|SOUTH\s+DAKOTA|TENNESSEE|TEXAS|UTAH|VERMONT|VIRGINIA|WASHINGTON|WEST\s+VIRGINIA|WISCONSIN|WYOMING)$", "", c.strip(), flags=re.I)
+                
                 c = c.strip()
                 if c and c.upper() not in ["CENTRAL", "NORTH", "SOUTH", "EAST", "WEST"] and c not in counties:
                     counties.append(c)
@@ -415,20 +432,42 @@ def build_concise_warning_text(
                 area = ", ".join(counties)
 
     if is_update and prev_area:
-        # Calculate cancels/continues
-        prev_parts = [c.strip() for c in re.split(r'[;,]\s*', prev_area) if c.strip()]
+        # Normalize prev_area: strip bracketed state info "[OK]" and " and " before diffing
+        clean_prev = re.sub(r"\s*\[[A-Z]{2}\]", "", prev_area)
+        clean_prev = clean_prev.replace(" and ", ", ")
+        
+        prev_parts = [c.strip() for c in re.split(r'[;,]\s*', clean_prev) if c.strip()]
         curr_parts = [c.strip() for c in re.split(r'[;,]\s*', area) if c.strip()]
 
-        prev_set = set(prev_parts)
-        curr_set = set(curr_parts)
-
-        cancelled = sorted([c for c in prev_parts if c in (prev_set - curr_set)])
-        continuing = sorted([c for c in curr_parts if c in curr_set])
-
-        if cancelled:
-            area_formatted = f" (**cancels** {', '.join(cancelled)}, **continues** {', '.join(continuing)})"
-        else:
+        # If previous was just "affected area", don't diff, just show the new area
+        if prev_area == "affected area":
             area_formatted = f" for {_area_with_state(area, ugc_codes or [])}"
+        else:
+            prev_set = set(prev_parts)
+            curr_set = set(curr_parts)
+
+            # If curr_parts is empty or just "affected area", default to prev_parts
+            if (not curr_parts or area == "affected area") and prev_parts:
+                curr_parts = prev_parts
+                curr_set = prev_set
+                area = clean_prev
+
+            cancelled = sorted([c for c in prev_parts if c in (prev_set - curr_set)])
+            continuing = sorted([c for c in curr_parts if c in (curr_set & prev_set)])
+            new_added = sorted([c for c in curr_parts if c in (curr_set - prev_set)])
+
+            if cancelled or new_added:
+                parts = []
+                if cancelled:
+                    parts.append(f"**cancels** {', '.join(cancelled)}")
+                if continuing:
+                    parts.append(f"**continues** {', '.join(continuing)}")
+                if new_added:
+                    parts.append(f"**expands to** {', '.join(new_added)}")
+                
+                area_formatted = f" ({', '.join(parts)})"
+            else:
+                area_formatted = f" for {_area_with_state(area, ugc_codes or [])}"
     else:
         area_formatted = f" for {_area_with_state(area, ugc_codes or [])}"
 
