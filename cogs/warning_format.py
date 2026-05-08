@@ -367,6 +367,10 @@ def build_concise_warning_text(
 
         if params.get("thunderstormDamageThreat"):
             tags.append(f"damage threat: {params['thunderstormDamageThreat'][0]}")
+            
+        # Add "Tornado: POSSIBLE" if present in parameters
+        if params.get("tornadoPossible"):
+            tags.append("tornado: POSSIBLE")
 
     # Flash Flood Warning tags: [flash flood: radar indicated] (all lowercase)
     elif "Flash Flood" in display_event:
@@ -394,41 +398,88 @@ def build_concise_warning_text(
     if feature:
         area = feature.get("properties", {}).get("areaDesc", area)
     elif raw_text:
-        m_area = re.search(r"(?:Warning for|Statement for|IMPACT)\s+(.+?)(?=\n\s*\*|\n\s*At\s+|$)", raw_text, re.I | re.DOTALL)
-        if m_area:
+        # Step A: Look for the standard "Warning for..." bullet
+        m_area = re.search(r"(?:Warning for|Statement for|IMPACT)\s+(.+?)(?=\n\s*\*|\n\s*At\s+|\n\s*LAT\.\.\.LON|$)", raw_text, re.I | re.DOTALL)
+        
+        # Step B: Fallback to the technical header line (e.g., "CLEVELAND OK-MCCLAIN OK-")
+        # This is usually between the VTEC line and the timestamp.
+        if not m_area:
+            # Matches lines like "CLEVELAND OK-MCCLAIN OK-POTTAWATOMIE OK-"
+            m_header = re.search(r"(?m)^([A-Z\s]+ [A-Z]{2}-.*?)-$", raw_text)
+            if m_header:
+                raw_list = m_header.group(1).replace("-", ", ")
+            else:
+                raw_list = ""
+        else:
             raw_list = m_area.group(1)
-            parts = re.split(r"\n|\.\.\.|\s+AND\s+", raw_list, flags=re.I)
+
+        if raw_list:
+            # Split by common delimiters, but BE CAREFUL not to break "County, ST"
+            # Split by newline or semicolon first.
+            parts = re.split(r"\n|;", raw_list, flags=re.I)
+            
+            # If we only have one part and it has commas, split by comma but avoid state abbrev.
+            if len(parts) <= 1:
+                parts = [c.strip() for c in re.split(r',(?!\s+[A-Z]{2}(?:\s|$|,|;))', raw_list) if c.strip()]
+                
             counties = []
             for p in parts:
                 c = p.strip().strip(".")
                 if not c or len(c) < 3:
                     continue
-                if any(x in c.upper() for x in ["THROUGH", "UNTIL", "PORTIONS", "AM", "PM", "EDT", "CDT", "MDT", "PDT", "HST", "AKDT"]):
+                # Skip structural text
+                if any(x in c.upper() for x in ["THROUGH", "UNTIL", "PORTIONS", "AM", "PM", "EDT", "CDT", "MDT", "PDT", "HST", "AKDT", "LOCATED"]):
                     continue
+                # Strip prefixes and "County/Parish"
                 c = re.sub(r"^(?:Northeastern|Northwestern|Southeastern|Southwestern|Northern|Southern|Eastern|Western|Central)\s+", "", c, flags=re.I)
                 c = re.split(r"\s+in\s+", c, flags=re.I)[0]
-                c = re.sub(r"\s+Count[iy].*$", "", c, flags=re.I)
-                c = c.strip()
-                if c and c.upper() not in ["CENTRAL", "NORTH", "SOUTH", "EAST", "WEST"] and c not in counties:
-                    counties.append(c)
+                c = re.sub(r"\s+(?:Count[iy]|Parish).*$", "", c, flags=re.I)
+                
+                # Suffix removal: strip ", OK" or " OK" or " OKLAHOMA"
+                state_regex = r"[\s,]+(?:[A-Z]{2}|ALABAMA|ALASKA|ARIZONA|ARKANSAS|CALIFORNIA|COLORADO|CONNECTICUT|DELAWARE|FLORIDA|GEORGIA|HAWAII|IDAHO|ILLINOIS|INDIANA|IOWA|KANSAS|KENTUCKY|LOUISIANA|MAINE|MARYLAND|MASSACHUSETTS|MICHIGAN|MINNESOTA|MISSISSIPPI|MISSOURI|MONTANA|NEBRASKA|NEVADA|NEW\s+HAMPSHIRE|NEW\s+JERSEY|NEW\s+MEXICO|NEW\s+YORK|NORTH\s+CAROLINA|NORTH\s+DAKOTA|OHIO|OKLAHOMA|OREGON|PENNSYLVANIA|RHODE\s+ISLAND|SOUTH\s+CAROLINA|SOUTH\s+DAKOTA|TENNESSEE|TEXAS|UTAH|VERMONT|VIRGINIA|WASHINGTON|WEST\s+VIRGINIA|WISCONSIN|WYOMING)$"
+                c = re.sub(state_regex, "", c.strip(), flags=re.I).strip()
+                
+                # Final check: skip if it's just a standalone state abbreviation now
+                if c and (len(c) > 2 or not c.isupper()):
+                    if c not in counties:
+                        counties.append(c)
+            
             if counties:
                 area = ", ".join(counties)
 
     if is_update and prev_area:
-        # Calculate cancels/continues
-        prev_parts = [c.strip() for c in re.split(r'[;,]\s*', prev_area) if c.strip()]
+        # Normalize prev_area for diffing: strip state tags like [OK] and conjunctions
+        clean_prev = re.sub(r"\s*\[[A-Z]{2}\]", "", prev_area)
+        clean_prev = clean_prev.replace(" and ", ", ")
+        
+        prev_parts = [c.strip() for c in re.split(r'[;,]\s*', clean_prev) if c.strip()]
         curr_parts = [c.strip() for c in re.split(r'[;,]\s*', area) if c.strip()]
 
-        prev_set = set(prev_parts)
-        curr_set = set(curr_parts)
-
-        cancelled = sorted([c for c in prev_parts if c in (prev_set - curr_set)])
-        continuing = sorted([c for c in curr_parts if c in curr_set])
-
-        if cancelled:
-            area_formatted = f" (**cancels** {', '.join(cancelled)}, **continues** {', '.join(continuing)})"
-        else:
+        # Transitioning from placeholder: just show the new area
+        if prev_area == "affected area":
             area_formatted = f" for {_area_with_state(area, ugc_codes or [])}"
+        else:
+            prev_set = set(prev_parts)
+            curr_set = set(curr_parts)
+
+            # Fallback if update doesn't list counties
+            if (not curr_parts or area == "affected area") and prev_parts:
+                curr_parts = prev_parts
+                curr_set = prev_set
+                area = clean_prev
+
+            cancelled = sorted([c for c in prev_parts if c in (prev_set - curr_set)])
+            continuing = sorted([c for c in curr_parts if c in (curr_set & prev_set)])
+            new_added = sorted([c for c in curr_parts if c in (curr_set - prev_set)])
+
+            if cancelled or new_added:
+                parts = []
+                if cancelled: parts.append(f"**cancels** {', '.join(cancelled)}")
+                if continuing: parts.append(f"**continues** {', '.join(continuing)}")
+                if new_added: parts.append(f"**expands to** {', '.join(new_added)}")
+                area_formatted = f" ({', '.join(parts)})"
+            else:
+                area_formatted = f" for {_area_with_state(area, ugc_codes or [])}"
     else:
         area_formatted = f" for {_area_with_state(area, ugc_codes or [])}"
 
