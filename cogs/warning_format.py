@@ -530,6 +530,8 @@ async def _download_warning_image(image_url: str, filename: str) -> discord.File
         try:
             content, status = await http_get_bytes(image_url, retries=1, timeout=15)
             if content and status == 200:
+                if attempt > 0:
+                    logger.info(f"[IMG_DL_RECOVERED] {filename} after {attempt} retries")
                 logger.debug(f"[IMG_DL_SUCCESS] {filename}: got {len(content)} bytes")
                 return discord.File(BytesIO(content), filename=filename)
 
