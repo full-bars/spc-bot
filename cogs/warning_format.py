@@ -257,8 +257,15 @@ def _area_with_state(area_desc: str, ugc_codes: List[str]) -> str:
     if not ugc_codes:
         return area_desc
 
-    # Parse county names from areaDesc
-    counties = [c.strip() for c in re.split(r'[;,]\s*', area_desc) if c.strip()]
+    # Parse county names from areaDesc - try to preserve "County, ST" pairs
+    # Split by semicolon or newline first
+    counties = [c.strip() for c in re.split(r'[;\n]\s*', area_desc) if c.strip()]
+    
+    # If we only have one item and it has commas, it's likely a comma-separated list.
+    # Split by comma but ONLY if not followed by a state abbreviation.
+    if len(counties) == 1 and "," in counties[0]:
+        counties = [c.strip() for c in re.split(r',(?!\s+[A-Z]{2}(?:\s|$|,|;))', counties[0]) if c.strip()]
+
     if not counties:
         return area_desc
 
@@ -283,19 +290,28 @@ def _area_with_state(area_desc: str, ugc_codes: List[str]) -> str:
             # Clean up county names that already have state info (e.g. "Caddo, OK" -> "Caddo")
             cleaned_group = []
             for c in group:
-                c = re.sub(state_regex, "", c, flags=re.I)
-                cleaned_group.append(c)
-            parts.append(f"{', '.join(cleaned_group)} [{state}]")
+                c_clean = re.sub(state_regex, "", c.strip(), flags=re.I).strip()
+                # Filter out standalone state abbreviations that got split out
+                if len(c_clean) > 2 or not c_clean.isupper():
+                    cleaned_group.append(c_clean)
+            if cleaned_group:
+                parts.append(f"{', '.join(cleaned_group)} [{state}]")
         idx += count
 
     # Any leftover counties (mismatch in UGC/areaDesc lengths) appended to last group
     if idx < len(counties):
         remainder = counties[idx:]
-        cleaned_remainder = [re.sub(state_regex, "", r, flags=re.I) for r in remainder]
-        if parts:
-            parts[-1] = parts[-1] + f", {', '.join(cleaned_remainder)}"
-        else:
-            return area_desc
+        cleaned_remainder = []
+        for r in remainder:
+            r_clean = re.sub(state_regex, "", r.strip(), flags=re.I).strip()
+            if r_clean and (len(r_clean) > 2 or not r_clean.isupper()):
+                cleaned_remainder.append(r_clean)
+        
+        if cleaned_remainder:
+            if parts:
+                parts[-1] = parts[-1] + f", {', '.join(cleaned_remainder)}"
+            else:
+                return ", ".join(cleaned_remainder)
 
     if len(parts) == 1:
         return parts[0]
@@ -374,6 +390,10 @@ def build_concise_warning_text(
 
         if params.get("thunderstormDamageThreat"):
             tags.append(f"damage threat: {params['thunderstormDamageThreat'][0]}")
+            
+        # Add "Tornado: POSSIBLE" if present in parameters
+        if params.get("tornadoPossible"):
+            tags.append("tornado: POSSIBLE")
 
     # Flash Flood Warning tags: [flash flood: radar indicated] (all lowercase)
     elif "Flash Flood" in display_event:
@@ -384,12 +404,18 @@ def build_concise_warning_text(
 
     # Fallback to regex if no params (iembot path)
     if not tags and text_to_search:
+        # Tornado tag: only catch if it's a specific detection or 'POSSIBLE'
         m_tor = re.search(r"TORNADO\.\.\.(.+?)(?:\n|$)", text_to_search, re.I)
         if m_tor:
-            tags.append(f"tornado: {m_tor.group(1).strip().upper()}")
+            val = m_tor.group(1).strip().upper()
+            # Only add if it's high signal and NOT the name of the warning itself
+            if val not in ("NONE", "FALSE"):
+                tags.append(f"tornado: {val}")
+                
         m_hail = re.search(r"HAIL\.\.\.(.+?)(?:\n|$)", text_to_search, re.I)
         if m_hail:
             tags.append(f"hail: {m_hail.group(1).strip().upper()}")
+            
         m_wind = re.search(r"WIND\.\.\.(.+?)(?:\n|$)", text_to_search, re.I)
         if m_wind:
             tags.append(f"wind: {m_wind.group(1).strip().upper()}")
@@ -401,18 +427,36 @@ def build_concise_warning_text(
     if feature:
         area = feature.get("properties", {}).get("areaDesc", area)
     elif raw_text:
-        # Improved regex to capture area between known headers
+        # Step A: Look for the standard "Warning for..." bullet
         m_area = re.search(r"(?:Warning for|Statement for|IMPACT)\s+(.+?)(?=\n\s*\*|\n\s*At\s+|\n\s*LAT\.\.\.LON|$)", raw_text, re.I | re.DOTALL)
-        if m_area:
+        
+        # Step B: Fallback to the technical header line (e.g., "CLEVELAND OK-MCCLAIN OK-")
+        # This is usually between the VTEC line and the timestamp.
+        if not m_area:
+            # Matches lines like "CLEVELAND OK-MCCLAIN OK-POTTAWATOMIE OK-"
+            m_header = re.search(r"(?m)^([A-Z\s]+ [A-Z]{2}-.*?)-$", raw_text)
+            if m_header:
+                raw_list = m_header.group(1).replace("-", ", ")
+            else:
+                raw_list = ""
+        else:
             raw_list = m_area.group(1)
-            # Split by common delimiters
-            parts = re.split(r"\n|\.\.\.|\s+AND\s+|;", raw_list, flags=re.I)
+
+        if raw_list:
+            # Split by common delimiters, but BE CAREFUL not to break "County, ST"
+            # Split by newline or semicolon first.
+            parts = re.split(r"\n|;", raw_list, flags=re.I)
+            
+            # If we only have one part and it has commas, split by comma but avoid state abbrev.
+            if len(parts) <= 1:
+                parts = [c.strip() for c in re.split(r',(?!\s+[A-Z]{2}(?:\s|$|,|;))', raw_list) if c.strip()]
+                
             counties = []
             for p in parts:
                 c = p.strip().strip(".")
                 if not c or len(c) < 3:
                     continue
-                # Skip lines that look like timestamps or structural text
+                # Skip structural text
                 if any(x in c.upper() for x in ["THROUGH", "UNTIL", "PORTIONS", "AM", "PM", "EDT", "CDT", "MDT", "PDT", "HST", "AKDT", "LOCATED"]):
                     continue
                 # Strip directional prefixes
@@ -426,8 +470,10 @@ def build_concise_warning_text(
                 c = re.sub(r"[\s,]+(?:[A-Z]{2}|ALABAMA|ALASKA|ARIZONA|ARKANSAS|CALIFORNIA|COLORADO|CONNECTICUT|DELAWARE|FLORIDA|GEORGIA|HAWAII|IDAHO|ILLINOIS|INDIANA|IOWA|KANSAS|KENTUCKY|LOUISIANA|MAINE|MARYLAND|MASSACHUSETTS|MICHIGAN|MINNESOTA|MISSISSIPPI|MISSOURI|MONTANA|NEBRASKA|NEVADA|NEW\s+HAMPSHIRE|NEW\s+JERSEY|NEW\s+MEXICO|NEW\s+YORK|NORTH\s+CAROLINA|NORTH\s+DAKOTA|OHIO|OKLAHOMA|OREGON|PENNSYLVANIA|RHODE\s+ISLAND|SOUTH\s+CAROLINA|SOUTH\s+DAKOTA|TENNESSEE|TEXAS|UTAH|VERMONT|VIRGINIA|WASHINGTON|WEST\s+VIRGINIA|WISCONSIN|WYOMING)$", "", c.strip(), flags=re.I)
                 
                 c = c.strip()
-                if c and c.upper() not in ["CENTRAL", "NORTH", "SOUTH", "EAST", "WEST"] and c not in counties:
-                    counties.append(c)
+                if c and (len(c) > 2 or not c.isupper()):
+                    if c not in counties:
+                        counties.append(c)
+            
             if counties:
                 area = ", ".join(counties)
 
