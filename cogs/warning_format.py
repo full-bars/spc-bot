@@ -557,7 +557,7 @@ def build_concise_warning_text(
                 word = m.group(1).upper()
                 # Only bold if the word (excluding trailing dots) is a high-signal keyword
                 base_word = re.sub(r"\.+$", "", word)
-                if base_word in ("TORNADO", "HAIL", "WIND", "GUST", "WATERSPOUT", "IMPACT", "SOURCE", "MAX", "DAMAGE", "THREAT"):
+                if base_word in ("TORNADO", "HAIL", "WIND", "GUST", "HAZARD", "WATERSPOUT", "IMPACT", "SOURCE", "MAX", "DAMAGE", "THREAT"):
                     return f"**{m.group(1)}**"
                 return m.group(1)
 
