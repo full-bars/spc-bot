@@ -385,6 +385,21 @@ def build_concise_warning_text(
         text_to_search += " " + (props.get("description") or "")
         params = props.get("parameters", {})
 
+    # SPS products: strip the UGC zone header block that precedes the narrative.
+    # The header looks like: zone codes / county list / issuance time / blank line.
+    # _extract_narrative can't handle it (it keys off BULLETIN/NWS-in markers).
+    if vtec.get("phenom") == "SPS" and text_to_search:
+        m_hdr = re.search(
+            r"\d{3,4}\s+[AP]M\s+[A-Z]{3,4}\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\w+\s+\d+\s+\d{4}",
+            text_to_search,
+        )
+        if m_hdr:
+            text_to_search = text_to_search[m_hdr.end():].lstrip()
+        # Strip $$-terminated footer so the narrative regex doesn't capture it
+        m_end = re.search(r"\$\$", text_to_search)
+        if m_end:
+            text_to_search = text_to_search[: m_end.start()].rstrip()
+
     # Tornado Warning tags: [tornado: RADAR INDICATED, hail: 1.25 IN]
     if "Tornado" in display_event:
         if params.get("tornadoDetection"):
@@ -436,7 +451,10 @@ def build_concise_warning_text(
         # and ignore "HAIL THREAT...RADAR INDICATED"
         m_hail = re.search(r"(?:MAX )?HAIL(?: SIZE)?\.\.\.(?!RADAR|THREAT|NONE)(.+?)(?:\n|$)", text_to_search, re.I)
         if m_hail:
-            tags.append(f"hail: {m_hail.group(1).strip().upper()}")
+            hail_val = m_hail.group(1).strip().upper()
+            # Skip zero-size hail — NWS emits "0.00 IN" as a default/null value
+            if not re.match(r"^0+\.?0*\s+IN$", hail_val):
+                tags.append(f"hail: {hail_val}")
             
         # Refined for wind
         m_wind = re.search(r"(?:MAX )?WIND(?: GUST)?\.\.\.(?!RADAR|THREAT|NONE)(.+?)(?:\n|$)", text_to_search, re.I)
