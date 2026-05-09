@@ -143,7 +143,7 @@ def iem_autoplot_url(vtec: dict, valid_time: Optional[str] = None) -> str:
     # Use provided valid_time if available (for cancellations/watermarks)
     # format should be 'YYYY-MM-DD HHMM' (UTC)
     if valid_time:
-        valid_param = f"::valid:{valid_time}"
+        valid_param = f"::valid:{valid_time.replace(' ', '%20')}"
     else:
         # Build the valid time from start or end timestamp
         valid_time_str = ""
@@ -418,13 +418,14 @@ def build_concise_warning_text(
             if val not in ("NONE", "FALSE"):
                 tags.append(f"tornado: {val}")
                 
-        # Broadened to catch "MAX HAIL SIZE"
-        m_hail = re.search(r"(?:MAX )?HAIL(?: SIZE)?\.\.\.(.+?)(?:\n|$)", text_to_search, re.I)
+        # Refined to catch specific magnitudes like "2.50 IN" or "GOLF BALL"
+        # and ignore "HAIL THREAT...RADAR INDICATED"
+        m_hail = re.search(r"(?:MAX )?HAIL(?: SIZE)?\.\.\.(?!RADAR|THREAT|NONE)(.+?)(?:\n|$)", text_to_search, re.I)
         if m_hail:
             tags.append(f"hail: {m_hail.group(1).strip().upper()}")
             
-        # Broadened to catch "MAX WIND GUST"
-        m_wind = re.search(r"(?:MAX )?WIND(?: GUST)?\.\.\.(.+?)(?:\n|$)", text_to_search, re.I)
+        # Refined for wind
+        m_wind = re.search(r"(?:MAX )?WIND(?: GUST)?\.\.\.(?!RADAR|THREAT|NONE)(.+?)(?:\n|$)", text_to_search, re.I)
         if m_wind:
             tags.append(f"wind: {m_wind.group(1).strip().upper()}")
 
