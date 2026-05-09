@@ -9,6 +9,8 @@ try:
     from spc_rust_core import (
         compute_bunkers as _compute_bunkers_rust,
         compute_srh as _compute_srh_rust,
+        compute_dtm as _compute_dtm_rust,
+        compute_crit_angl as _compute_crit_angl_rust,
     )
     _rust_available = True
 except ImportError:
@@ -148,6 +150,19 @@ def compute_bunkers(data: Dict[str, Any]) -> Tuple[Tuple[float, float], Tuple[fl
 
 
 def compute_dtm(data: Dict[str, Any]) -> Tuple[float, float]:
+    if _rust_available:
+        try:
+            res_dir, res_mag = _compute_dtm_rust(
+                _to_list(data['wind_dir']),
+                _to_list(data['wind_spd']),
+                _to_list(data['altitude']),
+            )
+            return float(res_dir), float(res_mag)
+        except Exception as e:
+            import logging
+            logging.getLogger("spc_bot").debug(
+                f"Rust compute_dtm failed: {type(e).__name__}: {e} — falling back to Python"
+            )
     try:
         u, v = vec2comp(data['wind_dir'], data['wind_spd'])
         alt = data['altitude']
@@ -171,6 +186,19 @@ def compute_dtm(data: Dict[str, Any]) -> Tuple[float, float]:
 
 
 def compute_crit_angl(data: Dict[str, Any], storm_motion: Tuple[float, float]) -> float:
+    if _rust_available:
+        try:
+            return float(_compute_crit_angl_rust(
+                _to_list(data['wind_dir']),
+                _to_list(data['wind_spd']),
+                _to_list(data['altitude']),
+                storm_motion[0], storm_motion[1],
+            ))
+        except Exception as e:
+            import logging
+            logging.getLogger("spc_bot").debug(
+                f"Rust compute_crit_angl failed: {type(e).__name__}: {e} — falling back to Python"
+            )
     u, v = vec2comp(data['wind_dir'], data['wind_spd'])
     storm_u, storm_v = vec2comp(*storm_motion)
 
