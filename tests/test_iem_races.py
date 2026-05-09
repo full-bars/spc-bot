@@ -19,7 +19,7 @@ class TestFetchWatchDetailsRace:
     async def test_returns_tuple_of_three(self):
         """fetch_watch_details always returns a 3-tuple regardless of outcome."""
         with patch("utils.cache.fetch_with_validators", new_callable=AsyncMock) as mv, \
-             patch("cogs.watches.fetch_watch_details_iem", new_callable=AsyncMock) as mi:
+             patch("cogs.watch_fetch.fetch_watch_details_iem", new_callable=AsyncMock) as mi:
             mv.return_value = (None, 404)
             mi.return_value = (None, None, None)
             from cogs.watches import fetch_watch_details
@@ -31,7 +31,7 @@ class TestFetchWatchDetailsRace:
     async def test_iem_text_used_when_spc_fails(self):
         """When SPC page fails, IEM text summary is surfaced in the result."""
         with patch("utils.cache.fetch_with_validators", new_callable=AsyncMock) as mv, \
-             patch("cogs.watches.fetch_watch_details_iem", new_callable=AsyncMock) as mi:
+             patch("cogs.watch_fetch.fetch_watch_details_iem", new_callable=AsyncMock) as mi:
             mv.return_value = (None, 404)
             mi.return_value = ("IEM summary", "http://iem.example/img.png", None)
             from cogs.watches import fetch_watch_details
@@ -42,7 +42,7 @@ class TestFetchWatchDetailsRace:
     async def test_both_fail_no_crash(self):
         """When both SPC and IEM fail, function returns without raising."""
         with patch("utils.cache.fetch_with_validators", new_callable=AsyncMock) as mv, \
-             patch("cogs.watches.fetch_watch_details_iem", new_callable=AsyncMock) as mi:
+             patch("cogs.watch_fetch.fetch_watch_details_iem", new_callable=AsyncMock) as mi:
             mv.return_value = (None, 404)
             mi.return_value = (None, None, None)
             from cogs.watches import fetch_watch_details

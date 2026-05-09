@@ -44,7 +44,9 @@ async def test_fetches_from_nws_on_memory_miss(cog):
     """Calls get_watch_area_centroid when not in memory; stores result."""
     info = {"affected_zones": ["https://api.weather.gov/zones/county/OKC031"]}
 
-    with patch("cogs.sounding.get_watch_area_centroid", AsyncMock(return_value=(35.5, -97.5))):
+    with patch("cogs.sounding.get_watch_centroid_cache", AsyncMock(return_value=None)), \
+         patch("cogs.sounding.get_watch_area_centroid", AsyncMock(return_value=(35.5, -97.5))), \
+         patch("cogs.sounding.set_watch_centroid_cache", AsyncMock()):
         result = await cog._resolve_watch_centroid("0042", info)
 
     assert result == (35.5, -97.5)
@@ -71,7 +73,8 @@ async def test_returns_none_when_no_zones(cog):
     """Returns None immediately when the watch has no affected zones."""
     info = {"affected_zones": []}
 
-    with patch("cogs.sounding.get_watch_area_centroid") as nws_get:
+    with patch("cogs.sounding.get_watch_centroid_cache", AsyncMock(return_value=None)), \
+         patch("cogs.sounding.get_watch_area_centroid") as nws_get:
         result = await cog._resolve_watch_centroid("0042", info)
 
     assert result is None
@@ -83,7 +86,9 @@ async def test_does_not_cache_none_from_api(cog):
     """Does not store None in memory when NWS API returns None."""
     info = {"affected_zones": ["https://api.weather.gov/zones/county/OKC031"]}
 
-    with patch("cogs.sounding.get_watch_area_centroid", AsyncMock(return_value=None)):
+    with patch("cogs.sounding.get_watch_centroid_cache", AsyncMock(return_value=None)), \
+         patch("cogs.sounding.get_watch_area_centroid", AsyncMock(return_value=None)), \
+         patch("cogs.sounding.set_watch_centroid_cache", AsyncMock()):
         result = await cog._resolve_watch_centroid("0042", info)
 
     assert result is None
@@ -93,7 +98,8 @@ async def test_does_not_cache_none_from_api(cog):
 @pytest.mark.asyncio
 async def test_handles_non_dict_info(cog):
     """Returns None gracefully when info is not a dict (e.g. legacy string value)."""
-    with patch("cogs.sounding.get_watch_area_centroid") as nws_get:
+    with patch("cogs.sounding.get_watch_centroid_cache", AsyncMock(return_value=None)), \
+         patch("cogs.sounding.get_watch_area_centroid") as nws_get:
         result = await cog._resolve_watch_centroid("0042", "TORNADO")
 
     assert result is None

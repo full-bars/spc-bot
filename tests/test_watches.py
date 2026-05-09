@@ -40,7 +40,7 @@ class TestFetchActiveWatchesNWS:
         payload = self._make_response([feature])
 
         with patch(
-            "cogs.watches.http_get_bytes_conditional",
+            "cogs.watch_fetch.http_get_bytes_conditional",
             new_callable=AsyncMock,
             return_value=(payload, 200, None),
         ):
@@ -62,7 +62,7 @@ class TestFetchActiveWatchesNWS:
         payload = self._make_response([feature])
 
         with patch(
-            "cogs.watches.http_get_bytes_conditional",
+            "cogs.watch_fetch.http_get_bytes_conditional",
             new_callable=AsyncMock,
             return_value=(payload, 200, None),
         ):
@@ -83,7 +83,7 @@ class TestFetchActiveWatchesNWS:
         payload = self._make_response([feature])
 
         with patch(
-            "cogs.watches.http_get_bytes_conditional",
+            "cogs.watch_fetch.http_get_bytes_conditional",
             new_callable=AsyncMock,
             return_value=(payload, 200, None),
         ):
@@ -103,7 +103,7 @@ class TestFetchActiveWatchesNWS:
         ])
 
         with patch(
-            "cogs.watches.http_get_bytes_conditional",
+            "cogs.watch_fetch.http_get_bytes_conditional",
             new_callable=AsyncMock,
             return_value=(payload, 200, None),
         ):
@@ -121,7 +121,7 @@ class TestFetchActiveWatchesNWS:
         payload = self._make_response([feature])
 
         with patch(
-            "cogs.watches.http_get_bytes_conditional",
+            "cogs.watch_fetch.http_get_bytes_conditional",
             new_callable=AsyncMock,
             return_value=(payload, 200, None),
         ):
@@ -141,7 +141,7 @@ class TestFetchActiveWatchesNWS:
         payload = self._make_response([feature])
 
         with patch(
-            "cogs.watches.http_get_bytes_conditional",
+            "cogs.watch_fetch.http_get_bytes_conditional",
             new_callable=AsyncMock,
             return_value=(payload, 200, None),
         ):
@@ -156,7 +156,7 @@ class TestFetchActiveWatchesNWS:
         from cogs.watches import fetch_active_watches_nws
 
         with patch(
-            "cogs.watches.http_get_bytes_conditional",
+            "cogs.watch_fetch.http_get_bytes_conditional",
             new_callable=AsyncMock,
             return_value=(None, 500, None),
         ):
@@ -170,7 +170,7 @@ class TestFetchActiveWatchesNWS:
         from cogs.watches import fetch_active_watches_nws
 
         with patch(
-            "cogs.watches.http_get_bytes_conditional",
+            "cogs.watch_fetch.http_get_bytes_conditional",
             new_callable=AsyncMock,
             return_value=(b"not json {{{", 200, None),
         ):
@@ -186,7 +186,7 @@ class TestFetchActiveWatchesNWS:
         payload = self._make_response([])
 
         with patch(
-            "cogs.watches.http_get_bytes_conditional",
+            "cogs.watch_fetch.http_get_bytes_conditional",
             new_callable=AsyncMock,
             return_value=(payload, 200, None),
         ):
