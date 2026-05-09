@@ -118,7 +118,7 @@ async def test_http_get_bytes_gives_up_after_retries():
          patch("utils.http.asyncio.sleep", _fake_sleep):
         content, status = await http.http_get_bytes("https://x/a", retries=3)
     assert content is None
-    assert status is None
+    assert status == 0
     assert session.get.call_count == 3
 
 
