@@ -38,6 +38,9 @@ logger = logging.getLogger("spc_bot")
 
 # Hoisted patterns — VTEC is scanned in a loop over every active feature,
 # so caching the compiled form measurably helps on large NWS payloads.
+_WATCH_FAST_POLL_INTERVAL_SEC = 30   # Stage 1: poll every 30s for image + probs
+_WATCH_SLOW_POLL_INTERVAL_SEC = 60   # Stage 2: poll every 60s for image only
+
 _VTEC_RE = re.compile(
     r"/[^.]+\.[^.]+\.[^.]+\.(SV|TO)\.A\.(\d{4})\.",
     re.IGNORECASE,
@@ -692,7 +695,7 @@ class WatchesCog(commands.Cog):
         """
         # ── Stage 1: Fast poll for Probs + Image ───────────────────────────
         for attempt in range(20):
-            await asyncio.sleep(30)
+            await asyncio.sleep(_WATCH_FAST_POLL_INTERVAL_SEC)
             try:
                 image_url, text_summary, probs = await fetch_watch_details(watch_num)
                 has_real_probs = probs and "preliminary" not in probs
@@ -760,7 +763,7 @@ class WatchesCog(commands.Cog):
         # ── Stage 2: Slow poll specifically for the Image ──────────────────
         # Sometimes SPC takes 15-20 minutes to generate the GIF during high load.
         for attempt in range(20):
-            await asyncio.sleep(60)
+            await asyncio.sleep(_WATCH_SLOW_POLL_INTERVAL_SEC)
             try:
                 # We only care about the image now
                 image_url, text_summary, probs = await fetch_watch_details(watch_num)

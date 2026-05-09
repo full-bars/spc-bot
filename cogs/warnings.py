@@ -529,6 +529,30 @@ class WarningsCog(commands.Cog):
             logger.exception(f"Tick failed: {e}")
             await self._backoff.failure(self.bot)
 
+    def _parse_alert_response(self, content: bytes):
+        """Parse NWS JSON payload into an NWSAlertResponse, or return None on failure."""
+        try:
+            from models.nws import NWSAlertResponse
+            return NWSAlertResponse.model_validate(_json.loads(content))
+        except Exception as e:
+            logger.warning(f"JSON/Pydantic parse failed: {e}")
+            return None
+
+    async def _handle_disappeared_warnings(
+        self,
+        current_vtec_ids: set,
+        current_vtec_data: dict,
+    ) -> None:
+        """Cancel or expire warnings that were active last cycle but absent this cycle."""
+        disappeared = set(self.bot.state.active_warnings.keys()) - current_vtec_ids
+        for vtec_id in disappeared:
+            # SPS are often absent from the NWS API poll but shouldn't be auto-cancelled
+            if ".SPS." in vtec_id or vtec_id.startswith("20"):
+                continue
+            vtec_context = current_vtec_data.get(vtec_id) or self.bot.state.active_warnings.get(vtec_id)
+            await self._handle_cancellation(vtec_id, reason="Expired", vtec=vtec_context)
+            self.bot.state.active_warnings.pop(vtec_id, None)
+
     async def _tick(self):
         await self.bot.wait_until_ready()
         if not self.bot.state.is_primary:
@@ -559,12 +583,8 @@ class WarningsCog(commands.Cog):
             self._validators["etag"] = validators.get("etag", "")
             self._validators["last_modified"] = validators.get("last_modified", "")
 
-        try:
-            data = _json.loads(content)
-            from models.nws import NWSAlertResponse
-            alert_response = NWSAlertResponse.model_validate(data)
-        except Exception as e:
-            logger.warning(f"JSON/Pydantic parse failed: {e}")
+        alert_response = self._parse_alert_response(content)
+        if alert_response is None:
             return
 
         current_vtec_data = {}
@@ -697,19 +717,7 @@ class WarningsCog(commands.Cog):
             finally:
                 self._in_flight_vtecs.discard(issuance_id)
 
-        # Detect disappeared warnings (cancellations/expirations)
-        disappeared = set(self.bot.state.active_warnings.keys()) - current_vtec_ids
-        for vtec_id in disappeared:
-            # SPS are often absent from the NWS API poll but shouldn't be auto-cancelled
-            if ".SPS." in vtec_id or vtec_id.startswith("20"):
-                continue
-
-            # Prefer the vtec context from the current poll features list if it's there
-            # (e.g. it's in the list as CAN/EXP), otherwise fallback to our cache
-            vtec_context = current_vtec_data.get(vtec_id) or self.bot.state.active_warnings.get(vtec_id)
-            await self._handle_cancellation(vtec_id, reason="Expired", vtec=vtec_context)
-            self.bot.state.active_warnings.pop(vtec_id, None)
-
+        await self._handle_disappeared_warnings(current_vtec_ids, current_vtec_data)
         self._backoff.success()
 
     async def _post_warning(

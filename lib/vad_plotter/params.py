@@ -69,9 +69,9 @@ def compute_srh(data: Dict[str, Any], storm_motion: Tuple[float, float], hght: f
     if _rust_available:
         try:
             return float(_compute_srh_rust(
-                data['wind_dir'].tolist() if isinstance(data['wind_dir'], np.ndarray) else list(data['wind_dir']),
-                data['wind_spd'].tolist() if isinstance(data['wind_spd'], np.ndarray) else list(data['wind_spd']),
-                data['altitude'].tolist() if isinstance(data['altitude'], np.ndarray) else list(data['altitude']),
+                _to_list(data['wind_dir']),
+                _to_list(data['wind_spd']),
+                _to_list(data['altitude']),
                 storm_motion[0], storm_motion[1], hght
             ))
         except Exception:
@@ -99,8 +99,11 @@ def compute_sr_flow(data: Dict[str, Any], storm_motion: Tuple[float, float], hgh
     return float(np.nanmean(sr_mag))
 
 
+_BUNKERS_OFFSET_KTS = 7.5 * 1.94  # 7.5 m/s lateral offset from mean wind (Bunkers 2000)
+
+
 def compute_bunkers_py(data: Dict[str, Any]) -> Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float]]:
-    d = 7.5 * 1.94
+    d = _BUNKERS_OFFSET_KTS
     hght = 6
 
     u, v = vec2comp(data['wind_dir'], data['wind_spd'])
@@ -131,9 +134,9 @@ def compute_bunkers(data: Dict[str, Any]) -> Tuple[Tuple[float, float], Tuple[fl
     if _rust_available:
         try:
             right, left, mean = _compute_bunkers_rust(
-                data['wind_dir'].tolist() if isinstance(data['wind_dir'], np.ndarray) else list(data['wind_dir']),
-                data['wind_spd'].tolist() if isinstance(data['wind_spd'], np.ndarray) else list(data['wind_spd']),
-                data['altitude'].tolist() if isinstance(data['altitude'], np.ndarray) else list(data['altitude']),
+                _to_list(data['wind_dir']),
+                _to_list(data['wind_spd']),
+                _to_list(data['altitude']),
             )
             return (right, left, mean)  # type: ignore
         except Exception:
@@ -183,7 +186,18 @@ def compute_crit_angl(data: Dict[str, Any], storm_motion: Tuple[float, float]) -
     return float(np.degrees(np.arccos(base_dot_ang / (len_base * len_ang))))
 
 
+def _to_list(arr) -> list:
+    return arr.tolist() if isinstance(arr, np.ndarray) else list(arr)
+
+
 def compute_parameters(data: Dict[str, Any], storm_motion: str) -> Dict[str, Any]:
+    # Pre-convert arrays once so Rust functions receive lists without repeated copies
+    data = {
+        **data,
+        'wind_dir': _to_list(data['wind_dir']),
+        'wind_spd': _to_list(data['wind_spd']),
+        'altitude': _to_list(data['altitude']),
+    }
     params: Dict[str, Any] = {}
 
     try:
