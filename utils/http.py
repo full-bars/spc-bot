@@ -123,7 +123,7 @@ async def http_get_bytes(
     retries: int = 3,
     timeout: int = 30,
     headers: Optional[Dict[str, str]] = None,
-) -> Tuple[Optional[bytes], Optional[int]]:
+) -> Tuple[Optional[bytes], int]:
     content, status, _ = await http_get_bytes_conditional(
         url,
         etag=None,
@@ -142,7 +142,7 @@ async def http_get_bytes_conditional(
     retries: int = 3,
     timeout: int = 30,
     extra_headers: Optional[Dict[str, str]] = None,
-) -> Tuple[Optional[bytes], Optional[int], Optional[Dict[str, str]]]:
+) -> Tuple[Optional[bytes], int, Optional[Dict[str, str]]]:
     parsed = urlparse(url)
     host = parsed.netloc
 
@@ -205,10 +205,10 @@ async def http_get_bytes_conditional(
         # Only record failure in the circuit breaker if it's a "hard" failure
         # (connection/timeout) or a server-side/rate-limit error (5xx, 429).
         # We DON'T trip the circuit on 404s or other user-side 4xx errors.
-        status = getattr(e, 'status', None)
-        if status is None or status >= 500 or status == 429:
+        status: int = getattr(e, 'status', None) or 0
+        if status == 0 or status >= 500 or status == 429:
             circuit_breaker.record_failure(host)
-            
+
         logger.warning(f"Request failed for {url} after {retries} retries: {e}")
         return None, status, None
 
