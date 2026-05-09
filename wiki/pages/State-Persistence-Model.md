@@ -7,13 +7,13 @@ SPCBot employs a sophisticated hybrid persistence architecture designed for high
 ### 1. In-Memory (`BotState`)
 The `bot.state` object provides high-speed access to volatile data (active tasks, current latencies, temporary caches). This is rehydrated from persistent storage at startup.
 
-### 2. Operational Truth (Upstash Redis)
-Used for shared state in High Availability setups. 
+### 2. Shared Operational State (Upstash Redis)
+Used for shared state and leader election in High Availability setups.
 - **Efficiency:** Only small identifiers (VTEC IDs, MD numbers, URLs) are stored here.
 - **Sync:** A "Dirty Write Reconciler" ensures that if Upstash is temporarily down, local writes are queued and synced once connectivity returns.
 
 ### 3. Durable Local Mirror (SQLite)
-The `cache/bot_state.db` file acts as the ultimate durability layer.
+The `cache/bot_state.db` file acts as the local durability layer. State writes land in SQLite before the best-effort Upstash write, so a single node can keep operating through an Upstash outage.
 - **WAL Mode:** Uses Write-Ahead Logging for safety and performance.
 - **Tables:**
   - `image_hashes`: Change detection for SPC/WPC graphics.
@@ -24,9 +24,9 @@ The `cache/bot_state.db` file acts as the ultimate durability layer.
 ## 🌪️ Significant Events Archive (`events.db`)
 
 Historical weather records are stored in a separate `cache/events.db` file.
-- **Rationale:** This database grows indefinitely and is excluded from Upstash to avoid hitting Redis storage limits.
-- **Content:** Confirmed tornadoes, EF ratings, lead times, and DAT damage survey links.
-- **Retention:** A 365-day rolling retention policy is enforced by `cogs/maintenance.py` for significant events, while the main state DB prunes ephemeral data (like MD numbers) automatically based on size caps.
+- **Rationale:** This database is excluded from Upstash to avoid spending Redis budget on historical records.
+- **Content:** Confirmed tornadoes, EF ratings, lead times, DAT damage survey links, and VAD environmental forensics. Hail and wind are no longer tracked in this archive.
+- **Retention:** A 365-day rolling retention policy is enforced by `cogs/maintenance.py` for tornado events. Operational dedupe sets such as MDs, watches, warnings, and reports are pruned separately by their state-store helpers.
 
 ## 🔄 Replication via Syncthing
 
@@ -43,10 +43,10 @@ For HA pairs, the `events.db` is replicated using **Syncthing**. The bot automat
 | Image hashes | Upstash / `bot_state.db` | In-memory cache | Prevent duplicate SPC/model image posts. |
 | Posted MD/watch/report IDs | Upstash / `bot_state.db` | In-memory cache | Deduplicate alert products across restarts and HA nodes. |
 | Posted warning metadata | Upstash / `bot_state.db` | In-memory cache | Track lifecycle updates and Discord message targets. |
-| Simple feature state | `bot_state` table | Upstash key/value state | CSU-MLP, NCAR, IEMBot sequence numbers, and similar feature flags. |
+| Simple feature state | Upstash key/value state | `bot_state` table | CSU-MLP, NCAR, IEMBot sequence numbers, sounding preferences, and similar feature flags. |
 | HTTP validators | `http_validators` table | In-memory LRU | Avoid unnecessary downloads using ETag/Last-Modified. |
 | Product text cache | `product_text_cache` table | Upstash when configured | Short-lived NWS/SPC product text cache. |
-| Significant event history | `events.db` | Syncthing copy in HA setups | Tornado/survey archive and DAT enrichment. |
+| Significant event history | `events.db` | Syncthing copy in HA setups | Confirmed tornado/survey archive and DAT enrichment. |
 | VAD evolution GIFs | Filesystem archive | rclone remote when configured | Forensic media output. |
 
 ## 🚀 Startup Hydration Flow

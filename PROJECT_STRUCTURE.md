@@ -15,7 +15,11 @@ spc-bot/
 ├── .env.example             # Template for required environment variables
 ├── CREDITS.md               # Third-party attributions
 ├── scripts/
-│   └── migrate_sqlite_to_upstash.py  # One-shot migration of local SQLite into Upstash
+│   ├── backfill_dat.py               # DAT enrichment utility for tornado events
+│   ├── benchmark_hashing.py          # Python/Rust image hashing benchmark
+│   ├── migrate_sqlite_to_upstash.py  # One-shot migration of local SQLite into Upstash
+│   ├── nwws_monitor.py               # Standalone NWWS-OI connection monitor
+│   └── precache_all_photos.py        # DAT photo cache utility
 ├── utils/
 │   ├── http.py              # Async HTTP session management (centralized pooling, retry, conditional GET)
 │   ├── change_detection.py  # Content hashing and placeholder-image detection
@@ -24,7 +28,7 @@ spc-bot/
 │   ├── state.py             # BotState — HashStore + PostingLog + TimingTracker sub-stores
 │   ├── state_store.py       # Upstash Redis facade: read-through cache → Upstash → SQLite fallback;
 │   │                        # double-writes both backends, retries failed Upstash writes via a reconciler
-│   ├── events_db.py         # Standalone SQLite archive for significant events (tornadoes, hail, wind);
+│   ├── events_db.py         # Standalone SQLite archive for confirmed tornadoes and tornado forensics;
 │   │                        # separate from bot_state.db, never synced to Upstash
 │   ├── spc_urls.py          # SPC outlook URL resolution
 │   ├── spc_outlook.py       # SPC Day 1 categorical polygon (MDT/HIGH) with geodesic buffer
@@ -33,6 +37,9 @@ spc-bot/
 └── db.py                # Async SQLite backend used internally by state_store as the durable mirror; also home of http_validators
 
 ├── cogs/
+│   ├── nwws.py              # NWWS-OI XMPP firehose; routes immediate warning/watch/MD triggers
+│   ├── analytics.py         # IEM analytics slash commands (/topstats, /verify, /riskmap, etc.)
+│   ├── recorder.py          # VAD forensics recorder and /archive search
 │   ├── outlooks.py          # SPC Day 1-3 and Day 4-8 auto-posting
 │   ├── mesoscale.py         # SPC MD monitoring with watch probability detection and IEM fallbacks
 │   ├── iembot.py            # IEM iembot feed poller with persistent text-product caching
@@ -40,7 +47,7 @@ spc-bot/
 │   ├── warnings.py          # NWS VTEC warning monitoring (SVR, TOR, FFW) — polling & deduplication logic
 │   ├── warning_format.py    # Warning styling, narrative extraction, URL generation (decoupled from warnings.py)
 │   ├── warning_ui.py        # Discord UI views for tornado data: EnvironmentalView, TornadoPhotoView, TornadoDashboardView
-│   ├── reports.py           # LSR and PNS monitoring; triggers Autoplot 253 tornado track posts
+│   ├── reports.py           # LSR and PNS monitoring; logs tornado events and DAT survey links
 │   ├── scp.py               # NIU/Gensini SCP graphics, twice daily
 │   ├── csu_mlp.py           # CSU-MLP consolidated /csu command with Choice dropdown
 │   ├── ncar.py              # NCAR WxNext2 AI severe weather forecast
@@ -56,13 +63,12 @@ spc-bot/
 │       ├── downloads.py     # Download orchestration, zipping, progress
 │       └── views.py         # Discord UI views and modals
 ├── config/
-│   └── logrotate.conf       # Log rotation config: size-based (50 MB), 12-file retention, gzip -9 compression
+│   └── logrotate.conf       # Optional external logrotate config: 50 MB files, 12-file retention, gzip -9 compression
 ├── src_rust/
 │   ├── lib.rs               # PyO3 Rust extension: VAD calculations, VTEC parsing, haversine distance, batch operations (803 LOC)
 │   └── Cargo.toml           # Rust dependencies (pyo3, xxhash_rust, regex, rstar, geo)
 ├── lib/
 │   ├── vtec_parser.py       # VTEC/polygon parsing (reusable, zero Discord dependencies); Rust bridge with Python fallback
-│   ├── geo.py               # Geospatial utilities; haversine distance wrapper with Rust bridge
 │   └── vad_plotter/         # Hodograph library (vad-plotter by Tim Supinie)
 │       ├── vad.py           # Main entry point, called as subprocess
 │       ├── vad_reader.py    # NEXRAD VWP binary parser
@@ -71,8 +77,9 @@ spc-bot/
 │       ├── wsr88d.py        # Radar site info and filename utilities
 │       ├── asos.py          # ASOS surface wind fetching
 │       └── utils.py         # Shared exception types
-└── tests/                   # pytest suite (380 tests, see CONTRIBUTING.md)
+└── tests/                   # pytest suite (382 tests, see CONTRIBUTING.md)
     ├── conftest.py          # Fixtures: fake_bot (real BotState), isolated_db, global patches
+    ├── test_analytics.py    # IEM analytics command URL/API behavior
     ├── test_fixtures.py     # Fixture invariants
     ├── test_utils.py        # Utility and sounding parsing
     ├── test_watches.py      # Watch VTEC parsing
@@ -88,6 +95,8 @@ spc-bot/
     ├── test_main_lifecycle.py  # Shutdown guard, watchdog restart, startup smoke
     ├── test_failover_coverage.py  # Lease election, promotion, demotion
     ├── test_hodograph.py    # Hodograph cog
+    ├── test_radar_cleanup.py  # Radar download temp cleanup
+    ├── test_recorder_finalize.py  # VAD recorder mission finalization
     ├── test_iem_races.py    # IEM/SPC race logic and watch-triggered soundings
     ├── test_spc_outlook.py  # Day 1 categorical polygon parsing + geodesic buffer
     ├── test_iembot.py       # IEMBotCog seqnum persistence, feed filtering, dispatch paths
@@ -126,9 +135,10 @@ Large feature modules are split into focused, reusable components:
 - **cogs/warnings.py**: Polling and deduplication logic only
 
 ### State Management
-- **Upstash Redis**: Operational source of truth; all posted IDs, hashes, state
-- **SQLite (bot_state.db)**: Durable mirror; survives Upstash outages
-- **Events DB (events.db)**: Standalone archive of significant tornadoes; synced cross-node via Syncthing (optional)
+- **In-process cache**: Short TTL read-through cache for hot operational state
+- **Upstash Redis**: Shared operational state and leader-election lease for HA deployments
+- **SQLite (bot_state.db)**: Durable local mirror; writes land here before best-effort Upstash replication
+- **Events DB (events.db)**: Standalone confirmed tornado archive and forensics record; synced cross-node via Syncthing (optional)
 
 ### High Availability
 See [High Availability & Failover](CONTRIBUTING.md#failover) in CONTRIBUTING.md for detailed setup. In brief:
@@ -137,17 +147,22 @@ See [High Availability & Failover](CONTRIBUTING.md#failover) in CONTRIBUTING.md 
 - No HTTP tunnel required; all state in Upstash + SQLite
 
 ### Scheduled Tasks
-- **auto_poll_spc** (30s): SPC outlook polling
-- **auto_post_md** (60s): Mesoscale discussion monitoring
+- **auto_post_spc** (30s): SPC outlook polling
+- **auto_post_md** (30s): Mesoscale discussion monitoring
 - **auto_post_watches** (120s): SPC watch polling
 - **auto_poll_warnings** (30s): NWS warning API polling
-- **auto_post_soundings** (00z/12z): Synoptic sounding cycles
-- **periodic_cache_cleanup** (03:00 UTC daily): TTL-based eviction (7-day default)
-- **logrotate** (size-based): 50 MB per file, 12-file retention, gzip -9
+- **monitor_special_soundings** (15m): Special RAOB releases near active watches
+- **monitor_high_risk_soundings** (15m): RAOB/ACARS sweep inside MDT/HIGH Day 1 risk polygons
+- **auto_sounding_watches** (30m): 00z/12z sounding cycles near active watches
+- **cleanup_cache_loop** (24h): Root cache file pruning, orphan VAD mission cleanup, 1 GB GIF archive budget, 365-day tornado event retention
+- **periodic_cache_cleanup** (24h after startup): TTL-based root cache eviction (7-day default)
+- **snapshot_events_task** (5m): Primary-only snapshot of `events.db` for optional Syncthing replication
+- **periodic_cleanup** (1h): Radar downloader temporary file cleanup
+- **application log rotation**: Runtime `RotatingFileHandler` uses 5 MB files with 3 backups; `config/logrotate.conf` is an optional external 50 MB/12-file policy for systemd installs
 
 ## Testing
 
-The test suite has **380 tests** covering:
+The test suite has **382 tests** covering:
 - Unit tests for parsers (VTEC, polygons, narratives)
 - Integration tests for bot state and cog lifecycle
 - Failover scenarios and race conditions

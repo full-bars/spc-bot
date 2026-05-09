@@ -4,7 +4,7 @@ SPCBot supports a robust Active/Standby failover pair to ensure near-100% uptime
 
 ## 🏗️ Architecture
 
-The failover system uses **Upstash Redis** as a distributed lock manager (Lease Store). No direct network connection or HTTP tunnel is required between the two nodes.
+The failover system uses **Upstash Redis** as a distributed lock manager and shared operational state store. No direct network connection or HTTP tunnel is required between the two nodes.
 
 - **Primary Node:** Holds the Upstash lease, runs all polling loops, and posts to Discord.
 - **Standby Node:** Heartbeats to Upstash. If the lease is available or expired, it promotes itself to Primary.
@@ -20,10 +20,12 @@ The failover system uses **Upstash Redis** as a distributed lock manager (Lease 
 
 ## 🗳️ Leader Election Logic
 
-Every node runs a `sync_loop` that heartbeats to Upstash every 10 seconds:
-1. **Lease Acquisition:** Uses `SET NX EX` to atomically claim the "Primary" role.
-2. **Extension:** The current Primary extends its lease as long as it remains healthy.
-3. **Safety Shield:** A "Startup Shield" prevents a newly rebooted node from immediately stealing the lease if the current Primary is healthy, protecting against "flapping" during network instability.
+Every node runs a `sync_loop` that heartbeats to Upstash every 30 seconds:
+1. **Lease Acquisition:** Uses `SET NX EX` to atomically claim the primary lease at `spcbot:primary_url`.
+2. **Extension:** The current primary extends a 420-second lease as long as it remains healthy.
+3. **Standby Promotion:** A standby promotes after the lease is missing for `MAX_FAILURES` cycles, currently 7 cycles, or about 210 seconds after the key disappears.
+4. **Startup Grace:** Newly loaded failover cogs ignore missing-lease failures for 120 seconds to avoid startup flapping.
+5. **Manual Override:** `/failover` can write `spcbot:manual_primary` to designate a hostname until the override is cleared.
 
 ## 💾 State Synchronization
 
@@ -49,9 +51,9 @@ Set these on both nodes:
 
 ## 🎮 Manual Intervention
 
-Authorized operators can force a role swap using:
-- `/failover`: Triggers a graceful demotion of the current Primary and allows the Standby to promote.
-- `/status`: Shows which node is currently Primary, its hostname, and IP.
+Authorized operators can manage failover using:
+- `/failover`: Opens an interactive selector populated from the active node registry. Selecting a node designates that host as primary; clearing the override returns the pair to automatic election.
+- `/status`: Shows which node is currently primary, its hostname, and IP.
 
 ## 🛡️ Standby Behavior
 
@@ -69,3 +71,4 @@ After a planned or automatic promotion:
 3. Syncthing folder mode is `send-only` on the primary and `receive-only` on standby when configured.
 4. New MD/watch/warning posts are deduplicated against already-posted state.
 5. The demoted node does not sync slash commands or run auto-post loops.
+6. If a manual override was used, `/failover` shows the expected override or has been cleared.

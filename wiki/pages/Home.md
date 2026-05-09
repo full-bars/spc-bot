@@ -10,7 +10,7 @@
 - **Gold-Standard Alerting:** NWWS-OI (XMPP) integration for sub-second latency on NWS products.
 - **Warning Lifecycle:** Real-time tracking of `SVR`, `TOR`, and `FFW` warnings including status updates (`CON`, `EXT`, `EXA`).
 - **Tornado Dashboard:** Automated damage survey detection, official DAT photo carousels, and local OSM track rendering.
-- **Scientific Analysis:** Automated RAOB/ACARS sounding plots, VWP hodographs, and CSU-MLP/WxNext2 AI forecasts.
+- **Scientific Analysis:** Automated RAOB/ACARS sounding plots, VWP hodographs, tornado forensics, CSU-MLP/WxNext2 AI forecasts, and experimental IEM analytics.
 - **High Availability:** Active/Standby failover with leader election and state synchronization.
 - **Hybrid Performance Core:** Performance-critical components (hashing, radar parsing, spatial indexing) implemented in Rust for sub-millisecond response times.
 
@@ -28,12 +28,12 @@ Learn how to install SPCBot via Docker or systemd, configure your environment, a
 - **[Soundings & Hodographs](Soundings-&-Hodographs)**: Observed data plotting and auto-posting logic.
 - **[Forecast Models](Forecast-Models)**: CSU-MLP, NCAR WxNext2, and SCP graphics.
 - **[Radar Downloader](Radar-Downloader)**: NOAA S3 Level 2 radar downloads and archive packaging.
+- **[Slash Command Reference](Slash-Command-Reference)**: Complete command inventory, including experimental analytics commands.
 
 ### Advanced Architecture
 - **[High Availability & Failover](High-Availability-&-Failover)**: Primary/Standby logic and Upstash leases.
 - **[State Persistence Model](State-Persistence-Model)**: Hybrid Upstash Redis + SQLite architecture.
 
 ### Reference
-- **[Slash Command Reference](Slash-Command-Reference)**: Complete guide to bot interactions.
 - **[Maintenance & Operations](Maintenance-&-Operations)**: Monitoring tools and admin commands.
 - **[Configuration Guide](Configuration-Guide)**: Environment variables and deployment options.

@@ -23,10 +23,11 @@ A virtual terminal console inside Discord.
 ## 🧹 Automated Maintenance
 
 The bot performs several background cleanup tasks every 24 hours:
-- **Cache Pruning:** Deletes old SPC/WPC images and temporary radar downloads.
+- **Startup/Periodic Cache Pruning:** `utils.cache_utils` removes root cache files older than 7 days after startup and every 24 hours.
+- **Primary Maintenance Loop:** `cogs/maintenance.py` removes root cache image/temp/hash files older than 48 hours.
 - **Forensics Management:** Automatically prunes orphaned VAD recording mission directories and enforces a **1GB budget** for archived GIFs, deleting oldest files first.
-- **DB Retention:** Enforces a **365-day rolling retention** for the `events.db` archive and prunes ephemeral state from `bot_state.db`.
-- **Photo Cleanup:** Deletes cached DAT damage photos older than 30 days.
+- **Events Retention:** Enforces a **365-day rolling retention** for the tornado-only `events.db` archive and backfills missing DAT GUIDs.
+- **Radar Cleanup:** The radar downloader removes temporary files from `radar_data/` after 24 hours.
 
 ## ☁️ Off-Server Backups (rclone)
 
@@ -45,8 +46,9 @@ Finalized GIFs are uploaded asynchronously after each recording mission. Local f
 
 ### Failover Manual Swap
 If you need to perform maintenance on the Primary node, use `/failover`.
-- The bot will gracefully demote the current node and allow the Standby to take over within 10–20 seconds.
-- **Force Hostname:** You can optionally specify a target hostname to ensure the correct node promotes.
+- The command opens an interactive selector listing active nodes from the Upstash node registry.
+- Choosing a node stores a manual primary override for that hostname.
+- Clearing the override returns the pair to automatic lease-based failover.
 
 ### Update Pipeline
 For users running via `deploy.sh`, the `spcupdate` alias:
@@ -109,7 +111,7 @@ Symptoms: integrity check failures or startup messages about recreating `bot_sta
 | Path | Purpose | Backup Priority | Safe to Delete? |
 |---|---|---|---|
 | `cache/bot_state.db` | Operational dedupe and bot state mirror. | Medium; Upstash can rehydrate some state. | No, unless intentionally resetting state. |
-| `cache/events.db` | Historical significant events archive. | High. | No. |
+| `cache/events.db` | Historical confirmed tornado and forensics archive. | High. | No. |
 | `cache/event_archive/` | VAD evolution GIF archive. | High if not backed up remotely. | Only after backup/retention decision. |
 | `cache/vad_recordings/` | Temporary active recording missions. | Low after mission finalization. | Old orphaned dirs are pruned automatically. |
 | Cached images/radar downloads | Re-downloadable product/cache artifacts. | Low. | Usually yes when the bot is stopped. |

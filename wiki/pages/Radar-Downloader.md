@@ -5,7 +5,7 @@ SPCBot includes a high-performance downloader for raw **NEXRAD Level 2** radar d
 ## 📥 Quick Start (`/download`)
 
 The `/download` command allows users to retrieve raw radar data for post-event analysis.
-- **Site Selection:** Supports all 160+ NEXRAD sites (e.g., `KTLX`, `KOKX`).
+- **Site Selection:** Supports NEXRAD and TDWR site codes accepted by the radar-site dataset (e.g., `KTLX`, `KOKX`).
 - **Time Filtering:** Retrieve data by specific datetime, time range, or the "N most recent" files.
 - **Z-to-Z Range:** Supports shorthand for Z-time ranges (e.g., `start: 2200, end: 0030`).
 
@@ -22,5 +22,6 @@ The `/download` command allows users to retrieve raw radar data for post-event a
 
 ## 🔧 Operator Controls
 
-- **Size Limits:** Operators can configure the maximum number of files per request in `.env` to prevent resource exhaustion.
+- **Upload Size Handling:** The downloader splits ZIP output around Discord upload limits and retries progressively smaller chunks when needed.
+- **Temporary File Cleanup:** The radar cog removes files in `radar_data/` older than 24 hours.
 - **Permissioning:** Access to the downloader can be restricted to specific roles or channels via Discord's native integration settings.
