@@ -705,8 +705,9 @@ class WatchesCog(commands.Cog):
 
                 image_missing = True
                 if cache_path and os.path.exists(cache_path):
-                    with open(cache_path, "rb") as f:
-                        image_missing = is_placeholder_image(f.read())
+                    image_missing = await asyncio.to_thread(
+                        lambda p=cache_path: is_placeholder_image(open(p, "rb").read())
+                    )
                 
                 # If we have BOTH, we are fully upgraded.
                 if not image_missing and has_real_probs:
@@ -772,9 +773,10 @@ class WatchesCog(commands.Cog):
                 )
                 
                 if cache_path and os.path.exists(cache_path):
-                    with open(cache_path, "rb") as f:
-                        if is_placeholder_image(f.read()):
-                            continue
+                    if await asyncio.to_thread(
+                        lambda p=cache_path: is_placeholder_image(open(p, "rb").read())
+                    ):
+                        continue
                 else:
                     continue
 

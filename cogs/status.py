@@ -18,6 +18,7 @@ from cogs.mesoscale import (
 )
 from config import MANUAL_CACHE_FILE, SCP_IMAGE_URLS, SPC_URLS, WPC_IMAGE_URLS, __version__
 import utils.http as _http
+from utils.db import get_write_failure_count
 from utils.cache import (
     check_all_urls_exist_parallel,
     download_images_parallel,
@@ -312,6 +313,16 @@ class StatusView(discord.ui.View):
         open_circuits = [h for h in _http.circuit_breaker.failures if _http.circuit_breaker.is_open(h)]
         if open_circuits:
             embed.add_field(name="🔌 Open Circuits", value=", ".join(f"`{h}`" for h in open_circuits), inline=False)
+            embed.color = discord.Color.red()
+
+        # DB write health
+        db_failures = get_write_failure_count()
+        if db_failures > 0:
+            embed.add_field(
+                name="🗄️ DB Write Failures",
+                value=f"`{db_failures}` consecutive write failure(s) — check disk / WAL",
+                inline=False,
+            )
             embed.color = discord.Color.red()
 
         # Recent activity (condensed)
