@@ -3,7 +3,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
+
 
 import discord
 from discord.ext import commands, tasks
@@ -13,7 +13,6 @@ from cogs.watch_fetch import (
     fetch_active_watches_nws,
     fetch_latest_watch_numbers,
     fetch_watch_details,
-    fetch_watch_details_iem,
 )
 from cogs.watch_format import _build_watch_embed, _watch_files
 from config import (

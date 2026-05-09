@@ -1,7 +1,7 @@
 # cogs/watch_format.py
 """Watch embed building and file helpers — pure formatting, no I/O."""
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Optional, Tuple
 
 import discord
