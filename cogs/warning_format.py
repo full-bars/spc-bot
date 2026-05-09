@@ -130,7 +130,7 @@ def get_tornado_attributes(event: str, text: str, params: dict = None) -> Tuple[
     return confidence, severity
 
 
-def iem_autoplot_url(vtec: dict) -> str:
+def iem_autoplot_url(vtec: dict, valid_time: Optional[str] = None) -> str:
     """Return the IEM Autoplot URL (#208 for VTEC, #217 for SPS)."""
     office = vtec["office"]
     phenom = vtec["phenom"]
@@ -139,13 +139,28 @@ def iem_autoplot_url(vtec: dict) -> str:
 
     year = datetime.now(timezone.utc).year
     start = vtec.get("start") or ""
+    
+    # Use provided valid_time if available (for cancellations/watermarks)
+    # format should be 'YYYY-MM-DD HHMM' (UTC)
+    if valid_time:
+        valid_param = f"::valid:{valid_time.replace(' ', '%20')}"
+    else:
+        # Build the valid time from start or end timestamp
+        valid_time_str = ""
+        if start and not _is_null_vtec_time(start):
+            # Parse YYMMDDTHHMMZ format
+            try:
+                yy, mm, dd, hh, min_ = int(start[0:2]), int(start[2:4]), int(start[4:6]), int(start[8:10]), int(start[10:12])
+                yyyy = 2000 + yy
+                valid_time_str = f"{yyyy:04d}-{mm:02d}-{dd:02d}%20{hh:02d}{min_:02d}"
+            except (ValueError, IndexError):
+                pass
+        valid_param = f"::valid:{valid_time_str}" if valid_time_str else ""
+
     if start and not _is_null_vtec_time(start):
         try:
-            # VTEC timestamp is YYMMDDTHHMMZ; extract year code (first 2 digits)
-            # Validate it's reasonable (00-99)
             year_code = int(start[:2])
             extracted_year = 2000 + year_code
-            # Sanity check: year should not be too far in past or future
             now_year = datetime.now(timezone.utc).year
             if now_year - 10 <= extracted_year <= now_year + 10:
                 year = extracted_year
@@ -173,19 +188,6 @@ def iem_autoplot_url(vtec: dict) -> str:
             f"pid:{vtec['vtec_id']}::segnum:0.png"
         )
 
-    # Standard VTEC events use Autoplot 208
-    # Build the valid time from start or end timestamp
-    valid_time = ""
-    if start and not _is_null_vtec_time(start):
-        # Parse YYMMDDTHHMMZ format
-        try:
-            yy, mm, dd, hh, min_ = int(start[0:2]), int(start[2:4]), int(start[4:6]), int(start[8:10]), int(start[10:12])
-            yyyy = 2000 + yy
-            valid_time = f"{yyyy:04d}-{mm:02d}-{dd:02d}%20{hh:02d}{min_:02d}"
-        except (ValueError, IndexError):
-            pass
-
-    valid_param = f"::valid:{valid_time}" if valid_time else ""
     etn_padded = etn.zfill(4)  # Zero-pad to 4 digits
 
     return (
@@ -428,14 +430,13 @@ def build_concise_warning_text(
         area = feature.get("properties", {}).get("areaDesc", area)
     elif raw_text:
         # Step A: Look for the standard "Warning for..." bullet
-        # The [\s.]+ handles both "Warning for..." and "Warning for   ..."
-        m_area = re.search(r"(?:Warning for|Statement for|IMPACT)[\s.]+(.+?)(?=\n\s*\*|\n\s*At\s+|\n\s*LAT\.\.\.LON|$)", raw_text, re.I | re.DOTALL)
+        # Refined regex: must NOT cross into common narrative headers or the next bullet
+        m_area = re.search(r"(?:Warning for|Statement for|IMPACT)[\s.]+(.+?)(?=\n\s*\*|\n\s*At\s+|\n\s*LAT\.\.\.LON|\n\s*HAZARD\.\.\.|\n\s*SOURCE\.\.\.|\n\s*IMPACT\.\.\.|$)", raw_text, re.I | re.DOTALL)
         
         # Step B: Fallback to the technical header line (e.g., "CLEVELAND OK-MCCLAIN OK-")
-        # This is usually between the VTEC line and the timestamp.
         if not m_area:
-            # Matches lines like "CLEVELAND OK-MCCLAIN OK-POTTAWATOMIE OK-"
-            m_header = re.search(r"(?m)^([A-Z\s]+ [A-Z]{2}-.*?)-$", raw_text)
+            # Broadened to handle mixed case like "Inland Nassau FL-"
+            m_header = re.search(r"(?m)^([A-Z\s]+ [A-Z]{2}-.*?)-$", raw_text, re.I)
             if m_header:
                 raw_list = m_header.group(1).replace("-", ", ")
             else:
@@ -444,36 +445,40 @@ def build_concise_warning_text(
             raw_list = m_area.group(1)
 
         if raw_list:
-            # Split by common delimiters, but BE CAREFUL not to break "County, ST"
-            # Split by newline or semicolon first.
-            parts = re.split(r"\n|;", raw_list, flags=re.I)
+            # For raw text, we split by dots and 'AND' as well
+            parts = re.split(r"\n|;|\.\.\.|\s+AND\s+", raw_list, flags=re.I)
             
-            # If we only have one part and it has commas, split by comma but avoid state abbrev.
-            if len(parts) <= 1:
-                parts = [c.strip() for c in re.split(r',(?!\s+[A-Z]{2}(?:\s|$|,|;))', raw_list) if c.strip()]
-                
             counties = []
+            garbage_keywords = ["INJURED", "EXPECT", "DAMAGE", "TORNADO", "THUNDERSTORM", "ROOF", "SIDING", "VEHICLE", "REMAIN", "ALERT", "ROOM", "BASEMENT"]
             for p in parts:
                 c = p.strip().strip(".")
                 if not c or len(c) < 3:
                     continue
-                # Skip structural text
-                if any(x in c.upper() for x in ["THROUGH", "UNTIL", "PORTIONS", "AM", "PM", "EDT", "CDT", "MDT", "PDT", "HST", "AKDT", "LOCATED"]):
+                    
+                # Truncate at "THROUGH" instead of skipping the whole part
+                if " THROUGH " in c.upper():
+                    c = re.split(r"\s+THROUGH\s+", c, flags=re.I)[0]
+                    
+                # Skip if it contains garbage keywords
+                if any(kw in c.upper() for kw in garbage_keywords):
                     continue
-                # Strip directional prefixes
+                # Skip remaining structural text
+                if any(x in c.upper() for x in ["UNTIL", "PORTIONS", "AM", "PM", "EDT", "CDT", "MDT", "PDT", "HST", "AKDT", "LOCATED"]):
+                    continue
+                # Strip prefixes and "County/Parish"
                 c = re.sub(r"^(?:Northeastern|Northwestern|Southeastern|Southwestern|Northern|Southern|Eastern|Western|Central)\s+", "", c, flags=re.I)
-                # Handle "X in Y State"
                 c = re.split(r"\s+in\s+", c, flags=re.I)[0]
-                # Strip "County" or "Parish"
                 c = re.sub(r"\s+(?:Count[iy]|Parish).*$", "", c, flags=re.I)
                 
-                # Strip existing state names/abbreviations to prevent "Caddo, OK [OK]"
-                c = re.sub(r"[\s,]+(?:[A-Z]{2}|ALABAMA|ALASKA|ARIZONA|ARKANSAS|CALIFORNIA|COLORADO|CONNECTICUT|DELAWARE|FLORIDA|GEORGIA|HAWAII|IDAHO|ILLINOIS|INDIANA|IOWA|KANSAS|KENTUCKY|LOUISIANA|MAINE|MARYLAND|MASSACHUSETTS|MICHIGAN|MINNESOTA|MISSISSIPPI|MISSOURI|MONTANA|NEBRASKA|NEVADA|NEW\s+HAMPSHIRE|NEW\s+JERSEY|NEW\s+MEXICO|NEW\s+YORK|NORTH\s+CAROLINA|NORTH\s+DAKOTA|OHIO|OKLAHOMA|OREGON|PENNSYLVANIA|RHODE\s+ISLAND|SOUTH\s+CAROLINA|SOUTH\s+DAKOTA|TENNESSEE|TEXAS|UTAH|VERMONT|VIRGINIA|WASHINGTON|WEST\s+VIRGINIA|WISCONSIN|WYOMING)$", "", c.strip(), flags=re.I)
+                # Suffix removal: strip ", OK" or " OK" or " OKLAHOMA"
+                state_regex = r"[\s,]+(?:[A-Z]{2}|ALABAMA|ALASKA|ARIZONA|ARKANSAS|CALIFORNIA|COLORADO|CONNECTICUT|DELAWARE|FLORIDA|GEORGIA|HAWAII|IDAHO|ILLINOIS|INDIANA|IOWA|KANSAS|KENTUCKY|LOUISIANA|MAINE|MARYLAND|MASSACHUSETTS|MICHIGAN|MINNESOTA|MISSISSIPPI|MISSOURI|MONTANA|NEBRASKA|NEVADA|NEW\s+HAMPSHIRE|NEW\s+JERSEY|NEW\s+MEXICO|NEW\s+YORK|NORTH\s+CAROLINA|NORTH\s+DAKOTA|OHIO|OKLAHOMA|OREGON|PENNSYLVANIA|RHODE\s+ISLAND|SOUTH\s+CAROLINA|SOUTH\s+DAKOTA|TENNESSEE|TEXAS|UTAH|VERMONT|VIRGINIA|WASHINGTON|WEST\s+VIRGINIA|WISCONSIN|WYOMING)$"
+                c = re.sub(state_regex, "", c.strip(), flags=re.I).strip()
                 
-                c = c.strip()
+                # Final check: skip if standalone state or still contains garbage keywords
                 if c and (len(c) > 2 or not c.isupper()):
-                    if c not in counties:
-                        counties.append(c)
+                    if not any(kw in c.upper() for kw in garbage_keywords):
+                        if c not in counties:
+                            counties.append(c)
             
             if counties:
                 area = ", ".join(counties)

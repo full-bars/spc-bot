@@ -467,10 +467,12 @@ class WarningsCog(commands.Cog):
         )
 
         # Fetch the IEM Autoplot image — for cancelled events IEM marks it
-        # "Event No Longer Active" automatically.
+        # "Event No Longer Active" automatically if we pass a late valid time.
         files = []
         if vtec and ((vtec.get("etn") and vtec["etn"] != "0") or phenom == "SPS"):
-            image_url = iem_autoplot_url(vtec)
+            # Use current time (Z) to ensure we get the "EVENT NO LONGER ACTIVE" watermark
+            valid_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H%M")
+            image_url = iem_autoplot_url(vtec, valid_time=valid_time)
             filename = f"cancel_{vtec_id.replace('.', '_')}.png"
             try:
                 content, status = await http_get_bytes(image_url, retries=1, timeout=10)
