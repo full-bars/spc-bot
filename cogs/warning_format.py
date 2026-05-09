@@ -143,7 +143,7 @@ def iem_autoplot_url(vtec: dict, valid_time: Optional[str] = None) -> str:
     # Use provided valid_time if available (for cancellations/watermarks)
     # format should be 'YYYY-MM-DD HHMM' (UTC)
     if valid_time:
-        valid_param = f"::valid:{valid_time.replace(' ', '%20')}"
+        valid_param = f"::valid:{valid_time}"
     else:
         # Build the valid time from start or end timestamp
         valid_time_str = ""
@@ -438,7 +438,7 @@ def build_concise_warning_text(
     elif raw_text:
         # Step A: Look for the standard "Warning for..." bullet
         # Refined regex: must NOT cross into common narrative headers or the next bullet
-        m_area = re.search(r"(?:Warning for|Statement for|IMPACT)[\s.]+(.+?)(?=\n\s*\*|\n\s*At\s+|\n\s*LAT\.\.\.LON|\n\s*HAZARD\.\.\.|\n\s*SOURCE\.\.\.|\n\s*IMPACT\.\.\.|$)", raw_text, re.I | re.DOTALL)
+        m_area = re.search(r"(?:Warning for|Statement for|IMPACT)[\s.]+(.+?)(?=\n\s*\*|\n\s*At\s+|\n\s*LAT\.\.\.LON|\n\s*HAZARD\.\.\.|\n\s*SOURCE\.\.\.|\n\s*IMPACT\.\.\.|\n\s*PRECAUTIONARY|\n\s*PREPAREDNESS|$)", raw_text, re.I | re.DOTALL)
         
         # Step B: Fallback to the technical header line (e.g., "CLEVELAND OK-MCCLAIN OK-")
         if not m_area:
@@ -465,15 +465,22 @@ def build_concise_warning_text(
                 parts = [c.strip() for c in re.split(r',(?!\s+[A-Z]{2}(?:\s|$|,|;))', raw_list) if c.strip()]
                 
             counties = []
+            # Added all state abbreviations and full names to garbage filter
+            states_list = [
+                "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+                "ALABAMA", "ALASKA", "ARIZONA", "ARKANSAS", "CALIFORNIA", "COLORADO", "CONNECTICUT", "DELAWARE", "FLORIDA", "GEORGIA", "HAWAII", "IDAHO", "ILLINOIS", "INDIANA", "IOWA", "KANSAS", "KENTUCKY", "LOUISIANA", "MAINE", "MARYLAND", "MASSACHUSETTS", "MICHIGAN", "MINNESOTA", "MISSISSIPPI", "MISSOURI", "MONTANA", "NEBRASKA", "NEVADA", "NEW HAMPSHIRE", "NEW JERSEY", "NEW MEXICO", "NEW YORK", "NORTH CAROLINA", "NORTH DACOTA", "OHIO", "OKLAHOMA", "OREGON", "PENNSYLVANIA", "RHODE ISLAND", "SOUTH CAROLINA", "SOUTH DAKOTA", "TENNESSEE", "TEXAS", "UTAH", "VERMONT", "VIRGINIA", "WASHINGTON", "WEST VIRGINIA", "WISCONSIN", "WYOMING"
+            ]
             garbage_keywords = [
                 "AND", "INJURED", "EXPECT", "DAMAGE", "TORNADO", "THUNDERSTORM", 
                 "ROOF", "SIDING", "VEHICLE", "REMAIN", "ALERT", "ROOM", "BASEMENT",
                 "PEOPLE", "LOCATIONS", "PRECAUTIONARY", "PREPAREDNESS", "ACTIONS",
-                "FLYING", "DEBRIS", "BUILDING", "TREES", "SHELTER", "LIKELY", "PROTECT"
-            ]
+                "FLYING", "DEBRIS", "BUILDING", "TREES", "SHELTER", "LIKELY", "PROTECT",
+                "LIGHTNING", "INDOORS", "THUNDER", "KILLERS", "REMEMBER", "ENOUGH", "STRUCK", "STORM"
+            ] + states_list
+            
             for p in parts:
                 c = p.strip().strip(".")
-                if not c or len(c) < 3:
+                if not c or len(c) < 2: # Allow 2-letter state codes to be caught by filter
                     continue
                     
                 # Truncate at "THROUGH" instead of skipping the whole part
