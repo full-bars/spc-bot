@@ -77,7 +77,6 @@ async def test_monitor_noop_when_connection_in_flight(cog, bot):
 @pytest.mark.asyncio
 async def test_monitor_cleans_up_and_reconnects(cog, bot):
     """Disconnects stale client and creates a new one when transport is None."""
-    from config import NWWS_SERVER, NWWS_USER, NWWS_PASSWORD
     mock_client = MagicMock()
     mock_client.is_connected = False
     mock_client.transport = None  # stale — not in-flight
