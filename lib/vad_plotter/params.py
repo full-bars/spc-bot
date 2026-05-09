@@ -222,13 +222,15 @@ def _to_list(arr) -> list:
 
 
 def compute_parameters(data: Dict[str, Any], storm_motion: str) -> Dict[str, Any]:
-    # Pre-convert arrays once so Rust functions receive lists without repeated copies
-    data = {
-        **data,
-        'wind_dir': _to_list(data['wind_dir']),
-        'wind_spd': _to_list(data['wind_spd']),
-        'altitude': _to_list(data['altitude']),
-    }
+    # Pre-convert arrays once so Rust functions receive lists without repeated copies.
+    # Guard with isinstance: VADFile supports __getitem__ but not ** spreading.
+    if isinstance(data, dict):
+        data = {
+            **data,
+            'wind_dir': _to_list(data['wind_dir']),
+            'wind_spd': _to_list(data['wind_spd']),
+            'altitude': _to_list(data['altitude']),
+        }
     params: Dict[str, Any] = {}
 
     try:
