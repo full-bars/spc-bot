@@ -19,7 +19,7 @@ import json as _json
 import logging
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from io import BytesIO
 from typing import Optional, Tuple
 
@@ -472,7 +472,12 @@ class WarningsCog(commands.Cog):
         files = []
         if vtec and ((vtec.get("etn") and vtec["etn"] != "0") or phenom == "SPS"):
             # Use current time (Z) to ensure we get the "EVENT NO LONGER ACTIVE" watermark
-            valid_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H%M")
+            now = datetime.now(timezone.utc)
+            # If it's an expiration, use +1 minute to definitely hit the "inactive" state
+            if reason == "Expired":
+                now = now + timedelta(minutes=1)
+                
+            valid_time = now.strftime("%Y-%m-%d %H%M")
             image_url = iem_autoplot_url(vtec, valid_time=valid_time)
             filename = f"cancel_{vtec_id.replace('.', '_')}.png"
             

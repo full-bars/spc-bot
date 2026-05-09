@@ -18,6 +18,21 @@ from utils.http import http_get_bytes
 
 logger = logging.getLogger("spc_bot.warnings")
 
+_STATE_REGEX = r"[\s,]+(?:[A-Z]{2}|ALABAMA|ALASKA|ARIZONA|ARKANSAS|CALIFORNIA|COLORADO|CONNECTICUT|DELAWARE|FLORIDA|GEORGIA|HAWAII|IDAHO|ILLINOIS|INDIANA|IOWA|KANSAS|KENTUCKY|LOUISIANA|MAINE|MARYLAND|MASSACHUSETTS|MICHIGAN|MINNESOTA|MISSISSIPPI|MISSOURI|MONTANA|NEBRASKA|NEVADA|NEW\s+HAMPSHIRE|NEW\s+JERSEY|NEW\s+MEXICO|NEW\s+YORK|NORTH\s+CAROLINA|NORTH\s+DAKOTA|OHIO|OKLAHOMA|OREGON|PENNSYLVANIA|RHODE\s+ISLAND|SOUTH\s+CAROLINA|SOUTH\s+DAKOTA|TENNESSEE|TEXAS|UTAH|VERMONT|VIRGINIA|WASHINGTON|WEST\s+VIRGINIA|WISCONSIN|WYOMING)$"
+
+_STATES_LIST = [
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+    "ALABAMA", "ALASKA", "ARIZONA", "ARKANSAS", "CALIFORNIA", "COLORADO", "CONNECTICUT", "DELAWARE", "FLORIDA", "GEORGIA", "HAWAII", "IDAHO", "ILLINOIS", "INDIANA", "IOWA", "KANSAS", "KENTUCKY", "LOUISIANA", "MAINE", "MARYLAND", "MASSACHUSETTS", "MICHIGAN", "MINNESOTA", "MISSISSIPPI", "MISSOURI", "MONTANA", "NEBRASKA", "NEVADA", "NEW HAMPSHIRE", "NEW JERSEY", "NEW MEXICO", "NEW YORK", "NORTH CAROLINA", "NORTH DACOTA", "OHIO", "OKLAHOMA", "OREGON", "PENNSYLVANIA", "RHODE ISLAND", "SOUTH CAROLINA", "SOUTH DAKOTA", "TENNESSEE", "TEXAS", "UTAH", "VERMONT", "VIRGINIA", "WASHINGTON", "WEST VIRGINIA", "WISCONSIN", "WYOMING"
+]
+
+_GEOGRAPHIC_GARBAGE = [
+    "AND", "INJURED", "EXPECT", "DAMAGE", "TORNADO", "THUNDERSTORM", 
+    "ROOF", "SIDING", "VEHICLE", "REMAIN", "ALERT", "ROOM", "BASEMENT",
+    "PEOPLE", "LOCATIONS", "PRECAUTIONARY", "PREPAREDNESS", "ACTIONS",
+    "FLYING", "DEBRIS", "BUILDING", "TREES", "SHELTER", "LIKELY", "PROTECT",
+    "LIGHTNING", "INDOORS", "THUNDER", "KILLERS", "REMEMBER", "ENOUGH", "STRUCK", "STORM"
+] + _STATES_LIST
+
 _WARNING_STYLE = {
     "Tornado Warning":             ("🌪️", discord.Color.red()),
     "Severe Thunderstorm Warning": ("⛈️", discord.Color.gold()),
@@ -289,14 +304,13 @@ def _area_with_state(area_desc: str, ugc_codes: List[str], state_fallback: Optio
     # Split county list by state group counts
     parts = []
     idx = 0
-    state_regex = r"[\s,]+(?:[A-Z]{2}|ALABAMA|ALASKA|ARIZONA|ARKANSAS|CALIFORNIA|COLORADO|CONNECTICUT|DELAWARE|FLORIDA|GEORGIA|HAWAII|IDAHO|ILLINOIS|INDIANA|IOWA|KANSAS|KENTUCKY|LOUISIANA|MAINE|MARYLAND|MASSACHUSETTS|MICHIGAN|MINNESOTA|MISSISSIPPI|MISSOURI|MONTANA|NEBRASKA|NEVADA|NEW\s+HAMPSHIRE|NEW\s+JERSEY|NEW\s+MEXICO|NEW\s+YORK|NORTH\s+CAROLINA|NORTH\s+DAKOTA|OHIO|OKLAHOMA|OREGON|PENNSYLVANIA|RHODE\s+ISLAND|SOUTH\s+CAROLINA|SOUTH\s+DAKOTA|TENNESSEE|TEXAS|UTAH|VERMONT|VIRGINIA|WASHINGTON|WEST\s+VIRGINIA|WISCONSIN|WYOMING)$"
     for state, count in state_counts.items():
         group = counties[idx:idx + count]
         if group:
             # Clean up county names that already have state info (e.g. "Caddo, OK" -> "Caddo")
             cleaned_group = []
             for c in group:
-                c_clean = re.sub(state_regex, "", c.strip(), flags=re.I).strip()
+                c_clean = re.sub(_STATE_REGEX, "", c.strip(), flags=re.I).strip()
                 # Filter out standalone state abbreviations that got split out
                 if len(c_clean) > 2 or not c_clean.isupper():
                     cleaned_group.append(c_clean)
@@ -309,7 +323,7 @@ def _area_with_state(area_desc: str, ugc_codes: List[str], state_fallback: Optio
         remainder = counties[idx:]
         cleaned_remainder = []
         for r in remainder:
-            r_clean = re.sub(state_regex, "", r.strip(), flags=re.I).strip()
+            r_clean = re.sub(_STATE_REGEX, "", r.strip(), flags=re.I).strip()
             if r_clean and (len(r_clean) > 2 or not r_clean.isupper()):
                 cleaned_remainder.append(r_clean)
         
@@ -466,19 +480,6 @@ def build_concise_warning_text(
                 parts = [c.strip() for c in re.split(r',(?!\s+[A-Z]{2}(?:\s|$|,|;))', raw_list) if c.strip()]
                 
             counties = []
-            # Added all state abbreviations and full names to garbage filter
-            states_list = [
-                "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
-                "ALABAMA", "ALASKA", "ARIZONA", "ARKANSAS", "CALIFORNIA", "COLORADO", "CONNECTICUT", "DELAWARE", "FLORIDA", "GEORGIA", "HAWAII", "IDAHO", "ILLINOIS", "INDIANA", "IOWA", "KANSAS", "KENTUCKY", "LOUISIANA", "MAINE", "MARYLAND", "MASSACHUSETTS", "MICHIGAN", "MINNESOTA", "MISSISSIPPI", "MISSOURI", "MONTANA", "NEBRASKA", "NEVADA", "NEW HAMPSHIRE", "NEW JERSEY", "NEW MEXICO", "NEW YORK", "NORTH CAROLINA", "NORTH DACOTA", "OHIO", "OKLAHOMA", "OREGON", "PENNSYLVANIA", "RHODE ISLAND", "SOUTH CAROLINA", "SOUTH DAKOTA", "TENNESSEE", "TEXAS", "UTAH", "VERMONT", "VIRGINIA", "WASHINGTON", "WEST VIRGINIA", "WISCONSIN", "WYOMING"
-            ]
-            garbage_keywords = [
-                "AND", "INJURED", "EXPECT", "DAMAGE", "TORNADO", "THUNDERSTORM", 
-                "ROOF", "SIDING", "VEHICLE", "REMAIN", "ALERT", "ROOM", "BASEMENT",
-                "PEOPLE", "LOCATIONS", "PRECAUTIONARY", "PREPAREDNESS", "ACTIONS",
-                "FLYING", "DEBRIS", "BUILDING", "TREES", "SHELTER", "LIKELY", "PROTECT",
-                "LIGHTNING", "INDOORS", "THUNDER", "KILLERS", "REMEMBER", "ENOUGH", "STRUCK", "STORM"
-            ] + states_list
-            
             for p in parts:
                 c = p.strip().strip(".")
                 if not c or len(c) < 2: # Allow 2-letter state codes to be caught by filter
@@ -489,7 +490,7 @@ def build_concise_warning_text(
                     c = re.split(r"\s+THROUGH\s+", c, flags=re.I)[0]
                     
                 # Skip if it contains garbage keywords as whole words
-                if any(re.search(rf"\b{kw}\b", c, re.I) for kw in garbage_keywords):
+                if any(re.search(rf"\b{kw}\b", c, re.I) for kw in _GEOGRAPHIC_GARBAGE):
                     continue
                 # Skip remaining structural text
                 if any(x in c.upper() for x in ["UNTIL", "PORTIONS", "AM", "PM", "EDT", "CDT", "MDT", "PDT", "HST", "AKDT", "LOCATED"]):
@@ -500,12 +501,11 @@ def build_concise_warning_text(
                 c = re.sub(r"\s+(?:Count[iy]|Parish).*$", "", c, flags=re.I)
                 
                 # Suffix removal: strip ", OK" or " OK" or " OKLAHOMA"
-                state_regex = r"[\s,]+(?:[A-Z]{2}|ALABAMA|ALASKA|ARIZONA|ARKANSAS|CALIFORNIA|COLORADO|CONNECTICUT|DELAWARE|FLORIDA|GEORGIA|HAWAII|IDAHO|ILLINOIS|INDIANA|IOWA|KANSAS|KENTUCKY|LOUISIANA|MAINE|MARYLAND|MASSACHUSETTS|MICHIGAN|MINNESOTA|MISSISSIPPI|MISSOURI|MONTANA|NEBRASKA|NEVADA|NEW\s+HAMPSHIRE|NEW\s+JERSEY|NEW\s+MEXICO|NEW\s+YORK|NORTH\s+CAROLINA|NORTH\s+DAKOTA|OHIO|OKLAHOMA|OREGON|PENNSYLVANIA|RHODE\s+ISLAND|SOUTH\s+CAROLINA|SOUTH\s+DAKOTA|TENNESSEE|TEXAS|UTAH|VERMONT|VIRGINIA|WASHINGTON|WEST\s+VIRGINIA|WISCONSIN|WYOMING)$"
-                c = re.sub(state_regex, "", c.strip(), flags=re.I).strip()
+                c = re.sub(_STATE_REGEX, "", c.strip(), flags=re.I).strip()
                 
                 # Final check: skip if standalone state or still contains garbage keywords
                 if c and (len(c) > 2 or not c.isupper()):
-                    if not any(kw in c.upper() for kw in garbage_keywords):
+                    if not any(re.search(rf"\b{kw}\b", c, re.I) for kw in _GEOGRAPHIC_GARBAGE):
                         if c not in counties:
                             counties.append(c)
             
@@ -518,11 +518,21 @@ def build_concise_warning_text(
         clean_prev = clean_prev.replace(" and ", ", ")
         
         prev_parts = [c.strip() for c in re.split(r'[;,]\s*', clean_prev) if c.strip()]
-        curr_parts = [c.strip() for c in re.split(r'[;,]\s*', area) if c.strip()]
+        
+        # Clean current area list: split and run through state stripper/garbage filter
+        # This prevents "OK, OK" in the expands to list
+        raw_curr = [c.strip() for c in re.split(r'[;,]\s*', area) if c.strip()]
+        curr_parts = []
+        for c in raw_curr:
+            c_clean = re.sub(_STATE_REGEX, "", c, flags=re.I).strip()
+            if c_clean and (len(c_clean) > 2 or not c_clean.isupper()):
+                if not any(re.search(rf"\b{kw}\b", c_clean, re.I) for kw in _GEOGRAPHIC_GARBAGE):
+                    if c_clean not in curr_parts:
+                        curr_parts.append(c_clean)
 
         # If previous was just "affected area", don't diff, just show the new area
         if prev_area == "affected area":
-            area_formatted = f" for {_area_with_state(area, ugc_codes or [])}"
+            area_formatted = f" for {_area_with_state(area, ugc_codes or [], state_fallback=state_fallback)}"
         else:
             prev_set = set(prev_parts)
             curr_set = set(curr_parts)
