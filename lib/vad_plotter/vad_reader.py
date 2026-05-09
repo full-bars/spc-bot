@@ -83,7 +83,9 @@ def _normalize_nids_bytes(raw_bytes: bytes) -> bytes:
         
     return raw_bytes
 
-class VADFile(object):
+from collections.abc import Mapping
+
+class VADFile(Mapping):
     fields = ['wind_dir', 'wind_spd', 'rms_error', 'divergence', 'slant_range', 'elev_angle']
 
     def __init__(self, file_or_bytes: Union[bytes, bytearray, BytesIO, Any]) -> None:
@@ -343,6 +345,15 @@ class VADFile(object):
         else:
             val = self._data[key] # type: ignore
         return val
+
+    def __iter__(self):
+        keys = ['time', 'rid']
+        if self._data:
+            keys.extend(self._data.keys())
+        return iter(keys)
+
+    def __len__(self):
+        return (len(self._data) if self._data else 0) + 2
 
     def add_surface_wind(self, sfc_wind: Tuple[float, float]) -> None:
         sfc_dir, sfc_spd = sfc_wind

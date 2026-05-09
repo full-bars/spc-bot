@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.21.1] — 2026-05-09
+
+### Fixed
+- **Analytics Command Encoding.** Fixed `400 Bad Request` errors in `/tornadoheatmap` and `/topstats` by properly encoding URL parameters (especially spaces in dates) using `urllib.parse.quote`.
+- **VADFile Mapping Implementation.** Implemented the `Mapping` protocol for the `VADFile` class in `lib/vad_plotter/vad_reader.py`. This resolves a `'VADFile' object is not a mapping` error when offloading hodograph plotting to the background process pool.
+
+### Added
+- **VAD Operational Logging.** Added detailed logging in `lib/vad_plotter/vad.py` for VAD valid time, lowest data altitude, and computed Bunkers storm motion to assist in real-time verification and alignment debugging.
+
 ## [5.21.0] — 2026-05-09
 
 ### Added
