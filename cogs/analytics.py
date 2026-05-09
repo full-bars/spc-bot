@@ -38,18 +38,20 @@ class AnalyticsCog(commands.Cog):
         current_year = datetime.now(timezone.utc).year
         year = year or current_year
         
+        from urllib.parse import quote
+        
         # Build URL for IEM Autoplot
         if source == "109":
             # #109: WFO/State VTEC Event Counts
             # v1: TO.W (Tornado Warning), by: (state/wfo), sdate, edate
-            sdate = f"{year}/01/01 0000"
-            edate = f"{year}/12/31 2359"
+            sdate = quote(f"{year}/01/01 0000")
+            edate = quote(f"{year}/12/31 2359")
             url = f"https://mesonet.agron.iastate.edu/plotting/auto/plot/109/v1:TO.W::by:{by}::sdate:{sdate}::edate:{edate}.png"
         else:
             # #163: Local Storm Reports Issued by WFO/State
             # filter: TORNADO, by: (state/wfo), sdate, edate
-            sdate = f"{year}/01/01 0000"
-            edate = f"{year}/12/31 2359"
+            sdate = quote(f"{year}/01/01 0000")
+            edate = quote(f"{year}/12/31 2359")
             url = f"https://mesonet.agron.iastate.edu/plotting/auto/plot/163/filter:TORNADO::by:{by}::sdate:{sdate}::edate:{edate}.png"
         
         embed = discord.Embed(
@@ -118,9 +120,10 @@ class AnalyticsCog(commands.Cog):
     async def tornado_heatmap(self, interaction: discord.Interaction, days: int = 30, state: Optional[str] = None):
         await interaction.response.defer()
         
+        from urllib.parse import quote
         now = datetime.now(timezone.utc)
-        sdate = (now - timedelta(days=days)).strftime("%Y/%m/%d 0000")
-        edate = now.strftime("%Y/%m/%d 2359")
+        sdate = quote((now - timedelta(days=days)).strftime("%Y/%m/%d 0000"))
+        edate = quote(now.strftime("%Y/%m/%d 2359"))
         
         by_param = "state" if state else "wfo"
         state_param = f"::csector:{state.upper()}" if state else ""
@@ -160,9 +163,10 @@ class AnalyticsCog(commands.Cog):
     ):
         await interaction.response.defer()
         
+        from urllib.parse import quote
         now = datetime.now(timezone.utc)
-        sdate = (now - timedelta(days=365 * years)).strftime("%Y-%m-%d")
-        edate = now.strftime("%Y-%m-%d")
+        sdate = quote((now - timedelta(days=365 * years)).strftime("%Y-%m-%d"))
+        edate = quote(now.strftime("%Y-%m-%d"))
         
         # #200: SPC + WPC Outlook Heatmap
         # p: 1.C.A (Day 1 Convective All Issuances), level: (threshold), t: (state/cwa)

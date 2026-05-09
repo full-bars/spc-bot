@@ -91,8 +91,8 @@ async def vad_plotter(
 
     vad.rid = radar_id
 
-    if not web:
-        logger.info("Valid time: %s" % vad['time'].strftime("%d %B %Y %H%M UTC"))
+    logger.info("[VAD] Valid time for %s: %s" % (radar_id, vad['time'].strftime("%d %B %Y %H%M UTC")))
+    logger.info("[VAD] Lowest altitude: %.2f km" % (vad['altitude'][0] if len(vad['altitude']) > 0 else np.nan))
 
     sfc_wind_str = None
     if sfc_wind:
@@ -115,7 +115,8 @@ async def vad_plotter(
                 logger.warning("Could not fetch ASOS surface wind: %s" % e)
 
     params = compute_parameters(vad, storm_motion)
-    
+    logger.info("[VAD] Storm motion: %03d/%02d" % (int(params['storm_motion'][0]), int(params['storm_motion'][1])))
+
     # Move CPU-bound plotting to an executor to keep the event loop free.
     # Note: matplotlib is not thread-safe by default, but plot_hodograph 
     # creates its own figure and closes it, which is usually okay in a 
