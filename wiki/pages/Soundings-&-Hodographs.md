@@ -16,7 +16,7 @@ The `/sounding` command plots RAOB (weather balloon) and ACARS (aircraft) data u
 The bot proactively monitors severe weather and automatically posts soundings:
 - **Issuance Trigger:** When an SPC Tornado or Severe Tstorm watch is issued, the bot immediately fetches and posts the nearest observed sounding.
 - **Synoptic Cycles:** During active watches, the bot automatically posts the 00z and 12z soundings for all stations near the watch area.
-- **Risk Sweep:** On **Moderate** or **High Risk** days, the bot sweeps every RAOB and ACARS airport within 100km of the high-risk polygon as new data arrives.
+- **Risk Sweep:** On **Moderate** or **High Risk** Day 1 outlooks, the bot sweeps RAOB stations and ACARS airports inside the active MDT/HIGH polygon as new data arrives.
 
 ## 🌀 VWP Hodographs (`/hodograph`)
 

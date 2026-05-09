@@ -39,9 +39,10 @@ or inline where invoked, not into the configured channels.
 |---|---|
 | `/watches` | Show all currently active SPC watches with details and probabilities |
 | `/ww` | Alias for `/watches` |
-| `/md` | Show the latest active SPC mesoscale discussion |
+| `/md` | Show a paginated view of all active SPC mesoscale discussions |
 | `/recenttornadoes` | List confirmed tornadoes via an interactive, chronological calendar-style dashboard |
 | `/sigtor` | List significant (EF2+) tornadoes via the interactive dashboard |
+| `/archive` | Search the tornado environmental forensics archive by radar and/or date |
 
 ### Model Forecasts
 | Command | Description |
@@ -63,6 +64,18 @@ or inline where invoked, not into the configured channels.
 | `/downloaderstatus` | Check AWS downloader and S3 latency |
 | `/hodograph` | Generate a VWP hodograph for any NEXRAD or TDWR site. Accepts a 4-letter site ID (e.g. `KTLX`). Includes auto ASOS surface wind and storm parameter table. |
 
+### Analytics
+These commands expose IEM Autoplot or IEM Cow data. They are useful for operations and experimentation, but some are still being hardened for production workflows.
+
+| Command | Description |
+|---|---|
+| `/topstats` | Tornado warning or report leaderboards by state or WFO (`by`, `year`, `source`) |
+| `/dayssince` | IEM map showing days since the last tornado warning (`wfo` and `state` are accepted but currently not applied to the generated URL) |
+| `/dailyrecap` | Daily tornado warning polygon recap for a date, defaulting to yesterday |
+| `/tornadoheatmap` | Tornado report density map for a recent lookback window |
+| `/riskmap` | Historical SPC Day 1 categorical risk-frequency map |
+| `/verify` | Storm-based warning verification metrics from IEM Cow |
+
 ### Status & Admin
 | Command | Description |
 |---|---|
@@ -70,7 +83,7 @@ or inline where invoked, not into the configured channels.
 | `/taskmgr` | (Owner-only) htop-style background loop monitor showing health and iteration timers. |
 | `/logs` | (Owner-only) Virtual terminal console viewer with ANSI support and auto-refresh. |
 | `/help` | Show all available weather and bot commands. |
-| `/failover` | (Owner-only) Manually trigger a node role swap. |
+| `/failover` | (`ADMIN_USER_ID` only) Open an interactive failover manager to designate a primary node or clear a manual override. |
 
 ---
 
@@ -105,7 +118,7 @@ change detection on the static URL rather than HTML scraping.
 
 ### Mesoscale Discussions
 
-The MD cog polls the SPC mesoscale discussion index every 60 seconds. It tracks
+The MD cog polls the SPC mesoscale discussion index every 30 seconds. It tracks
 posted MD numbers in a persistent set and posts new ones as they appear. When an
 MD is no longer listed on the index, it posts a cancellation embed.
 
@@ -132,7 +145,7 @@ scraping the SPC watch index HTML directly.
 
 **NWWS-OI (XMPP) Trigger** — the highest-authority path. Raw text products are pushed directly from the NWS satellite feed. This path provides near-zero latency, often beating the NWS API and IEM by 10–60 seconds.
 
-**iembot fast-trigger** — secondary push path via the IEM WebSocket feed.
+**iembot fast-trigger** — secondary path via IEM JSON/botstalk feeds polled every 15 seconds.
 
 **`auto_poll_warnings` (every 30 seconds)** — tertiary polling path using the NWS Alerts API.
 
@@ -158,8 +171,8 @@ To use NWWS-OI, you must apply for a user ID and password. The system is intende
 **Authority Sequence:**
 The bot uses a multi-layered approach to ensure reliability:
 1. **NWWS-OI (Primary):** Immediate push; triggers `post_now` logic in alert cogs.
-2. **IEMBot (Secondary):** 15s poll of IEM's botstalk/spcchat; used if NWWS is disconnected or misses a product.
-3. **NWS API (Tertiary):** 2m poll; provides final polygon/area truth and acts as the ultimate safety net.
+2. **IEMBot (Secondary):** 15s poll of IEM's botstalk/spcchat feeds; used if NWWS is disconnected or misses a product.
+3. **NWS API (Tertiary):** warning polling every 30s, watch polling every 2m; provides final polygon/area truth and acts as the ultimate safety net.
 
 ### SCP Graphics
 
@@ -177,9 +190,9 @@ changed (hash-based detection). Uses `MODELS_CHANNEL_ID`.
 
 ### Cache Management
 
-The bot implements automatic cleanup of cached files via `utils/cache_utils.py`. A scheduled task runs daily at 03:00 UTC and removes cache files older than 7 days (configurable via environment or function parameters). Disk space is logged on each cleanup cycle. This prevents unbounded cache directory growth while preserving recent operational data.
+The bot implements two cleanup paths. `utils/cache_utils.py` runs once after startup and then every 24 hours, removing root cache files older than 7 days. `cogs/maintenance.py` runs every 24 hours on the primary node and removes root image/temp/hash files older than 48 hours, prunes orphaned VAD recording mission directories older than 24 hours, enforces a 1 GB local GIF archive budget, prunes tornado events older than 365 days, and backfills missing DAT GUIDs.
 
-**Log Rotation** is configured via `config/logrotate.conf` with size-based triggers (50 MB per file) and 12-file retention, preserving 90+ days of operational history with gzip -9 compression.
+**Log Rotation** has two layers. At runtime, `main.py` uses Python's `RotatingFileHandler` at 5 MB with 3 backups for `LOG_FILE`, and `cogs/nwws.py` writes the raw NWWS firehose log at 10 MB with 1 backup. `config/logrotate.conf` is an optional systemd-host policy with 50 MB files, 12-file retention, and gzip -9 compression.
 
 ### Sounding Plots
 
@@ -212,19 +225,19 @@ Tasks are registered with the watchdog in `main.py` after cogs load.
 
 ## Persistence (v5+)
 
-Bot state lives in **Upstash Redis** as the source of truth, with a local SQLite database as a durable mirror for outage survival. Everything in the codebase goes through `utils/state_store.py`, which is a drop-in replacement for the historical `utils/db.py` interface.
+Bot state goes through `utils/state_store.py`, which keeps a short-lived in-process cache, writes first to local SQLite for durability, and uses Upstash Redis as the shared operational store for HA deployments. Upstash failures queue dirty writes for later reconciliation.
 
 ### Data flow
 
 ```
     cogs → state_store → in-process cache (60 s TTL)
                           │
-                          ├─→ Upstash Redis (authoritative)
-                          └─→ SQLite mirror (utils/db.py)
+                          ├─→ SQLite mirror (durable local write)
+                          └─→ Upstash Redis (shared HA state, best effort)
 ```
 
 - **Read**: cache hit → return. Miss → Upstash → populate cache. Upstash unavailable → fall back to SQLite.
-- **Write**: update cache immediately, then double-write to SQLite (durability guarantee) and Upstash (best-effort). An Upstash failure enqueues the write on a dirty list; a background reconciler retries every 30 s until it lands.
+- **Write**: update cache immediately, write SQLite for local durability, then write Upstash best-effort. An Upstash failure enqueues the write on a dirty list; a background reconciler retries every 30 s until it lands.
 - **Startup resync**: on promotion (and optionally on boot) the node pushes anything SQLite has that Upstash is missing. Handles the "Upstash was down when we wrote, then we restarted" edge case.
 
 ### Upstash key schema
@@ -269,7 +282,7 @@ python -m pytest tests/ \
     --cov-report=term-missing
 ```
 
-The suite currently collects **328 tests**.
+The suite currently collects **382 tests**.
 
 Lint (same selection CI uses):
 
@@ -316,7 +329,7 @@ Two-node primary/standby architecture using Upstash Redis for **both** leader el
 
 ### How it works
 
-- **Primary** holds an Upstash lease at `spcbot:primary_url` with `EX HEARTBEAT_TTL` (420 s) and refreshes it every `SYNC_INTERVAL` (30 s). The lease value is a per-process identity (`<hostname>:<random>`) so a node can recognize whether the lease is still its own.
+- **Primary** holds an Upstash lease at `spcbot:primary_url` with `EX HEARTBEAT_TTL` (420 s) and refreshes it every `SYNC_INTERVAL` (30 s). The lease value is a per-process identity (`<role>:<hostname>:<random>`) so a node can recognize whether the lease is still its own.
 - **Standby** reads the lease every sync interval. If the key is **present**, the primary is alive — the standby does nothing. If the key is **missing** for `MAX_FAILURES` consecutive cycles (derived from the TTL — currently 7 failures ≈ 210 s, half the TTL), the standby promotes:
   1. Invalidates its in-process cache so the first read on every key goes to Upstash.
   2. Writes its own lease value.
@@ -325,6 +338,7 @@ Two-node primary/standby architecture using Upstash Redis for **both** leader el
   5. Loads every cog and syncs the slash-command tree.
 - **Startup grace**: for the first 120 s after cog load the standby's failure counter does not advance — covers the common case of deploying the standby before the primary has finished its own restart.
 - **Self-demotion**: if the current holder sees a *different* node's identity in the lease, it demotes and unloads its cogs rather than fighting.
+- **Manual override**: `/failover` lists active nodes from `spcbot:nodes` and writes `spcbot:manual_primary` when an authorized operator designates a host. Clearing the override returns the pair to automatic election.
 
 ### What this replaces (historical)
 
@@ -338,6 +352,7 @@ Older versions (≤ v4) shipped state between the two nodes via an HTTP endpoint
 | `FAILOVER_TOKEN` | shared secret | same shared secret |
 | `UPSTASH_REDIS_REST_URL` | your Upstash URL | same |
 | `UPSTASH_REDIS_REST_TOKEN` | your Upstash token | same |
+| `ADMIN_USER_ID` | Discord user allowed to use `/failover` | same |
 
 `FAILOVER_TOKEN` is validated at cog load; the cog refuses to start if it's empty or the literal `"changeme"`. This was added after a production incident where the default value meant anyone who discovered the (now-removed) tunnel URL could read full bot state.
 
@@ -349,13 +364,13 @@ Older versions (≤ v4) shipped state between the two nodes via an HTTP endpoint
 
 ## Events Archive (v5.3.2+)
 
-Significant weather events (confirmed tornadoes ONLY) are written to a dedicated **`cache/events.db`** SQLite file that is entirely separate from `bot_state.db` and never touches Upstash Redis. (Hail and wind events are explicitly excluded from this specific archive to maintain focus on the tornado record). This keeps the free-tier budget free for operational state (hashes, watches, MDs) while the event archive grows unboundedly.
+Significant weather events (confirmed tornadoes ONLY) are written to a dedicated **`cache/events.db`** SQLite file that is entirely separate from `bot_state.db` and never touches Upstash Redis. Hail and wind events are explicitly excluded from this archive to maintain focus on the tornado record. This keeps the free-tier budget free for operational state (hashes, watches, MDs) while the event archive follows the 365-day retention policy enforced by `cogs/maintenance.py`.
 
 ### Path configuration
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `EVENTS_DB_PATH` | `cache/events.db` | Path to the events archive database |
+| `EVENTS_DB_PATH` | `cache/events.db` | Path to the confirmed tornado and forensics archive database |
 | `EVENTS_SYNC_DIR` | `cache/events_sync` | Directory watched by Syncthing for cross-node replication |
 
 ### Syncthing cross-node replication (optional)

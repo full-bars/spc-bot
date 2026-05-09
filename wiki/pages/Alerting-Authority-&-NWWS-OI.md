@@ -13,7 +13,7 @@ The **National Weather Service Weather Wire Service Open Interface** is a satell
 
 The **Iowa Environmental Mesonet (IEM)** provides a robust real-time feed of NWS products via their `iembot` service.
 - **Latency:** Low (1–5s).
-- **Fallback:** Acts as the primary source for Mesoscale Discussions (MDs) and a redundant path for warnings if NWWS-OI is unreachable.
+- **Fallback:** Acts as a fast source for Mesoscale Discussions (MDs), watches, and warning products if NWWS-OI is unreachable.
 - **Formatting:** SPCBot leverages IEM's pre-parsed product text and autoplot maps for warnings.
 
 ## 🥉 Bronze Standard: NWS API & SPC Polling
@@ -28,4 +28,4 @@ Traditional polling via the NWS API (`api.weather.gov`) and `spc.noaa.gov`.
 SPCBot implements **Circuit Breakers** for all upstream HTTP endpoints.
 - If an endpoint (e.g., SPC website) fails multiple times, the bot "opens the circuit," stopping requests for a cooldown period to prevent loop starvation.
 - **Graceful Degradation:** If the SPC website is down, the bot will attempt to serve cached MD images or fall back to text-only summaries from IEM.
-- **Watchdog:** A background loop monitors feed health and proactively alerts administrators if both NWWS and IEM paths are down.
+- **Watchdog:** A background loop probes `api.weather.gov` and `mesonet.agron.iastate.edu`; it alerts administrators and recreates the aiohttp session only when both independent HTTP paths fail repeatedly.

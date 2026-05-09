@@ -30,4 +30,4 @@ The bot uses a **geographic and temporal matching engine** to link real-time war
 
 ## 💾 The `events.db` Archive
 
-All significant events are stored in a dedicated SQLite archive (`cache/events.db`) with a rolling **365-day retention**. This database is separate from the operational state to ensure it can grow to thousands of records without impacting bot performance.
+Confirmed tornadoes and their environmental forensics are stored in a dedicated SQLite archive (`cache/events.db`) with a rolling **365-day retention**. This database is separate from operational state and is not used for hail or wind tracking.

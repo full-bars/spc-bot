@@ -26,4 +26,4 @@ The **Supercell Composite Parameter (SCP)** maps are generated twice daily based
 
 The **Weather Prediction Center (WPC)** Excessive Rainfall Outlooks (ERO) for Days 1–3.
 - **On-Demand (`/wpc`):** Retrieves the latest flash flood probability graphics.
-- **Automated Monitoring:** The bot tracks ERO updates and can be configured to post High-Risk ERO events automatically.
+- **Posting:** WPC graphics are currently exposed on demand; automated WPC posting is not part of the production loop.

@@ -1,20 +1,20 @@
 # WxAlert / SPCBot
 
-A high-performance severe weather monitoring platform with near-zero latency alerts, real-time warning lifecycle tracking, and automated scientific analysis. Uses **NWWS-OI (XMPP)** for <1s delivery of NWS products, with built-in high-availability failover and interactive Discord dashboards.
+A high-performance severe weather monitoring platform with near-zero latency alerts, real-time warning lifecycle tracking, and automated scientific analysis. Uses **NWWS-OI (XMPP)** as the fastest warning path, with IEM/NWS API fallbacks, high-availability failover, and interactive Discord dashboards.
 
 ## Features
 
-**SPC Products:** Day 1–8 convective outlooks, mesoscale discussions with watch probability detection, SCP/CSU-MLP/NCAR AI forecasts.
+**SPC Products:** Day 1–8 convective outlooks, mesoscale discussions with watch probability detection, SPC watches, WPC rainfall outlooks, SCP, CSU-MLP, and NCAR WxNext2 forecasts.
 
 **Real-Time Alerts:**
 > [!IMPORTANT]  
 > **Warning features are Beta.** While designed for ultra-low latency, this bot is for situational awareness only. Redundancy saves lives. Avoid a single point of failure by always maintaining multiple independent methods for receiving life-safety alerts. Recommended sources include: NOAA Radio (w/ battery backup), WEA mobile alerts, TV/Radio Broadcast. 
 
-NWWS-OI (sub-1s latency), SPC watch alerts with deduplication, NWS warnings (TOR/SVR/FFW) with lifecycle tracking (CON/EXT/EXA), damage survey detection with DAT integration and photo carousels, automated 2.5h environmental evolution GIFs for observed tornadoes.
+NWWS-OI fast path, IEMBot fallback, NWS API polling, SPC watch alerts with deduplication, NWS warnings (TOR/SVR/FFW/SPS) with lifecycle tracking (CON/EXT/EXA), damage survey detection with DAT integration and photo carousels, automated 2.5h environmental evolution GIFs for observed tornadoes.
 
-**Scientific Tools:** Interactive RAOB/ACARS sounding plots (auto-posted near active watches), VWP hodographs, searchable environmental archive, NEXRAD Level 2 downloader.
+**Scientific Tools:** Interactive RAOB/ACARS sounding plots (auto-posted near active watches and MDT/HIGH risk areas), VWP hodographs, searchable tornado forensics archive, NEXRAD Level 2 downloader, and IEM-based tornado analytics.
 
-**System:** Real-time `/status` dashboard, automated `/taskmgr` and `/logs` monitoring, dual-endpoint watchdog, leader-election failover with Upstash Redis.
+**System:** Real-time `/status` dashboard, owner-only `/taskmgr` and `/logs` monitoring, dual-endpoint watchdog, leader-election failover with Upstash Redis, SQLite durability, optional Syncthing event archive replication, and an optional Rust hybrid core.
 
 ## Quick Start
 
@@ -22,7 +22,8 @@ NWWS-OI (sub-1s latency), SPC watch alerts with deduplication, NWS warnings (TOR
 - Python 3.13+ or Docker
 - Discord bot token ([Discord Developer Portal](https://discord.com/developers/applications))
 - Discord channel IDs for SPC/model posts
-- (Optional) [Upstash Redis](https://upstash.com/) for high-availability failover
+- A non-default `FAILOVER_TOKEN` (required at startup)
+- (Optional) [Upstash Redis](https://upstash.com/) for high-availability failover and shared operational state
 
 ### Docker (Recommended)
 ```bash
@@ -43,6 +44,8 @@ GUILD_ID=your_guild_id
 FAILOVER_TOKEN=your_non_default_shared_secret
 ```
 
+`ADMIN_USER_ID` is only required if you want to use the manual `/failover` control.
+
 ### Systemd (Linux)
 ```bash
 git clone https://github.com/full-bars/spc-bot.git
@@ -58,6 +61,7 @@ Run two nodes with automatic failover via Upstash Redis. No HTTP tunnel required
 - Upstash Redis instance
 - `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `FAILOVER_TOKEN` in `.env` on both nodes
 - `IS_PRIMARY=true` on primary, `IS_PRIMARY=false` on standby
+- `ADMIN_USER_ID` on both nodes if you want to manually designate the primary with `/failover`
 
 **See [High Availability & Failover](https://github.com/full-bars/spc-bot/wiki/High-Availability-&-Failover) in the wiki for complete setup.**
 

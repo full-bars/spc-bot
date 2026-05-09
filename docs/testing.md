@@ -11,6 +11,12 @@ Use the project virtual environment when available:
 ./venv/bin/python -m ruff check .
 ```
 
+This repository currently collects **382 tests** with the project virtual environment:
+
+```bash
+./venv/bin/python -m pytest --collect-only -q
+```
+
 If the virtual environment does not exist yet:
 
 ```bash
@@ -19,6 +25,8 @@ python3 -m venv venv
 ```
 
 The test suite sets required configuration values in `tests/conftest.py` before importing `config.py`, so local tests should not need real Discord, NWWS, or Upstash credentials.
+
+Prefer `./venv/bin/python` for local checks. Some hosts have a system `python3` without pytest or the scientific stack installed.
 
 ## Focused Test Runs
 

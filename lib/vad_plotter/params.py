@@ -72,7 +72,7 @@ def compute_srh(data: Dict[str, Any], storm_motion: Tuple[float, float], hght: f
                 data['wind_dir'].tolist() if isinstance(data['wind_dir'], np.ndarray) else list(data['wind_dir']),
                 data['wind_spd'].tolist() if isinstance(data['wind_spd'], np.ndarray) else list(data['wind_spd']),
                 data['altitude'].tolist() if isinstance(data['altitude'], np.ndarray) else list(data['altitude']),
-                storm_motion[0], storm_motion[1], hght / 1000.0
+                storm_motion[0], storm_motion[1], hght
             ))
         except Exception:
             pass
@@ -130,12 +130,12 @@ def compute_bunkers_py(data: Dict[str, Any]) -> Tuple[Tuple[float, float], Tuple
 def compute_bunkers(data: Dict[str, Any]) -> Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float]]:
     if _rust_available:
         try:
-            mean, left, right = _compute_bunkers_rust(
+            right, left, mean = _compute_bunkers_rust(
                 data['wind_dir'].tolist() if isinstance(data['wind_dir'], np.ndarray) else list(data['wind_dir']),
                 data['wind_spd'].tolist() if isinstance(data['wind_spd'], np.ndarray) else list(data['wind_spd']),
                 data['altitude'].tolist() if isinstance(data['altitude'], np.ndarray) else list(data['altitude']),
             )
-            return (mean, left, right)  # type: ignore
+            return (right, left, mean)  # type: ignore
         except Exception:
             pass
     return compute_bunkers_py(data)

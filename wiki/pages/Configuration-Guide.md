@@ -38,8 +38,8 @@ SPCBot is configured via a `.env` file in the project root. Below is a comprehen
 | Variable | Description | Default |
 |---|---|---|
 | `CACHE_DIR` | Path to store DBs and image caches. | `cache/` |
-| `EVENTS_DB_PATH` | Path to the historical events archive. | `cache/events.db` |
-| `EVENTS_SYNC_DIR` | Directory used for Syncthing event DB exchange. | `cache/events_sync` |
+| `EVENTS_DB_PATH` | Path to the confirmed tornado and forensics archive. | `cache/events.db` |
+| `EVENTS_SYNC_DIR` | Directory used for Syncthing `events.db` exchange. | `cache/events_sync` |
 | `LOG_FILE` | Main bot log path. | `spc_bot.log` |
 | `NWWS_FIREHOSE_LOG` | Rotating raw NWWS firehose log path inside `CACHE_DIR`. | `nwws_firehose.log` |
 | `MANUAL_CACHE_FILE` | Legacy manual hash cache filename. | `posted_records.json` |
@@ -62,4 +62,4 @@ SPCBot is configured via a `.env` file in the project root. Below is a comprehen
 | Single node | `DISCORD_TOKEN`, `GUILD_ID`, `SPC_CHANNEL_ID`, `MODELS_CHANNEL_ID`, `FAILOVER_TOKEN` | NWWS credentials for lower-latency text products |
 | Single node with split channels | Single-node variables plus any channel override IDs | `HEALTH_CHANNEL_ID`, `WARNINGS_CHANNEL_ID`, `SOUNDING_CHANNEL_ID`, `DEV_CHANNEL_ID` |
 | High availability | Single-node variables plus Upstash credentials, `ADMIN_USER_ID`, and opposite `IS_PRIMARY` values on each node | Syncthing for `events.db` replication |
-| Forensics archive | Single-node variables plus `RCLONE_REMOTE` and `RCLONE_DEST_DIR` | Syncthing if also running HA |
+| Tornado forensics archive | Single-node variables plus `RCLONE_REMOTE` and `RCLONE_DEST_DIR` | Syncthing if also running HA |
