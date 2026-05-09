@@ -428,7 +428,8 @@ def build_concise_warning_text(
         area = feature.get("properties", {}).get("areaDesc", area)
     elif raw_text:
         # Step A: Look for the standard "Warning for..." bullet
-        m_area = re.search(r"(?:Warning for|Statement for|IMPACT)\s+(.+?)(?=\n\s*\*|\n\s*At\s+|\n\s*LAT\.\.\.LON|$)", raw_text, re.I | re.DOTALL)
+        # The [\s.]+ handles both "Warning for..." and "Warning for   ..."
+        m_area = re.search(r"(?:Warning for|Statement for|IMPACT)[\s.]+(.+?)(?=\n\s*\*|\n\s*At\s+|\n\s*LAT\.\.\.LON|$)", raw_text, re.I | re.DOTALL)
         
         # Step B: Fallback to the technical header line (e.g., "CLEVELAND OK-MCCLAIN OK-")
         # This is usually between the VTEC line and the timestamp.

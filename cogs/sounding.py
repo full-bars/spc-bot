@@ -529,11 +529,8 @@ class SoundingCog(commands.Cog):
 
         acars_to_post = []
         for p in acars_in_poly:
-            pkey = (
-                f"acars:{p['airport']}:"
-                f"{p['year']}{p['month']}{p['day']}_{p['acars_hour']}z"
-            )
-            if pkey not in self._posted_watch_soundings:
+            pkey = p.get("pkey")
+            if pkey and pkey not in self._posted_watch_soundings:
                 await self._mark_sounding_posted(pkey)
                 acars_to_post.append(p)
 
@@ -750,12 +747,9 @@ class SoundingCog(commands.Cog):
         acars_profiles = await get_acars_profiles_near(lat, lon, max_dist_km=300, hours_back=1)
         acars_eligible = []
         for profile in acars_profiles[:2]:
-            post_key = (
-                f"acars:{profile['airport']}:"
-                f"{profile['year']}{profile['month']}{profile['day']}_{profile['acars_hour']}z"
-            )
-            if post_key not in self._posted_watch_soundings:
-                await self._mark_sounding_posted(post_key)
+            pkey = profile.get("pkey")
+            if pkey and pkey not in self._posted_watch_soundings:
+                await self._mark_sounding_posted(pkey)
                 acars_eligible.append(profile)
 
         async def _fetch_acars(p):
@@ -931,9 +925,9 @@ class SoundingCog(commands.Cog):
             acars_profiles = await get_acars_profiles_near(lat, lon, max_dist_km=300, hours_back=1)
             acars_eligible2 = []
             for profile in acars_profiles[:2]:
-                post_key = f"acars:{profile['airport']}:{time_key}"
-                if post_key not in self._posted_watch_soundings:
-                    await self._mark_sounding_posted(post_key)
+                pkey = profile.get("pkey")
+                if pkey and pkey not in self._posted_watch_soundings:
+                    await self._mark_sounding_posted(pkey)
                     acars_eligible2.append(profile)
 
             async def _fetch_acars2(p):
