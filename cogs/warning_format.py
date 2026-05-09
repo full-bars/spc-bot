@@ -448,8 +448,12 @@ def build_concise_warning_text(
             # For raw text, we split by dots and 'AND' as well
             parts = re.split(r"\n|;|\.\.\.|\s+AND\s+", raw_list, flags=re.I)
             
+            # If we didn't get multiple parts, try a smart comma split
+            if len(parts) <= 1:
+                parts = [c.strip() for c in re.split(r',(?!\s+[A-Z]{2}(?:\s|$|,|;))', raw_list) if c.strip()]
+                
             counties = []
-            garbage_keywords = ["INJURED", "EXPECT", "DAMAGE", "TORNADO", "THUNDERSTORM", "ROOF", "SIDING", "VEHICLE", "REMAIN", "ALERT", "ROOM", "BASEMENT"]
+            garbage_keywords = ["AND", "INJURED", "EXPECT", "DAMAGE", "TORNADO", "THUNDERSTORM", "ROOF", "SIDING", "VEHICLE", "REMAIN", "ALERT", "ROOM", "BASEMENT"]
             for p in parts:
                 c = p.strip().strip(".")
                 if not c or len(c) < 3:
@@ -459,8 +463,8 @@ def build_concise_warning_text(
                 if " THROUGH " in c.upper():
                     c = re.split(r"\s+THROUGH\s+", c, flags=re.I)[0]
                     
-                # Skip if it contains garbage keywords
-                if any(kw in c.upper() for kw in garbage_keywords):
+                # Skip if it contains garbage keywords as whole words
+                if any(re.search(rf"\b{kw}\b", c, re.I) for kw in garbage_keywords):
                     continue
                 # Skip remaining structural text
                 if any(x in c.upper() for x in ["UNTIL", "PORTIONS", "AM", "PM", "EDT", "CDT", "MDT", "PDT", "HST", "AKDT", "LOCATED"]):
@@ -553,7 +557,7 @@ def build_concise_warning_text(
                 word = m.group(1).upper()
                 # Only bold if the word (excluding trailing dots) is a high-signal keyword
                 base_word = re.sub(r"\.+$", "", word)
-                if base_word in ("TORNADO", "HAIL", "WIND", "GUST", "WATERSPOUT", "IMPACT", "SOURCE", "MAX", "DAMAGE", "THREAT"):
+                if base_word in ("TORNADO", "HAIL", "WIND", "GUST", "HAZARD", "WATERSPOUT", "IMPACT", "SOURCE", "MAX", "DAMAGE", "THREAT"):
                     return f"**{m.group(1)}**"
                 return m.group(1)
 
