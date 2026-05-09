@@ -1,5 +1,8 @@
+import logging
 import numpy as np
 from typing import Any, Dict, Tuple, Union
+
+logger = logging.getLogger("spc_bot")
 
 # Try to import Rust implementations; fall back to Python
 try:
@@ -74,8 +77,8 @@ def compute_srh(data: Dict[str, Any], storm_motion: Tuple[float, float], hght: f
                 data['altitude'].tolist() if isinstance(data['altitude'], np.ndarray) else list(data['altitude']),
                 storm_motion[0], storm_motion[1], hght
             ))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Rust compute_srh failed: {type(e).__name__}: {e} — falling back to Python")
     return compute_srh_py(data, storm_motion, hght)
 
 
@@ -136,8 +139,8 @@ def compute_bunkers(data: Dict[str, Any]) -> Tuple[Tuple[float, float], Tuple[fl
                 data['altitude'].tolist() if isinstance(data['altitude'], np.ndarray) else list(data['altitude']),
             )
             return (right, left, mean)  # type: ignore
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Rust compute_bunkers failed: {type(e).__name__}: {e} — falling back to Python")
     return compute_bunkers_py(data)
 
 
