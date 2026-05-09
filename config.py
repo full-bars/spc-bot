@@ -63,17 +63,36 @@ def _require_int(name: str) -> int:
     val = os.getenv(name)
     if not val:
         raise ValueError(f"{name} environment variable not set")
-    return int(val)
+    try:
+        return int(val)
+    except ValueError:
+        raise ValueError(f"{name}={val!r} must be an integer")
+
+
+def _optional_int(*names: str) -> int:
+    """Return the int value of the first env var that is set.
+
+    Validates the value if set (raises ValueError with a helpful message).
+    The last name is treated as required if none of the preceding names are set.
+    """
+    for name in names[:-1]:
+        val = os.getenv(name)
+        if val:
+            try:
+                return int(val)
+            except ValueError:
+                raise ValueError(f"{name}={val!r} must be an integer")
+    return _require_int(names[-1])
 
 
 CONFIG = {
     "token": os.getenv("DISCORD_TOKEN"),
     "models_channel_id": _require_int("MODELS_CHANNEL_ID"),
     "spc_channel_id": _require_int("SPC_CHANNEL_ID"),
-    "health_channel_id": int(os.getenv("HEALTH_CHANNEL_ID") or os.getenv("SPC_CHANNEL_ID")),
-    "sounding_channel_id": int(os.getenv("SOUNDING_CHANNEL_ID") or os.getenv("SPC_CHANNEL_ID")),
-    "warnings_channel_id": int(os.getenv("WARNINGS_CHANNEL_ID") or os.getenv("SPC_CHANNEL_ID")),
-    "dev_channel_id": int(os.getenv("DEV_CHANNEL_ID") or os.getenv("HEALTH_CHANNEL_ID") or os.getenv("SPC_CHANNEL_ID")),
+    "health_channel_id": _optional_int("HEALTH_CHANNEL_ID", "SPC_CHANNEL_ID"),
+    "sounding_channel_id": _optional_int("SOUNDING_CHANNEL_ID", "SPC_CHANNEL_ID"),
+    "warnings_channel_id": _optional_int("WARNINGS_CHANNEL_ID", "SPC_CHANNEL_ID"),
+    "dev_channel_id": _optional_int("DEV_CHANNEL_ID", "HEALTH_CHANNEL_ID", "SPC_CHANNEL_ID"),
     "manual_cache_file": os.getenv("MANUAL_CACHE_FILE", "posted_records.json"),
     "auto_cache_file": os.getenv("AUTO_CACHE_FILE", "auto_posted_records.json"),
     "guild_id": _require_int("GUILD_ID"),
