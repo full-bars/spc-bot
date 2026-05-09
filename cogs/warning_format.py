@@ -246,7 +246,7 @@ def _vtec_unix_ts(vtec: dict) -> int:
     return int(time.time())
 
 
-def _area_with_state(area_desc: str, ugc_codes: List[str]) -> str:
+def _area_with_state(area_desc: str, ugc_codes: List[str], state_fallback: Optional[str] = None) -> str:
     """Append [STATE] abbreviations to the area string, grouping counties by state.
 
     Uses the NWS API geocode.UGC list (e.g. ['MSC023', 'ARC001']) to determine
@@ -255,8 +255,12 @@ def _area_with_state(area_desc: str, ugc_codes: List[str]) -> str:
         'Ashley, Chicot [AR] and Washington [MS]'            (two states)
     County names come from area_desc (already comma/semicolon separated).
     The UGC ordering matches the area_desc ordering in NWS API responses.
+    
+    If ugc_codes is empty, uses state_fallback (e.g. "OK") for all counties.
     """
     if not ugc_codes:
+        if state_fallback:
+            return f"{area_desc} [{state_fallback.upper()}]"
         return area_desc
 
     # Parse county names from areaDesc - try to preserve "County, ST" pairs
@@ -414,11 +418,13 @@ def build_concise_warning_text(
             if val not in ("NONE", "FALSE"):
                 tags.append(f"tornado: {val}")
                 
-        m_hail = re.search(r"HAIL\.\.\.(.+?)(?:\n|$)", text_to_search, re.I)
+        # Broadened to catch "MAX HAIL SIZE"
+        m_hail = re.search(r"(?:MAX )?HAIL(?: SIZE)?\.\.\.(.+?)(?:\n|$)", text_to_search, re.I)
         if m_hail:
             tags.append(f"hail: {m_hail.group(1).strip().upper()}")
             
-        m_wind = re.search(r"WIND\.\.\.(.+?)(?:\n|$)", text_to_search, re.I)
+        # Broadened to catch "MAX WIND GUST"
+        m_wind = re.search(r"(?:MAX )?WIND(?: GUST)?\.\.\.(.+?)(?:\n|$)", text_to_search, re.I)
         if m_wind:
             tags.append(f"wind: {m_wind.group(1).strip().upper()}")
 
@@ -426,6 +432,7 @@ def build_concise_warning_text(
 
     # 3. Area (with [STATE] grouping when UGC codes are available)
     area = "affected area"
+    state_fallback = None
     if feature:
         area = feature.get("properties", {}).get("areaDesc", area)
     elif raw_text:
@@ -436,13 +443,18 @@ def build_concise_warning_text(
         # Step B: Fallback to the technical header line (e.g., "CLEVELAND OK-MCCLAIN OK-")
         if not m_area:
             # Broadened to handle mixed case like "Inland Nassau FL-"
-            m_header = re.search(r"(?m)^([A-Z\s]+ [A-Z]{2}-.*?)-$", raw_text, re.I)
+            m_header = re.search(r"(?m)^([A-Z\s]+ ([A-Z]{2})-.*?)-$", raw_text, re.I)
             if m_header:
                 raw_list = m_header.group(1).replace("-", ", ")
+                state_fallback = m_header.group(2)
             else:
                 raw_list = ""
         else:
             raw_list = m_area.group(1)
+            # Try to peek ahead for a state if not found in the technical header
+            m_st = re.search(r"([A-Z]{2})-", raw_text)
+            if m_st:
+                state_fallback = m_st.group(1)
 
         if raw_list:
             # For raw text, we split by dots and 'AND' as well
@@ -523,9 +535,9 @@ def build_concise_warning_text(
                 
                 area_formatted = f" ({', '.join(parts)})"
             else:
-                area_formatted = f" for {_area_with_state(area, ugc_codes or [])}"
+                area_formatted = f" for {_area_with_state(area, ugc_codes or [], state_fallback=state_fallback)}"
     else:
-        area_formatted = f" for {_area_with_state(area, ugc_codes or [])}"
+        area_formatted = f" for {_area_with_state(area, ugc_codes or [], state_fallback=state_fallback)}"
 
     # 4. Expiration time (VTEC end field: '260428T0530Z')
     expires_str = ""
