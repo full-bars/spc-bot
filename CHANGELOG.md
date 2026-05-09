@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.21.0] — 2026-05-09
+
+### Added
+- **Rust DTM & Critical Angle.** Ported `compute_dtm` (Deviant Tornado Motion) and `compute_crit_angl` (Rasmussen 2003 critical angle) to Rust with Python fallback, matching the reference implementations exactly. Called 60–200×/hour per sounding render cycle.
+- **Persistent Watch Centroid Cache.** Watch area centroids (up to 10 NWS zone geometry HTTP calls per watch) are now persisted to SQLite with a 12-hour TTL. Survives restarts during active weather, eliminating up to 80 redundant upstream requests per restart with 8 active watches.
+- **DB Write Health in /status.** `/status` now shows a `DB Write Failures` field when consecutive SQLite write failures exceed zero, surfacing full-disk or WAL corruption that was previously invisible.
+
+### Fixed
+- **Async Event Loop Blocking.** Replaced synchronous `open()`+`read()` calls in the watch upgrade polling loop with `asyncio.to_thread`, preventing the Discord event loop from stalling during image placeholder checks.
+- **Cache Scan Blocking.** Moved `os.scandir()` in `cache_utils.py` off the event loop via `asyncio.to_thread`, eliminating 50–500ms stalls during hourly cache cleanup.
+- **Rust Fallback Visibility.** Silent `except Exception: pass` in `compute_srh` and `compute_bunkers` now logs at DEBUG level before falling back to Python, making Rust/Python integration regressions visible in logs.
+- **HTTP Status Type.** `http_get_bytes_conditional` now returns `0` (not `None`) on network errors, enabling safe `status == 200` comparisons at all call sites. Return type tightened from `Optional[int]` to `int`.
+- **Env Var Validation.** Optional channel ID env vars now use `_optional_int()` which validates the value if set and names the variable in the error message, rather than raising an unattributed `ValueError`.
+
+### Performance
+- **Numpy Array Conversion.** Pre-convert wind/altitude arrays once in `compute_parameters()` instead of repeating the `isinstance/tolist` check inside each Rust wrapper call (5 redundant copies eliminated per sounding render).
+
+### Refactored
+- **warnings.py `_tick()` Decomposed.** Extracted `_parse_alert_response()` and `_handle_disappeared_warnings()` from the 180-line tick function, making each concern independently testable.
+- **watches.py Split.** Extracted fetch logic to `cogs/watch_fetch.py` and embed builders to `cogs/watch_format.py`, reducing `watches.py` from 1,060 to 588 lines.
+- **Poll Interval Constants.** Named `_WATCH_FAST_POLL_INTERVAL_SEC` and `_WATCH_SLOW_POLL_INTERVAL_SEC` replace bare `asyncio.sleep()` literals in the watch upgrade loop.
+
+### Tests
+- **13 new tests.** `test_nwws_connection.py`: 7 tests covering all branches of the NWWS reconnect state machine. `test_sounding_centroid.py`: 6 tests covering the three-tier centroid lookup (memory → DB cache → NWS API).
+
 ## [5.20.1] — 2026-05-06
 
 ### Fixed
