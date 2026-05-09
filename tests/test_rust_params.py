@@ -5,17 +5,19 @@ import pytest
 from lib.vad_plotter.params import (
     compute_bunkers,
     compute_srh,
+    compute_bunkers_py,
+    compute_srh_py,
     vec2comp, comp2vec,
 )
 
 
 @pytest.fixture
 def sample_vad_data():
-    """Sample VAD profile for testing."""
+    """Sample VAD profile for testing (altitude in km)."""
     return {
         'wind_dir': np.array([250., 260., 270., 280., 290., 300., 310.]),
         'wind_spd': np.array([5., 10., 15., 20., 25., 30., 35.]),
-        'altitude': np.array([0., 1000., 2000., 3000., 4000., 5000., 6000.]),
+        'altitude': np.array([0.1, 1., 2., 3., 4., 5., 6.]),
     }
 
 
@@ -50,6 +52,27 @@ class TestComp2Vec:
 class TestComputeBunkers:
     """Test Bunkers storm motion calculation."""
 
+    def test_matches_python(self, sample_vad_data):
+        """Rust version should match Python within tolerance."""
+        # Make a copy to avoid mutating the fixture, and extend above 6km
+        data = {
+            'wind_dir': np.append(sample_vad_data['wind_dir'].copy(), [275., 280.]),
+            'wind_spd': np.append(sample_vad_data['wind_spd'].copy(), [38., 40.]),
+            'altitude': np.append(sample_vad_data['altitude'].copy(), [7., 8.]),
+        }
+
+        rust_result = compute_bunkers(data)
+        python_result = compute_bunkers_py(data)
+
+        for rust_motion, python_motion in zip(rust_result, python_result):
+            rust_dir, rust_spd = rust_motion
+            python_dir, python_spd = python_motion
+            # Allow very tight tolerance: algorithm now matches Python exactly
+            assert abs(rust_dir - python_dir) < 0.01 or abs(rust_dir - python_dir) > 359.9, \
+                   f"Direction mismatch: {rust_dir} vs {python_dir}"
+            assert abs(rust_spd - python_spd) < 0.01, \
+                   f"Speed mismatch: {rust_spd} vs {python_spd}"
+
     def test_returns_three_motions_only(self, sample_vad_data):
         """Should return three motion tuples (mean, left, right)."""
         result = compute_bunkers(sample_vad_data)
@@ -83,10 +106,29 @@ class TestComputeBunkers:
 class TestComputeSRH:
     """Test storm-relative helicity calculation."""
 
+    def test_matches_python(self, sample_vad_data):
+        """Rust version should match Python within tolerance."""
+        # Make a copy to avoid mutating the fixture, and extend above 3km
+        data = {
+            'wind_dir': np.append(sample_vad_data['wind_dir'].copy(), [275., 280.]),
+            'wind_spd': np.append(sample_vad_data['wind_spd'].copy(), [38., 40.]),
+            'altitude': np.append(sample_vad_data['altitude'].copy(), [7., 8.]),
+        }
+
+        storm_motion = (250.0, 20.0)
+        hght = 3.0  # 3 km (in same units as altitude)
+
+        rust_result = compute_srh(data, storm_motion, hght)
+        python_result = compute_srh_py(data, storm_motion, hght)
+
+        # SRH values should match exactly (algorithm now matches Python perfectly)
+        assert abs(rust_result - python_result) < 0.01, \
+               f"SRH mismatch: Rust={rust_result} vs Python={python_result}"
+
     def test_computes_value(self, sample_vad_data):
         """Should compute a finite SRH value."""
         storm_motion = (250.0, 20.0)
-        hght = 3000.0  # 3 km
+        hght = 3.0  # 3 km
 
         result = compute_srh(sample_vad_data, storm_motion, hght)
         assert isinstance(result, (int, float, np.floating))

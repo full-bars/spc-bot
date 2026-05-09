@@ -333,70 +333,90 @@ fn compute_bunkers(
 ) -> PyResult<((f64, f64), (f64, f64), (f64, f64))> {
     if wind_dir.is_empty() { return Ok(((f64::NAN, f64::NAN), (f64::NAN, f64::NAN), (f64::NAN, f64::NAN))); }
 
-    let (clipped_dir, clipped_spd, _clipped_alt) = clip_profile(&wind_dir, &wind_spd, &altitude, 6000.0);
-    if clipped_dir.is_empty() { return Ok(((f64::NAN, f64::NAN), (f64::NAN, f64::NAN), (f64::NAN, f64::NAN))); }
+    let hght = 6.0;  // Height in same units as altitude (km)
+    let d = 7.5 * 1.94;
 
-    // Compute mean wind 0-6km: average of all clipped levels
-    let mean_dir = clipped_dir.iter().sum::<f64>() / clipped_dir.len() as f64;
-    let mean_spd = clipped_spd.iter().sum::<f64>() / clipped_spd.len() as f64;
+    // Convert all wind vectors to u/v components
+    let mut u_all = Vec::new();
+    let mut v_all = Vec::new();
+    for i in 0..wind_dir.len() {
+        let (u, v) = vec2comp(wind_dir[i], wind_spd[i])?;
+        u_all.push(u);
+        v_all.push(v);
+    }
 
-    let (u_mean, v_mean) = {
-        let wdir_rad = mean_dir.to_radians();
-        (-mean_spd * wdir_rad.sin(), -mean_spd * wdir_rad.cos())
-    };
+    // Interpolate u/v to the target height (6 in same units as altitude)
+    let u_hght = _interp_linear(&altitude, &u_all, hght);
+    let v_hght = _interp_linear(&altitude, &v_all, hght);
 
-    // Shear vector: (u_top - u_bot, v_top - v_bot)
-    let u_bot = if !clipped_dir.is_empty() {
-        let wd = clipped_dir[0].to_radians();
-        -clipped_spd[0] * wd.sin()
-    } else { 0.0 };
-    let v_bot = if !clipped_dir.is_empty() {
-        let wd = clipped_dir[0].to_radians();
-        -clipped_spd[0] * wd.cos()
-    } else { 0.0 };
+    // Clip profile: find where altitude[i] <= hght < altitude[i+1]
+    // Then include all points up to i and append the interpolated value
+    let mut clip_idx: Option<usize> = None;
+    for i in 0..(altitude.len() - 1) {
+        if altitude[i] <= hght && hght < altitude[i + 1] {
+            clip_idx = Some(i);
+            break;
+        }
+    }
 
-    let u_top = if clipped_dir.len() > 1 {
-        let wd = clipped_dir[clipped_dir.len() - 1].to_radians();
-        -clipped_spd[clipped_spd.len() - 1] * wd.sin()
-    } else { u_bot };
-    let v_top = if clipped_dir.len() > 1 {
-        let wd = clipped_dir[clipped_dir.len() - 1].to_radians();
-        -clipped_spd[clipped_spd.len() - 1] * wd.cos()
-    } else { v_bot };
+    let mut u_clip = Vec::new();
+    let mut v_clip = Vec::new();
 
-    let shear_u = u_top - u_bot;
-    let shear_v = v_top - v_bot;
-    let shear_mag = (shear_u * shear_u + shear_v * shear_v).sqrt();
-
-    let displacement = 7.5 * 1.94; // 7.5 kts in m/s
-    let (du, dv) = if shear_mag > 0.01 {
-        let scale = displacement / shear_mag;
-        (scale * shear_v, -scale * shear_u)
+    if let Some(idx) = clip_idx {
+        // Normal case: hght is between two points
+        for i in 0..=idx {
+            u_clip.push(u_all[i]);
+            v_clip.push(v_all[i]);
+        }
+    } else if !altitude.is_empty() && altitude[altitude.len() - 1] <= hght {
+        // Edge case: hght is at or beyond the last point
+        // Include all points
+        for i in 0..altitude.len() {
+            if altitude[i] <= hght {
+                u_clip.push(u_all[i]);
+                v_clip.push(v_all[i]);
+            }
+        }
     } else {
-        (0.0, 0.0)
+        // hght is below all points or other edge case - return NaN
+        return Ok(((f64::NAN, f64::NAN), (f64::NAN, f64::NAN), (f64::NAN, f64::NAN)));
+    }
+
+    // Append interpolated value at target height
+    u_clip.push(u_hght);
+    v_clip.push(v_hght);
+
+    if u_clip.len() < 2 { return Ok(((f64::NAN, f64::NAN), (f64::NAN, f64::NAN), (f64::NAN, f64::NAN))); }
+
+    // Mean wind 0-6km: average of u/v components
+    let mnu6 = u_clip.iter().sum::<f64>() / u_clip.len() as f64;
+    let mnv6 = v_clip.iter().sum::<f64>() / v_clip.len() as f64;
+
+    // Shear: difference between top (interpolated at hght) and bottom (surface)
+    let shru = u_hght - u_all[0];
+    let shrv = v_hght - v_all[0];
+
+    // Bunkers displacement: perpendicular to shear
+    let shear_mag = (shru * shru + shrv * shrv).sqrt();
+    let tmp = if shear_mag > 0.01 {
+        d / shear_mag
+    } else {
+        0.0
     };
 
-    let (rleft_u, rleft_v) = (u_mean - du, v_mean - dv);
-    let (rright_u, rright_v) = (u_mean + du, v_mean + dv);
+    // Right and left storm motions
+    let rstu = mnu6 + (tmp * shrv);
+    let rstv = mnv6 - (tmp * shru);
+    let lstu = mnu6 - (tmp * shrv);
+    let lstv = mnv6 + (tmp * shru);
 
-    let right_dir = if rleft_u.abs() < 0.1 && rleft_v.abs() < 0.1 { 0.0 } else {
-        let angle = (-rleft_v).atan2(-rleft_u).to_degrees();
-        ((90.0 - angle) % 360.0 + 360.0) % 360.0
-    };
-    let right_spd = (rleft_u * rleft_u + rleft_v * rleft_v).sqrt();
+    // Convert back to dir/spd
+    let (right_dir, right_spd) = comp2vec(rstu, rstv)?;
+    let (left_dir, left_spd) = comp2vec(lstu, lstv)?;
+    let (mean_dir, mean_spd) = comp2vec(mnu6, mnv6)?;
 
-    let left_dir = if rright_u.abs() < 0.1 && rright_v.abs() < 0.1 { 0.0 } else {
-        let angle = (-rright_v).atan2(-rright_u).to_degrees();
-        ((90.0 - angle) % 360.0 + 360.0) % 360.0
-    };
-    let left_spd = (rright_u * rright_u + rright_v * rright_v).sqrt();
-
-    let mean_dir_result = if u_mean.abs() < 0.1 && v_mean.abs() < 0.1 { 0.0 } else {
-        let angle = (-v_mean).atan2(-u_mean).to_degrees();
-        ((90.0 - angle) % 360.0 + 360.0) % 360.0
-    };
-
-    Ok(((mean_dir_result, mean_spd), (left_dir, left_spd), (right_dir, right_spd)))
+    // Return in Python order: (right, left, mean)
+    Ok(((right_dir, right_spd), (left_dir, left_spd), (mean_dir, mean_spd)))
 }
 
 #[pyfunction]
@@ -410,33 +430,51 @@ fn compute_srh(
 ) -> PyResult<f64> {
     if wind_dir.is_empty() { return Ok(f64::NAN); }
 
-    let (clipped_dir, clipped_spd, clipped_alt) = clip_profile(&wind_dir, &wind_spd, &altitude, hght_km * 1000.0);
-    if clipped_dir.is_empty() { return Ok(f64::NAN); }
+    let hght = hght_km;  // Altitude is already in km
 
-    let storm_rad = storm_dir.to_radians();
-    let (storm_u, storm_v) = (-storm_spd * storm_rad.sin(), -storm_spd * storm_rad.cos());
+    // Convert all wind vectors to u/v components
+    let mut u_all = Vec::new();
+    let mut v_all = Vec::new();
+    for i in 0..wind_dir.len() {
+        let (u, v) = vec2comp(wind_dir[i], wind_spd[i])?;
+        u_all.push(u);
+        v_all.push(v);
+    }
 
-    let mut srh = 0.0;
-    let mut prev_u = f64::NAN;
-    let mut prev_v = f64::NAN;
-    let mut prev_alt = f64::NAN;
+    // Convert storm motion to u/v
+    let (storm_u, storm_v) = vec2comp(storm_dir, storm_spd)?;
 
-    for i in 0..clipped_dir.len() {
-        let wd = clipped_dir[i].to_radians();
-        let u = -clipped_spd[i] * wd.sin();
-        let v = -clipped_spd[i] * wd.cos();
-        let sr_u = (u - storm_u) / 1.94; // Convert to m/s
-        let sr_v = (v - storm_v) / 1.94;
+    // Compute storm-relative wind for entire profile
+    let mut sru = Vec::new();
+    let mut srv = Vec::new();
+    for i in 0..u_all.len() {
+        sru.push((u_all[i] - storm_u) / 1.94);
+        srv.push((v_all[i] - storm_v) / 1.94);
+    }
 
-        if !prev_u.is_nan() && !prev_alt.is_nan() {
-            let dalt = (clipped_alt[i] - prev_alt) * 0.001; // km
-            let cross = prev_u * sr_v - prev_v * sr_u;
-            srh += cross * dalt;
+    // Interpolate to target height
+    let sru_hght = _interp_linear(&altitude, &sru, hght);
+    let srv_hght = _interp_linear(&altitude, &srv, hght);
+
+    // Clip and append interpolated values (matching Python's _clip_profile)
+    let mut sru_clip = Vec::new();
+    let mut srv_clip = Vec::new();
+    for i in 0..altitude.len() {
+        if altitude[i] <= hght {
+            sru_clip.push(sru[i]);
+            srv_clip.push(srv[i]);
         }
+    }
+    sru_clip.push(sru_hght);
+    srv_clip.push(srv_hght);
 
-        prev_u = sr_u;
-        prev_v = sr_v;
-        prev_alt = clipped_alt[i];
+    if sru_clip.len() < 2 { return Ok(f64::NAN); }
+
+    // Compute cross products between consecutive layers: u[i+1]*v[i] - u[i]*v[i+1]
+    let mut srh = 0.0;
+    for i in 0..(sru_clip.len() - 1) {
+        let cross = (sru_clip[i + 1] * srv_clip[i]) - (sru_clip[i] * srv_clip[i + 1]);
+        srh += cross;
     }
 
     Ok(srh)
