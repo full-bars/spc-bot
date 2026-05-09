@@ -621,6 +621,8 @@ async def get_acars_profiles_near(
             if dist <= max_dist_km:
                 seen_airports.add(airport_code)
                 time_part = profile_id.split("_")[1] if "_" in profile_id else hour + "00"
+                # High-precision deduplication key used by SoundingCog
+                pkey = f"acars:{airport_code}:{year}{month}{day}_{time_part}z"
                 results.append({
                     "profile_id": profile_id,
                     "airport": airport_code,
@@ -632,6 +634,7 @@ async def get_acars_profiles_near(
                     "month": month,
                     "day": day,
                     "acars_hour": hour,
+                    "pkey": pkey,
                     "time_label": f"{time_part[:2]}:{time_part[2:]}z" if len(time_part) >= 4 else f"{time_part}z",
                 })
 
@@ -658,7 +661,7 @@ async def get_acars_profiles_in_polygon(
         return []
 
     import sounderpy as spy  # noqa: PLC0415
-    from shapely.geometry import Point  # noqa: PLC0415
+    from utils.spc_outlook import is_inside_polygon
 
     now = datetime.now(timezone.utc)
     results: list[dict] = []
@@ -699,23 +702,24 @@ async def get_acars_profiles_in_polygon(
                     logger.debug(f"[ACARS] Airport lookup failed for {airport_code!r}: {e}")
                     continue
 
-            if not polygon.contains(Point(airport_latlon[1], airport_latlon[0])):
-                continue
-
-            seen_airports.add(airport_code)
-            time_part = profile_id.split("_")[1] if "_" in profile_id else hour + "00"
-            results.append({
-                "profile_id": profile_id,
-                "airport": airport_code,
-                "name": airport_code,
-                "lat": airport_latlon[0],
-                "lon": airport_latlon[1],
-                "year": year,
-                "month": month,
-                "day": day,
-                "acars_hour": hour,
-                "time_label": f"{time_part[:2]}:{time_part[2:]}z" if len(time_part) >= 4 else f"{time_part}z",
-            })
+            if is_inside_polygon(airport_latlon[0], airport_latlon[1], polygon):
+                seen_airports.add(airport_code)
+                time_part = profile_id.split("_")[1] if "_" in profile_id else hour + "00"
+                # High-precision deduplication key used by SoundingCog
+                pkey = f"acars:{airport_code}:{year}{month}{day}_{time_part}z"
+                results.append({
+                    "profile_id": profile_id,
+                    "airport": airport_code,
+                    "name": airport_code,
+                    "lat": airport_latlon[0],
+                    "lon": airport_latlon[1],
+                    "year": year,
+                    "month": month,
+                    "day": day,
+                    "acars_hour": hour,
+                    "pkey": pkey,
+                    "time_label": f"{time_part[:2]}:{time_part[2:]}z" if len(time_part) >= 4 else f"{time_part}z",
+                })
             if len(results) >= max_results:
                 return results
 
