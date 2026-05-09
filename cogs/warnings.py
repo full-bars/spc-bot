@@ -14,6 +14,7 @@ This is the v1 baseline. Subsequent PRs add:
 """
 from __future__ import annotations
 
+import asyncio
 import json as _json
 import logging
 import re
@@ -474,12 +475,24 @@ class WarningsCog(commands.Cog):
             valid_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H%M")
             image_url = iem_autoplot_url(vtec, valid_time=valid_time)
             filename = f"cancel_{vtec_id.replace('.', '_')}.png"
-            try:
-                content, status = await http_get_bytes(image_url, retries=1, timeout=10)
-                if content and status == 200:
-                    files.append(discord.File(BytesIO(content), filename=filename))
-            except Exception as e:
-                logger.debug(f"No cancellation image for {vtec_id}: {e}")
+            
+            # Use a retry loop for cancellations too, as IEM indexing can be slow
+            logger.debug(f"[CANCEL_IMG] Requesting watermarked image: {image_url}")
+            for attempt in range(5):
+                try:
+                    content, status = await http_get_bytes(image_url, retries=1, timeout=10)
+                    if content and status == 200:
+                        files.append(discord.File(BytesIO(content), filename=filename))
+                        break
+                    
+                    if attempt < 4:
+                        await asyncio.sleep(2)
+                        continue
+                except Exception as e:
+                    logger.debug(f"Cancellation image attempt {attempt+1} failed: {e}")
+                    if attempt < 4:
+                        await asyncio.sleep(2)
+                        continue
 
         embed = discord.Embed(
             description=description,
