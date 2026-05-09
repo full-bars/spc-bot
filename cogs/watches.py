@@ -4,7 +4,6 @@ import logging
 import os
 from datetime import datetime, timezone
 
-
 import discord
 from discord.ext import commands, tasks
 from utils.backoff import TaskBackoff
@@ -32,6 +31,9 @@ from utils.state_store import (
 )
 
 logger = logging.getLogger("spc_bot")
+
+_WATCH_FAST_POLL_INTERVAL_SEC = 30   # Stage 1: poll every 30s for image + probs
+_WATCH_SLOW_POLL_INTERVAL_SEC = 60   # Stage 2: poll every 60s for image only
 
 class WatchPaginatorView(discord.ui.View):
     def __init__(self, watch_data, overview_path):
@@ -216,7 +218,7 @@ class WatchesCog(commands.Cog):
         """
         # ── Stage 1: Fast poll for Probs + Image ───────────────────────────
         for attempt in range(20):
-            await asyncio.sleep(30)
+            await asyncio.sleep(_WATCH_FAST_POLL_INTERVAL_SEC)
             try:
                 image_url, text_summary, probs = await fetch_watch_details(watch_num)
                 has_real_probs = probs and "preliminary" not in probs
@@ -229,8 +231,9 @@ class WatchesCog(commands.Cog):
 
                 image_missing = True
                 if cache_path and os.path.exists(cache_path):
-                    with open(cache_path, "rb") as f:
-                        image_missing = is_placeholder_image(f.read())
+                    image_missing = await asyncio.to_thread(
+                        lambda p=cache_path: is_placeholder_image(open(p, "rb").read())
+                    )
                 
                 # If we have BOTH, we are fully upgraded.
                 if not image_missing and has_real_probs:
@@ -284,7 +287,7 @@ class WatchesCog(commands.Cog):
         # ── Stage 2: Slow poll specifically for the Image ──────────────────
         # Sometimes SPC takes 15-20 minutes to generate the GIF during high load.
         for attempt in range(20):
-            await asyncio.sleep(60)
+            await asyncio.sleep(_WATCH_SLOW_POLL_INTERVAL_SEC)
             try:
                 # We only care about the image now
                 image_url, text_summary, probs = await fetch_watch_details(watch_num)
@@ -296,9 +299,10 @@ class WatchesCog(commands.Cog):
                 )
                 
                 if cache_path and os.path.exists(cache_path):
-                    with open(cache_path, "rb") as f:
-                        if is_placeholder_image(f.read()):
-                            continue
+                    if await asyncio.to_thread(
+                        lambda p=cache_path: is_placeholder_image(open(p, "rb").read())
+                    ):
+                        continue
                 else:
                     continue
 

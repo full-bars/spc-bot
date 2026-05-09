@@ -775,6 +775,34 @@ async def set_product_cache(product_id: str, text: str, ttl: int = 600):
     )
 
 
+# ── Watch centroid cache ──────────────────────────────────────────────────────
+# Reuses product_text_cache with a 12h TTL so zone-geometry HTTP calls
+# (up to 10 per watch) survive bot restarts during active weather.
+
+_CENTROID_TTL = 12 * 3600  # 12 hours
+
+
+async def get_watch_centroid_cache(watch_num: str) -> Optional[tuple]:
+    """Return cached (lat, lon) for a watch number, or None if absent/expired."""
+    text = await get_product_cache(f"centroid:{watch_num}")
+    if text is None:
+        return None
+    try:
+        lat, lon = json.loads(text)
+        return float(lat), float(lon)
+    except Exception:
+        return None
+
+
+async def set_watch_centroid_cache(watch_num: str, centroid: tuple) -> None:
+    """Persist (lat, lon) for a watch number with a 12h TTL."""
+    await set_product_cache(
+        f"centroid:{watch_num}",
+        json.dumps(list(centroid)),
+        ttl=_CENTROID_TTL,
+    )
+
+
 # ── Dirty writes (Upstash sync queue) ───────────────────────────────────────
 
 async def add_dirty_write(op: str, args: tuple):

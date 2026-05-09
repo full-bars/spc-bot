@@ -1,11 +1,16 @@
+import logging
 import numpy as np
 from typing import Any, Dict, Tuple, Union
+
+logger = logging.getLogger("spc_bot")
 
 # Try to import Rust implementations; fall back to Python
 try:
     from spc_rust_core import (
         compute_bunkers as _compute_bunkers_rust,
         compute_srh as _compute_srh_rust,
+        compute_dtm as _compute_dtm_rust,
+        compute_crit_angl as _compute_crit_angl_rust,
     )
     _rust_available = True
 except ImportError:
@@ -69,13 +74,13 @@ def compute_srh(data: Dict[str, Any], storm_motion: Tuple[float, float], hght: f
     if _rust_available:
         try:
             return float(_compute_srh_rust(
-                data['wind_dir'].tolist() if isinstance(data['wind_dir'], np.ndarray) else list(data['wind_dir']),
-                data['wind_spd'].tolist() if isinstance(data['wind_spd'], np.ndarray) else list(data['wind_spd']),
-                data['altitude'].tolist() if isinstance(data['altitude'], np.ndarray) else list(data['altitude']),
+                _to_list(data['wind_dir']),
+                _to_list(data['wind_spd']),
+                _to_list(data['altitude']),
                 storm_motion[0], storm_motion[1], hght
             ))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Rust compute_srh failed: {type(e).__name__}: {e} — falling back to Python")
     return compute_srh_py(data, storm_motion, hght)
 
 
@@ -99,8 +104,11 @@ def compute_sr_flow(data: Dict[str, Any], storm_motion: Tuple[float, float], hgh
     return float(np.nanmean(sr_mag))
 
 
+_BUNKERS_OFFSET_KTS = 7.5 * 1.94  # 7.5 m/s lateral offset from mean wind (Bunkers 2000)
+
+
 def compute_bunkers_py(data: Dict[str, Any]) -> Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float]]:
-    d = 7.5 * 1.94
+    d = _BUNKERS_OFFSET_KTS
     hght = 6
 
     u, v = vec2comp(data['wind_dir'], data['wind_spd'])
@@ -131,17 +139,30 @@ def compute_bunkers(data: Dict[str, Any]) -> Tuple[Tuple[float, float], Tuple[fl
     if _rust_available:
         try:
             right, left, mean = _compute_bunkers_rust(
-                data['wind_dir'].tolist() if isinstance(data['wind_dir'], np.ndarray) else list(data['wind_dir']),
-                data['wind_spd'].tolist() if isinstance(data['wind_spd'], np.ndarray) else list(data['wind_spd']),
-                data['altitude'].tolist() if isinstance(data['altitude'], np.ndarray) else list(data['altitude']),
+                _to_list(data['wind_dir']),
+                _to_list(data['wind_spd']),
+                _to_list(data['altitude']),
             )
             return (right, left, mean)  # type: ignore
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Rust compute_bunkers failed: {type(e).__name__}: {e} — falling back to Python")
     return compute_bunkers_py(data)
 
 
 def compute_dtm(data: Dict[str, Any]) -> Tuple[float, float]:
+    if _rust_available:
+        try:
+            res_dir, res_mag = _compute_dtm_rust(
+                _to_list(data['wind_dir']),
+                _to_list(data['wind_spd']),
+                _to_list(data['altitude']),
+            )
+            return float(res_dir), float(res_mag)
+        except Exception as e:
+            import logging
+            logging.getLogger("spc_bot").debug(
+                f"Rust compute_dtm failed: {type(e).__name__}: {e} — falling back to Python"
+            )
     try:
         u, v = vec2comp(data['wind_dir'], data['wind_spd'])
         alt = data['altitude']
@@ -165,6 +186,19 @@ def compute_dtm(data: Dict[str, Any]) -> Tuple[float, float]:
 
 
 def compute_crit_angl(data: Dict[str, Any], storm_motion: Tuple[float, float]) -> float:
+    if _rust_available:
+        try:
+            return float(_compute_crit_angl_rust(
+                _to_list(data['wind_dir']),
+                _to_list(data['wind_spd']),
+                _to_list(data['altitude']),
+                storm_motion[0], storm_motion[1],
+            ))
+        except Exception as e:
+            import logging
+            logging.getLogger("spc_bot").debug(
+                f"Rust compute_crit_angl failed: {type(e).__name__}: {e} — falling back to Python"
+            )
     u, v = vec2comp(data['wind_dir'], data['wind_spd'])
     storm_u, storm_v = vec2comp(*storm_motion)
 
@@ -183,7 +217,18 @@ def compute_crit_angl(data: Dict[str, Any], storm_motion: Tuple[float, float]) -
     return float(np.degrees(np.arccos(base_dot_ang / (len_base * len_ang))))
 
 
+def _to_list(arr) -> list:
+    return arr.tolist() if isinstance(arr, np.ndarray) else list(arr)
+
+
 def compute_parameters(data: Dict[str, Any], storm_motion: str) -> Dict[str, Any]:
+    # Pre-convert arrays once so Rust functions receive lists without repeated copies
+    data = {
+        **data,
+        'wind_dir': _to_list(data['wind_dir']),
+        'wind_spd': _to_list(data['wind_spd']),
+        'altitude': _to_list(data['altitude']),
+    }
     params: Dict[str, Any] = {}
 
     try:

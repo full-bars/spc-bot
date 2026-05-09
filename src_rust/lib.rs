@@ -23,6 +23,8 @@ fn spc_rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(compute_bunkers, m)?)?;
     m.add_function(wrap_pyfunction!(compute_srh, m)?)?;
     m.add_function(wrap_pyfunction!(compute_critical_angle, m)?)?;
+    m.add_function(wrap_pyfunction!(compute_dtm, m)?)?;
+    m.add_function(wrap_pyfunction!(compute_crit_angl, m)?)?;
     m.add_function(wrap_pyfunction!(parse_vtec, m)?)?;
     m.add_function(wrap_pyfunction!(validate_image_cache_batch, m)?)?;
     m.add_function(wrap_pyfunction!(normalize_product_id, m)?)?;
@@ -514,6 +516,121 @@ fn compute_critical_angle(
     }
 
     Ok(min_angle)
+}
+
+// ── Phase 1b: DTM and Critical Angle ─────────────────────────────────────────
+
+/// Deviant Tornado Motion (DTM) — 70% Bunkers RM + 30% 0–500m mean wind.
+/// Returns (dir_deg, spd_kt) or (NaN, NaN) on failure.
+#[pyfunction]
+fn compute_dtm(
+    wind_dir: Vec<f64>,
+    wind_spd: Vec<f64>,
+    altitude: Vec<f64>,
+) -> PyResult<(f64, f64)> {
+    if wind_dir.is_empty() {
+        return Ok((f64::NAN, f64::NAN));
+    }
+
+    // Convert all wind to u/v
+    let mut u_all = Vec::with_capacity(wind_dir.len());
+    let mut v_all = Vec::with_capacity(wind_dir.len());
+    for i in 0..wind_dir.len() {
+        let (u, v) = vec2comp(wind_dir[i], wind_spd[i])?;
+        u_all.push(u);
+        v_all.push(v);
+    }
+
+    // Mean u/v over 0–0.5 km using 20 linearly-spaced interpolation points
+    let n = 20usize;
+    let mut sum_u = 0.0f64;
+    let mut sum_v = 0.0f64;
+    let mut count = 0usize;
+    for k in 0..n {
+        let h = 0.5 * k as f64 / (n - 1) as f64;
+        let ui = _interp_linear(&altitude, &u_all, h);
+        let vi = _interp_linear(&altitude, &v_all, h);
+        if ui.is_finite() && vi.is_finite() {
+            sum_u += ui;
+            sum_v += vi;
+            count += 1;
+        }
+    }
+    if count == 0 {
+        return Ok((f64::NAN, f64::NAN));
+    }
+    let mn_u_500 = sum_u / count as f64;
+    let mn_v_500 = sum_v / count as f64;
+
+    // Bunkers right-mover
+    let ((brm_dir, brm_spd), _, _) = compute_bunkers(wind_dir, wind_spd, altitude)?;
+    if brm_dir.is_nan() {
+        return Ok((f64::NAN, f64::NAN));
+    }
+    let (brm_u, brm_v) = vec2comp(brm_dir, brm_spd)?;
+
+    // DTM = 0.7 * BRM + 0.3 * mean_0500m
+    let dtm_u = 0.7 * brm_u + 0.3 * mn_u_500;
+    let dtm_v = 0.7 * brm_v + 0.3 * mn_v_500;
+
+    comp2vec(dtm_u, dtm_v)
+}
+
+/// Critical angle — angle between the storm-relative surface-to-BRM vector
+/// and the 0–0.5 km shear vector (Rasmussen 2003).
+/// Returns degrees or NaN.
+#[pyfunction]
+fn compute_crit_angl(
+    wind_dir: Vec<f64>,
+    wind_spd: Vec<f64>,
+    altitude: Vec<f64>,
+    storm_dir: f64,
+    storm_spd: f64,
+) -> PyResult<f64> {
+    if wind_dir.is_empty() {
+        return Ok(f64::NAN);
+    }
+
+    let (storm_u, storm_v) = vec2comp(storm_dir, storm_spd)?;
+
+    // Surface u/v
+    let (u0, v0) = vec2comp(wind_dir[0], wind_spd[0])?;
+
+    // Convert all to u/v for interpolation
+    let mut u_all = Vec::with_capacity(wind_dir.len());
+    let mut v_all = Vec::with_capacity(wind_dir.len());
+    for i in 0..wind_dir.len() {
+        let (u, v) = vec2comp(wind_dir[i], wind_spd[i])?;
+        u_all.push(u);
+        v_all.push(v);
+    }
+
+    // Interpolate to 0.5 km
+    let u_05 = _interp_linear(&altitude, &u_all, 0.5);
+    let v_05 = _interp_linear(&altitude, &v_all, 0.5);
+    if u_05.is_nan() || v_05.is_nan() {
+        return Ok(f64::NAN);
+    }
+
+    // base = storm motion relative to surface wind
+    let base_u = storm_u - u0;
+    let base_v = storm_v - v0;
+
+    // ang = 0.5km wind relative to surface wind (0–0.5km shear)
+    let ang_u = u_05 - u0;
+    let ang_v = v_05 - v0;
+
+    let len_base = (base_u * base_u + base_v * base_v).sqrt();
+    let len_ang = (ang_u * ang_u + ang_v * ang_v).sqrt();
+
+    if len_base < 1e-9 || len_ang < 1e-9 {
+        return Ok(f64::NAN);
+    }
+
+    let cos_theta = (base_u * ang_u + base_v * ang_v) / (len_base * len_ang);
+    // Clamp to [-1, 1] to guard against float rounding past the domain of acos
+    let cos_theta = cos_theta.clamp(-1.0, 1.0);
+    Ok(cos_theta.acos().to_degrees())
 }
 
 // ── Phase 2: VTEC Parser ─────────────────────────────────────────────────────

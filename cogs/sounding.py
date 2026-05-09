@@ -35,6 +35,7 @@ from cogs.sounding_utils import (
 )
 from cogs.sounding_views import CombinedSoundingView, post_sounding
 from config import CACHE_DIR, SOUNDING_CHANNEL_ID
+from utils.db import get_watch_centroid_cache, set_watch_centroid_cache
 from utils.spc_outlook import get_high_risk_polygon, is_inside_polygon
 from utils.state_store import (
     add_posted_sounding,
@@ -144,15 +145,25 @@ class SoundingCog(commands.Cog):
     async def _resolve_watch_centroid(
         self, watch_num: str, info: dict
     ) -> Optional[tuple]:
-        """Memoized centroid lookup for a watch. Returns (lat, lon) or None."""
+        """Memoized centroid lookup for a watch. Returns (lat, lon) or None.
+
+        Check order: in-memory dict → DB cache (12h TTL) → NWS zone HTTP calls.
+        """
         if watch_num in self._watch_centroids:
             return self._watch_centroids[watch_num]
+
+        cached = await get_watch_centroid_cache(watch_num)
+        if cached:
+            self._watch_centroids[watch_num] = cached
+            return cached
+
         zones = info.get("affected_zones", []) if isinstance(info, dict) else []
         if not zones:
             return None
         centroid = await get_watch_area_centroid(zones)
         if centroid:
             self._watch_centroids[watch_num] = centroid
+            await set_watch_centroid_cache(watch_num, centroid)
         return centroid
 
     async def _watches_near(
