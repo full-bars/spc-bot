@@ -465,7 +465,12 @@ def build_concise_warning_text(
                 parts = [c.strip() for c in re.split(r',(?!\s+[A-Z]{2}(?:\s|$|,|;))', raw_list) if c.strip()]
                 
             counties = []
-            garbage_keywords = ["AND", "INJURED", "EXPECT", "DAMAGE", "TORNADO", "THUNDERSTORM", "ROOF", "SIDING", "VEHICLE", "REMAIN", "ALERT", "ROOM", "BASEMENT"]
+            garbage_keywords = [
+                "AND", "INJURED", "EXPECT", "DAMAGE", "TORNADO", "THUNDERSTORM", 
+                "ROOF", "SIDING", "VEHICLE", "REMAIN", "ALERT", "ROOM", "BASEMENT",
+                "PEOPLE", "LOCATIONS", "PRECAUTIONARY", "PREPAREDNESS", "ACTIONS",
+                "FLYING", "DEBRIS", "BUILDING", "TREES", "SHELTER", "LIKELY", "PROTECT"
+            ]
             for p in parts:
                 c = p.strip().strip(".")
                 if not c or len(c) < 3:
