@@ -115,7 +115,11 @@ async def vad_plotter(
                 logger.warning("Could not fetch ASOS surface wind: %s" % e)
 
     params = compute_parameters(vad, storm_motion)
-    logger.info("[VAD] Storm motion: %03d/%02d" % (int(params['storm_motion'][0]), int(params['storm_motion'][1])))
+    sm_dir, sm_spd = params['storm_motion']
+    if not np.isnan(sm_dir) and not np.isnan(sm_spd):
+        logger.info("[VAD] Storm motion: %03d/%02d" % (int(sm_dir), int(sm_spd)))
+    else:
+        logger.info("[VAD] Storm motion: --/--")
 
     # Move CPU-bound plotting to an executor to keep the event loop free.
     # Note: matplotlib is not thread-safe by default, but plot_hodograph 

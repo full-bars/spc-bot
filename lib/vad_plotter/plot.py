@@ -343,16 +343,17 @@ def _plot_data(data: Dict[str, Any], parameters: Dict[str, Any]) -> None:
 def _plot_background(
     min_u: float, max_u: float, min_v: float, max_v: float
 ) -> None:
-    max_ring = int(
-        np.ceil(
-            max(
-                np.hypot(min_u, min_v),
-                np.hypot(min_u, max_v),
-                np.hypot(max_u, min_v),
-                np.hypot(max_u, max_v),
-            )
-        )
+    _max_val = max(
+        np.hypot(min_u, min_v),
+        np.hypot(min_u, max_v),
+        np.hypot(max_u, min_v),
+        np.hypot(max_u, max_v),
     )
+    if np.isnan(_max_val):
+        max_ring = 40
+    else:
+        max_ring = int(np.ceil(_max_val))
+
     pylab.axvline(x=0, linestyle="-", color="#999999")
     pylab.axhline(y=0, linestyle="-", color="#999999")
     for irng in range(10, max_ring, 10):
