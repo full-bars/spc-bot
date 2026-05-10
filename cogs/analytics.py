@@ -43,10 +43,13 @@ class AnalyticsCog(commands.Cog):
         # Build URL for IEM Autoplot
         if source == "109":
             # #109: WFO/State VTEC Event Counts
-            # v1: TO.W (Tornado Warning), by: (state/wfo), sdate, edate
+            # phenomena: TO, significance: W, by: (state/wfo), sdate, edate, opt: count
             sdate = quote(f"{year}/01/01 0000")
             edate = quote(f"{year}/12/31 2359")
-            url = f"https://mesonet.agron.iastate.edu/plotting/auto/plot/109/v1:TO.W::by:{by}::sdate:{sdate}::edate:{edate}.png"
+            url = (
+                f"https://mesonet.agron.iastate.edu/plotting/auto/plot/109/"
+                f"phenomena:TO::significance:W::by:{by}::sdate:{sdate}::edate:{edate}::opt:count.png"
+            )
         else:
             # #163: Local Storm Reports Issued by WFO/State
             # filter: TORNADO, by: (state/wfo), sdate, edate
