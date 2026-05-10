@@ -34,8 +34,10 @@ async def test_topstats_warnings_by_state_url():
     interaction.followup.send.assert_called_once()
     embed = interaction.followup.send.call_args.kwargs["embed"]
     assert "109" in embed.image.url
-    assert "phenomena:TO" in embed.image.url
-    assert "significance:W" in embed.image.url
+    assert "phenomenav1:TO" in embed.image.url
+    assert "significancev1:W" in embed.image.url
+    assert "var:count" in embed.image.url
+    assert "w:set" in embed.image.url
     assert "by:state" in embed.image.url
     assert "2025" in embed.image.url
 
@@ -49,7 +51,7 @@ async def test_topstats_severe_tstorm_warnings_url():
     await cog.top_stats.callback(cog, interaction, by="state", year=2025, source="109", phenomenon="SV")
 
     embed = interaction.followup.send.call_args.kwargs["embed"]
-    assert "phenomena:SV" in embed.image.url
+    assert "phenomenav1:SV" in embed.image.url
     assert "Top Severe Thunderstorm Warnings" in embed.title
 
 
