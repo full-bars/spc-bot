@@ -29,14 +29,28 @@ async def test_topstats_warnings_by_state_url():
     cog = _make_cog()
     interaction = _make_interaction()
 
-    await cog.top_stats.callback(cog, interaction, by="state", year=2025, source="109")
+    await cog.top_stats.callback(cog, interaction, by="state", year=2025, source="109", phenomenon="TO")
 
     interaction.followup.send.assert_called_once()
     embed = interaction.followup.send.call_args.kwargs["embed"]
     assert "109" in embed.image.url
-    assert "TO.W" in embed.image.url
+    assert "phenomena:TO" in embed.image.url
+    assert "significance:W" in embed.image.url
     assert "by:state" in embed.image.url
     assert "2025" in embed.image.url
+
+
+@pytest.mark.asyncio
+async def test_topstats_severe_tstorm_warnings_url():
+    """/topstats with source=109 and phenomenon=SV produces a Severe Tstorm Warning URL."""
+    cog = _make_cog()
+    interaction = _make_interaction()
+
+    await cog.top_stats.callback(cog, interaction, by="state", year=2025, source="109", phenomenon="SV")
+
+    embed = interaction.followup.send.call_args.kwargs["embed"]
+    assert "phenomena:SV" in embed.image.url
+    assert "Top Severe Thunderstorm Warnings" in embed.title
 
 
 @pytest.mark.asyncio
@@ -45,11 +59,11 @@ async def test_topstats_reports_by_wfo_url():
     cog = _make_cog()
     interaction = _make_interaction()
 
-    await cog.top_stats.callback(cog, interaction, by="wfo", year=2024, source="163")
+    await cog.top_stats.callback(cog, interaction, by="wfo", year=2024, source="163", phenomenon="TO")
 
     embed = interaction.followup.send.call_args.kwargs["embed"]
     assert "163" in embed.image.url
-    assert "TORNADO" in embed.image.url
+    assert "filter:TORNADO" in embed.image.url
     assert "by:wfo" in embed.image.url
 
 
@@ -60,7 +74,7 @@ async def test_topstats_defaults_to_current_year(monkeypatch):
     interaction = _make_interaction()
 
     current_year = datetime.now(timezone.utc).year
-    await cog.top_stats.callback(cog, interaction, by="state", year=None, source="109")
+    await cog.top_stats.callback(cog, interaction, by="state", year=None, source="109", phenomenon="TO")
 
     embed = interaction.followup.send.call_args.kwargs["embed"]
     assert str(current_year) in embed.image.url

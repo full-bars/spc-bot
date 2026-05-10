@@ -12,11 +12,12 @@ class AnalyticsCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="topstats", description="Show leading states or WFOs for tornado counts (IEM Autoplot 109/163)")
+    @app_commands.command(name="topstats", description="Show leading states or WFOs for warning counts (IEM Autoplot 109/163)")
     @app_commands.describe(
         by="Rank by State or NWS Office (WFO)",
         year="Year to query (default: current year)",
-        source="Source of data (Warnings vs Reports)"
+        source="Source of data (Warnings vs Reports)",
+        phenomenon="Weather phenomenon (default: Tornado)"
     )
     @app_commands.choices(by=[
         app_commands.Choice(name="State", value="state"),
@@ -26,12 +27,17 @@ class AnalyticsCog(commands.Cog):
         app_commands.Choice(name="Warnings (VTEC)", value="109"),
         app_commands.Choice(name="Reports (LSR)", value="163"),
     ])
+    @app_commands.choices(phenomenon=[
+        app_commands.Choice(name="Tornado", value="TO"),
+        app_commands.Choice(name="Severe Thunderstorm", value="SV"),
+    ])
     async def top_stats(
         self, 
         interaction: discord.Interaction, 
         by: str = "state", 
         year: Optional[int] = None,
-        source: str = "109"
+        source: str = "109",
+        phenomenon: str = "TO"
     ):
         await interaction.response.defer()
         
@@ -43,19 +49,24 @@ class AnalyticsCog(commands.Cog):
         # Build URL for IEM Autoplot
         if source == "109":
             # #109: WFO/State VTEC Event Counts
-            # v1: TO.W (Tornado Warning), by: (state/wfo), sdate, edate
+            # phenomena: (TO/SV), significance: W, by: (state/wfo), sdate, edate, opt: count
             sdate = quote(f"{year}/01/01 0000")
             edate = quote(f"{year}/12/31 2359")
-            url = f"https://mesonet.agron.iastate.edu/plotting/auto/plot/109/v1:TO.W::by:{by}::sdate:{sdate}::edate:{edate}.png"
+            url = (
+                f"https://mesonet.agron.iastate.edu/plotting/auto/plot/109/"
+                f"phenomena:{phenomenon}::significance:W::by:{by}::sdate:{sdate}::edate:{edate}::opt:count.png"
+            )
         else:
             # #163: Local Storm Reports Issued by WFO/State
-            # filter: TORNADO, by: (state/wfo), sdate, edate
+            # filter: (TORNADO/SVR), by: (state/wfo), sdate, edate
+            lsr_filter = "TORNADO" if phenomenon == "TO" else "SVR"
             sdate = quote(f"{year}/01/01 0000")
             edate = quote(f"{year}/12/31 2359")
-            url = f"https://mesonet.agron.iastate.edu/plotting/auto/plot/163/filter:TORNADO::by:{by}::sdate:{sdate}::edate:{edate}.png"
+            url = f"https://mesonet.agron.iastate.edu/plotting/auto/plot/163/filter:{lsr_filter}::by:{by}::sdate:{sdate}::edate:{edate}.png"
         
+        phenom_label = "Tornado" if phenomenon == "TO" else "Severe Thunderstorm"
         embed = discord.Embed(
-            title=f"📊 Top Tornado {'Warnings' if source == '109' else 'Reports'} by {by.upper()} ({year})",
+            title=f"📊 Top {phenom_label} {'Warnings' if source == '109' else 'Reports'} by {by.upper()} ({year})",
             color=discord.Color.blue(),
             timestamp=datetime.now(timezone.utc)
         )
