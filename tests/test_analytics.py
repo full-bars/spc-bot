@@ -34,8 +34,7 @@ async def test_topstats_warnings_by_state_url():
     interaction.followup.send.assert_called_once()
     embed = interaction.followup.send.call_args.kwargs["embed"]
     assert "109" in embed.image.url
-    assert "phenomena:TO" in embed.image.url
-    assert "significance:W" in embed.image.url
+    assert "TO.W" in embed.image.url
     assert "by:state" in embed.image.url
     assert "2025" in embed.image.url
 

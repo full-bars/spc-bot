@@ -604,24 +604,6 @@ def build_concise_warning_text(
         if m_nat:
             val = m_nat.group(1).strip()
 
-            # Strip technical header junk that appears between "At" and the actual narrative.
-            # Pattern: "May 9 2026 UGC009-129-092300- /O.CON.KOUN.../ Roger Mills OK-Beckham OK- 524 PM CDT Sat May 9 2026 ..."
-            # Look for the "..." bullet that starts the real narrative, skip everything before it.
-            m_dots = re.search(r"^\.\.\.", val)
-            if not m_dots:
-                # If no leading "...", look for "..." anywhere in the captured text
-                m_dots = re.search(r"(\.\.\..*)", val, re.DOTALL)
-                if m_dots:
-                    # Skip everything before the "..."
-                    val = m_dots.group(1)
-                else:
-                    # Fallback: strip UGC/VTEC patterns directly from the beginning
-                    # Pattern: digits/dashes, slash-enclosed VTEC, county list, time, until "..."
-                    val = re.sub(
-                        r"^\s*(?:\d{3,4}\s+[A-Z]{2}[A-Z\d\s-]*?-\s+)?(?:/[^/]+/\s+)?(?:[A-Z\s]+ [A-Z]{2}-[\w\s,.-]*?-\s+)?(?:\d{1,2}\s+[AP]M\s+[A-Z]{3,4}\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\w+\s+\d+\s+\d{4}\s+)?",
-                        "", val, flags=re.I
-                    )
-
             # Refined bolding: only bold high-signal weather keywords followed by dots.
             # Avoids bolding structural words like "NEAR...", "LOCATED...", or "TIME..."
             def _bold_repl(m):
