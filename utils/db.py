@@ -19,7 +19,8 @@ import json
 import logging
 import os
 import time
-from typing import Iterable, Optional
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator, Iterable, Optional
 
 import aiosqlite
 
@@ -30,6 +31,8 @@ logger = logging.getLogger("spc_bot")
 DB_PATH = os.path.join(CACHE_DIR, "bot_state.db")
 _LOCK = asyncio.Lock()
 _db: Optional[aiosqlite.Connection] = None
+_read_pool: asyncio.Queue[aiosqlite.Connection] = asyncio.Queue()
+_READ_POOL_SIZE = 3
 _last_product_cache_prune: float = 0.0
 _PRODUCT_CACHE_PRUNE_INTERVAL = 3600.0  # 1 hour
 
@@ -82,7 +85,7 @@ async def _write_many(sql: str, rows: Iterable[tuple], op: str) -> None:
 
 
 async def get_db() -> aiosqlite.Connection:
-    """Get or create the shared database connection (singleton)."""
+    """Get or create the shared write connection (singleton)."""
     global _db
     if _db is not None:
         return _db
@@ -90,13 +93,35 @@ async def get_db() -> aiosqlite.Connection:
         # Check again inside lock in case another coroutine connected first
         if _db is None:
             _db = await _connect()
+            
+            # Populate read pool once write connection is established
+            for _ in range(_READ_POOL_SIZE):
+                conn = await _connect(read_only=True)
+                await _read_pool.put(conn)
+                
     return _db
 
 
-async def _connect() -> aiosqlite.Connection:
+@asynccontextmanager
+async def get_read_db() -> AsyncGenerator[aiosqlite.Connection, None]:
+    """Check out a read-only connection from the pool."""
+    # Ensure pool is initialized (get_db ensures this)
+    await get_db()
+    
+    conn = await _read_pool.get()
+    try:
+        yield conn
+    finally:
+        await _read_pool.put(conn)
+
+
+async def _connect(read_only: bool = False) -> aiosqlite.Connection:
     """Open database connection with safe settings."""
     os.makedirs(CACHE_DIR, exist_ok=True)
-    db = await aiosqlite.connect(DB_PATH, timeout=10)
+    
+    # Use URI format for read-only access
+    path = f"file:{DB_PATH}?mode=ro" if read_only else DB_PATH
+    db = await aiosqlite.connect(path, timeout=10, uri=read_only)
     db.row_factory = aiosqlite.Row
 
     # Safety pragmas
@@ -105,9 +130,10 @@ async def _connect() -> aiosqlite.Connection:
     await db.execute("PRAGMA foreign_keys = ON")
     await db.execute("PRAGMA busy_timeout = 5000")  # 5s timeout on lock
 
-    await _create_tables(db)
-    await db.commit()
-    logger.info(f"Connected to {DB_PATH}")
+    if not read_only:
+        await _create_tables(db)
+        await db.commit()
+        logger.info(f"Connected to {DB_PATH} (RW)")
     return db
 
 
@@ -203,27 +229,36 @@ async def _create_tables(db: aiosqlite.Connection):
 
 
 async def close_db():
-    """Close the database connection gracefully."""
+    """Close the database connection and read pool gracefully."""
     global _db
     if _db is not None:
         try:
             await _db.close()
-            logger.info("Database connection closed")
+            logger.info("Write database connection closed")
         except Exception as e:
-            logger.warning(f"Error closing database: {e}")
+            logger.warning(f"Error closing write database: {e}")
         _db = None
+
+    # Drain and close read pool
+    while not _read_pool.empty():
+        conn = await _read_pool.get()
+        try:
+            await conn.close()
+        except Exception as e:
+            logger.warning(f"Error closing pooled read connection: {e}")
+    logger.info("Read connection pool closed")
 
 
 async def check_integrity() -> bool:
     """Run integrity check. Returns True if database is healthy."""
     try:
-        db = await get_db()
-        async with db.execute("PRAGMA integrity_check") as cursor:
-            row = await cursor.fetchone()
-            ok = row and row[0] == "ok"
-            if not ok:
-                logger.error(f"Integrity check failed: {row}")
-            return ok
+        async with get_read_db() as db:
+            async with db.execute("PRAGMA integrity_check") as cursor:
+                row = await cursor.fetchone()
+                ok = row and row[0] == "ok"
+                if not ok:
+                    logger.error(f"Integrity check failed: {row}")
+                return ok
     except Exception as e:
         logger.exception(f"Integrity check error: {e}")
         return False
@@ -235,19 +270,19 @@ async def get_hash(url: str, cache_type: Optional[str] = None) -> Optional[str]:
     """Get stored hash for a URL. When cache_type is given, scope the
     lookup — saves a second Upstash round-trip at the state-store layer."""
     try:
-        db = await get_db()
-        if cache_type:
+        async with get_read_db() as db:
+            if cache_type:
+                async with db.execute(
+                    "SELECT hash FROM image_hashes WHERE url = ? AND cache_type = ?",
+                    (url, cache_type),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    return row["hash"] if row else None
             async with db.execute(
-                "SELECT hash FROM image_hashes WHERE url = ? AND cache_type = ?",
-                (url, cache_type),
+                "SELECT hash FROM image_hashes WHERE url = ?", (url,)
             ) as cursor:
                 row = await cursor.fetchone()
                 return row["hash"] if row else None
-        async with db.execute(
-            "SELECT hash FROM image_hashes WHERE url = ?", (url,)
-        ) as cursor:
-            row = await cursor.fetchone()
-            return row["hash"] if row else None
     except Exception as e:
         logger.warning(f"get_hash failed for {url}: {e}")
         return None
@@ -267,19 +302,19 @@ async def set_hash(url: str, hash_val: str, cache_type: str = "auto"):
 async def get_all_hashes(cache_type: Optional[str] = None) -> dict:
     """Get all stored hashes, optionally filtered by cache_type."""
     try:
-        db = await get_db()
-        if cache_type:
-            async with db.execute(
-                "SELECT url, hash FROM image_hashes WHERE cache_type = ?",
-                (cache_type,),
-            ) as cursor:
-                rows = await cursor.fetchall()
-        else:
-            async with db.execute(
-                "SELECT url, hash FROM image_hashes"
-            ) as cursor:
-                rows = await cursor.fetchall()
-        return {row["url"]: row["hash"] for row in rows}
+        async with get_read_db() as db:
+            if cache_type:
+                async with db.execute(
+                    "SELECT url, hash FROM image_hashes WHERE cache_type = ?",
+                    (cache_type,),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+            else:
+                async with db.execute(
+                    "SELECT url, hash FROM image_hashes"
+                ) as cursor:
+                    rows = await cursor.fetchall()
+            return {row["url"]: row["hash"] for row in rows}
     except Exception as e:
         logger.warning(f"get_all_hashes failed: {e}")
         return {}
@@ -303,10 +338,10 @@ async def set_hashes_batch(hashes: dict, cache_type: str = "auto"):
 async def get_posted_mds() -> set:
     """Get all posted MD numbers."""
     try:
-        db = await get_db()
-        async with db.execute("SELECT md_number FROM posted_mds") as cursor:
-            rows = await cursor.fetchall()
-            return {row["md_number"] for row in rows}
+        async with get_read_db() as db:
+            async with db.execute("SELECT md_number FROM posted_mds") as cursor:
+                rows = await cursor.fetchall()
+                return {row["md_number"] for row in rows}
     except Exception as e:
         logger.warning(f"get_posted_mds failed: {e}")
         return set()
@@ -340,12 +375,12 @@ async def prune_posted_mds(max_size: int = 200):
 async def get_posted_watches() -> set:
     """Get all posted watch numbers."""
     try:
-        db = await get_db()
-        async with db.execute(
-            "SELECT watch_number FROM posted_watches"
-        ) as cursor:
-            rows = await cursor.fetchall()
-            return {row["watch_number"] for row in rows}
+        async with get_read_db() as db:
+            async with db.execute(
+                "SELECT watch_number FROM posted_watches"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return {row["watch_number"] for row in rows}
     except Exception as e:
         logger.warning(f"get_posted_watches failed: {e}")
         return set()
@@ -379,10 +414,10 @@ async def prune_posted_watches(max_size: int = 200):
 async def get_posted_surveys() -> set:
     """Get all posted DAT survey GUIDs."""
     try:
-        db = await get_db()
-        async with db.execute("SELECT dat_guid FROM posted_surveys") as cursor:
-            rows = await cursor.fetchall()
-            return {row["dat_guid"] for row in rows}
+        async with get_read_db() as db:
+            async with db.execute("SELECT dat_guid FROM posted_surveys") as cursor:
+                rows = await cursor.fetchall()
+                return {row["dat_guid"] for row in rows}
     except Exception as e:
         logger.warning(f"get_posted_surveys failed: {e}")
         return set()
@@ -416,10 +451,10 @@ async def prune_posted_surveys(max_size: int = 100):
 async def get_posted_reports() -> set:
     """Get all posted LSR product IDs."""
     try:
-        db = await get_db()
-        async with db.execute("SELECT product_id FROM posted_reports") as cursor:
-            rows = await cursor.fetchall()
-            return {row["product_id"] for row in rows}
+        async with get_read_db() as db:
+            async with db.execute("SELECT product_id FROM posted_reports") as cursor:
+                rows = await cursor.fetchall()
+                return {row["product_id"] for row in rows}
     except Exception as e:
         logger.warning(f"get_posted_reports failed: {e}")
         return set()
@@ -453,19 +488,19 @@ async def prune_posted_reports(max_size: int = 500):
 async def get_all_posted_warnings() -> dict:
     """Get all posted warning mappings: {vtec_id: {'message_id': ..., 'channel_id': ..., 'area': ...}}."""
     try:
-        db = await get_db()
-        async with db.execute(
-            "SELECT vtec_id, message_id, channel_id, area FROM posted_warnings"
-        ) as cursor:
-            rows = await cursor.fetchall()
-            return {
-                row["vtec_id"]: {
-                    "message_id": row["message_id"],
-                    "channel_id": row["channel_id"],
-                    "area": row["area"],
+        async with get_read_db() as db:
+            async with db.execute(
+                "SELECT vtec_id, message_id, channel_id, area FROM posted_warnings"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return {
+                    row["vtec_id"]: {
+                        "message_id": row["message_id"],
+                        "channel_id": row["channel_id"],
+                        "area": row["area"],
+                    }
+                    for row in rows
                 }
-                for row in rows
-            }
     except Exception as e:
         logger.warning(f"get_all_posted_warnings failed: {e}")
         return {}
@@ -474,13 +509,13 @@ async def get_all_posted_warnings() -> dict:
 async def get_posted_warning_timestamp(vtec_id: str) -> Optional[float]:
     """Get the posted_at timestamp for a specific VTEC ID."""
     try:
-        db = await get_db()
-        async with db.execute(
-            "SELECT posted_at FROM posted_warnings WHERE vtec_id = ?",
-            (vtec_id,)
-        ) as cursor:
-            row = await cursor.fetchone()
-            return row["posted_at"] if row else None
+        async with get_read_db() as db:
+            async with db.execute(
+                "SELECT posted_at FROM posted_warnings WHERE vtec_id = ?",
+                (vtec_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return row["posted_at"] if row else None
     except Exception as e:
         logger.warning(f"get_posted_warning_timestamp failed: {e}")
         return None
@@ -536,10 +571,10 @@ async def prune_posted_warnings(max_size: int = 500):
 async def get_posted_soundings() -> set[str]:
     """Get all posted sounding keys."""
     try:
-        db = await get_db()
-        async with db.execute("SELECT pkey FROM posted_soundings") as cursor:
-            rows = await cursor.fetchall()
-            return {row["pkey"] for row in rows}
+        async with get_read_db() as db:
+            async with db.execute("SELECT pkey FROM posted_soundings") as cursor:
+                rows = await cursor.fetchall()
+                return {row["pkey"] for row in rows}
     except Exception as e:
         logger.warning(f"get_posted_soundings failed: {e}")
         return set()
@@ -567,10 +602,10 @@ async def prune_posted_soundings(max_days: int = 2):
 async def get_sounding_handled_watches() -> set[str]:
     """Get all watches that have had soundings handled."""
     try:
-        db = await get_db()
-        async with db.execute("SELECT watch_number FROM sounding_handled_watches") as cursor:
-            rows = await cursor.fetchall()
-            return {row["watch_number"] for row in rows}
+        async with get_read_db() as db:
+            async with db.execute("SELECT watch_number FROM sounding_handled_watches") as cursor:
+                rows = await cursor.fetchall()
+                return {row["watch_number"] for row in rows}
     except Exception as e:
         logger.warning(f"get_sounding_handled_watches failed: {e}")
         return set()
@@ -599,12 +634,12 @@ async def clear_sounding_handled_watches():
 async def get_state(key: str) -> Optional[str]:
     """Get a value from the key/value store."""
     try:
-        db = await get_db()
-        async with db.execute(
-            "SELECT value FROM bot_state WHERE key = ?", (key,)
-        ) as cursor:
-            row = await cursor.fetchone()
-            return row["value"] if row else None
+        async with get_read_db() as db:
+            async with db.execute(
+                "SELECT value FROM bot_state WHERE key = ?", (key,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return row["value"] if row else None
     except Exception as e:
         logger.warning(f"get_state failed for {key}: {e}")
         return None
@@ -613,10 +648,10 @@ async def get_state(key: str) -> Optional[str]:
 async def get_all_state() -> dict:
     """Get all key/value pairs from the bot_state table."""
     try:
-        db = await get_db()
-        async with db.execute("SELECT key, value FROM bot_state") as cursor:
-            rows = await cursor.fetchall()
-            return {row["key"]: row["value"] for row in rows}
+        async with get_read_db() as db:
+            async with db.execute("SELECT key, value FROM bot_state") as cursor:
+                rows = await cursor.fetchall()
+                return {row["key"]: row["value"] for row in rows}
     except Exception as e:
         logger.warning(f"get_all_state failed: {e}")
         return {}
@@ -647,13 +682,13 @@ async def delete_state(key: str):
 async def get_posted_urls(day_key: str) -> list:
     """Get last posted URLs for a day key."""
     try:
-        db = await get_db()
-        async with db.execute(
-            "SELECT urls FROM posted_urls WHERE day_key = ?", (day_key,)
-        ) as cursor:
-            row = await cursor.fetchone()
-            if row:
-                return json.loads(row["urls"])
+        async with get_read_db() as db:
+            async with db.execute(
+                "SELECT urls FROM posted_urls WHERE day_key = ?", (day_key,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return json.loads(row["urls"])
     except Exception as e:
         logger.warning(f"get_posted_urls failed for {day_key}: {e}")
     return []
@@ -662,10 +697,10 @@ async def get_posted_urls(day_key: str) -> list:
 async def get_all_posted_urls() -> dict:
     """Get all day_key -> urls mapping from the posted_urls table."""
     try:
-        db = await get_db()
-        async with db.execute("SELECT day_key, urls FROM posted_urls") as cursor:
-            rows = await cursor.fetchall()
-            return {row["day_key"]: json.loads(row["urls"]) for row in rows}
+        async with get_read_db() as db:
+            async with db.execute("SELECT day_key, urls FROM posted_urls") as cursor:
+                rows = await cursor.fetchall()
+                return {row["day_key"]: json.loads(row["urls"]) for row in rows}
     except Exception as e:
         logger.warning(f"get_all_posted_urls failed: {e}")
         return {}
@@ -688,7 +723,6 @@ async def get_product_cache(product_id: str) -> Optional[str]:
     """Get cached product text if not expired. Prunes expired rows at most once per hour."""
     global _last_product_cache_prune
     try:
-        db = await get_db()
         now = time.time()
         if now - _last_product_cache_prune > _PRODUCT_CACHE_PRUNE_INTERVAL:
             _last_product_cache_prune = now
@@ -697,14 +731,15 @@ async def get_product_cache(product_id: str) -> Optional[str]:
                 (now,),
                 "prune product_text_cache",
             )
-        async with db.execute(
-            "SELECT text, expires_at FROM product_text_cache WHERE product_id = ?",
-            (product_id,),
-        ) as cursor:
-            row = await cursor.fetchone()
-            if row and row["expires_at"] >= now:
-                return row["text"]
-            return None
+        async with get_read_db() as db:
+            async with db.execute(
+                "SELECT text, expires_at FROM product_text_cache WHERE product_id = ?",
+                (product_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row and row["expires_at"] >= now:
+                    return row["text"]
+                return None
     except Exception as e:
         logger.warning(f"get_product_cache failed for {product_id}: {e}")
         return None
@@ -715,15 +750,15 @@ async def get_product_cache(product_id: str) -> Optional[str]:
 async def get_validators(url: str) -> Optional[dict]:
     """Return {'etag': ..., 'last_modified': ...} for a URL, or None."""
     try:
-        db = await get_db()
-        async with db.execute(
-            "SELECT etag, last_modified FROM http_validators WHERE url = ?",
-            (url,),
-        ) as cursor:
-            row = await cursor.fetchone()
-            if not row:
-                return None
-            return {"etag": row["etag"], "last_modified": row["last_modified"]}
+        async with get_read_db() as db:
+            async with db.execute(
+                "SELECT etag, last_modified FROM http_validators WHERE url = ?",
+                (url,),
+            ) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    return None
+                return {"etag": row["etag"], "last_modified": row["last_modified"]}
     except Exception as e:
         logger.warning(f"get_validators failed for {url}: {e}")
         return None
@@ -732,18 +767,18 @@ async def get_validators(url: str) -> Optional[dict]:
 async def get_all_validators() -> dict:
     """Bulk-load every stored validator for startup hydration."""
     try:
-        db = await get_db()
-        async with db.execute(
-            "SELECT url, etag, last_modified FROM http_validators"
-        ) as cursor:
-            rows = await cursor.fetchall()
-            return {
-                row["url"]: {
-                    "etag": row["etag"],
-                    "last_modified": row["last_modified"],
+        async with get_read_db() as db:
+            async with db.execute(
+                "SELECT url, etag, last_modified FROM http_validators"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return {
+                    row["url"]: {
+                        "etag": row["etag"],
+                        "last_modified": row["last_modified"],
+                    }
+                    for row in rows
                 }
-                for row in rows
-            }
     except Exception as e:
         logger.warning(f"get_all_validators failed: {e}")
         return {}
@@ -817,15 +852,15 @@ async def add_dirty_write(op: str, args: tuple):
 async def get_dirty_writes() -> list:
     """Get all pending Upstash writes."""
     try:
-        db = await get_db()
-        async with db.execute(
-            "SELECT id, op, args FROM dirty_writes ORDER BY created ASC"
-        ) as cursor:
-            rows = await cursor.fetchall()
-            return [
-                {"id": r["id"], "op": r["op"], "args": json.loads(r["args"])}
-                for r in rows
-            ]
+        async with get_read_db() as db:
+            async with db.execute(
+                "SELECT id, op, args FROM dirty_writes ORDER BY created ASC"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [
+                    {"id": r["id"], "op": r["op"], "args": json.loads(r["args"])}
+                    for r in rows
+                ]
     except Exception as e:
         logger.warning(f"get_dirty_writes failed: {e}")
         return []
