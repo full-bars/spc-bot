@@ -467,8 +467,10 @@ class TestSoundingUtils:
 
     def test_plot_path_format(self):
         from cogs.sounding_views import _plot_path
-        path = _plot_path("OUN", "2026", "04", "10", "12")
-        assert "sounding_OUN_20260410_12z" in path
+        path = _plot_path("OUN", "2026", "04", "10", "12", dark_mode=False)
+        assert "sounding_OUN_20260410_12z_light" in path
+        path_dark = _plot_path("OUN", "2026", "04", "10", "12", dark_mode=True)
+        assert "sounding_OUN_20260410_12z_dark" in path_dark
 
 
 # ── Import smoke tests ────────────────────────────────────────────────────────

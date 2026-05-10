@@ -22,9 +22,10 @@ from config import CACHE_DIR
 logger = logging.getLogger("spc_bot")
 
 
-def _plot_path(station: str, year: str, month: str, day: str, hour: str) -> str:
+def _plot_path(station: str, year: str, month: str, day: str, hour: str, dark_mode: bool) -> str:
+    mode_suffix = "dark" if dark_mode else "light"
     return os.path.join(
-        CACHE_DIR, f"sounding_{station}_{year}{month}{day}_{hour}z"
+        CACHE_DIR, f"sounding_{station}_{year}{month}{day}_{hour}z_{mode_suffix}"
     )
 
 
@@ -58,6 +59,25 @@ async def post_sounding(
 
     for y, mo, d, h in all_times:
         time_label = f"{mo}-{d}-{y} {h}z"
+        
+        # ── Fast Cache Check ──────────────────────────────────────────
+        # Check if the plot already exists on disk before doing any network/CPU work
+        output_path = _plot_path(station_id, y, mo, d, h, dark_mode)
+        png_path = output_path + ".png"
+        
+        if os.path.exists(png_path):
+            logger.info(f"[SOUNDING] Cache hit (image) for {station_id} {y}/{mo}/{d} {h}z")
+            used_year, used_month, used_day, used_hour = y, mo, d, h
+            if (y, mo, d, h) != (year, month, day, hour):
+                orig_label = f"{month}-{day}-{year} {hour}z"
+                fallback_note = f" (no data for {orig_label}, showing {time_label})"
+            
+            # Post immediately!
+            await _send_sounding_embed(
+                interaction, station_id, label, f"{mo}-{d}-{y} {h}z", 
+                dark_mode, png_path, fallback_note, status_msg
+            )
+            return
 
         # Update status
         thinking_embed = discord.Embed(
@@ -92,7 +112,7 @@ async def post_sounding(
             await status_msg.edit(embed=error_embed)
         return
 
-    # Generate plot
+    # Generate plot (only if we didn't hit the image cache above)
     time_label = f"{used_month}-{used_day}-{used_year} {used_hour}z"
     
     from utils.worker_pool import get_sounding_semaphore
@@ -119,7 +139,7 @@ async def post_sounding(
         if status_msg:
             await status_msg.edit(embed=plotting_embed)
 
-        output_path = _plot_path(station_id, used_year, used_month, used_day, used_hour)
+        output_path = _plot_path(station_id, used_year, used_month, used_day, used_hour, dark_mode)
         success = await generate_plot(clean_data, output_path, dark_mode)
         png_path = output_path + ".png"
 
@@ -133,41 +153,55 @@ async def post_sounding(
             await status_msg.edit(embed=error_embed)
         return
 
+    await _send_sounding_embed(
+        interaction, station_id, label, time_label, 
+        dark_mode, png_path, fallback_note, status_msg, clean_data
+    )
+
+
+async def _send_sounding_embed(
+    interaction: discord.Interaction,
+    station_id: str,
+    label: str,
+    time_label: str,
+    dark_mode: bool,
+    png_path: str,
+    fallback_note: str,
+    status_msg: discord.Message = None,
+    clean_data: dict = None,
+):
+    """Helper to build and send the final sounding post."""
     mode_label = "\U0001f319 Dark" if dark_mode else "\u2600\ufe0f Light"
 
-    # Extract source from clean_data
+    # Extract source from clean_data if provided
     source_str = ""
-    try:
-        if clean_data and isinstance(clean_data, dict) and "site_info" in clean_data:
-            source = clean_data["site_info"].get("source", "")
-            if source:
-                source_str = f" | Source: {source}"
-    except (KeyError, AttributeError, TypeError):
-        pass
+    if clean_data:
+        try:
+            if isinstance(clean_data, dict) and "site_info" in clean_data:
+                source = clean_data["site_info"].get("source", "")
+                if source:
+                    source_str = f" | Source: {source}"
+        except (KeyError, AttributeError, TypeError):
+            pass
 
     caption = "**RAOB Sounding \u2014 {}**\nValid: {} | {} mode{}{}".format(
         label, time_label, mode_label, source_str, fallback_note
     )
-    qwarn = sounding_quality_warning(clean_data)
-    if qwarn:
-        caption += f"\n{qwarn}"
+    
+    if clean_data:
+        qwarn = sounding_quality_warning(clean_data)
+        if qwarn:
+            caption += f"\n{qwarn}"
 
     try:
-        await interaction.channel.send(caption, files=[discord.File(png_path)])
-        logger.info(f"[SOUNDING] Posted {station_id} {used_year}/{used_month}/{used_day} {used_hour}z")
-
-        # Edit status msg to show success but keep selection available
         if status_msg:
             try:
-                done_embed = discord.Embed(
-                    title=f"✅ Posted — {station_id} {used_year}/{used_month}/{used_day} {used_hour}z",
-                    description="Select another station or time above to post more.",
-                    color=discord.Color.green(),
-                )
-                await status_msg.edit(embed=done_embed, view=None)
-            except discord.HTTPException as e:
-                logger.debug(f"[SOUNDING] Could not update status message: {e}")
-
+                await status_msg.delete()
+            except discord.HTTPException:
+                pass
+        
+        await interaction.channel.send(caption, files=[discord.File(png_path)])
+        logger.info(f"[SOUNDING] Posted {station_id} {time_label}")
     except Exception as e:
         logger.exception(f"[SOUNDING] Failed to post: {e}")
 
