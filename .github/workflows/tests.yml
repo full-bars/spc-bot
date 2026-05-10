@@ -78,10 +78,8 @@ jobs:
           push: false
           load: true
           tags: spc-bot:ci
-          cache-from: |
-            type=gha
-            type=registry,ref=ghcr.io/${{ github.repository }}:buildcache
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=build-linux/amd64
+          cache-to: type=gha,mode=max,scope=build-linux/amd64
       - name: Smoke test — image imports main.py
         env:
           DISCORD_TOKEN: ci-smoke-token

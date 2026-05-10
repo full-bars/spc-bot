@@ -45,7 +45,5 @@ jobs:
           file: ./Dockerfile.ci
           push: true
           tags: ghcr.io/${{ github.repository }}/ci:latest
-          cache-from: |
-            type=gha
-            type=registry,ref=ghcr.io/${{ github.repository }}:buildcache
-          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}:buildcache,mode=max
+          cache-from: type=gha,scope=ci-image
+          cache-to: type=gha,mode=max,scope=ci-image
