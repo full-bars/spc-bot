@@ -100,28 +100,37 @@ async def post_sounding(
     
     if sem.locked():
         # Pool is full, show queued status
-        # Note: _value is internal but useful for queue position
         pos = len(sem._waiters) + 1 if hasattr(sem, '_waiters') else 1
+        logger.info(f"[SOUNDING] Queueing plot for {label} (Position: {pos})")
         queue_embed = discord.Embed(
             title="⌛ Plot Queued...",
             description=f"Sounding workers are currently busy. Your plot for **{label}** is at **position {pos}** in the queue. Please wait...",
             color=discord.Color.orange(),
         )
         if status_msg:
-            await status_msg.edit(embed=queue_embed)
+            try:
+                await status_msg.edit(embed=queue_embed)
+            except discord.HTTPException:
+                pass
 
     async with sem:
+        logger.info(f"[SOUNDING] Starting plot for {label} (Semaphore acquired)")
         plotting_embed = discord.Embed(
             title="⏳ Generating Sounding Plot...",
             description=f"Plotting **{label}** at **{time_label}**. This takes ~15 seconds.",
             color=discord.Color.blurple(),
         )
         if status_msg:
-            await status_msg.edit(embed=plotting_embed)
+            try:
+                await status_msg.edit(embed=plotting_embed)
+            except discord.HTTPException:
+                pass
 
         output_path = _plot_path(station_id, used_year, used_month, used_day, used_hour)
         success = await generate_plot(clean_data, output_path, dark_mode)
         png_path = output_path + ".png"
+
+    logger.info(f"[SOUNDING] Plotting finished for {label} (Semaphore released)")
 
     if not success or not os.path.exists(png_path):
         error_embed = discord.Embed(
@@ -130,7 +139,10 @@ async def post_sounding(
             color=discord.Color.red(),
         )
         if status_msg:
-            await status_msg.edit(embed=error_embed)
+            try:
+                await status_msg.edit(embed=error_embed)
+            except discord.HTTPException:
+                pass
         return
 
     mode_label = "\U0001f319 Dark" if dark_mode else "\u2600\ufe0f Light"
@@ -153,20 +165,17 @@ async def post_sounding(
         caption += f"\n{qwarn}"
 
     try:
+        if status_msg:
+            try:
+                await status_msg.delete()
+            except discord.HTTPException:
+                pass
+        
         await interaction.channel.send(caption, files=[discord.File(png_path)])
         logger.info(f"[SOUNDING] Posted {station_id} {used_year}/{used_month}/{used_day} {used_hour}z")
 
-        # Edit status msg to show success but keep selection available
-        if status_msg:
-            try:
-                done_embed = discord.Embed(
-                    title=f"✅ Posted — {station_id} {used_year}/{used_month}/{used_day} {used_hour}z",
-                    description="Select another station or time above to post more.",
-                    color=discord.Color.green(),
-                )
-                await status_msg.edit(embed=done_embed, view=None)
-            except discord.HTTPException as e:
-                logger.debug(f"[SOUNDING] Could not update status message: {e}")
+        # Edit status msg is no longer needed since it's deleted, but 
+        # we used to show success if not deleted. Keep it simple.
 
     except Exception as e:
         logger.exception(f"[SOUNDING] Failed to post: {e}")
@@ -566,25 +575,34 @@ async def _post_from_clean_data(
     messages_to_delete=None,
 ):
     """Generate and post a sounding plot from clean_data."""
+    label = f"{station_name} ({station_id})"
     from utils.worker_pool import get_sounding_semaphore
     sem = get_sounding_semaphore()
     
     if sem.locked():
         pos = len(sem._waiters) + 1 if hasattr(sem, '_waiters') else 1
+        logger.info(f"[SOUNDING] Queueing plot for {label} (Position: {pos})")
         queue_embed = discord.Embed(
             title="⌛ Plot Queued...",
             description=f"Sounding workers are currently busy. Your plot for **{station_name}** is at **position {pos}** in the queue. Please wait...",
             color=discord.Color.orange(),
         )
-        await status_msg.edit(embed=queue_embed)
+        try:
+            await status_msg.edit(embed=queue_embed)
+        except discord.HTTPException:
+            pass
 
     async with sem:
+        logger.info(f"[SOUNDING] Starting plot for {label} (Semaphore acquired)")
         plotting_embed = discord.Embed(
             title="⏳ Generating Sounding Plot...",
             description=f"Plotting **{station_name} ({station_id})** at **{month}-{day}-{year} {hour}z**.",
             color=discord.Color.blurple(),
         )
-        await status_msg.edit(embed=plotting_embed)
+        try:
+            await status_msg.edit(embed=plotting_embed)
+        except discord.HTTPException:
+            pass
 
         output_path = os.path.join(
             CACHE_DIR, f"sounding_{station_id}_{year}{month}{day}_{hour}z"
@@ -592,12 +610,17 @@ async def _post_from_clean_data(
         success = await generate_plot(clean_data, output_path, dark_mode)
         png_path = output_path + ".png"
 
+    logger.info(f"[SOUNDING] Plotting finished for {label} (Semaphore released)")
+
     if not success or not os.path.exists(png_path):
-        await status_msg.edit(embed=discord.Embed(
-            title="❌ Plot Failed",
-            description="Could not generate sounding plot.",
-            color=discord.Color.red(),
-        ))
+        try:
+            await status_msg.edit(embed=discord.Embed(
+                title="❌ Plot Failed",
+                description="Could not generate sounding plot.",
+                color=discord.Color.red(),
+            ))
+        except discord.HTTPException:
+            pass
         return
 
     mode_label = "\U0001f319 Dark" if dark_mode else "\u2600\ufe0f Light"
