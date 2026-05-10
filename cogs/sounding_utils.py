@@ -35,7 +35,6 @@ finally:
 from utils.state_store import get_state, set_state  # noqa: E402  # follows sounderpy import
 from utils.geo import haversine
 from utils.http import http_get_json, circuit_breaker
-from utils.worker_pool import get_executor
 
 logger = logging.getLogger("spc_bot")
 
@@ -1043,10 +1042,11 @@ async def generate_plot(
     Runs in a ProcessPoolExecutor worker so multiple plots can execute in
     parallel without matplotlib thread-safety concerns.
     """
+    from utils.worker_pool import get_sounding_executor
     loop = asyncio.get_running_loop()
     try:
         await loop.run_in_executor(
-            get_executor(),
+            get_sounding_executor(),
             _plot_sync,
             clean_data,
             output_path,
