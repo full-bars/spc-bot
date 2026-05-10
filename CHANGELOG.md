@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.21.3] — 2026-05-10
+
+### Fixed
+- **Top Stats Default & Graphic.** Corrected the IEM Autoplot 109 URL parameters to ensure `/topstats` correctly defaults to Tornado Warnings by state. Previous shorthand parameters caused a fallback to Severe Thunderstorm counts.
+- **Top Stats Phenomenon Option.** Added a new `phenomenon` parameter to the `/topstats` command, allowing users to explicitly toggle between Tornado and Severe Thunderstorm statistics for both Warnings (VTEC) and Reports (LSR).
+
 ## [5.21.1] — 2026-05-09
 
 ### Fixed
