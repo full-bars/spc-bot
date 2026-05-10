@@ -1,15 +1,26 @@
 """
-utils/worker_pool.py — Shared ProcessPoolExecutor for CPU-heavy tasks.
-Ensures matplotlib and SounderPy rendering don't block the Discord event loop.
+utils/worker_pool.py — Shared ProcessPoolExecutors for CPU-heavy tasks.
+Separates lightweight hodograph rendering from heavyweight sounding plots
+to prevent long-running soundings from blocking rapid-fire radar updates.
 """
 
+import asyncio
 import concurrent.futures
 import os
 from typing import Optional
 
-_EXECUTOR: Optional[concurrent.futures.ProcessPoolExecutor] = None
-# Cap at 3 workers to protect memory/CPU on low-tier VPS
-_MAX_WORKERS = min(3, (os.cpu_count() or 2))
+_HODO_EXECUTOR: Optional[concurrent.futures.ProcessPoolExecutor] = None
+_SOUNDING_EXECUTOR: Optional[concurrent.futures.ProcessPoolExecutor] = None
+
+# Hodographs are fast and memory-light.
+_MAX_HODO_WORKERS = 2
+# Soundings are slow and memory-heavy (SounderPy/MetPy).
+# Cap at 1 on dual-core systems, 2 on larger systems.
+_MAX_SOUNDING_WORKERS = 1 if (os.cpu_count() or 2) <= 2 else 2
+
+# Semaphore for sounding queue management (for UI feedback)
+_sounding_semaphore: Optional[asyncio.Semaphore] = None
+
 
 def _worker_init():
     """Initialize each worker process by pre-importing heavy libraries."""
@@ -31,23 +42,59 @@ def _worker_init():
     _stdout = _sys.stdout
     _sys.stdout = _io.StringIO()
     try:
+        import sounderpy as _spy  # noqa: F401
+    except ImportError:
         pass
     finally:
         _sys.stdout = _stdout
 
-def get_executor() -> concurrent.futures.ProcessPoolExecutor:
-    """Get or create the global shared ProcessPoolExecutor."""
-    global _EXECUTOR
-    if _EXECUTOR is None:
-        _EXECUTOR = concurrent.futures.ProcessPoolExecutor(
-            max_workers=_MAX_WORKERS,
+
+def get_hodo_executor() -> concurrent.futures.ProcessPoolExecutor:
+    """Get or create the executor dedicated to fast radar/hodograph plots."""
+    global _HODO_EXECUTOR
+    if _HODO_EXECUTOR is None:
+        _HODO_EXECUTOR = concurrent.futures.ProcessPoolExecutor(
+            max_workers=_MAX_HODO_WORKERS,
             initializer=_worker_init
         )
-    return _EXECUTOR
+    return _HODO_EXECUTOR
+
+
+def get_sounding_executor() -> concurrent.futures.ProcessPoolExecutor:
+    """Get or create the executor dedicated to heavy sounding plots."""
+    global _SOUNDING_EXECUTOR
+    if _SOUNDING_EXECUTOR is None:
+        _SOUNDING_EXECUTOR = concurrent.futures.ProcessPoolExecutor(
+            max_workers=_MAX_SOUNDING_WORKERS,
+            initializer=_worker_init
+        )
+    return _SOUNDING_EXECUTOR
+
+
+def get_sounding_semaphore() -> asyncio.Semaphore:
+    """Get the semaphore used to track the sounding queue."""
+    global _sounding_semaphore
+    if _sounding_semaphore is None:
+        _sounding_semaphore = asyncio.Semaphore(_MAX_SOUNDING_WORKERS)
+    return _sounding_semaphore
+
+
+def get_executor() -> concurrent.futures.ProcessPoolExecutor:
+    """Legacy alias for the hodo executor."""
+    return get_hodo_executor()
+
+
+def shutdown_executors():
+    """Cleanly shut down all worker pools."""
+    global _HODO_EXECUTOR, _SOUNDING_EXECUTOR
+    if _HODO_EXECUTOR is not None:
+        _HODO_EXECUTOR.shutdown(wait=False, cancel_futures=True)
+        _HODO_EXECUTOR = None
+    if _SOUNDING_EXECUTOR is not None:
+        _SOUNDING_EXECUTOR.shutdown(wait=False, cancel_futures=True)
+        _SOUNDING_EXECUTOR = None
+
 
 def shutdown_executor():
-    """Cleanly shut down the worker pool."""
-    global _EXECUTOR
-    if _EXECUTOR is not None:
-        _EXECUTOR.shutdown(wait=False, cancel_futures=True)
-        _EXECUTOR = None
+    """Legacy alias."""
+    shutdown_executors()

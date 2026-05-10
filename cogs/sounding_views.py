@@ -94,17 +94,34 @@ async def post_sounding(
 
     # Generate plot
     time_label = f"{used_month}-{used_day}-{used_year} {used_hour}z"
-    plotting_embed = discord.Embed(
-        title="⏳ Generating Sounding Plot...",
-        description=f"Plotting **{label}** at **{time_label}**. This takes ~15 seconds.",
-        color=discord.Color.blurple(),
-    )
-    if status_msg:
-        await status_msg.edit(embed=plotting_embed)
+    
+    from utils.worker_pool import get_sounding_semaphore
+    sem = get_sounding_semaphore()
+    
+    if sem.locked():
+        # Pool is full, show queued status
+        # Note: _value is internal but useful for queue position
+        pos = len(sem._waiters) + 1 if hasattr(sem, '_waiters') else 1
+        queue_embed = discord.Embed(
+            title="⌛ Plot Queued...",
+            description=f"Sounding workers are currently busy. Your plot for **{label}** is at **position {pos}** in the queue. Please wait...",
+            color=discord.Color.orange(),
+        )
+        if status_msg:
+            await status_msg.edit(embed=queue_embed)
 
-    output_path = _plot_path(station_id, used_year, used_month, used_day, used_hour)
-    success = await generate_plot(clean_data, output_path, dark_mode)
-    png_path = output_path + ".png"
+    async with sem:
+        plotting_embed = discord.Embed(
+            title="⏳ Generating Sounding Plot...",
+            description=f"Plotting **{label}** at **{time_label}**. This takes ~15 seconds.",
+            color=discord.Color.blurple(),
+        )
+        if status_msg:
+            await status_msg.edit(embed=plotting_embed)
+
+        output_path = _plot_path(station_id, used_year, used_month, used_day, used_hour)
+        success = await generate_plot(clean_data, output_path, dark_mode)
+        png_path = output_path + ".png"
 
     if not success or not os.path.exists(png_path):
         error_embed = discord.Embed(
@@ -407,19 +424,39 @@ class CombinedSoundingView(View):
                     ))
                     return
 
-                output_path = os.path.join(
-                    CACHE_DIR,
-                    f"acars_{p['airport']}_{p['year']}{p['month']}{p['day']}_{p['acars_hour']}z"
-                )
-                success = await generate_plot(clean_data, output_path, self.dark_mode)
-                png_path = output_path + ".png"
-                if not success or not os.path.exists(png_path):
-                    await status_msg.edit(embed=discord.Embed(
-                        title="❌ Plot Failed",
-                        description="Could not generate ACARS sounding plot.",
-                        color=discord.Color.red(),
-                    ))
-                    return
+                from utils.worker_pool import get_sounding_semaphore
+                sem = get_sounding_semaphore()
+                
+                if sem.locked():
+                    pos = len(sem._waiters) + 1 if hasattr(sem, '_waiters') else 1
+                    queue_embed = discord.Embed(
+                        title="⌛ Plot Queued...",
+                        description=f"Sounding workers are currently busy. Your plot for **{p['airport']}** is at **position {pos}** in the queue. Please wait...",
+                        color=discord.Color.orange(),
+                    )
+                    await status_msg.edit(embed=queue_embed)
+
+                async with sem:
+                    plotting_embed = discord.Embed(
+                        title="⏳ Generating Aircraft Profile...",
+                        description=f"Plotting **{p['airport']}**. This takes ~10 seconds.",
+                        color=discord.Color.blurple(),
+                    )
+                    await status_msg.edit(embed=plotting_embed)
+
+                    output_path = os.path.join(
+                        CACHE_DIR,
+                        f"acars_{p['airport']}_{p['year']}{p['month']}{p['day']}_{p['acars_hour']}z"
+                    )
+                    success = await generate_plot(clean_data, output_path, self.dark_mode)
+                    png_path = output_path + ".png"
+                    if not success or not os.path.exists(png_path):
+                        await status_msg.edit(embed=discord.Embed(
+                            title="❌ Plot Failed",
+                            description="Could not generate ACARS sounding plot.",
+                            color=discord.Color.red(),
+                        ))
+                        return
 
                 await status_msg.delete()
                 mode_label = "\U0001f319 Dark" if self.dark_mode else "\u2600\ufe0f Light"
@@ -529,18 +566,31 @@ async def _post_from_clean_data(
     messages_to_delete=None,
 ):
     """Generate and post a sounding plot from clean_data."""
-    plotting_embed = discord.Embed(
-        title="⏳ Generating Sounding Plot...",
-        description=f"Plotting **{station_name} ({station_id})** at **{month}-{day}-{year} {hour}z**.",
-        color=discord.Color.blurple(),
-    )
-    await status_msg.edit(embed=plotting_embed)
+    from utils.worker_pool import get_sounding_semaphore
+    sem = get_sounding_semaphore()
+    
+    if sem.locked():
+        pos = len(sem._waiters) + 1 if hasattr(sem, '_waiters') else 1
+        queue_embed = discord.Embed(
+            title="⌛ Plot Queued...",
+            description=f"Sounding workers are currently busy. Your plot for **{station_name}** is at **position {pos}** in the queue. Please wait...",
+            color=discord.Color.orange(),
+        )
+        await status_msg.edit(embed=queue_embed)
 
-    output_path = os.path.join(
-        CACHE_DIR, f"sounding_{station_id}_{year}{month}{day}_{hour}z"
-    )
-    success = await generate_plot(clean_data, output_path, dark_mode)
-    png_path = output_path + ".png"
+    async with sem:
+        plotting_embed = discord.Embed(
+            title="⏳ Generating Sounding Plot...",
+            description=f"Plotting **{station_name} ({station_id})** at **{month}-{day}-{year} {hour}z**.",
+            color=discord.Color.blurple(),
+        )
+        await status_msg.edit(embed=plotting_embed)
+
+        output_path = os.path.join(
+            CACHE_DIR, f"sounding_{station_id}_{year}{month}{day}_{hour}z"
+        )
+        success = await generate_plot(clean_data, output_path, dark_mode)
+        png_path = output_path + ".png"
 
     if not success or not os.path.exists(png_path):
         await status_msg.edit(embed=discord.Embed(
