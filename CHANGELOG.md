@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [5.22.0] — 2026-05-10
+
+### Added
+- **Worker Pool Separation.** Split the shared process pool into dedicated "Fast Hodo" and "Heavy Sounding" pools. This ensures that rapid-fire tornado hodograph updates are never blocked by heavyweight sounding generation.
+- **Sounding Queue Management.** Introduced an `asyncio.Semaphore` and a queuing system for sounding plots. Users now receive real-time feedback (*"⌛ Plot Queued (Position X)..."*) when the pool is saturated.
+- **Database Connection Pooling.** Implemented a read/write split and connection pooling for the local SQLite state database. Uses a dedicated write connection and a pool of 3 read-only connections to prevent read stalls during heavy write volume.
+
 ## [5.21.4] — 2026-05-10
 
 ### Fixed
