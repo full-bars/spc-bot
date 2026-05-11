@@ -26,7 +26,7 @@ from cogs import ALL_EXTENSIONS
 
 # ── Logging setup ────────────────────────────────────────────────────────────
 logger = logging.getLogger("spc_bot")
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 logger.propagate = False
 formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
 
