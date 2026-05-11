@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **IEM Hour Filter.** Removed a tautological `if (now - timedelta(hours=h)) < now` guard in `get_available_sounding_times_iem` that silently excluded the current UTC hour from all IEM availability checks.
+- **Station Cache Race.** Added a module-level `asyncio.Lock` with double-checked locking to `get_raob_stations` so concurrent callers at startup no longer each issue a redundant RAOB CSV fetch.
+- **Availability Cache Eviction.** `_AVAILABILITY_CACHE` now evicts expired entries when the cache exceeds 2,000 entries, preventing unbounded memory growth over long uptimes.
+- **Dead `n_times` Parameter.** Removed the unused `n_times` parameter from `filter_stations_with_data`; the IEM fast path returned before it was ever read, and all call sites already omitted it.
+
 ## [5.22.0] — 2026-05-10
 
 ### Added
