@@ -7,6 +7,8 @@ from typing import Optional
 
 import aiohttp
 
+from utils.http import ensure_session
+
 logger = logging.getLogger("spc_bot")
 
 
@@ -24,12 +26,12 @@ async def get_discord_gateway_url(bot) -> Optional[str]:
 
     # Fallback: try to query Discord's gateway endpoint
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get('https://discord.com/api/v10/gateway', timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    url = data.get('url', '').replace('wss://', '').replace('/', '')
-                    return url
+        session = await ensure_session()
+        async with session.get('https://discord.com/api/v10/gateway', timeout=aiohttp.ClientTimeout(total=5)) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                url = data.get('url', '').replace('wss://', '').replace('/', '')
+                return url
     except Exception as e:
         logger.debug(f"Could not query Discord gateway endpoint: {e}")
 
@@ -66,9 +68,9 @@ async def geolocate_ip(ip: Optional[str]) -> Optional[str]:
         return None
 
     try:
-        async with aiohttp.ClientSession() as session:
-            # Use ipinfo.io (fast, reliable, no auth required)
-            async with session.get(
+        session = await ensure_session()
+        # Use ipinfo.io (fast, reliable, no auth required)
+        async with session.get(
                 f'https://ipinfo.io/{ip}/json',
                 timeout=aiohttp.ClientTimeout(total=10)
             ) as resp:

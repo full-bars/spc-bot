@@ -15,6 +15,11 @@ version numbers follow [SemVer](https://semver.org/).
 ### Performance
 - **Haversine Batch Vectorisation.** `find_nearest_stations` now calls `haversine_batch` (Rust fast-path) instead of a row-wise `df.apply` across ~900 RAOB stations. Eliminates the unnecessary DataFrame copy and reduces per-call overhead from ~900 Python haversine calls to a single Rust batch call.
 - **Pre-compiled Geographic Regex.** `_GEOGRAPHIC_GARBAGE` (133 keywords) is now compiled once into a single `re.Pattern` (`_GEOGRAPHIC_GARBAGE_RE`) at module load instead of recompiling up to 133 patterns per county string. `_STATE_REGEX` is likewise pre-compiled. Combined, this drops per-county regex overhead from 133 fresh `re.compile` calls to 1 `.search()` call.
+- **Shared aiohttp Session.** Routed `utils/discord_gateway.py` (gateway URL lookup) onto the shared `ensure_session()` client, eliminating a new TLS handshake per call.
+- **Shared aiohttp Session.** Routed `utils/discord_gateway.py` (IP geolocation via ipinfo.io) onto the shared session.
+- **Shared aiohttp Session.** Routed `cogs/status.py` (public IP lookup via ipinfo.io) onto the shared session; was previously ignoring the `utils.http` import it already had.
+- **Shared aiohttp Session + Circuit Breaker.** Routed `cogs/sounding_utils.py::geocode_city` (Nominatim) onto the shared session and added circuit-breaker protection that was previously bypassed entirely.
+- **Shared aiohttp Session.** Routed `utils/events_db.py::set_syncthing_folder_mode` (Syncthing REST API) onto the shared session; preserves the per-request `X-API-Key` and `Content-Type` headers.
 
 ## [5.22.0] — 2026-05-10
 

@@ -209,10 +209,10 @@ class StatusView(discord.ui.View):
         host_ip = "unknown"
         try:
             # Get public IP from ipinfo.io
-            async with aiohttp.ClientSession() as session:
-                async with session.get('https://ipinfo.io/ip', timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                    if resp.status == 200:
-                        host_ip = (await resp.text()).strip()
+            session = await _http.ensure_session()
+            async with session.get('https://ipinfo.io/ip', timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                if resp.status == 200:
+                    host_ip = (await resp.text()).strip()
         except Exception:
             pass
 
