@@ -1,12 +1,12 @@
+use geo::algorithm::contains::Contains;
+use geo::{Coord, Point, Polygon};
+use once_cell::sync::Lazy;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use xxhash_rust::xxh3;
+use regex::Regex;
 use rstar::RTree;
 use std::sync::RwLock;
-use once_cell::sync::Lazy;
-use geo::{Polygon, Point, Coord};
-use geo::algorithm::contains::Contains;
-use regex::Regex;
+use xxhash_rust::xxh3;
 
 #[pymodule]
 fn spc_rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -46,12 +46,14 @@ fn calculate_fast_hash(data: &[u8]) -> PyResult<String> {
 
 #[pyfunction]
 fn find_vwp_header_offset(data: &[u8]) -> PyResult<Option<usize>> {
-    if data.len() < 2 { return Ok(None); }
+    if data.len() < 2 {
+        return Ok(None);
+    }
     let search_limit = std::cmp::min(data.len() - 2, 200);
     for i in 0..=search_limit {
-        if data[i] == 0x00 && data[i+1] == 0x30 {
+        if data[i] == 0x00 && data[i + 1] == 0x30 {
             if i >= 30 {
-                if data[i-30] == 0x00 && data[i-30+1] == 0x30 {
+                if data[i - 30] == 0x00 && data[i - 30 + 1] == 0x30 {
                     return Ok(Some(i));
                 }
             }
@@ -61,8 +63,13 @@ fn find_vwp_header_offset(data: &[u8]) -> PyResult<Option<usize>> {
 }
 
 struct VadRecord {
-    wind_dir: f64, wind_spd: f64, rms_error: f64, divergence: f64,
-    slant_range: f64, elev_angle: f64, altitude: f64,
+    wind_dir: f64,
+    wind_spd: f64,
+    rms_error: f64,
+    divergence: f64,
+    slant_range: f64,
+    elev_angle: f64,
+    altitude: f64,
 }
 
 /// Fast parser for VWP tabular data.
@@ -79,13 +86,16 @@ fn parse_vwp_tabular_data<'py>(
     let mut search_start = 0;
 
     // Find all occurrences of marker (handles multi-page VAD files)
-    while let Some(marker_pos) = data[search_start..].windows(marker.len()).position(|w| w == marker) {
+    while let Some(marker_pos) = data[search_start..]
+        .windows(marker.len())
+        .position(|w| w == marker)
+    {
         let actual_pos = search_start + marker_pos;
 
         // Find the 0x00 0x50 line start marker before this data marker
         let mut line_start = 0;
         for i in (0..actual_pos).rev() {
-            if i + 2 <= data.len() && data[i] == 0x00 && data[i+1] == 0x50 {
+            if i + 2 <= data.len() && data[i] == 0x00 && data[i + 1] == 0x50 {
                 line_start = i;
                 break;
             }
@@ -93,7 +103,9 @@ fn parse_vwp_tabular_data<'py>(
 
         if line_start == 0 {
             search_start = actual_pos + marker.len();
-            if search_start >= data.len() { break; }
+            if search_start >= data.len() {
+                break;
+            }
             continue;
         }
 
@@ -102,17 +114,19 @@ fn parse_vwp_tabular_data<'py>(
         let mut line_count = 0;
 
         while current_pos + 82 <= data.len() {
-            let len = i16::from_be_bytes([data[current_pos], data[current_pos+1]]);
+            let len = i16::from_be_bytes([data[current_pos], data[current_pos + 1]]);
 
             if len != 80 {
-                if len == -1 || len == 0 { break; }
+                if len == -1 || len == 0 {
+                    break;
+                }
                 current_pos += 2;
                 continue;
             }
 
             // Skip first 3 lines of headers
             if line_count >= 3 {
-                let line_bytes = &data[current_pos+2..current_pos+82];
+                let line_bytes = &data[current_pos + 2..current_pos + 82];
                 // Use lossy UTF-8 conversion for just this line
                 let line = String::from_utf8_lossy(line_bytes);
                 let parts: Vec<&str> = line.split_whitespace().collect();
@@ -122,18 +136,31 @@ fn parse_vwp_tabular_data<'py>(
                         parts[4].parse::<f64>().ok(),
                         parts[5].parse::<f64>().ok(),
                         parts[6].parse::<f64>().ok(),
-                        if parts[7] == "NA" { Some(f64::NAN) } else { parts[7].parse::<f64>().ok() },
+                        if parts[7] == "NA" {
+                            Some(f64::NAN)
+                        } else {
+                            parts[7].parse::<f64>().ok()
+                        },
                         parts[8].parse::<f64>().ok(),
                         parts[9].parse::<f64>().ok(),
                     ) {
                         let slant_km: f64 = sl * (6067.1 / 3281.0);
                         let r_e: f64 = (4.0 / 3.0) * 6371.0;
                         let elev_rad: f64 = e.to_radians();
-                        let alt = (r_e.powi(2) + slant_km.powi(2) + 2.0 * r_e * slant_km * elev_rad.sin()).sqrt() - r_e;
+                        let alt = (r_e.powi(2)
+                            + slant_km.powi(2)
+                            + 2.0 * r_e * slant_km * elev_rad.sin())
+                        .sqrt()
+                            - r_e;
 
                         records.push(VadRecord {
-                            wind_dir: d, wind_spd: s, rms_error: r, divergence: v,
-                            slant_range: slant_km, elev_angle: e, altitude: alt,
+                            wind_dir: d,
+                            wind_spd: s,
+                            rms_error: r,
+                            divergence: v,
+                            slant_range: slant_km,
+                            elev_angle: e,
+                            altitude: alt,
                         });
                     }
                 }
@@ -144,13 +171,21 @@ fn parse_vwp_tabular_data<'py>(
         }
 
         search_start = actual_pos + marker.len();
-        if search_start >= data.len() { break; }
+        if search_start >= data.len() {
+            break;
+        }
     }
 
-    if records.is_empty() { return Ok(None); }
+    if records.is_empty() {
+        return Ok(None);
+    }
 
     // Sort by altitude (all pages merged and sorted together)
-    records.sort_by(|a, b| a.altitude.partial_cmp(&b.altitude).unwrap_or(std::cmp::Ordering::Equal));
+    records.sort_by(|a, b| {
+        a.altitude
+            .partial_cmp(&b.altitude)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let dict = PyDict::new_bound(py);
     let mut wind_dir = Vec::with_capacity(records.len());
@@ -162,9 +197,13 @@ fn parse_vwp_tabular_data<'py>(
     let mut altitude = Vec::with_capacity(records.len());
 
     for r in records {
-        wind_dir.push(r.wind_dir); wind_spd.push(r.wind_spd); rms_error.push(r.rms_error);
-        divergence.push(r.divergence); slant_range.push(r.slant_range);
-        elev_angle.push(r.elev_angle); altitude.push(r.altitude);
+        wind_dir.push(r.wind_dir);
+        wind_spd.push(r.wind_spd);
+        rms_error.push(r.rms_error);
+        divergence.push(r.divergence);
+        slant_range.push(r.slant_range);
+        elev_angle.push(r.elev_angle);
+        altitude.push(r.altitude);
     }
 
     dict.set_item("wind_dir", wind_dir)?;
@@ -254,10 +293,12 @@ fn filter_points_in_polygons(
     polygons: Vec<Vec<(f64, f64)>>,
 ) -> PyResult<Vec<usize>> {
     let mut result = Vec::new();
-    let geo_polys: Vec<Polygon<f64>> = polygons.into_iter()
+    let geo_polys: Vec<Polygon<f64>> = polygons
+        .into_iter()
         .filter(|p| p.len() >= 3)
         .map(|p| {
-            let coords: Vec<Coord<f64>> = p.into_iter()
+            let coords: Vec<Coord<f64>> = p
+                .into_iter()
                 .map(|(lat, lon)| Coord { x: lon, y: lat })
                 .collect();
             Polygon::new(geo::LineString::new(coords), vec![])
@@ -293,14 +334,23 @@ fn comp2vec(u: f64, v: f64) -> PyResult<(f64, f64)> {
         let angle_rad = (-v).atan2(-u);
         let angle_deg = angle_rad.to_degrees();
         let dir_deg = (90.0 - angle_deg) % 360.0;
-        if dir_deg < 0.0 { dir_deg + 360.0 } else { dir_deg }
+        if dir_deg < 0.0 {
+            dir_deg + 360.0
+        } else {
+            dir_deg
+        }
     } else {
         0.0
     };
     Ok((dir, spd))
 }
 
-fn clip_profile(wind_dir: &[f64], wind_spd: &[f64], altitude: &[f64], max_hght: f64) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+fn clip_profile(
+    wind_dir: &[f64],
+    wind_spd: &[f64],
+    altitude: &[f64],
+    max_hght: f64,
+) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     let mut clipped_dir = Vec::new();
     let mut clipped_spd = Vec::new();
     let mut clipped_alt = Vec::new();
@@ -315,9 +365,19 @@ fn clip_profile(wind_dir: &[f64], wind_spd: &[f64], altitude: &[f64], max_hght: 
 }
 
 fn _interp_linear(x: &[f64], y: &[f64], xi: f64) -> f64 {
-    if x.is_empty() { return f64::NAN; }
-    if xi <= x[0] { return if x[0].is_nan() { f64::NAN } else { y[0] }; }
-    if xi >= x[x.len() - 1] { return if x[x.len() - 1].is_nan() { f64::NAN } else { y[y.len() - 1] }; }
+    if x.is_empty() {
+        return f64::NAN;
+    }
+    if xi <= x[0] {
+        return if x[0].is_nan() { f64::NAN } else { y[0] };
+    }
+    if xi >= x[x.len() - 1] {
+        return if x[x.len() - 1].is_nan() {
+            f64::NAN
+        } else {
+            y[y.len() - 1]
+        };
+    }
     for i in 0..x.len() - 1 {
         if x[i] <= xi && xi <= x[i + 1] {
             let t = (xi - x[i]) / (x[i + 1] - x[i]);
@@ -333,9 +393,15 @@ fn compute_bunkers(
     wind_spd: Vec<f64>,
     altitude: Vec<f64>,
 ) -> PyResult<((f64, f64), (f64, f64), (f64, f64))> {
-    if wind_dir.is_empty() { return Ok(((f64::NAN, f64::NAN), (f64::NAN, f64::NAN), (f64::NAN, f64::NAN))); }
+    if wind_dir.is_empty() {
+        return Ok((
+            (f64::NAN, f64::NAN),
+            (f64::NAN, f64::NAN),
+            (f64::NAN, f64::NAN),
+        ));
+    }
 
-    let hght = 6.0;  // Height in same units as altitude (km)
+    let hght = 6.0; // Height in same units as altitude (km)
     let d = 7.5 * 1.94;
 
     // Convert all wind vectors to u/v components
@@ -381,14 +447,24 @@ fn compute_bunkers(
         }
     } else {
         // hght is below all points or other edge case - return NaN
-        return Ok(((f64::NAN, f64::NAN), (f64::NAN, f64::NAN), (f64::NAN, f64::NAN)));
+        return Ok((
+            (f64::NAN, f64::NAN),
+            (f64::NAN, f64::NAN),
+            (f64::NAN, f64::NAN),
+        ));
     }
 
     // Append interpolated value at target height
     u_clip.push(u_hght);
     v_clip.push(v_hght);
 
-    if u_clip.len() < 2 { return Ok(((f64::NAN, f64::NAN), (f64::NAN, f64::NAN), (f64::NAN, f64::NAN))); }
+    if u_clip.len() < 2 {
+        return Ok((
+            (f64::NAN, f64::NAN),
+            (f64::NAN, f64::NAN),
+            (f64::NAN, f64::NAN),
+        ));
+    }
 
     // Mean wind 0-6km: average of u/v components
     let mnu6 = u_clip.iter().sum::<f64>() / u_clip.len() as f64;
@@ -400,11 +476,7 @@ fn compute_bunkers(
 
     // Bunkers displacement: perpendicular to shear
     let shear_mag = (shru * shru + shrv * shrv).sqrt();
-    let tmp = if shear_mag > 0.01 {
-        d / shear_mag
-    } else {
-        0.0
-    };
+    let tmp = if shear_mag > 0.01 { d / shear_mag } else { 0.0 };
 
     // Right and left storm motions
     let rstu = mnu6 + (tmp * shrv);
@@ -418,7 +490,11 @@ fn compute_bunkers(
     let (mean_dir, mean_spd) = comp2vec(mnu6, mnv6)?;
 
     // Return in Python order: (right, left, mean)
-    Ok(((right_dir, right_spd), (left_dir, left_spd), (mean_dir, mean_spd)))
+    Ok((
+        (right_dir, right_spd),
+        (left_dir, left_spd),
+        (mean_dir, mean_spd),
+    ))
 }
 
 #[pyfunction]
@@ -430,9 +506,11 @@ fn compute_srh(
     storm_spd: f64,
     hght_km: f64,
 ) -> PyResult<f64> {
-    if wind_dir.is_empty() { return Ok(f64::NAN); }
+    if wind_dir.is_empty() {
+        return Ok(f64::NAN);
+    }
 
-    let hght = hght_km;  // Altitude is already in km
+    let hght = hght_km; // Altitude is already in km
 
     // Convert all wind vectors to u/v components
     let mut u_all = Vec::new();
@@ -470,7 +548,9 @@ fn compute_srh(
     sru_clip.push(sru_hght);
     srv_clip.push(srv_hght);
 
-    if sru_clip.len() < 2 { return Ok(f64::NAN); }
+    if sru_clip.len() < 2 {
+        return Ok(f64::NAN);
+    }
 
     // Compute cross products between consecutive layers: u[i+1]*v[i] - u[i]*v[i+1]
     let mut srh = 0.0;
@@ -490,10 +570,14 @@ fn compute_critical_angle(
     storm_dir: f64,
     storm_spd: f64,
 ) -> PyResult<f64> {
-    if wind_dir.is_empty() { return Ok(f64::NAN); }
+    if wind_dir.is_empty() {
+        return Ok(f64::NAN);
+    }
 
     let (clipped_dir, clipped_spd, _) = clip_profile(&wind_dir, &wind_spd, &altitude, 6000.0);
-    if clipped_dir.is_empty() { return Ok(f64::NAN); }
+    if clipped_dir.is_empty() {
+        return Ok(f64::NAN);
+    }
 
     let storm_rad = storm_dir.to_radians();
     let (storm_u, storm_v) = (-storm_spd * storm_rad.sin(), -storm_spd * storm_rad.cos());
@@ -523,11 +607,7 @@ fn compute_critical_angle(
 /// Deviant Tornado Motion (DTM) — 70% Bunkers RM + 30% 0–500m mean wind.
 /// Returns (dir_deg, spd_kt) or (NaN, NaN) on failure.
 #[pyfunction]
-fn compute_dtm(
-    wind_dir: Vec<f64>,
-    wind_spd: Vec<f64>,
-    altitude: Vec<f64>,
-) -> PyResult<(f64, f64)> {
+fn compute_dtm(wind_dir: Vec<f64>, wind_spd: Vec<f64>, altitude: Vec<f64>) -> PyResult<(f64, f64)> {
     if wind_dir.is_empty() {
         return Ok((f64::NAN, f64::NAN));
     }
@@ -656,7 +736,13 @@ fn parse_vtec<'py>(py: Python<'py>, text: &str) -> PyResult<Option<Bound<'py, Py
         let end = caps.get(7).map(|m| m.as_str()).unwrap_or("");
 
         // Normalize office: if 3 chars and starts with letter, prepend K
-        let office = if office_raw.len() == 3 && office_raw.chars().next().unwrap_or('Z').is_ascii_uppercase() {
+        let office = if office_raw.len() == 3
+            && office_raw
+                .chars()
+                .next()
+                .unwrap_or('Z')
+                .is_ascii_uppercase()
+        {
             format!("K{}", office_raw)
         } else {
             office_raw.to_string()
@@ -683,7 +769,7 @@ fn parse_vtec<'py>(py: Python<'py>, text: &str) -> PyResult<Option<Bound<'py, Py
 
 #[pyfunction]
 fn validate_image_cache_batch(
-    items: Vec<(String, Vec<u8>)>
+    items: Vec<(String, Vec<u8>)>,
 ) -> PyResult<Vec<(String, String, bool)>> {
     let mut results = Vec::with_capacity(items.len());
     for (url, content) in items {
@@ -846,7 +932,8 @@ mod tests {
         let wind_dir = vec![250.0, 260.0, 270.0, 280.0];
         let wind_spd = vec![10.0, 15.0, 20.0, 25.0];
         let altitude = vec![0.0, 2000.0, 4000.0, 6000.0];
-        let (clipped_dir, clipped_spd, clipped_alt) = clip_profile(&wind_dir, &wind_spd, &altitude, 5000.0);
+        let (clipped_dir, clipped_spd, clipped_alt) =
+            clip_profile(&wind_dir, &wind_spd, &altitude, 5000.0);
         // Should include 0, 2000, 4000 but not 6000
         assert_eq!(clipped_dir.len(), 3);
         assert_eq!(clipped_spd.len(), 3);
@@ -869,8 +956,8 @@ mod tests {
     #[test]
     fn test_compute_bunkers_empty_profile() {
         let result = compute_bunkers(vec![], vec![], vec![]).unwrap();
-        assert!(result.0.0.is_nan());
-        assert!(result.0.1.is_nan());
+        assert!(result.0 .0.is_nan());
+        assert!(result.0 .1.is_nan());
     }
 
     #[test]

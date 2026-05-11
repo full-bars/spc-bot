@@ -255,7 +255,7 @@ async def check_integrity() -> bool:
         async with get_read_db() as db:
             async with db.execute("PRAGMA integrity_check") as cursor:
                 row = await cursor.fetchone()
-                ok = row and row[0] == "ok"
+                ok = bool(row and row[0] == "ok")
                 if not ok:
                     logger.error(f"Integrity check failed: {row}")
                 return ok

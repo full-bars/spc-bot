@@ -32,7 +32,7 @@ class RecentLogHandler(logging.Handler):
     """Logging handler that keeps the last N lines in memory."""
     def __init__(self, max_lines: int = 20):
         super().__init__()
-        self.buffer = deque(maxlen=max_lines)
+        self.buffer: deque[str] = deque(maxlen=max_lines)
 
     def emit(self, record):
         try:

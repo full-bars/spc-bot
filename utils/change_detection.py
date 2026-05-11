@@ -52,7 +52,7 @@ def get_cache_path_for_url(url: str) -> str:
 
 
 # Known SPC placeholder image hashes (add more as discovered)
-_KNOWN_PLACEHOLDER_HASHES = set()
+_KNOWN_PLACEHOLDER_HASHES: set[str] = set()
 
 
 def is_placeholder_image(content: bytes) -> bool:
