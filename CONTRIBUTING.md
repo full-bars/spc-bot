@@ -292,6 +292,34 @@ ruff check --select=E9,F63,F7,F82,F401 --exclude=venv,lib,cache .
 
 ---
 
+## Pre-commit Hooks
+
+The repo ships a `.pre-commit-config.yaml` that enforces the same checks run in
+CI (trailing whitespace, ruff lint + format, mypy on `utils/`, and Rust
+`cargo fmt`/`cargo clippy`).
+
+Install the hooks once after cloning:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+Run all hooks against the full tree at any time:
+
+```bash
+pre-commit run --all-files
+```
+
+The Rust hooks (`cargo-fmt` and `cargo-clippy`) require `rustfmt` and `clippy`
+to be present. Install them via rustup if needed:
+
+```bash
+rustup component add rustfmt clippy
+```
+
+---
+
 ## Roadmap: Performance & Scalability (v5.13+)
 
 - **Sounding Plot Worker Pool Expansion**: Targeting the primary bottleneck in sounding generation.

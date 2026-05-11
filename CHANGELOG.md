@@ -21,6 +21,11 @@ version numbers follow [SemVer](https://semver.org/).
 - **Shared aiohttp Session + Circuit Breaker.** Routed `cogs/sounding_utils.py::geocode_city` (Nominatim) onto the shared session and added circuit-breaker protection that was previously bypassed entirely.
 - **Shared aiohttp Session.** Routed `utils/events_db.py::set_syncthing_folder_mode` (Syncthing REST API) onto the shared session; preserves the per-request `X-API-Key` and `Content-Type` headers.
 
+### Tooling
+- **mypy gate.** Added a `mypy` CI job (lenient: `--ignore-missing-imports --follow-imports=silent`) scoped to `utils/` where types are cleanest. Scope expands incrementally as annotations land in other modules.
+- **Pre-commit hooks.** Added `.pre-commit-config.yaml` with `pre-commit-hooks` (trailing whitespace, EOF fixer, YAML/TOML check), `ruff` lint + format, `mypy` on `utils/`, and local hooks for `cargo fmt --check` and `cargo clippy -- -D warnings`.
+- **Rust clippy/fmt/test in CI.** Added a `rust` CI job using `dtolnay/rust-toolchain@stable` (with `rustfmt` and `clippy` components) and `Swatinem/rust-cache`. Runs `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all` (covering the existing `#[cfg(test)]` unit tests in `src_rust/lib.rs`).
+
 ## [5.22.0] — 2026-05-10
 
 ### Added

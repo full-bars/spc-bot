@@ -1,0 +1,42 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Pin to the same minor as requirements-dev.txt: ruff>=0.15.12,<0.16.0
+    rev: v0.15.12
+    hooks:
+      - id: ruff
+        args: [--select=E9,F63,F7,F82,F401, --fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.13.0
+    hooks:
+      - id: mypy
+        name: mypy (utils)
+        args: [--ignore-missing-imports, --follow-imports=silent]
+        files: ^utils/
+
+  # Rust hooks — require cargo, rustfmt, and clippy in PATH.
+  # On most developer machines these arrive via `rustup component add rustfmt clippy`.
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt --check
+        language: system
+        entry: cargo fmt --all -- --check
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-clippy
+        name: cargo clippy
+        language: system
+        entry: cargo clippy --all-targets --all-features -- -D warnings
+        types: [rust]
+        pass_filenames: false
