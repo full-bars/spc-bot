@@ -34,8 +34,8 @@ def render_tornado_track(paths: List[List[Tuple[float, float]]], output_path: st
     ax = plt.axes(projection=proj)
     
     # 2. Determine Extent
-    all_lats = []
-    all_lons = []
+    all_lats: list[float] = []
+    all_lons: list[float] = []
     for path in paths:
         if not path:
             continue

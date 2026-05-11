@@ -123,7 +123,7 @@ MANUAL_CACHE_FILE = os.path.join(CONFIG["cache_file_dir"], CONFIG["manual_cache_
 AUTO_CACHE_FILE = os.path.join(CONFIG["cache_file_dir"], CONFIG["auto_cache_file"])
 NWWS_FIREHOSE_LOG = os.path.join(CONFIG["cache_file_dir"], CONFIG["nwws_firehose_log"])
 GUILD_ID = CONFIG["guild_id"]
-CACHE_DIR = CONFIG["cache_file_dir"]
+CACHE_DIR: str = str(CONFIG["cache_file_dir"])
 
 # Forensics and Archive paths
 RECORDING_DIR = os.path.join(CACHE_DIR, "vad_recordings")
