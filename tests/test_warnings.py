@@ -183,6 +183,7 @@ def _make_cog(posted: dict | None = None) -> WarningsCog:
     iembot path without touching Discord, the DB, or the network."""
     cog = WarningsCog.__new__(WarningsCog)
     cog._in_flight_vtecs = set()
+    cog._perm_warned = set()
     cog.bot = MagicMock()
     cog.bot.wait_until_ready = AsyncMock()
     cog.bot.state.is_primary = True
@@ -505,6 +506,7 @@ def _nws_response(features: list) -> bytes:
 def _make_tick_cog(active=None, posted=None):
     cog = WarningsCog.__new__(WarningsCog)
     cog._in_flight_vtecs = set()
+    cog._perm_warned = set()
     from utils.backoff import TaskBackoff
     cog._backoff = TaskBackoff("auto_poll_warnings")
     cog._validators = {"etag": "", "last_modified": ""}
@@ -514,7 +516,19 @@ def _make_tick_cog(active=None, posted=None):
     cog.bot.state.is_primary = True
     cog.bot.state.posted_warnings = posted or {}
     cog.bot.state.active_warnings = active or {}
-    channel = AsyncMock()
+    channel = MagicMock()
+    channel.id = 12345
+    channel.name = "test-channel"
+    channel.send = AsyncMock()
+    # Mock the channel's guild and permissions for _check_channel_perms
+    channel.guild = MagicMock()
+    channel.guild.me = MagicMock()
+    perms_mock = MagicMock()
+    perms_mock.send_messages = True
+    perms_mock.embed_links = True
+    perms_mock.attach_files = True
+    channel.guild.me.permissions_for.return_value = perms_mock
+    channel.permissions_for = MagicMock(return_value=perms_mock)
     cog.bot.get_channel.return_value = channel
     return cog, channel
 
