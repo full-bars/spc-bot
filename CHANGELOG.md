@@ -26,6 +26,18 @@ version numbers follow [SemVer](https://semver.org/).
 - **Pre-commit hooks.** Added `.pre-commit-config.yaml` with `pre-commit-hooks` (trailing whitespace, EOF fixer, YAML/TOML check), `ruff` lint + format, `mypy` on `utils/`, and local hooks for `cargo fmt --check` and `cargo clippy -- -D warnings`.
 - **Rust clippy/fmt in CI.** Added a `rust` CI job using `dtolnay/rust-toolchain@stable` (with `rustfmt` and `clippy` components) and `Swatinem/rust-cache`. Runs `cargo fmt --check` and `cargo clippy --all-targets --all-features -- -D warnings`. `cargo test` is deferred until the crate is restructured to gate `pyo3/extension-module` behind an optional feature (current setup leaves test binaries unable to link against libpython).
 
+## [5.23.0] — 2026-05-11
+
+### Added
+- **Per-Type Warning Channels.** Route TOR/SVR/FFW/SPS warnings to dedicated channels configured via `TOR_CHANNEL_ID`, `SVR_CHANNEL_ID`, `FFW_CHANNEL_ID`, `SPS_CHANNEL_ID` env vars. Runtime overrides via `/enablewarnings`, `/displaysetup`, and `/disablewarnings` slash commands persist to state_store for seamless cross-node config.
+- **Sounding Image Disk Caching.** Sounding plot images are now cached to disk with hash-based deduplication. Enables instant re-posts for repeated location/time combinations without re-rendering.
+
+### Fixed
+- **Sounding Queue Deadlock Protection.** Added 60-second timeout wrapper around rendering tasks. Prevents a hung sounding plot from blocking all subsequent requests via permanent semaphore starvation.
+- **Worker Pool Hardening.** Increased sounding workers from 1 to 2 even on 2-core systems, preventing total pool starvation when a single plot is sluggish. Improved semaphore acquisition logging and fixed ephemeral status message cleanup.
+- **Sounding Interaction Token Expiry.** Protected Discord message edits with try/except to prevent silent crashes when interaction tokens expire during long-running plots.
+- **Warning VTEC Phenomenon Handling.** Fixed Severe Weather Statements (SWS) routing to correctly use VTEC phenomenon (SV) for channel resolution instead of event type label.
+
 ## [5.22.0] — 2026-05-10
 
 ### Added
