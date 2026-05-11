@@ -18,7 +18,10 @@ from utils.http import http_get_bytes
 
 logger = logging.getLogger("spc_bot.warnings")
 
-_STATE_REGEX = r"[\s,]+(?:[A-Z]{2}|ALABAMA|ALASKA|ARIZONA|ARKANSAS|CALIFORNIA|COLORADO|CONNECTICUT|DELAWARE|FLORIDA|GEORGIA|HAWAII|IDAHO|ILLINOIS|INDIANA|IOWA|KANSAS|KENTUCKY|LOUISIANA|MAINE|MARYLAND|MASSACHUSETTS|MICHIGAN|MINNESOTA|MISSISSIPPI|MISSOURI|MONTANA|NEBRASKA|NEVADA|NEW\s+HAMPSHIRE|NEW\s+JERSEY|NEW\s+MEXICO|NEW\s+YORK|NORTH\s+CAROLINA|NORTH\s+DAKOTA|OHIO|OKLAHOMA|OREGON|PENNSYLVANIA|RHODE\s+ISLAND|SOUTH\s+CAROLINA|SOUTH\s+DAKOTA|TENNESSEE|TEXAS|UTAH|VERMONT|VIRGINIA|WASHINGTON|WEST\s+VIRGINIA|WISCONSIN|WYOMING)$"
+_STATE_REGEX = re.compile(
+    r"[\s,]+(?:[A-Z]{2}|ALABAMA|ALASKA|ARIZONA|ARKANSAS|CALIFORNIA|COLORADO|CONNECTICUT|DELAWARE|FLORIDA|GEORGIA|HAWAII|IDAHO|ILLINOIS|INDIANA|IOWA|KANSAS|KENTUCKY|LOUISIANA|MAINE|MARYLAND|MASSACHUSETTS|MICHIGAN|MINNESOTA|MISSISSIPPI|MISSOURI|MONTANA|NEBRASKA|NEVADA|NEW\s+HAMPSHIRE|NEW\s+JERSEY|NEW\s+MEXICO|NEW\s+YORK|NORTH\s+CAROLINA|NORTH\s+DAKOTA|OHIO|OKLAHOMA|OREGON|PENNSYLVANIA|RHODE\s+ISLAND|SOUTH\s+CAROLINA|SOUTH\s+DAKOTA|TENNESSEE|TEXAS|UTAH|VERMONT|VIRGINIA|WASHINGTON|WEST\s+VIRGINIA|WISCONSIN|WYOMING)$",
+    re.IGNORECASE,
+)
 
 _STATES_LIST = [
     "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
@@ -26,12 +29,17 @@ _STATES_LIST = [
 ]
 
 _GEOGRAPHIC_GARBAGE = [
-    "AND", "INJURED", "EXPECT", "DAMAGE", "TORNADO", "THUNDERSTORM", 
+    "AND", "INJURED", "EXPECT", "DAMAGE", "TORNADO", "THUNDERSTORM",
     "ROOF", "SIDING", "VEHICLE", "REMAIN", "ALERT", "ROOM", "BASEMENT",
     "PEOPLE", "LOCATIONS", "PRECAUTIONARY", "PREPAREDNESS", "ACTIONS",
     "FLYING", "DEBRIS", "BUILDING", "TREES", "SHELTER", "LIKELY", "PROTECT",
     "LIGHTNING", "INDOORS", "THUNDER", "KILLERS", "REMEMBER", "ENOUGH", "STRUCK", "STORM"
 ] + _STATES_LIST
+
+_GEOGRAPHIC_GARBAGE_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(kw) for kw in _GEOGRAPHIC_GARBAGE) + r")\b",
+    re.IGNORECASE,
+)
 
 _WARNING_STYLE = {
     "Tornado Warning":             ("🌪️", discord.Color.red()),
@@ -310,7 +318,7 @@ def _area_with_state(area_desc: str, ugc_codes: List[str], state_fallback: Optio
             # Clean up county names that already have state info (e.g. "Caddo, OK" -> "Caddo")
             cleaned_group = []
             for c in group:
-                c_clean = re.sub(_STATE_REGEX, "", c.strip(), flags=re.I).strip()
+                c_clean = _STATE_REGEX.sub("", c.strip()).strip()
                 # Filter out standalone state abbreviations that got split out
                 if len(c_clean) > 2 or not c_clean.isupper():
                     cleaned_group.append(c_clean)
@@ -323,7 +331,7 @@ def _area_with_state(area_desc: str, ugc_codes: List[str], state_fallback: Optio
         remainder = counties[idx:]
         cleaned_remainder = []
         for r in remainder:
-            r_clean = re.sub(_STATE_REGEX, "", r.strip(), flags=re.I).strip()
+            r_clean = _STATE_REGEX.sub("", r.strip()).strip()
             if r_clean and (len(r_clean) > 2 or not r_clean.isupper()):
                 cleaned_remainder.append(r_clean)
         
@@ -508,7 +516,7 @@ def build_concise_warning_text(
                     c = re.split(r"\s+THROUGH\s+", c, flags=re.I)[0]
                     
                 # Skip if it contains garbage keywords as whole words
-                if any(re.search(rf"\b{kw}\b", c, re.I) for kw in _GEOGRAPHIC_GARBAGE):
+                if _GEOGRAPHIC_GARBAGE_RE.search(c):
                     continue
                 # Skip remaining structural text
                 if any(x in c.upper() for x in ["UNTIL", "PORTIONS", "AM", "PM", "EDT", "CDT", "MDT", "PDT", "HST", "AKDT", "LOCATED"]):
@@ -517,13 +525,13 @@ def build_concise_warning_text(
                 c = re.sub(r"^(?:Northeastern|Northwestern|Southeastern|Southwestern|Northern|Southern|Eastern|Western|Central)\s+", "", c, flags=re.I)
                 c = re.split(r"\s+in\s+", c, flags=re.I)[0]
                 c = re.sub(r"\s+(?:Count[iy]|Parish).*$", "", c, flags=re.I)
-                
+
                 # Suffix removal: strip ", OK" or " OK" or " OKLAHOMA"
-                c = re.sub(_STATE_REGEX, "", c.strip(), flags=re.I).strip()
-                
+                c = _STATE_REGEX.sub("", c.strip()).strip()
+
                 # Final check: skip if standalone state or still contains garbage keywords
                 if c and (len(c) > 2 or not c.isupper()):
-                    if not any(re.search(rf"\b{kw}\b", c, re.I) for kw in _GEOGRAPHIC_GARBAGE):
+                    if not _GEOGRAPHIC_GARBAGE_RE.search(c):
                         if c not in counties:
                             counties.append(c)
             
@@ -542,9 +550,9 @@ def build_concise_warning_text(
         raw_curr = [c.strip() for c in re.split(r'[;,]\s*', area) if c.strip()]
         curr_parts = []
         for c in raw_curr:
-            c_clean = re.sub(_STATE_REGEX, "", c, flags=re.I).strip()
+            c_clean = _STATE_REGEX.sub("", c).strip()
             if c_clean and (len(c_clean) > 2 or not c_clean.isupper()):
-                if not any(re.search(rf"\b{kw}\b", c_clean, re.I) for kw in _GEOGRAPHIC_GARBAGE):
+                if not _GEOGRAPHIC_GARBAGE_RE.search(c_clean):
                     if c_clean not in curr_parts:
                         curr_parts.append(c_clean)
 
