@@ -131,7 +131,7 @@ class WarningsCog(commands.Cog):
         e = event.lower()
         if "tornado warning" in e:
             return "tor"
-        if "severe thunderstorm" in e:
+        if "severe thunderstorm" in e or "severe weather statement" in e:
             return "svr"
         if "flash flood" in e:
             return "ffw"
@@ -139,22 +139,37 @@ class WarningsCog(commands.Cog):
             return "sps"
         return "default"
 
-    async def _resolve_warning_channel(self, event: str) -> Optional[discord.abc.Messageable]:
-        """Return the channel to post this warning type to, or None if disabled."""
+    async def _resolve_warning_channel(self, event: str, vtec_phenom: str | None = None) -> Optional[discord.abc.Messageable]:
+        """Return the channel to post this warning type to, or None if disabled.
+
+        vtec_phenom: Override event name mapping with explicit VTEC phenom code (TO/SV/FF/SPS).
+        """
         phenom = self._event_to_phenom(event)
+
+        # If VTEC phenom is provided, use it to override (more authoritative than event string)
+        if vtec_phenom:
+            vtec_map = {"TO": "tor", "SV": "svr", "FF": "ffw", "SPS": "sps"}
+            vtec_code = vtec_map.get(vtec_phenom)
+            if vtec_code:
+                phenom = vtec_code
+
+        logger.debug(f"[CH_RESOLVE] event={event!r} phenom={phenom} (vtec_phenom={vtec_phenom})")
         if phenom != "default":
             override = await get_state(f"warning_channel:{phenom}")
             if override == "disabled":
+                logger.debug(f"[CH_RESOLVE] {phenom} is disabled")
                 return None
             if override:
                 ch = self.bot.get_channel(int(override))
                 if ch:
+                    logger.debug(f"[CH_RESOLVE] using override {override} for {phenom}")
                     missing = self._check_channel_perms(ch)
                     if missing:
                         await self._notify_channel_error(ch, missing)
                         return None
                     return ch
         static_id = self._STATIC_CHANNEL_FOR_PHENOM.get(phenom, WARNINGS_CHANNEL_ID)
+        logger.debug(f"[CH_RESOLVE] using static channel {static_id} for {phenom} (default fallback: {static_id == WARNINGS_CHANNEL_ID})")
         channel = self.bot.get_channel(static_id)
         if channel:
             missing = self._check_channel_perms(channel)
@@ -178,11 +193,11 @@ class WarningsCog(commands.Cog):
         VTEC product as plain text from the IEM nwstext API."""
         if not self.bot.state.is_primary:
             return
-        channel = await self._resolve_warning_channel(event)
-        if not channel:
-            return
 
         vtec = parse_vtec(raw_text)
+        channel = await self._resolve_warning_channel(event, vtec_phenom=vtec.get("phenom") if vtec else None)
+        if not channel:
+            return
         if vtec:
             logger.debug(f"[WARN_VTEC] iembot {event}: {vtec['vtec_id']} phenom={vtec.get('phenom')}")
             if "TO" in event or vtec.get("phenom") == "TO":
@@ -524,7 +539,7 @@ class WarningsCog(commands.Cog):
         event_base = self._PHENOM_EVENT.get((phenom, sig), "")
         channel = None
         if event_base:
-            channel = await self._resolve_warning_channel(event_base)
+            channel = await self._resolve_warning_channel(event_base, vtec_phenom=phenom)
         if not channel:
             channel = self.bot.get_channel(channel_id)
         if not channel:
@@ -729,7 +744,7 @@ class WarningsCog(commands.Cog):
                             self._in_flight_vtecs.add(issuance_id)
                             try:
                                 try:
-                                    event_ch = await self._resolve_warning_channel(event)
+                                    event_ch = await self._resolve_warning_channel(event, vtec_phenom=vtec_dict.get("phenom"))
                                     if event_ch is None:
                                         continue
                                     await self._post_warning(feature, event_ch, vtec_dict, event, is_update=True)
@@ -774,7 +789,7 @@ class WarningsCog(commands.Cog):
                 self.bot.state.posted_warnings[issuance_id] = {}  # placeholder
 
                 try:
-                    event_ch = await self._resolve_warning_channel(event)
+                    event_ch = await self._resolve_warning_channel(event, vtec_phenom=vtec_dict.get("phenom"))
                     if event_ch is None:
                         self.bot.state.posted_warnings.pop(issuance_id, None)
                         continue
