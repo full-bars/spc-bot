@@ -24,7 +24,7 @@ version numbers follow [SemVer](https://semver.org/).
 ### Tooling
 - **mypy gate.** Added a `mypy` CI job (lenient: `--ignore-missing-imports --follow-imports=silent`) scoped to `utils/` where types are cleanest. Scope expands incrementally as annotations land in other modules.
 - **Pre-commit hooks.** Added `.pre-commit-config.yaml` with `pre-commit-hooks` (trailing whitespace, EOF fixer, YAML/TOML check), `ruff` lint + format, `mypy` on `utils/`, and local hooks for `cargo fmt --check` and `cargo clippy -- -D warnings`.
-- **Rust clippy/fmt/test in CI.** Added a `rust` CI job using `dtolnay/rust-toolchain@stable` (with `rustfmt` and `clippy` components) and `Swatinem/rust-cache`. Runs `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all` (covering the existing `#[cfg(test)]` unit tests in `src_rust/lib.rs`).
+- **Rust clippy/fmt in CI.** Added a `rust` CI job using `dtolnay/rust-toolchain@stable` (with `rustfmt` and `clippy` components) and `Swatinem/rust-cache`. Runs `cargo fmt --check` and `cargo clippy --all-targets --all-features -- -D warnings`. `cargo test` is deferred until the crate is restructured to gate `pyo3/extension-module` behind an optional feature (current setup leaves test binaries unable to link against libpython).
 
 ## [5.22.0] — 2026-05-10
 
