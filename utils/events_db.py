@@ -20,7 +20,8 @@ import time
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
-from utils.http import http_get_json
+import aiohttp
+from utils.http import http_get_json, ensure_session
 
 import aiosqlite
 
@@ -619,28 +620,27 @@ async def set_syncthing_folder_mode(mode: str) -> None:
     folder_id = os.getenv("SYNCTHING_FOLDER_ID", "spcbot-events")
     if not api_key:
         return
-    import aiohttp as _aiohttp
     url_base = "http://127.0.0.1:8384"
     headers = {"X-API-Key": api_key, "Content-Type": "application/json"}
     try:
-        async with _aiohttp.ClientSession() as session:
-            async with session.get(
-                f"{url_base}/rest/config/folders/{folder_id}", headers=headers, timeout=_aiohttp.ClientTimeout(total=5)
-            ) as resp:
-                if resp.status != 200:
-                    logger.warning(f"Syncthing folder fetch failed: {resp.status}")
-                    return
-                folder_cfg = await resp.json()
-            folder_cfg["type"] = mode
-            async with session.put(
-                f"{url_base}/rest/config/folders/{folder_id}",
-                headers=headers,
-                json=folder_cfg,
-                timeout=_aiohttp.ClientTimeout(total=5),
-            ) as resp:
-                if resp.status in (200, 201):
-                    logger.info(f"Syncthing folder set to {mode}")
-                else:
-                    logger.warning(f"Syncthing folder update failed: {resp.status}")
+        session = await ensure_session()
+        async with session.get(
+            f"{url_base}/rest/config/folders/{folder_id}", headers=headers, timeout=aiohttp.ClientTimeout(total=5)
+        ) as resp:
+            if resp.status != 200:
+                logger.warning(f"Syncthing folder fetch failed: {resp.status}")
+                return
+            folder_cfg = await resp.json()
+        folder_cfg["type"] = mode
+        async with session.put(
+            f"{url_base}/rest/config/folders/{folder_id}",
+            headers=headers,
+            json=folder_cfg,
+            timeout=aiohttp.ClientTimeout(total=5),
+        ) as resp:
+            if resp.status in (200, 201):
+                logger.info(f"Syncthing folder set to {mode}")
+            else:
+                logger.warning(f"Syncthing folder update failed: {resp.status}")
     except Exception as e:
         logger.warning(f"Syncthing API call failed: {e}")

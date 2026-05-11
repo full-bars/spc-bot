@@ -34,7 +34,7 @@ finally:
 
 from utils.state_store import get_state, set_state  # noqa: E402  # follows sounderpy import
 from utils.geo import haversine, haversine_batch  # noqa: E402
-from utils.http import http_get_json, circuit_breaker  # noqa: E402
+from utils.http import http_get_json, circuit_breaker, ensure_session, CircuitOpenError  # noqa: E402
 
 logger = logging.getLogger("spc_bot")
 
@@ -166,14 +166,19 @@ async def resolve_location(location: str) -> tuple[float, float, str]:
 
 async def geocode_city(query: str) -> tuple[float, float, str]:
     """Geocode a city name using Nominatim. Returns (lat, lon, display_name)."""
-    async with aiohttp.ClientSession() as session:
-        async with session.get(
-            NOMINATIM_URL,
-            params={"q": query, "format": "json", "limit": 1},
-            headers={"User-Agent": USER_AGENT},
-            timeout=aiohttp.ClientTimeout(total=10),
-        ) as resp:
-            data = await resp.json()
+    from urllib.parse import urlparse
+    host = urlparse(NOMINATIM_URL).netloc
+    if circuit_breaker.is_open(host):
+        raise CircuitOpenError(f"Circuit breaker is open for {host}")
+    session = await ensure_session()
+    async with session.get(
+        NOMINATIM_URL,
+        params={"q": query, "format": "json", "limit": 1},
+        headers={"User-Agent": USER_AGENT},
+        timeout=aiohttp.ClientTimeout(total=10),
+    ) as resp:
+        data = await resp.json()
+        circuit_breaker.record_success(host)
 
     if not data:
         raise ValueError(
