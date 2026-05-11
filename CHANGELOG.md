@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [5.24.0] — 2026-05-11
 
 ### Fixed
 - **IEM Hour Filter.** Removed a tautological `if (now - timedelta(hours=h)) < now` guard in `get_available_sounding_times_iem` that silently excluded the current UTC hour from all IEM availability checks.
