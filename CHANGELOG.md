@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **Circuit Breaker Log Noise.** Demoted the per-request "Circuit open for {host}, failing fast" log from WARNING to DEBUG. The breaker fast-failing is the desired behavior — the actual state transition is still logged at WARNING (`reached N failures. Circuit OPEN`) and INFO (`recovered. Closing circuit`). A single upstream outage was producing 20× amplification (one trip warning + tens of fast-fail warnings until recovery).
+
 ## [5.24.0] — 2026-05-11
 
 ### Fixed
