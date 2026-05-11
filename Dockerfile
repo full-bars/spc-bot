@@ -1,5 +1,5 @@
 # Build stage
-FROM python:3.13-slim-bookworm AS builder
+FROM python:3.13-slim-bookworm@sha256:386df64585134ba00b1d5e307acb1e72f33e9e87dbbb00aad9b8f24dbb51db72 AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -34,7 +34,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip wheel --wheel-dir /build/wheels -r requirements.txt
 
 # Runtime stage
-FROM python:3.13-slim-bookworm
+FROM python:3.13-slim-bookworm@sha256:386df64585134ba00b1d5e307acb1e72f33e9e87dbbb00aad9b8f24dbb51db72
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
