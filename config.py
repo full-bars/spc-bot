@@ -92,6 +92,10 @@ CONFIG = {
     "health_channel_id": _optional_int("HEALTH_CHANNEL_ID", "SPC_CHANNEL_ID"),
     "sounding_channel_id": _optional_int("SOUNDING_CHANNEL_ID", "SPC_CHANNEL_ID"),
     "warnings_channel_id": _optional_int("WARNINGS_CHANNEL_ID", "SPC_CHANNEL_ID"),
+    "tor_channel_id": int(os.getenv("TOR_CHANNEL_ID", os.getenv("WARNINGS_CHANNEL_ID", os.getenv("SPC_CHANNEL_ID", "0")))),
+    "svr_channel_id": int(os.getenv("SVR_CHANNEL_ID", os.getenv("WARNINGS_CHANNEL_ID", os.getenv("SPC_CHANNEL_ID", "0")))),
+    "ffw_channel_id": int(os.getenv("FFW_CHANNEL_ID", os.getenv("WARNINGS_CHANNEL_ID", os.getenv("SPC_CHANNEL_ID", "0")))),
+    "sps_channel_id": int(os.getenv("SPS_CHANNEL_ID", os.getenv("WARNINGS_CHANNEL_ID", os.getenv("SPC_CHANNEL_ID", "0")))),
     "dev_channel_id": _optional_int("DEV_CHANNEL_ID", "HEALTH_CHANNEL_ID", "SPC_CHANNEL_ID"),
     "manual_cache_file": os.getenv("MANUAL_CACHE_FILE", "posted_records.json"),
     "auto_cache_file": os.getenv("AUTO_CACHE_FILE", "auto_posted_records.json"),
@@ -110,6 +114,10 @@ SPC_CHANNEL_ID = CONFIG["spc_channel_id"]
 HEALTH_CHANNEL_ID = CONFIG["health_channel_id"]
 SOUNDING_CHANNEL_ID = CONFIG["sounding_channel_id"]
 WARNINGS_CHANNEL_ID = CONFIG["warnings_channel_id"]
+TOR_CHANNEL_ID = CONFIG["tor_channel_id"]
+SVR_CHANNEL_ID = CONFIG["svr_channel_id"]
+FFW_CHANNEL_ID = CONFIG["ffw_channel_id"]
+SPS_CHANNEL_ID = CONFIG["sps_channel_id"]
 DEV_CHANNEL_ID = CONFIG["dev_channel_id"]
 MANUAL_CACHE_FILE = os.path.join(CONFIG["cache_file_dir"], CONFIG["manual_cache_file"])
 AUTO_CACHE_FILE = os.path.join(CONFIG["cache_file_dir"], CONFIG["auto_cache_file"])

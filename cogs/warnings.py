@@ -27,7 +27,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from config import NWS_ALERTS_WARNINGS_URL, WARNINGS_CHANNEL_ID
+from config import NWS_ALERTS_WARNINGS_URL, WARNINGS_CHANNEL_ID, TOR_CHANNEL_ID, SVR_CHANNEL_ID, FFW_CHANNEL_ID, SPS_CHANNEL_ID
 from lib.vad_plotter.radar_coords import get_nearest_radar
 from lib.vtec_parser import parse_vtec, parse_warning_polygon, get_polygon_centroid
 from utils.backoff import TaskBackoff
@@ -38,6 +38,7 @@ from utils.state_store import (
     get_all_posted_warnings,
     get_recent_significant_events,
     prune_posted_warnings,
+    get_state,
 )
 from cogs.warning_format import (
     get_warning_style,
@@ -84,6 +85,42 @@ class WarningsCog(commands.Cog):
     def cog_unload(self):
         self.auto_poll_warnings.cancel()
 
+    # ── Warning Channel Routing ─────────────────────────────────────────────
+
+    _STATIC_CHANNEL_FOR_PHENOM = {
+        "tor": TOR_CHANNEL_ID,
+        "svr": SVR_CHANNEL_ID,
+        "ffw": FFW_CHANNEL_ID,
+        "sps": SPS_CHANNEL_ID,
+    }
+
+    @staticmethod
+    def _event_to_phenom(event: str) -> str:
+        e = event.lower()
+        if "tornado warning" in e:
+            return "tor"
+        if "severe thunderstorm" in e:
+            return "svr"
+        if "flash flood" in e:
+            return "ffw"
+        if "special weather statement" in e:
+            return "sps"
+        return "default"
+
+    async def _resolve_warning_channel(self, event: str) -> Optional[discord.abc.Messageable]:
+        """Return the channel to post this warning type to, or None if disabled."""
+        phenom = self._event_to_phenom(event)
+        if phenom != "default":
+            override = await get_state(f"warning_channel:{phenom}")
+            if override == "disabled":
+                return None
+            if override:
+                ch = self.bot.get_channel(int(override))
+                if ch:
+                    return ch
+        static_id = self._STATIC_CHANNEL_FOR_PHENOM.get(phenom, WARNINGS_CHANNEL_ID)
+        return self.bot.get_channel(static_id)
+
     # ── iembot fast-trigger path ───────────────────────────────────────────
     #
     # IEMBotCog calls this when a TOR/SVR/FFW product hits the botstalk
@@ -99,7 +136,7 @@ class WarningsCog(commands.Cog):
         VTEC product as plain text from the IEM nwstext API."""
         if not self.bot.state.is_primary:
             return
-        channel = self.bot.get_channel(WARNINGS_CHANNEL_ID)
+        channel = await self._resolve_warning_channel(event)
         if not channel:
             return
 
@@ -558,11 +595,6 @@ class WarningsCog(commands.Cog):
         if not self.bot.state.is_primary:
             return
 
-        channel = self.bot.get_channel(WARNINGS_CHANNEL_ID)
-        if not channel:
-            logger.warning("Warnings channel not found — skipping poll")
-            return
-
         content, status, validators = await http_get_bytes_conditional(
             NWS_ALERTS_WARNINGS_URL,
             etag=self._validators.get("etag") or None,
@@ -640,7 +672,10 @@ class WarningsCog(commands.Cog):
                             self._in_flight_vtecs.add(issuance_id)
                             try:
                                 try:
-                                    await self._post_warning(feature, channel, vtec_dict, event, is_update=True)
+                                    event_ch = await self._resolve_warning_channel(event)
+                                    if event_ch is None:
+                                        continue
+                                    await self._post_warning(feature, event_ch, vtec_dict, event, is_update=True)
                                 except discord.HTTPException as e:
                                     logger.exception(f"Update send failed for {issuance_id}: {e}")
 
@@ -682,7 +717,11 @@ class WarningsCog(commands.Cog):
                 self.bot.state.posted_warnings[issuance_id] = {}  # placeholder
 
                 try:
-                    msg, area_desc = await self._post_warning(feature, channel, vtec_dict, event)
+                    event_ch = await self._resolve_warning_channel(event)
+                    if event_ch is None:
+                        self.bot.state.posted_warnings.pop(issuance_id, None)
+                        continue
+                    msg, area_desc = await self._post_warning(feature, event_ch, vtec_dict, event)
                 except discord.HTTPException as e:
                     logger.exception(f"Send failed for {issuance_id}: {e}")
                     # Roll back placeholder on failure
