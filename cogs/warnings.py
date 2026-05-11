@@ -517,15 +517,22 @@ class WarningsCog(commands.Cog):
         if not (channel_id and message_id):
             return
 
-        channel = self.bot.get_channel(channel_id)
+        # Route the cancellation to the type-specific channel if configured;
+        # fall back to the channel the original was posted in.
+        phenom = (vtec or {}).get("phenom", "")
+        sig = (vtec or {}).get("sig", "")
+        event_base = self._PHENOM_EVENT.get((phenom, sig), "")
+        channel = None
+        if event_base:
+            channel = await self._resolve_warning_channel(event_base)
+        if not channel:
+            channel = self.bot.get_channel(channel_id)
         if not channel:
             return
 
         # Area was stored in posted_warnings when the warning was first posted.
         area = info.get("area", "")
 
-        phenom = (vtec or {}).get("phenom", "")
-        sig = (vtec or {}).get("sig", "")
         office = (vtec or {}).get("office", vtec_id.split(".")[0])
         if office.startswith("K") and len(office) == 4:
             office = office[1:]
