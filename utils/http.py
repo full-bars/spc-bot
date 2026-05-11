@@ -147,7 +147,7 @@ async def http_get_bytes_conditional(
     host = parsed.netloc
 
     if circuit_breaker.is_open(host):
-        logger.warning(f"Circuit open for {host}, failing fast: {url}")
+        logger.debug(f"Circuit open for {host}, failing fast: {url}")
         raise CircuitOpenError(f"Circuit breaker is open for {host}")
 
     headers: Dict[str, str] = dict(extra_headers) if extra_headers else {}
