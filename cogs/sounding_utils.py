@@ -1045,14 +1045,21 @@ async def generate_plot(
     from utils.worker_pool import get_sounding_executor
     loop = asyncio.get_running_loop()
     try:
-        await loop.run_in_executor(
-            get_sounding_executor(),
-            _plot_sync,
-            clean_data,
-            output_path,
-            dark_mode,
+        # Wrap in wait_for to prevent infinite hangs in the subprocess
+        await asyncio.wait_for(
+            loop.run_in_executor(
+                get_sounding_executor(),
+                _plot_sync,
+                clean_data,
+                output_path,
+                dark_mode,
+            ),
+            timeout=60.0
         )
         return True
+    except asyncio.TimeoutError:
+        logger.error(f"[SOUNDING] Plot generation timed out for {output_path}")
+        return False
     except ValueError as e:
         # SounderPy/MetPy raise ValueError with "zero-size array to reduction"
         # when upstream data quality is insufficient (issue #87). Treat as a

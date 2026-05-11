@@ -6,17 +6,15 @@ to prevent long-running soundings from blocking rapid-fire radar updates.
 
 import asyncio
 import concurrent.futures
-import os
 from typing import Optional
 
 _HODO_EXECUTOR: Optional[concurrent.futures.ProcessPoolExecutor] = None
 _SOUNDING_EXECUTOR: Optional[concurrent.futures.ProcessPoolExecutor] = None
 
 # Hodographs are fast and memory-light.
-_MAX_HODO_WORKERS = 2
+_MAX_HODO_WORKERS = 4
 # Soundings are slow and memory-heavy (SounderPy/MetPy).
-# Cap at 1 on dual-core systems, 2 on larger systems.
-_MAX_SOUNDING_WORKERS = 1 if (os.cpu_count() or 2) <= 2 else 2
+_MAX_SOUNDING_WORKERS = 3
 
 # Semaphore for sounding queue management (for UI feedback)
 _sounding_semaphore: Optional[asyncio.Semaphore] = None
@@ -53,6 +51,8 @@ def get_hodo_executor() -> concurrent.futures.ProcessPoolExecutor:
     """Get or create the executor dedicated to fast radar/hodograph plots."""
     global _HODO_EXECUTOR
     if _HODO_EXECUTOR is None:
+        import logging as _logging
+        _logging.getLogger("spc_bot").info(f"Initializing Hodo Pool ({_MAX_HODO_WORKERS} workers)")
         _HODO_EXECUTOR = concurrent.futures.ProcessPoolExecutor(
             max_workers=_MAX_HODO_WORKERS,
             initializer=_worker_init
@@ -64,6 +64,8 @@ def get_sounding_executor() -> concurrent.futures.ProcessPoolExecutor:
     """Get or create the executor dedicated to heavy sounding plots."""
     global _SOUNDING_EXECUTOR
     if _SOUNDING_EXECUTOR is None:
+        import logging as _logging
+        _logging.getLogger("spc_bot").info(f"Initializing Sounding Pool ({_MAX_SOUNDING_WORKERS} workers)")
         _SOUNDING_EXECUTOR = concurrent.futures.ProcessPoolExecutor(
             max_workers=_MAX_SOUNDING_WORKERS,
             initializer=_worker_init

@@ -27,7 +27,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from config import NWS_ALERTS_WARNINGS_URL, WARNINGS_CHANNEL_ID
+from config import NWS_ALERTS_WARNINGS_URL, WARNINGS_CHANNEL_ID, TOR_CHANNEL_ID, SVR_CHANNEL_ID, FFW_CHANNEL_ID, SPS_CHANNEL_ID
 from lib.vad_plotter.radar_coords import get_nearest_radar
 from lib.vtec_parser import parse_vtec, parse_warning_polygon, get_polygon_centroid
 from utils.backoff import TaskBackoff
@@ -38,6 +38,7 @@ from utils.state_store import (
     get_all_posted_warnings,
     get_recent_significant_events,
     prune_posted_warnings,
+    get_state,
 )
 from cogs.warning_format import (
     get_warning_style,
@@ -66,6 +67,7 @@ class WarningsCog(commands.Cog):
         self._validators = {"etag": "", "last_modified": ""}
         self._cancelled_warnings: set[str] = set()
         self._in_flight_vtecs: set[str] = set()
+        self._perm_warned: set[int] = set()
 
     async def cog_load(self):
         # Restore the dedup mapping so a restart during active wx doesn't
@@ -84,6 +86,83 @@ class WarningsCog(commands.Cog):
     def cog_unload(self):
         self.auto_poll_warnings.cancel()
 
+    # ── Warning Channel Routing ─────────────────────────────────────────────
+
+    def _check_channel_perms(self, channel) -> list[str]:
+        """Return list of missing permission names needed to post warnings."""
+        if not hasattr(channel, "guild") or not channel.guild:
+            return []
+        me = channel.guild.me
+        if not me:
+            return []
+        perms = channel.permissions_for(me)
+        return [p for p in ("send_messages", "embed_links", "attach_files") if not getattr(perms, p, False)]
+
+    async def _notify_channel_error(self, channel, missing: list[str]) -> None:
+        """Alert the health channel about a permission problem (once per session per channel)."""
+        ch_id = getattr(channel, "id", 0)
+        if ch_id in self._perm_warned:
+            logger.warning(f"Still missing perms {missing} in channel {ch_id}")
+            return
+        self._perm_warned.add(ch_id)
+        ch_name = getattr(channel, "name", str(ch_id))
+        logger.error(f"Missing permissions {missing} in warning channel #{ch_name} ({ch_id})")
+        try:
+            from main import send_bot_alert
+            mention = f"<#{ch_id}>"
+            await send_bot_alert(
+                "Warning Channel — Missing Permissions",
+                f"Bot is missing **{', '.join(missing)}** in {mention} (`#{ch_name}`).\n"
+                f"Warnings that would post there are being **skipped** until this is fixed.",
+                critical=True,
+            )
+        except Exception as e:
+            logger.error(f"Failed to send perm alert for channel {ch_id}: {e}")
+
+    _STATIC_CHANNEL_FOR_PHENOM = {
+        "tor": TOR_CHANNEL_ID,
+        "svr": SVR_CHANNEL_ID,
+        "ffw": FFW_CHANNEL_ID,
+        "sps": SPS_CHANNEL_ID,
+    }
+
+    @staticmethod
+    def _event_to_phenom(event: str) -> str:
+        e = event.lower()
+        if "tornado warning" in e:
+            return "tor"
+        if "severe thunderstorm" in e:
+            return "svr"
+        if "flash flood" in e:
+            return "ffw"
+        if "special weather statement" in e:
+            return "sps"
+        return "default"
+
+    async def _resolve_warning_channel(self, event: str) -> Optional[discord.abc.Messageable]:
+        """Return the channel to post this warning type to, or None if disabled."""
+        phenom = self._event_to_phenom(event)
+        if phenom != "default":
+            override = await get_state(f"warning_channel:{phenom}")
+            if override == "disabled":
+                return None
+            if override:
+                ch = self.bot.get_channel(int(override))
+                if ch:
+                    missing = self._check_channel_perms(ch)
+                    if missing:
+                        await self._notify_channel_error(ch, missing)
+                        return None
+                    return ch
+        static_id = self._STATIC_CHANNEL_FOR_PHENOM.get(phenom, WARNINGS_CHANNEL_ID)
+        channel = self.bot.get_channel(static_id)
+        if channel:
+            missing = self._check_channel_perms(channel)
+            if missing:
+                await self._notify_channel_error(channel, missing)
+                return None
+        return channel
+
     # ── iembot fast-trigger path ───────────────────────────────────────────
     #
     # IEMBotCog calls this when a TOR/SVR/FFW product hits the botstalk
@@ -99,7 +178,7 @@ class WarningsCog(commands.Cog):
         VTEC product as plain text from the IEM nwstext API."""
         if not self.bot.state.is_primary:
             return
-        channel = self.bot.get_channel(WARNINGS_CHANNEL_ID)
+        channel = await self._resolve_warning_channel(event)
         if not channel:
             return
 
@@ -241,6 +320,14 @@ class WarningsCog(commands.Cog):
                     "channel_id": msg.channel.id,
                     "area": area_desc,
                 }
+            except discord.Forbidden as e:
+                await self._notify_channel_error(channel, ["send_messages (403 Forbidden)"])
+                if product_id in self.bot.state.posted_product_ids:
+                    self.bot.state.posted_product_ids.discard(product_id)
+                if not is_update and vtec_id in self.bot.state.posted_warnings:
+                    del self.bot.state.posted_warnings[vtec_id]
+                logger.error(f"iembot send forbidden for {vtec_id} in channel {channel.id}: {e}")
+                return
             except discord.HTTPException as e:
                 # Roll back the dedup claim on a hard send failure
                 if product_id in self.bot.state.posted_product_ids:
@@ -430,15 +517,22 @@ class WarningsCog(commands.Cog):
         if not (channel_id and message_id):
             return
 
-        channel = self.bot.get_channel(channel_id)
+        # Route the cancellation to the type-specific channel if configured;
+        # fall back to the channel the original was posted in.
+        phenom = (vtec or {}).get("phenom", "")
+        sig = (vtec or {}).get("sig", "")
+        event_base = self._PHENOM_EVENT.get((phenom, sig), "")
+        channel = None
+        if event_base:
+            channel = await self._resolve_warning_channel(event_base)
+        if not channel:
+            channel = self.bot.get_channel(channel_id)
         if not channel:
             return
 
         # Area was stored in posted_warnings when the warning was first posted.
         area = info.get("area", "")
 
-        phenom = (vtec or {}).get("phenom", "")
-        sig = (vtec or {}).get("sig", "")
         office = (vtec or {}).get("office", vtec_id.split(".")[0])
         if office.startswith("K") and len(office) == 4:
             office = office[1:]
@@ -558,11 +652,6 @@ class WarningsCog(commands.Cog):
         if not self.bot.state.is_primary:
             return
 
-        channel = self.bot.get_channel(WARNINGS_CHANNEL_ID)
-        if not channel:
-            logger.warning("Warnings channel not found — skipping poll")
-            return
-
         content, status, validators = await http_get_bytes_conditional(
             NWS_ALERTS_WARNINGS_URL,
             etag=self._validators.get("etag") or None,
@@ -640,7 +729,10 @@ class WarningsCog(commands.Cog):
                             self._in_flight_vtecs.add(issuance_id)
                             try:
                                 try:
-                                    await self._post_warning(feature, channel, vtec_dict, event, is_update=True)
+                                    event_ch = await self._resolve_warning_channel(event)
+                                    if event_ch is None:
+                                        continue
+                                    await self._post_warning(feature, event_ch, vtec_dict, event, is_update=True)
                                 except discord.HTTPException as e:
                                     logger.exception(f"Update send failed for {issuance_id}: {e}")
 
@@ -682,7 +774,11 @@ class WarningsCog(commands.Cog):
                 self.bot.state.posted_warnings[issuance_id] = {}  # placeholder
 
                 try:
-                    msg, area_desc = await self._post_warning(feature, channel, vtec_dict, event)
+                    event_ch = await self._resolve_warning_channel(event)
+                    if event_ch is None:
+                        self.bot.state.posted_warnings.pop(issuance_id, None)
+                        continue
+                    msg, area_desc = await self._post_warning(feature, event_ch, vtec_dict, event)
                 except discord.HTTPException as e:
                     logger.exception(f"Send failed for {issuance_id}: {e}")
                     # Roll back placeholder on failure
@@ -780,6 +876,25 @@ class WarningsCog(commands.Cog):
         msg = await channel.send(embed=embed, files=files)
         logger.info(f"Posted {event} {vtec_id}")
         return msg, area_desc
+
+    @auto_poll_warnings.before_loop
+    async def before_poll(self):
+        await self.bot.wait_until_ready()
+        await self._audit_warning_channels()
+
+    async def _audit_warning_channels(self):
+        """Check all configured warning channels at startup; report perm issues."""
+        channel_ids = {TOR_CHANNEL_ID, SVR_CHANNEL_ID, FFW_CHANNEL_ID, SPS_CHANNEL_ID, WARNINGS_CHANNEL_ID}
+        for ch_id in channel_ids:
+            if not ch_id:
+                continue
+            ch = self.bot.get_channel(ch_id)
+            if not ch:
+                logger.warning(f"Warning channel {ch_id} not found in cache at startup — may not be visible to bot")
+                continue
+            missing = self._check_channel_perms(ch)
+            if missing:
+                await self._notify_channel_error(ch, missing)
 
     @auto_poll_warnings.after_loop
     async def after_loop(self):
