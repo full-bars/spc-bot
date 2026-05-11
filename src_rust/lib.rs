@@ -1,3 +1,9 @@
+#![allow(
+    clippy::collapsible_if,
+    clippy::manual_range_contains,
+    clippy::type_complexity
+)]
+
 use geo::algorithm::contains::Contains;
 use geo::{Coord, Point, Polygon};
 use once_cell::sync::Lazy;
