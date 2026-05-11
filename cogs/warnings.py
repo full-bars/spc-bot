@@ -35,7 +35,6 @@ from utils.http import http_get_bytes, http_get_bytes_conditional
 from utils.state_store import (
     add_posted_warning,
     add_significant_event,
-    get_all_posted_warnings,
     get_recent_significant_events,
     prune_posted_warnings,
     get_state,
@@ -70,16 +69,11 @@ class WarningsCog(commands.Cog):
         self._perm_warned: set[int] = set()
 
     async def cog_load(self):
-        # Restore the dedup mapping so a restart during active wx doesn't
-        # replay every warning the bot has already posted today.
-        try:
-            persisted = await get_all_posted_warnings()
-            self.bot.state.posted_warnings.update(persisted)
-            logger.info(
-                f"Restored {len(persisted)} posted warning(s) from store"
-            )
-        except Exception as e:
-            logger.warning(f"Could not restore posted_warnings: {e}")
+        # posted_warnings already hydrated by _hydrate_state before cog load
+        logger.debug(
+            f"cog_load: {len(self.bot.state.posted_warnings)} posted warning(s) "
+            f"already in state"
+        )
 
         self.auto_poll_warnings.start()
 

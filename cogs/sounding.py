@@ -103,7 +103,7 @@ class SoundingCog(commands.Cog):
         bot already covered today. Entries from previous UTC days are
         dropped on load."""
         self._restore_attempted = True
-        logger.info("cog_load: restoring dedup state from state_store")
+        logger.debug("cog_load: restoring dedup state from state_store")
         
         self.auto_sounding_watches.start()
         self.monitor_special_soundings.start()

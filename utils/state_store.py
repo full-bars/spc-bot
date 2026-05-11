@@ -900,7 +900,7 @@ async def resync_to_upstash(force_full: bool = False) -> Dict[str, int]:
     # Normal case: only push dirty items
     pending = await sqlite_backend.get_dirty_writes()
     if not pending:
-        logger.info("[STATE] Startup resync: no dirty writes found")
+        logger.debug("[STATE] Startup resync: no dirty writes found")
         return {"dirty": 0}
 
     ids_to_delete = []

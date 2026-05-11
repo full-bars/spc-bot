@@ -107,35 +107,35 @@ async def _hydrate_state():
 
     if isinstance(last_botstalk, str):
         bot.state.iembot_botstalk_last_seqnum = int(last_botstalk)
-        logger.info(f"[DB] Restored last botstalk seqnum {last_botstalk}")
+        logger.debug(f"[DB] Restored last botstalk seqnum {last_botstalk}")
 
     if isinstance(db_warnings, dict):
         bot.state.posted_warnings.update(db_warnings)
-        logger.info(f"[DB] Restored {len(db_warnings)} posted warnings into cache")
+        logger.debug(f"[DB] Restored {len(db_warnings)} posted warnings into cache")
 
     if isinstance(last_seq, str):
         bot.state.iembot_last_seqnum = int(last_seq)
-        logger.info(f"[DB] Restored last seqnum {last_seq}")
+        logger.debug(f"[DB] Restored last seqnum {last_seq}")
 
     if isinstance(db_auto, dict):
         bot.state.auto_cache.update(db_auto)
-        logger.info(f"[DB] Loaded {len(db_auto)} auto hashes into cache")
+        logger.debug(f"[DB] Loaded {len(db_auto)} auto hashes into cache")
 
     if isinstance(db_manual, dict):
         bot.state.manual_cache.update(db_manual)
-        logger.info(f"[DB] Loaded {len(db_manual)} manual hashes into cache")
+        logger.debug(f"[DB] Loaded {len(db_manual)} manual hashes into cache")
 
     if isinstance(db_mds, (set, list)):
         bot.state.posted_mds.update(db_mds)
-        logger.info(f"[DB] Loaded {len(db_mds)} posted MDs into cache")
+        logger.debug(f"[DB] Loaded {len(db_mds)} posted MDs into cache")
 
     if isinstance(db_watches, (set, list)):
         bot.state.posted_watches.update(db_watches)
-        logger.info(f"[DB] Loaded {len(db_watches)} posted watches into cache")
+        logger.debug(f"[DB] Loaded {len(db_watches)} posted watches into cache")
 
     if isinstance(db_reports, (set, list)):
         bot.state.posted_reports.update(db_reports)
-        logger.info(f"[DB] Loaded {len(db_reports)} posted reports into cache")
+        logger.debug(f"[DB] Loaded {len(db_reports)} posted reports into cache")
 
     # CSU state
     if isinstance(csu_raw, str):
@@ -144,14 +144,14 @@ async def _hydrate_state():
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             if csu_data.get("date") == today:
                 bot.state.csu_posted.update(str(d) for d in csu_data.get("days", []))
-                logger.info(f"[DB] Restored {len(bot.state.csu_posted)} CSU posted days")
+                logger.debug(f"[DB] Restored {len(bot.state.csu_posted)} CSU posted days")
         except (ValueError, KeyError, TypeError) as e:
             logger.debug(f"[DB] CSU state parse failed (ignored): {e}")
 
     for day_key, urls in zip(["day1", "day2", "day3"], [d1_urls, d2_urls, d3_urls], strict=True):
         if isinstance(urls, list) and urls:
             bot.state.last_posted_urls[day_key] = urls
-            logger.info(f"[DB] Restored posted URLs for {day_key}")
+            logger.debug(f"[DB] Restored posted URLs for {day_key}")
 
     # Warm the conditional-GET validator cache
     try:
@@ -159,7 +159,16 @@ async def _hydrate_state():
     except Exception as e:
         logger.warning(f"[DB] validator hydration skipped: {e}")
 
-    logger.info("[DB] Database ready")
+    logger.info(
+        f"[DB] Database ready — "
+        f"{len(bot.state.auto_cache)} auto hashes, "
+        f"{len(bot.state.manual_cache)} manual hashes, "
+        f"{len(bot.state.posted_mds)} MDs, "
+        f"{len(bot.state.posted_watches)} watches, "
+        f"{len(bot.state.posted_warnings)} warnings, "
+        f"{len(bot.state.posted_reports)} reports, "
+        f"{len(bot.state.csu_posted)} CSU days"
+    )
 
 
 async def _run_startup_cleanup():
@@ -286,11 +295,8 @@ async def on_ready():
             from utils.events_db import set_syncthing_folder_mode  # noqa: PLC0415
             await set_syncthing_folder_mode("sendonly")
             try:
-                logger.info("Syncing command tree globally...")
                 synced = await bot.tree.sync()
-                logger.info(
-                    f"Successfully synced {len(synced)} global slash command(s)"
-                )
+                logger.info(f"Synced {len(synced)} global slash command(s)")
             except Exception as e:
                 logger.exception(f"Failed to sync command tree: {e}")
         else:
@@ -306,7 +312,7 @@ async def on_ready():
     # Schedule periodic cache cleanup on first ready event
     if not hasattr(bot, "_cache_cleanup_scheduled"):
         bot._cache_cleanup_scheduled = True
-        logger.info("[CACHE] Scheduling daily cache cleanup task")
+        logger.debug("[CACHE] Scheduling daily cache cleanup task")
         asyncio.create_task(_periodic_cache_cleanup())
 
 @tasks.loop(hours=24)
@@ -579,6 +585,7 @@ async def _shutdown():
 
 def _setup_signal_handlers(loop: asyncio.AbstractEventLoop):
     """Register signal handlers using the running event loop."""
+    registered = []
     for sig_name in ("SIGINT", "SIGTERM"):
         try:
             sig = getattr(signal, sig_name)
@@ -586,10 +593,13 @@ def _setup_signal_handlers(loop: asyncio.AbstractEventLoop):
                 sig,
                 lambda s=sig_name: asyncio.ensure_future(_shutdown()),
             )
-            logger.info(f"Registered signal handler for {sig_name}")
+            registered.append(sig_name)
+            logger.debug(f"Registered signal handler for {sig_name}")
         except (NotImplementedError, OSError) as e:
             # Windows doesn't support add_signal_handler
             logger.warning(f"Could not register signal {sig_name}: {e}")
+    if registered:
+        logger.info(f"Registered signal handlers for {', '.join(registered)}")
 
 
 # ── Periodic cache maintenance ────────────────────────────────────────────────
