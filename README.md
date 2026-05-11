@@ -10,7 +10,7 @@ A high-performance severe weather monitoring platform with near-zero latency ale
 > [!IMPORTANT]  
 > **Warning features are Beta.** While designed for ultra-low latency, this bot is for situational awareness only. Redundancy saves lives. Avoid a single point of failure by always maintaining multiple independent methods for receiving life-safety alerts. Recommended sources include: NOAA Radio (w/ battery backup), WEA mobile alerts, TV/Radio Broadcast. 
 
-NWWS-OI fast path, IEMBot fallback, NWS API polling, SPC watch alerts with deduplication, NWS warnings (TOR/SVR/FFW/SPS) with lifecycle tracking (CON/EXT/EXA), damage survey detection with DAT integration and photo carousels, automated 2.5h environmental evolution GIFs for observed tornadoes.
+NWWS-OI fast path, IEMBot fallback, NWS API polling, SPC watch alerts with deduplication, NWS warnings (TOR/SVR/FFW/SPS) routable to dedicated per-type channels with runtime configuration via `/enablewarnings`, lifecycle tracking (CON/EXT/EXA), damage survey detection with DAT integration and photo carousels, automated 2.5h environmental evolution GIFs for observed tornadoes.
 
 **Scientific Tools:** Interactive RAOB/ACARS sounding plots (auto-posted near active watches and MDT/HIGH risk areas), VWP hodographs, searchable tornado forensics archive, NEXRAD Level 2 downloader, and IEM-based tornado analytics.
 

@@ -45,6 +45,7 @@ spc-bot/
 │   ├── iembot.py            # IEM iembot feed poller with persistent text-product caching
 │   ├── watches.py           # SPC watch monitoring via NWS API (stores affected_zones)
 │   ├── warnings.py          # NWS VTEC warning monitoring (SVR, TOR, FFW) — polling & deduplication logic
+│   ├── warning_channels.py  # Slash commands for per-type warning channel routing (/enablewarnings, /displaysetup, /disablewarnings)
 │   ├── warning_format.py    # Warning styling, narrative extraction, URL generation (decoupled from warnings.py)
 │   ├── warning_ui.py        # Discord UI views for tornado data: EnvironmentalView, TornadoPhotoView, TornadoDashboardView
 │   ├── reports.py           # LSR and PNS monitoring; logs tornado events and DAT survey links
