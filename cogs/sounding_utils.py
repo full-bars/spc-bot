@@ -33,8 +33,8 @@ finally:
     sys.stdout = _stdout
 
 from utils.state_store import get_state, set_state  # noqa: E402  # follows sounderpy import
-from utils.geo import haversine
-from utils.http import http_get_json, circuit_breaker
+from utils.geo import haversine, haversine_batch  # noqa: E402
+from utils.http import http_get_json, circuit_breaker  # noqa: E402
 
 logger = logging.getLogger("spc_bot")
 
@@ -106,10 +106,9 @@ def _fetch_stations() -> pd.DataFrame:
 
 def find_nearest_stations(lat: float, lon: float, df: pd.DataFrame, n: int = 3) -> list[dict]:
     """Return the n nearest RAOB stations as a list of dicts."""
-    df = df.copy()
-    df["dist_km"] = df.apply(
-        lambda r: haversine(lat, lon, r["lat"], r["lon"]), axis=1
-    )
+    targets = list(zip(df["lat"], df["lon"]))
+    distances = haversine_batch(lat, lon, targets)
+    df = df.assign(dist_km=distances)
     nearest = df.nsmallest(n, "dist_km")
     results = []
     for _, row in nearest.iterrows():

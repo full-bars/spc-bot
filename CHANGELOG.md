@@ -12,6 +12,10 @@ version numbers follow [SemVer](https://semver.org/).
 - **Availability Cache Eviction.** `_AVAILABILITY_CACHE` now evicts expired entries when the cache exceeds 2,000 entries, preventing unbounded memory growth over long uptimes.
 - **Dead `n_times` Parameter.** Removed the unused `n_times` parameter from `filter_stations_with_data`; the IEM fast path returned before it was ever read, and all call sites already omitted it.
 
+### Performance
+- **Haversine Batch Vectorisation.** `find_nearest_stations` now calls `haversine_batch` (Rust fast-path) instead of a row-wise `df.apply` across ~900 RAOB stations. Eliminates the unnecessary DataFrame copy and reduces per-call overhead from ~900 Python haversine calls to a single Rust batch call.
+- **Pre-compiled Geographic Regex.** `_GEOGRAPHIC_GARBAGE` (133 keywords) is now compiled once into a single `re.Pattern` (`_GEOGRAPHIC_GARBAGE_RE`) at module load instead of recompiling up to 133 patterns per county string. `_STATE_REGEX` is likewise pre-compiled. Combined, this drops per-county regex overhead from 133 fresh `re.compile` calls to 1 `.search()` call.
+
 ## [5.22.0] — 2026-05-10
 
 ### Added
