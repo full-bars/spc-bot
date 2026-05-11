@@ -44,6 +44,7 @@ USER_AGENT = "spc-bot-sounding/1.0"
 
 # Cache the station list in memory so we don't fetch it every time
 _station_cache: Optional[pd.DataFrame] = None
+_station_cache_lock: asyncio.Lock = asyncio.Lock()
 
 
 # ── User preferences ──────────────────────────────────────────────────────────
@@ -73,10 +74,13 @@ async def get_raob_stations() -> pd.DataFrame:
     if _station_cache is not None:
         return _station_cache
 
-    loop = asyncio.get_running_loop()
-    df = await loop.run_in_executor(None, _fetch_stations)
-    _station_cache = df
-    return df
+    async with _station_cache_lock:
+        if _station_cache is not None:
+            return _station_cache
+        loop = asyncio.get_running_loop()
+        df = await loop.run_in_executor(None, _fetch_stations)
+        _station_cache = df
+    return _station_cache
 
 def _fetch_stations() -> pd.DataFrame:
     df = pd.read_csv(
@@ -543,7 +547,6 @@ async def get_available_sounding_times_iem(
     times_to_check = [
         now - timedelta(hours=h)
         for h in range(hours_back + 1)
-        if (now - timedelta(hours=h)) < now
     ]
 
     # Limit concurrency to 5 simultaneous requests to avoid overwhelming IEM
@@ -553,8 +556,15 @@ async def get_available_sounding_times_iem(
 
     # Sort most recent first
     found.sort(key=lambda x: (x[0], x[1], x[2], x[3]), reverse=True)
-    # Store in cache
+    # Store in cache; evict expired entries if cache grows too large
     _AVAILABILITY_CACHE[cache_key] = (now, found)
+    if len(_AVAILABILITY_CACHE) > 2000:
+        expired = [
+            k for k, (ts, _) in _AVAILABILITY_CACHE.items()
+            if (now - ts).total_seconds() >= AVAILABILITY_CACHE_TTL
+        ]
+        for k in expired:
+            del _AVAILABILITY_CACHE[k]
     return found
 
 
@@ -884,14 +894,14 @@ async def fetch_acars_sounding(
 # ── SounderPy fetch and plot ──────────────────────────────────────────────────
 
 
-async def filter_stations_with_data(stations: list[dict], n_times: int = 1) -> list[dict]:
+async def filter_stations_with_data(stations: list[dict]) -> list[dict]:
     """
     Check each station in parallel against the single most recent sounding time.
     If the most recent time has no data, try the previous one — but all stations
     are checked concurrently to keep total wait time minimal.
     Returns only stations that have at least one available sounding.
     """
-    times = get_recent_sounding_times(n_times)
+    times = get_recent_sounding_times()
 
     async def has_data(station: dict) -> tuple[dict, bool]:
         station_id = station.get("icao") or station.get("wmo")
