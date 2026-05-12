@@ -36,6 +36,9 @@ fn spc_rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(normalize_product_id, m)?)?;
     m.add_function(wrap_pyfunction!(haversine, m)?)?;
     m.add_function(wrap_pyfunction!(haversine_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(compute_shear_mag, m)?)?;
+    m.add_function(wrap_pyfunction!(compute_sr_flow, m)?)?;
+    m.add_function(wrap_pyfunction!(clip_profile, m)?)?;
     Ok(())
 }
 
@@ -351,7 +354,7 @@ fn comp2vec(u: f64, v: f64) -> PyResult<(f64, f64)> {
     Ok((dir, spd))
 }
 
-fn clip_profile(
+fn _clip_profile_internal(
     wind_dir: &[f64],
     wind_spd: &[f64],
     altitude: &[f64],
@@ -371,19 +374,20 @@ fn clip_profile(
 }
 
 fn _interp_linear(x: &[f64], y: &[f64], xi: f64) -> f64 {
-    if x.is_empty() {
+    if x.is_empty() || xi.is_nan() {
         return f64::NAN;
     }
-    if xi <= x[0] {
-        return if x[0].is_nan() { f64::NAN } else { y[0] };
+    // Match numpy.interp(left=nan, right=nan)
+    if xi < x[0] || xi > x[x.len() - 1] {
+        return f64::NAN;
     }
-    if xi >= x[x.len() - 1] {
-        return if x[x.len() - 1].is_nan() {
-            f64::NAN
-        } else {
-            y[y.len() - 1]
-        };
+    if xi == x[0] {
+        return y[0];
     }
+    if xi == x[x.len() - 1] {
+        return y[y.len() - 1];
+    }
+
     for i in 0..x.len() - 1 {
         if x[i] <= xi && xi <= x[i + 1] {
             let t = (xi - x[i]) / (x[i + 1] - x[i]);
@@ -580,7 +584,8 @@ fn compute_critical_angle(
         return Ok(f64::NAN);
     }
 
-    let (clipped_dir, clipped_spd, _) = clip_profile(&wind_dir, &wind_spd, &altitude, 6000.0);
+    let (clipped_dir, clipped_spd, _) =
+        _clip_profile_internal(&wind_dir, &wind_spd, &altitude, 6000.0);
     if clipped_dir.is_empty() {
         return Ok(f64::NAN);
     }
@@ -848,6 +853,126 @@ fn haversine_batch(
 
 // ── Rust Unit Tests ──────────────────────────────────────────────────────────
 
+fn linspace(start: f64, end: f64, n: usize) -> Vec<f64> {
+    if n == 0 {
+        return Vec::new();
+    }
+    if n == 1 {
+        return vec![start];
+    }
+    let step = (end - start) / (n - 1) as f64;
+    (0..n).map(|i| start + i as f64 * step).collect()
+}
+
+#[pyfunction]
+fn compute_shear_mag(
+    wind_dir: Vec<f64>,
+    wind_spd: Vec<f64>,
+    altitude: Vec<f64>,
+    hght: f64,
+) -> PyResult<f64> {
+    if wind_dir.is_empty() || altitude.is_empty() {
+        return Ok(f64::NAN);
+    }
+
+    let mut u_all = Vec::with_capacity(wind_dir.len());
+    let mut v_all = Vec::with_capacity(wind_dir.len());
+    for i in 0..wind_dir.len() {
+        let (u, v) = vec2comp(wind_dir[i], wind_spd[i])?;
+        u_all.push(u);
+        v_all.push(v);
+    }
+
+    let u_hght = _interp_linear(&altitude, &u_all, hght);
+    let v_hght = _interp_linear(&altitude, &v_all, hght);
+
+    if u_hght.is_nan() || v_hght.is_nan() {
+        return Ok(f64::NAN);
+    }
+
+    let du = u_hght - u_all[0];
+    let dv = v_hght - v_all[0];
+    Ok((du * du + dv * dv).sqrt())
+}
+
+#[pyfunction]
+fn compute_sr_flow(
+    wind_dir: Vec<f64>,
+    wind_spd: Vec<f64>,
+    altitude: Vec<f64>,
+    storm_dir: f64,
+    storm_spd: f64,
+    hght_bot: f64,
+    hght_top: f64,
+) -> PyResult<f64> {
+    if wind_dir.is_empty() || altitude.is_empty() {
+        return Ok(f64::NAN);
+    }
+
+    let mut u_all = Vec::with_capacity(wind_dir.len());
+    let mut v_all = Vec::with_capacity(wind_dir.len());
+    for i in 0..wind_dir.len() {
+        let (u, v) = vec2comp(wind_dir[i], wind_spd[i])?;
+        u_all.push(u);
+        v_all.push(v);
+    }
+
+    let (storm_u, storm_v) = vec2comp(storm_dir, storm_spd)?;
+
+    let n = 50;
+    let layer_alts = linspace(hght_bot, hght_top, n);
+
+    let mut sum_mag = 0.0;
+    let mut count = 0;
+
+    for alt in layer_alts {
+        let u_interp = _interp_linear(&altitude, &u_all, alt);
+        let v_interp = _interp_linear(&altitude, &v_all, alt);
+
+        if u_interp.is_finite() && v_interp.is_finite() {
+            let sr_u = u_interp - storm_u;
+            let sr_v = v_interp - storm_v;
+            sum_mag += (sr_u * sr_u + sr_v * sr_v).sqrt();
+            count += 1;
+        }
+    }
+
+    if count == 0 {
+        Ok(f64::NAN)
+    } else {
+        Ok(sum_mag / count as f64)
+    }
+}
+
+#[pyfunction]
+fn clip_profile(
+    prof: Vec<f64>,
+    alt: Vec<f64>,
+    clip_alt: f64,
+    intrp_prof: f64,
+) -> PyResult<Vec<f64>> {
+    if alt.len() < 2 {
+        return Ok(vec![f64::NAN; prof.len()]);
+    }
+
+    let mut idx_clip = None;
+    for i in 0..(alt.len() - 1) {
+        if alt[i] <= clip_alt && alt[i + 1] > clip_alt {
+            idx_clip = Some(i);
+            break;
+        }
+    }
+
+    match idx_clip {
+        Some(idx) => {
+            let mut result = prof[0..=idx].to_vec();
+            result.push(intrp_prof);
+            Ok(result)
+        }
+        None => Ok(vec![f64::NAN; prof.len()]),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -939,7 +1064,7 @@ mod tests {
         let wind_spd = vec![10.0, 15.0, 20.0, 25.0];
         let altitude = vec![0.0, 2000.0, 4000.0, 6000.0];
         let (clipped_dir, clipped_spd, clipped_alt) =
-            clip_profile(&wind_dir, &wind_spd, &altitude, 5000.0);
+            _clip_profile_internal(&wind_dir, &wind_spd, &altitude, 5000.0);
         // Should include 0, 2000, 4000 but not 6000
         assert_eq!(clipped_dir.len(), 3);
         assert_eq!(clipped_spd.len(), 3);
