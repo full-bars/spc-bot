@@ -6,6 +6,9 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Performance
+- **Tenacity Retry Decorator Hoisted.** `http_get_bytes_conditional` and `http_get_json` previously reconstructed a `tenacity.retry(...)` decorator object on every invocation, paying the full strategy-compilation cost per HTTP call. Decorators are now built once at module load and cached by attempt-count in `_RETRY_CACHE`; the common cases (1–4 attempts) are pre-populated at import time. Non-default counts are lazily memoized on first use.
+
 ### Fixed
 - **Circuit Breaker Log Noise.** Demoted the per-request "Circuit open for {host}, failing fast" log from WARNING to DEBUG. The breaker fast-failing is the desired behavior — the actual state transition is still logged at WARNING (`reached N failures. Circuit OPEN`) and INFO (`recovered. Closing circuit`). A single upstream outage was producing 20× amplification (one trip warning + tens of fast-fail warnings until recovery).
 
