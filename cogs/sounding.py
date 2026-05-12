@@ -22,6 +22,7 @@ from cogs.sounding_utils import (
     generate_plot,
     get_acars_profiles_in_polygon,
     get_acars_profiles_near,
+    get_available_sounding_times,
     get_available_sounding_times_iem,
     get_md_area_centroid,
     get_raob_stations,
@@ -1108,7 +1109,7 @@ class SoundingCog(commands.Cog):
             description_lines.append("**\U0001f4e1 RAOB Upper Air Stations:**")
             for s in nearest:
                 sid = s.get("icao") or s.get("wmo")
-                avail = await get_available_sounding_times_iem(sid, hours_back=36)
+                avail = await get_available_sounding_times(sid, hours_back=36)
                 time_strs = [f"`{t[3]}z`" for t in avail[:4]]
                 times_note = " | ".join(time_strs) if time_strs else "no recent data"
                 description_lines.append(

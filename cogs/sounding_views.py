@@ -12,7 +12,7 @@ from cogs.sounding_utils import (
     fetch_acars_sounding,
     fetch_sounding,
     generate_plot,
-    get_available_sounding_times_iem,
+    get_available_sounding_times,
     get_recent_sounding_times,
     set_user_dark_mode,
     sounding_quality_warning,
@@ -183,7 +183,7 @@ async def _send_sounding_embed(
     clean_data: dict = None,
 ):
     """Helper to build and send the final sounding post."""
-    mode_label = "\U0001f319 Dark" if dark_mode else "\u2600\ufe0f Light"
+    mode_label = "🌙 Dark" if dark_mode else "☀️ Light"
 
     # Extract source from clean_data if provided
     source_str = ""
@@ -379,7 +379,7 @@ class CombinedSoundingView(View):
         self.clear_items()
         row = 0
 
-        # RAOB station buttons
+        # RAOB station buttons (Row 0-1)
         for i, station in enumerate(self.raob_stations[:3]):
             sid = station.get("icao") or station.get("wmo")
             label = f"📡 {station['name']} ({sid})"
@@ -422,7 +422,7 @@ class CombinedSoundingView(View):
                             color=discord.Color.blurple(),
                         ), ephemeral=True, wait=True
                     )
-                    avail = await get_available_sounding_times_iem(sid, hours_back=36)
+                    avail = await get_available_sounding_times(sid, hours_back=36)
                     if not avail:
                         await status_msg.edit(embed=discord.Embed(
                             title="❌ No Times Available",
@@ -443,89 +443,93 @@ class CombinedSoundingView(View):
             self.add_item(btn)
             row = min(row + 1, 2)
 
-        # ACARS profile buttons
-        for i, profile in enumerate(self.acars_profiles[:2]):
-            label = f"✈️ {profile['airport']} ({profile['time_label']})"
-            btn = Button(label=label[:80], style=ButtonStyle.green, row=row)
+        # ACARS profile buttons (Row 2-3)
+        if self.acars_profiles:
+            # Skip to next row block for ACARS
+            row = 2
+            for i, profile in enumerate(self.acars_profiles[:5]):
+                label = f"✈️ {profile['airport']} ({profile['time_label']})"
+                btn = Button(label=label[:80], style=ButtonStyle.green, row=row)
 
-            async def acars_cb(interaction, p=profile):
-                loading_embed = discord.Embed(
-                    title="⏳ Fetching Aircraft Profile...",
-                    description=f"Retrieving ACARS data for {p['airport']}...",
-                    color=discord.Color.blurple(),
-                )
-                await interaction.response.defer(ephemeral=True)
-                status_msg = await interaction.followup.send(
-                    embed=loading_embed, ephemeral=True, wait=True
-                )
-
-                clean_data = await fetch_acars_sounding(
-                    p["profile_id"], p["year"], p["month"], p["day"], p["acars_hour"]
-                )
-                if not clean_data:
-                    await status_msg.edit(embed=discord.Embed(
-                        title="❌ ACARS Data Unavailable",
-                        description=f"Could not fetch profile for {p['airport']}.",
-                        color=discord.Color.red(),
-                    ))
-                    return
-
-                from utils.worker_pool import get_sounding_semaphore
-                sem = get_sounding_semaphore()
-                
-                if sem.locked():
-                    pos = len(sem._waiters) + 1 if hasattr(sem, '_waiters') else 1
-                    queue_embed = discord.Embed(
-                        title="⌛ Plot Queued...",
-                        description=f"Sounding workers are currently busy. Your plot for **{p['airport']}** is at **position {pos}** in the queue. Please wait...",
-                        color=discord.Color.orange(),
-                    )
-                    await status_msg.edit(embed=queue_embed)
-
-                async with sem:
-                    plotting_embed = discord.Embed(
-                        title="⏳ Generating Aircraft Profile...",
-                        description=f"Plotting **{p['airport']}**. This takes ~10 seconds.",
+                async def acars_cb(interaction, p=profile):
+                    loading_embed = discord.Embed(
+                        title="⏳ Fetching Aircraft Profile...",
+                        description=f"Retrieving ACARS data for {p['airport']}...",
                         color=discord.Color.blurple(),
                     )
-                    await status_msg.edit(embed=plotting_embed)
-
-                    output_path = os.path.join(
-                        CACHE_DIR,
-                        f"acars_{p['airport']}_{p['year']}{p['month']}{p['day']}_{p['acars_hour']}z"
+                    await interaction.response.defer(ephemeral=True)
+                    status_msg = await interaction.followup.send(
+                        embed=loading_embed, ephemeral=True, wait=True
                     )
-                    success = await generate_plot(clean_data, output_path, self.dark_mode)
-                    png_path = output_path + ".png"
-                    if not success or not os.path.exists(png_path):
+
+                    clean_data = await fetch_acars_sounding(
+                        p["profile_id"], p["year"], p["month"], p["day"], p["acars_hour"]
+                    )
+                    if not clean_data:
                         await status_msg.edit(embed=discord.Embed(
-                            title="❌ Plot Failed",
-                            description="Could not generate ACARS sounding plot.",
+                            title="❌ ACARS Data Unavailable",
+                            description=f"Could not fetch profile for {p['airport']}.",
                             color=discord.Color.red(),
                         ))
                         return
 
-                await status_msg.delete()
-                mode_label = "\U0001f319 Dark" if self.dark_mode else "\u2600\ufe0f Light"
-                caption = (
-                    f"**ACARS Aircraft Profile \u2014 {p['airport']}**\n"
-                    f"Valid: {p['time_label']} | {mode_label} mode"
-                )
-                await interaction.channel.send(caption, files=[discord.File(png_path)])
-                logger.info(f"[ACARS] Posted {p['airport']} profile")
+                    from utils.worker_pool import get_sounding_semaphore
+                    sem = get_sounding_semaphore()
+                    
+                    if sem.locked():
+                        pos = len(sem._waiters) + 1 if hasattr(sem, '_waiters') else 1
+                        queue_embed = discord.Embed(
+                            title="⌛ Plot Queued...",
+                            description=f"Sounding workers are currently busy. Your plot for **{p['airport']}** is at **position {pos}** in the queue. Please wait...",
+                            color=discord.Color.orange(),
+                        )
+                        await status_msg.edit(embed=queue_embed)
 
-            btn.callback = acars_cb
-            self.add_item(btn)
-            row = min(row + 1, 4)
+                    async with sem:
+                        plotting_embed = discord.Embed(
+                            title="⏳ Generating Aircraft Profile...",
+                            description=f"Plotting **{p['airport']}**. This takes ~10 seconds.",
+                            color=discord.Color.blurple(),
+                        )
+                        await status_msg.edit(embed=plotting_embed)
 
-        # Mode toggle button in its own row
-        mode_label = "🌙 Dark Mode" if self.dark_mode else "☀️ Light Mode"
+                        output_path = os.path.join(
+                            CACHE_DIR,
+                            f"acars_{p['airport']}_{p['year']}{p['month']}{p['day']}_{p['acars_hour']}z"
+                        )
+                        success = await generate_plot(clean_data, output_path, self.dark_mode)
+                        png_path = output_path + ".png"
+                        if not success or not os.path.exists(png_path):
+                            await status_msg.edit(embed=discord.Embed(
+                                title="❌ Plot Failed",
+                                description="Could not generate ACARS sounding plot.",
+                                color=discord.Color.red(),
+                            ))
+                            return
+
+                    await status_msg.delete()
+                    mode_label = "🌙 Dark" if self.dark_mode else "☀️ Light"
+                    caption = (
+                        f"**ACARS Aircraft Profile \u2014 {p['airport']}**\n"
+                        f"Valid: {p['time_label']} | {mode_label} mode"
+                    )
+                    await interaction.channel.send(caption, files=[discord.File(png_path)])
+                    logger.info(f"[ACARS] Posted {p['airport']} profile")
+
+                btn.callback = acars_cb
+                self.add_item(btn)
+                if (i + 1) % 5 == 0: row += 1 # Wrap to next row after 5
+
+        # Mode toggle button in its own row (Row 4)
+        target_mode = "Light" if self.dark_mode else "Dark"
+        mode_label = f"Switch to {target_mode} Mode"
         mode_btn = Button(label=mode_label, style=ButtonStyle.secondary, row=4)
 
         async def mode_toggle_cb(interaction: discord.Interaction):
             self.dark_mode = not self.dark_mode
             await set_user_dark_mode(interaction.user.id, self.dark_mode)
             self._build_buttons()
-            mode_str = "\U0001f319 Dark" if self.dark_mode else "☀️ Light"
+            mode_str = "🌙 Dark" if self.dark_mode else "☀️ Light"
             embed = discord.Embed(
                 title=f"Nearest Sounding Data to {self.location_desc}",
                 description=self.description,
@@ -660,7 +664,7 @@ async def _post_from_clean_data(
             pass
         return
 
-    mode_label = "\U0001f319 Dark" if dark_mode else "\u2600\ufe0f Light"
+    mode_label = "🌙 Dark" if dark_mode else "☀️ Light"
     caption = (
         f"**RAOB Sounding \u2014 {station_name} ({station_id})**\n"
         f"Valid: {month}-{day}-{year} {hour}z | {mode_label} mode"
