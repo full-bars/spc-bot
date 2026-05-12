@@ -810,6 +810,22 @@ async def set_product_cache(product_id: str, text: str, ttl: int = 600):
     )
 
 
+# ── Upstash Quota ──────────────────────────────────────────────────────────
+
+async def get_upstash_commands_today() -> int:
+    """Get the number of Upstash commands used today (UTC)."""
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    val = await get_state(f"upstash_cmds:{today}")
+    return int(val) if val else 0
+
+
+async def increment_upstash_commands(count: int = 1):
+    """Increment the daily Upstash command counter."""
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    current = await get_upstash_commands_today()
+    await set_state(f"upstash_cmds:{today}", str(current + count))
+
+
 # ── Watch centroid cache ──────────────────────────────────────────────────────
 # Reuses product_text_cache with a 12h TTL so zone-geometry HTTP calls
 # (up to 10 per watch) survive bot restarts during active weather.
