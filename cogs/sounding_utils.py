@@ -33,7 +33,7 @@ finally:
     sys.stdout = _stdout
 
 from utils.state_store import get_state, set_state  # noqa: E402  # follows sounderpy import
-from utils.geo import haversine, haversine_batch  # noqa: E402
+from utils.geo import haversine, find_nearest_indices  # noqa: E402
 from utils.http import http_get_json, circuit_breaker, ensure_session, CircuitOpenError  # noqa: E402
 
 logger = logging.getLogger("spc_bot")
@@ -111,11 +111,11 @@ def _fetch_stations() -> pd.DataFrame:
 def find_nearest_stations(lat: float, lon: float, df: pd.DataFrame, n: int = 3) -> list[dict]:
     """Return the n nearest RAOB stations as a list of dicts."""
     targets = list(zip(df["lat"], df["lon"]))
-    distances = haversine_batch(lat, lon, targets)
-    df = df.assign(dist_km=distances)
-    nearest = df.nsmallest(n, "dist_km")
+    nearest_data = find_nearest_indices(lat, lon, targets, n)
+    
     results = []
-    for _, row in nearest.iterrows():
+    for idx, dist_km in nearest_data:
+        row = df.iloc[idx]
         # Columns are pre-stripped at station-list load; no per-call .strip() needed
         icao = str(row["ICAO"])
         results.append({
@@ -125,7 +125,7 @@ def find_nearest_stations(lat: float, lon: float, df: pd.DataFrame, n: int = 3) 
             "loc": str(row["LOC"]),
             "lat": row["lat"],
             "lon": row["lon"],
-            "dist_km": round(row["dist_km"], 1),
+            "dist_km": round(dist_km, 1),
         })
     return results
 
@@ -905,25 +905,32 @@ async def fetch_acars_sounding(
 
 async def filter_stations_with_data(stations: list[dict]) -> list[dict]:
     """
-    Check each station in parallel against the single most recent sounding time.
-    If the most recent time has no data, try the previous one — but all stations
-    are checked concurrently to keep total wait time minimal.
-    Returns only stations that have at least one available sounding.
+    Check each station in parallel for available sounding data.
+    Uses IEM as primary check, falling back to a direct Wyoming/GSL fetch
+    if IEM has no recent records.
     """
-    times = get_recent_sounding_times()
+    times = get_recent_sounding_times(count=2) # Only check most recent 2 for speed
 
     async def has_data(station: dict) -> tuple[dict, bool]:
         station_id = station.get("icao") or station.get("wmo")
-        # Use IEM to check availability (faster, more reliable than Wyoming)
-        available = await get_available_sounding_times_iem(station_id, hours_back=36)
+        # 1. Use IEM to check availability (fastest)
+        available = await get_available_sounding_times_iem(station_id, hours_back=24)
         if available:
             return station, True
-        # Fall back to Wyoming check
-        results = await asyncio.gather(*[
-            fetch_sounding(station_id, y, mo, d, h)
-            for y, mo, d, h in times
-        ])
-        return station, any(r is not None for r in results)
+            
+        # 2. Fall back to Wyoming/GSL check (actual fetch)
+        # We only do this if IEM is empty, as it's much heavier.
+        # Check standard hours (00/12z) first as they are most likely.
+        for y, mo, d, h in times:
+            try:
+                # fetch_sounding handles Wyoming vs GSL internally
+                res = await fetch_sounding(station_id, y, mo, d, h)
+                if res:
+                    return station, True
+            except Exception:
+                continue
+                
+        return station, False
 
     results = await asyncio.gather(*[has_data(s) for s in stations])
     return [s for s, ok in results if ok]

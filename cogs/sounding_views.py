@@ -518,7 +518,7 @@ class CombinedSoundingView(View):
             row = min(row + 1, 4)
 
         # Mode toggle button in its own row
-        mode_label = "\U0001f319 Dark Mode" if not self.dark_mode else "☀️ Light Mode"
+        mode_label = "🌙 Dark Mode" if self.dark_mode else "☀️ Light Mode"
         mode_btn = Button(label=mode_label, style=ButtonStyle.secondary, row=4)
 
         async def mode_toggle_cb(interaction: discord.Interaction):
