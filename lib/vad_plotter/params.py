@@ -11,6 +11,9 @@ try:
         compute_srh as _compute_srh_rust,
         compute_dtm as _compute_dtm_rust,
         compute_crit_angl as _compute_crit_angl_rust,
+        compute_shear_mag as _compute_shear_mag_rust,
+        compute_sr_flow as _compute_sr_flow_rust,
+        clip_profile as _clip_profile_rust,
     )
     _rust_available = True
 except ImportError:
@@ -35,6 +38,11 @@ def interp(u: np.ndarray, v: np.ndarray, altitude: np.ndarray, hght: float) -> T
 
 
 def _clip_profile(prof: np.ndarray, alt: np.ndarray, clip_alt: float, intrp_prof: float) -> np.ndarray:
+    if _rust_available:
+        try:
+            return np.array(_clip_profile_rust(_to_list(prof), _to_list(alt), clip_alt, intrp_prof))
+        except Exception as e:
+            logger.debug(f"Rust clip_profile failed: {e} — falling back to Python")
     try:
         idx_clip = np.where((alt[:-1] <= clip_alt) & (alt[1:] > clip_alt))[0][0]
     except IndexError:
@@ -47,6 +55,16 @@ def _clip_profile(prof: np.ndarray, alt: np.ndarray, clip_alt: float, intrp_prof
 
 
 def compute_shear_mag(data: Dict[str, Any], hght: float) -> float:
+    if _rust_available:
+        try:
+            return float(_compute_shear_mag_rust(
+                _to_list(data['wind_dir']),
+                _to_list(data['wind_spd']),
+                _to_list(data['altitude']),
+                hght
+            ))
+        except Exception as e:
+            logger.debug(f"Rust compute_shear_mag failed: {e} — falling back to Python")
     u, v = vec2comp(data['wind_dir'], data['wind_spd'])
     u_hght, v_hght = interp(u, v, data['altitude'], hght)
     return float(np.hypot(u_hght - u[0], v_hght - v[0]))
@@ -85,6 +103,17 @@ def compute_srh(data: Dict[str, Any], storm_motion: Tuple[float, float], hght: f
 
 
 def compute_sr_flow(data: Dict[str, Any], storm_motion: Tuple[float, float], hght_bot: float, hght_top: float) -> float:
+    if _rust_available:
+        try:
+            return float(_compute_sr_flow_rust(
+                _to_list(data['wind_dir']),
+                _to_list(data['wind_spd']),
+                _to_list(data['altitude']),
+                storm_motion[0], storm_motion[1],
+                hght_bot, hght_top
+            ))
+        except Exception as e:
+            logger.debug(f"Rust compute_sr_flow failed: {e} — falling back to Python")
     u, v = vec2comp(data['wind_dir'], data['wind_spd'])
     storm_u, storm_v = vec2comp(*storm_motion)
 
