@@ -9,6 +9,11 @@ version numbers follow [SemVer](https://semver.org/).
 ### Fixed
 - **Circuit Breaker Log Noise.** Demoted the per-request "Circuit open for {host}, failing fast" log from WARNING to DEBUG. The breaker fast-failing is the desired behavior — the actual state transition is still logged at WARNING (`reached N failures. Circuit OPEN`) and INFO (`recovered. Closing circuit`). A single upstream outage was producing 20× amplification (one trip warning + tens of fast-fail warnings until recovery).
 
+### CI
+- **Parallel test execution.** Added `pytest-xdist` to `requirements-dev.txt` and enabled `-n auto` in the CI test step, distributing tests across all available CPU cores. `pytest.ini` addopts unchanged so local runs stay serial.
+- **Docker layer cache efficiency.** Reordered the runtime `Dockerfile` so the `apt-get install` layer appears before `COPY --from=builder /wheels`; code-only changes no longer invalidate the OS package layer.
+- **Dockerfile.ci layer reduction.** Merged the `apt-get` install and `rustup` bootstrap into one `RUN` instruction with combined cleanup, ensuring the apt cache is never persisted in the image.
+
 ## [5.24.0] — 2026-05-11
 
 ### Fixed

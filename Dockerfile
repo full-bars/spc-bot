@@ -36,7 +36,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # Runtime stage
 FROM python:3.13-slim-bookworm@sha256:386df64585134ba00b1d5e307acb1e72f33e9e87dbbb00aad9b8f24dbb51db72
 
-# Install runtime dependencies
+# Install runtime dependencies before copying wheels so this layer is only
+# invalidated by apt changes, not by code or dependency updates.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgeos-c1v5 \
     libproj25 \
