@@ -903,34 +903,54 @@ async def fetch_acars_sounding(
 # ── SounderPy fetch and plot ──────────────────────────────────────────────────
 
 
+async def get_available_sounding_times(
+    station_id: str,
+    hours_back: int = 24,
+    skip_cache: bool = False,
+) -> list[tuple[str, str, str, str]]:
+    """
+    Unified availability check: Try IEM first, fall back to a direct 
+    Wyoming/GSL probe for standard hours.
+    """
+    # 1. Try IEM (Fastest, covers all hours)
+    avail = await get_available_sounding_times_iem(station_id, hours_back, skip_cache=skip_cache)
+    if avail:
+        return avail
+        
+    # 2. Try Wyoming Probe for standard hours (00z/12z)
+    # This is needed for international stations like SBSM that aren't in IEM.
+    # We check standard hours in the requested window.
+    probe_times = get_recent_sounding_times(n=max(2, (hours_back // 12) + 1))
+    
+    # Filter probe times to only those within hours_back
+    now = datetime.now(timezone.utc)
+    valid_probe_times = []
+    for y, mo, d, h in probe_times:
+        dt = datetime(int(y), int(mo), int(d), int(h), tzinfo=timezone.utc)
+        if (now - dt).total_seconds() / 3600 <= hours_back:
+            valid_probe_times.append((y, mo, d, h))
+            
+    if not valid_probe_times:
+        return []
+        
+    # Parallel probe Wyoming/GSL
+    results = await asyncio.gather(*[
+        fetch_sounding(station_id, y, mo, d, h)
+        for y, mo, d, h in valid_probe_times
+    ])
+    
+    return [valid_probe_times[i] for i, res in enumerate(results) if res is not None]
+
+
 async def filter_stations_with_data(stations: list[dict]) -> list[dict]:
     """
     Check each station in parallel for available sounding data.
-    Uses IEM as primary check, falling back to a direct Wyoming/GSL fetch
-    if IEM has no recent records.
+    Uses unified availability check (IEM + Wyoming probe).
     """
-    times = get_recent_sounding_times(count=2) # Only check most recent 2 for speed
-
     async def has_data(station: dict) -> tuple[dict, bool]:
         station_id = station.get("icao") or station.get("wmo")
-        # 1. Use IEM to check availability (fastest)
-        available = await get_available_sounding_times_iem(station_id, hours_back=24)
-        if available:
-            return station, True
-            
-        # 2. Fall back to Wyoming/GSL check (actual fetch)
-        # We only do this if IEM is empty, as it's much heavier.
-        # Check standard hours (00/12z) first as they are most likely.
-        for y, mo, d, h in times:
-            try:
-                # fetch_sounding handles Wyoming vs GSL internally
-                res = await fetch_sounding(station_id, y, mo, d, h)
-                if res:
-                    return station, True
-            except Exception:
-                continue
-                
-        return station, False
+        available = await get_available_sounding_times(station_id, hours_back=24)
+        return station, len(available) > 0
 
     results = await asyncio.gather(*[has_data(s) for s in stations])
     return [s for s, ok in results if ok]
