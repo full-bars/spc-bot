@@ -10,6 +10,34 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 logger = logging.getLogger("spc_bot")
 
+# ---------------------------------------------------------------------------
+# Module-level retry decorator cache.
+# Building a tenacity retry(...) object is non-trivial (it compiles several
+# strategy objects and wraps the callable).  Constructing one on every HTTP
+# call adds measurable overhead on high-frequency polling paths.  We cache
+# decorators keyed by attempt-count so the common cases (retries=1, 2, 3)
+# pay the construction cost exactly once at import time.
+# ---------------------------------------------------------------------------
+_RETRY_EXCEPTIONS = (aiohttp.ClientError, asyncio.TimeoutError)
+_RETRY_WAIT = wait_exponential(multiplier=1, min=1, max=10)
+
+def _make_retry_decorator(attempts: int):
+    return retry(
+        stop=stop_after_attempt(attempts),
+        wait=_RETRY_WAIT,
+        retry=retry_if_exception_type(_RETRY_EXCEPTIONS),
+        reraise=True,
+    )
+
+# Pre-build for the default attempt counts used across this module.
+_RETRY_CACHE: dict = {n: _make_retry_decorator(n) for n in (1, 2, 3, 4)}
+
+def _get_retry_decorator(attempts: int):
+    """Return a cached retry decorator for *attempts*, building one if needed."""
+    if attempts not in _RETRY_CACHE:
+        _RETRY_CACHE[attempts] = _make_retry_decorator(attempts)
+    return _RETRY_CACHE[attempts]
+
 # Named timeout presets (seconds) — use these at call sites instead of bare integers
 TIMEOUT_FAST = 10       # Quick HEAD checks, small API calls
 TIMEOUT_STANDARD = 15  # Most JSON endpoints
@@ -156,13 +184,8 @@ async def http_get_bytes_conditional(
     if last_modified:
         headers["If-Modified-Since"] = last_modified
 
-    # Use tenacity for retries
-    retry_decorator = retry(
-        stop=stop_after_attempt(retries),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((aiohttp.ClientError, asyncio.TimeoutError)),
-        reraise=True
-    )
+    # Use tenacity for retries — decorator is cached at module level.
+    retry_decorator = _get_retry_decorator(retries)
 
     async def _do_request():
         session = await ensure_session()
@@ -284,12 +307,8 @@ async def http_get_json(url: str, retries: int = 1, timeout: int = TIMEOUT_STAND
     if circuit_breaker.is_open(host):
         return None
 
-    retry_decorator = retry(
-        stop=stop_after_attempt(retries + 1),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((aiohttp.ClientError, asyncio.TimeoutError)),
-        reraise=True,
-    )
+    # Decorator is cached at module level; avoid rebuilding on every call.
+    retry_decorator = _get_retry_decorator(retries + 1)
 
     async def _do_request():
         session = await ensure_session()
