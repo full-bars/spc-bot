@@ -66,7 +66,8 @@ async def hydrate_validators_from_store() -> int:
         return len(_validators_cache)
     stored = await get_all_validators()
     if stored:
-        _validators_cache.update(stored)
+        for k, v in stored.items():
+            _validators_set(k, v)
     _validators_hydrated = True
     logger.info(f"Hydrated {len(_validators_cache)} HTTP validators from store")
     return len(_validators_cache)

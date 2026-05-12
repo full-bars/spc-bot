@@ -90,10 +90,10 @@ def shutdown_executors():
     """Cleanly shut down all worker pools."""
     global _HODO_EXECUTOR, _SOUNDING_EXECUTOR
     if _HODO_EXECUTOR is not None:
-        _HODO_EXECUTOR.shutdown(wait=False, cancel_futures=True)
+        _HODO_EXECUTOR.shutdown(wait=True, cancel_futures=True)
         _HODO_EXECUTOR = None
     if _SOUNDING_EXECUTOR is not None:
-        _SOUNDING_EXECUTOR.shutdown(wait=False, cancel_futures=True)
+        _SOUNDING_EXECUTOR.shutdown(wait=True, cancel_futures=True)
         _SOUNDING_EXECUTOR = None
 
 
