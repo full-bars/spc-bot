@@ -163,6 +163,13 @@ class BotState:
         self.posting = PostingLog()
         self.timing = TimingTracker()
 
+    def update_http_latency(self, latency: float) -> None:
+        """Update the rolling average of HTTP latency."""
+        if self.http_latency is not None:
+            self.http_latency = (self.http_latency * 0.9) + (latency * 0.1)
+        else:
+            self.http_latency = latency
+
     # ── Legacy attribute surface (delegated) ────────────────────────────────
     auto_cache = _delegate("hashes", "auto_cache")
     manual_cache = _delegate("hashes", "manual_cache")

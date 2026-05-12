@@ -106,24 +106,36 @@ class NWWSClient(ClientXMPP):
         
         # Start ping task on session start
         self.add_event_handler("session_start", self._start_ping_task)
+        self._ping_task: Optional[asyncio.Task] = None
 
     def _start_ping_task(self, _):
-        self.bot.loop.create_task(self._ping_loop())
+        if self._ping_task is not None and not self._ping_task.done():
+            self._ping_task.cancel()
+        self._ping_task = self.bot.loop.create_task(self._ping_loop())
 
     async def _ping_loop(self):
-        while self.is_connected:
-            try:
-                start = time.perf_counter()
-                await self['xep_0199'].ping(self.boundjid.host, timeout=10)
-                latency_ms = (time.perf_counter() - start) * 1000
-                self.bot.state.nwws_ping = latency_ms
-            except Exception:
-                self.bot.state.nwws_ping = None
-            await asyncio.sleep(30)
+        try:
+            while self.is_connected:
+                try:
+                    start = time.perf_counter()
+                    await self['xep_0199'].ping(self.boundjid.host, timeout=10)
+                    latency_ms = (time.perf_counter() - start) * 1000
+                    self.bot.state.nwws_ping = latency_ms
+                except Exception:
+                    self.bot.state.nwws_ping = None
+                await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            logger.debug("NWWS ping loop cancelled")
         
         # Enable auto-reconnect at the slixmpp level
         self.reconnect = True
         self.use_ipv6 = False
+
+    def disconnect(self, reconnect=False, wait=False):
+        if self._ping_task is not None:
+            self._ping_task.cancel()
+            self._ping_task = None
+        super().disconnect(reconnect, wait)
 
     async def session_start(self, event):
         self.is_connected = True

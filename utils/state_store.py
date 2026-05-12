@@ -103,6 +103,11 @@ UPSTASH_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
 CACHE_TTL_SECONDS = 60.0
 UPSTASH_TIMEOUT_SECONDS = 5.0
 
+# Upstash Free Tier Quota (10,000 commands / day)
+_UPSTASH_DAILY_BUDGET = 10000
+_UPSTASH_SOFT_QUOTA = 8000
+_upstash_quota_hit = False
+
 # Key prefixes — single source of truth. Never construct a key manually;
 # always go through one of the _k_* helpers.
 _PREFIX = "spcbot"
@@ -160,8 +165,23 @@ async def _upstash_cmd(*args: Any) -> Any:
     `_UpstashUnavailable` on any network-level failure or missing
     configuration — callers treat that as "fall back to SQLite".
     """
+    global _upstash_quota_hit
     if not UPSTASH_URL or not UPSTASH_TOKEN:
         raise _UpstashUnavailable("Upstash not configured")
+
+    # Quota guard: check local counter (synced with DB)
+    usage = await sqlite_backend.get_upstash_commands_today()
+    if usage >= _UPSTASH_DAILY_BUDGET:
+        if not _upstash_quota_hit:
+            logger.error("[STATE] Upstash daily quota (10k) EXCEEDED. Falling back to SQLite.")
+            _upstash_quota_hit = True
+        raise _UpstashUnavailable("Upstash daily quota exceeded")
+    
+    if usage >= _UPSTASH_SOFT_QUOTA and not _upstash_quota_hit:
+        logger.warning(f"[STATE] Upstash daily quota warning: {usage}/{_UPSTASH_DAILY_BUDGET} commands used.")
+        _upstash_quota_hit = True # Log once per day per process
+    elif usage < _UPSTASH_SOFT_QUOTA:
+        _upstash_quota_hit = False
 
     # Reject None/bytes explicitly so we don't silently ship the literal
     # "None" or a mojibake'd byte string to Upstash.
@@ -190,6 +210,10 @@ async def _upstash_cmd(*args: Any) -> Any:
                 # Hard failure from Redis itself — e.g. syntax error. Do
                 # not reconcile these; they're bugs, not transient.
                 raise RuntimeError(f"Upstash error: {body['error']}")
+            
+            # Successfully executed a command
+            await sqlite_backend.increment_upstash_commands(1)
+            
             return body.get("result")
     except asyncio.TimeoutError as e:
         raise _UpstashUnavailable(f"Upstash timeout: {e}") from e
