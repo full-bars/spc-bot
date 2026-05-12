@@ -2,7 +2,8 @@
 # Reduces test job from ~2min to ~30s by pre-building wheels and deps
 FROM python:3.13-slim-bookworm
 
-# Install system build dependencies
+# Install system build dependencies and Rust toolchain in one layer so
+# apt caches and the rustup installer are cleaned up together.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
@@ -21,8 +22,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libnetcdf-dev \
     git \
     curl \
-    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path \
+    && rm -rf /root/.rustup/toolchains/stable-*/share/doc
 
 # Add Rust to PATH
 ENV PATH="/root/.cargo/bin:${PATH}"

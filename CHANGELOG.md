@@ -16,6 +16,11 @@ version numbers follow [SemVer](https://semver.org/).
 - **LRU Hydration Order.** `hydrate_validators_from_store` now inserts entries via `_validators_set` instead of `OrderedDict.update`. The bulk `.update` bypassed move-to-end and the max-size eviction path, so a large persisted store could silently exceed `_VALIDATORS_CACHE_MAX` and leave the LRU order undefined for items loaded at startup.
 - **Executor Drain on Shutdown.** `shutdown_executors` now passes `wait=True, cancel_futures=True` to both `ProcessPoolExecutor.shutdown` calls. The previous `wait=False` caused in-flight hodo/sounding renders to be abandoned mid-write on SIGTERM, risking partial image files and silent result loss.
 
+### CI
+- **Parallel test execution.** Added `pytest-xdist` to `requirements-dev.txt` and enabled `-n auto` in the CI test step, distributing tests across all available CPU cores. `pytest.ini` addopts unchanged so local runs stay serial.
+- **Docker layer cache efficiency.** Reordered the runtime `Dockerfile` so the `apt-get install` layer appears before `COPY --from=builder /wheels`; code-only changes no longer invalidate the OS package layer.
+- **Dockerfile.ci layer reduction.** Merged the `apt-get` install and `rustup` bootstrap into one `RUN` instruction with combined cleanup, ensuring the apt cache is never persisted in the image.
+
 ## [5.24.0] — 2026-05-11
 
 ### Fixed
