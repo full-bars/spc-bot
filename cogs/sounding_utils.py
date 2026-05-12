@@ -91,16 +91,20 @@ def _fetch_stations() -> pd.DataFrame:
     )
     df = df[pd.to_numeric(df["LAT"], errors="coerce").notna()].copy()
 
-    def to_decimal(val, hemi):
-        val = float(val)
-        hemi = str(hemi).strip()
-        return val if hemi in ("N", "E") else -val
-
-    df["lat"] = df.apply(lambda r: to_decimal(r["LAT"], r["A"]), axis=1)
-    df["lon"] = df.apply(lambda r: to_decimal(r["LON"], r["B"]), axis=1)
+    # Strip string columns once at load so lookups never need per-call .strip()
     df["ICAO"] = df["ICAO"].str.strip()
     df["NAME"] = df["NAME"].str.strip()
     df["LOC"] = df["LOC"].str.strip()
+    df["A"] = df["A"].str.strip()
+    df["B"] = df["B"].str.strip()
+
+    # Vectorized hemisphere sign: N/E → +1, S/W → -1
+    df["lat"] = np.where(df["A"].isin(("N", "E")),
+                         df["LAT"].astype(float),
+                         -df["LAT"].astype(float))
+    df["lon"] = np.where(df["B"].isin(("N", "E")),
+                         df["LON"].astype(float),
+                         -df["LON"].astype(float))
     return df
 
 
@@ -112,12 +116,13 @@ def find_nearest_stations(lat: float, lon: float, df: pd.DataFrame, n: int = 3) 
     nearest = df.nsmallest(n, "dist_km")
     results = []
     for _, row in nearest.iterrows():
-        icao = str(row["ICAO"]).strip()
+        # Columns are pre-stripped at station-list load; no per-call .strip() needed
+        icao = str(row["ICAO"])
         results.append({
             "icao": icao if icao != "----" else None,
-            "wmo": str(row["WMO"]).strip(),
-            "name": str(row["NAME"]).strip(),
-            "loc": str(row["LOC"]).strip(),
+            "wmo": str(row["WMO"]),
+            "name": str(row["NAME"]),
+            "loc": str(row["LOC"]),
             "lat": row["lat"],
             "lon": row["lon"],
             "dist_km": round(row["dist_km"], 1),
