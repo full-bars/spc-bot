@@ -33,7 +33,7 @@ finally:
     sys.stdout = _stdout
 
 from utils.state_store import get_state, set_state  # noqa: E402  # follows sounderpy import
-from utils.geo import haversine, haversine_batch  # noqa: E402
+from utils.geo import haversine, find_nearest_indices  # noqa: E402
 from utils.http import http_get_json, circuit_breaker, ensure_session, CircuitOpenError  # noqa: E402
 
 logger = logging.getLogger("spc_bot")
@@ -111,11 +111,11 @@ def _fetch_stations() -> pd.DataFrame:
 def find_nearest_stations(lat: float, lon: float, df: pd.DataFrame, n: int = 3) -> list[dict]:
     """Return the n nearest RAOB stations as a list of dicts."""
     targets = list(zip(df["lat"], df["lon"]))
-    distances = haversine_batch(lat, lon, targets)
-    df = df.assign(dist_km=distances)
-    nearest = df.nsmallest(n, "dist_km")
+    nearest_data = find_nearest_indices(lat, lon, targets, n)
+    
     results = []
-    for _, row in nearest.iterrows():
+    for idx, dist_km in nearest_data:
+        row = df.iloc[idx]
         # Columns are pre-stripped at station-list load; no per-call .strip() needed
         icao = str(row["ICAO"])
         results.append({
@@ -125,7 +125,7 @@ def find_nearest_stations(lat: float, lon: float, df: pd.DataFrame, n: int = 3) 
             "loc": str(row["LOC"]),
             "lat": row["lat"],
             "lon": row["lon"],
-            "dist_km": round(row["dist_km"], 1),
+            "dist_km": round(dist_km, 1),
         })
     return results
 

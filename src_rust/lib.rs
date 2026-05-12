@@ -36,6 +36,9 @@ fn spc_rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(normalize_product_id, m)?)?;
     m.add_function(wrap_pyfunction!(haversine, m)?)?;
     m.add_function(wrap_pyfunction!(haversine_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(find_nearest_stations_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(points_in_polygon_counts, m)?)?;
+    m.add_function(wrap_pyfunction!(points_in_polygon_lookup, m)?)?;
     m.add_function(wrap_pyfunction!(compute_shear_mag, m)?)?;
     m.add_function(wrap_pyfunction!(compute_sr_flow, m)?)?;
     m.add_function(wrap_pyfunction!(clip_profile, m)?)?;
@@ -971,6 +974,91 @@ fn clip_profile(
         }
         None => Ok(vec![f64::NAN; prof.len()]),
     }
+}
+
+
+#[pyfunction]
+fn find_nearest_stations_batch(
+    lat: f64,
+    lon: f64,
+    targets: Vec<(f64, f64)>,
+    n: usize,
+) -> PyResult<Vec<(usize, f64)>> {
+    let mut distances: Vec<(usize, f64)> = Vec::with_capacity(targets.len());
+    for (i, (t_lat, t_lon)) in targets.into_iter().enumerate() {
+        distances.push((i, haversine(lat, lon, t_lat, t_lon)?));
+    }
+
+    // Sort by distance
+    distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Truncate to N
+    if distances.len() > n {
+        distances.truncate(n);
+    }
+
+    Ok(distances)
+}
+
+#[pyfunction]
+fn points_in_polygon_counts(
+    points: Vec<(f64, f64)>,
+    polygons: Vec<Vec<(f64, f64)>>,
+) -> PyResult<Vec<usize>> {
+    let geo_polys: Vec<Polygon<f64>> = polygons
+        .into_iter()
+        .filter(|p| p.len() >= 3)
+        .map(|p| {
+            let coords: Vec<Coord<f64>> = p
+                .into_iter()
+                .map(|(lat, lon)| Coord { x: lon, y: lat })
+                .collect();
+            Polygon::new(geo::LineString::new(coords), vec![])
+        })
+        .collect();
+
+    let mut counts = vec![0; geo_polys.len()];
+    for (lat, lon) in points {
+        let p = Point::new(lon, lat);
+        for (i, poly) in geo_polys.iter().enumerate() {
+            if poly.contains(&p) {
+                counts[i] += 1;
+            }
+        }
+    }
+    Ok(counts)
+}
+
+#[pyfunction]
+fn points_in_polygon_lookup(
+    points: Vec<(f64, f64)>,
+    polygons: Vec<Vec<(f64, f64)>>,
+) -> PyResult<Vec<Option<usize>>> {
+    let geo_polys: Vec<Polygon<f64>> = polygons
+        .into_iter()
+        .filter(|p| p.len() >= 3)
+        .map(|p| {
+            let coords: Vec<Coord<f64>> = p
+                .into_iter()
+                .map(|(lat, lon)| Coord { x: lon, y: lat })
+                .collect();
+            Polygon::new(geo::LineString::new(coords), vec![])
+        })
+        .collect();
+
+    let mut lookup = Vec::with_capacity(points.len());
+    for (lat, lon) in points {
+        let p = Point::new(lon, lat);
+        let mut found = None;
+        for (i, poly) in geo_polys.iter().enumerate() {
+            if poly.contains(&p) {
+                found = Some(i);
+                break;
+            }
+        }
+        lookup.push(found);
+    }
+    Ok(lookup)
 }
 
 #[cfg(test)]
