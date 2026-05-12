@@ -905,25 +905,32 @@ async def fetch_acars_sounding(
 
 async def filter_stations_with_data(stations: list[dict]) -> list[dict]:
     """
-    Check each station in parallel against the single most recent sounding time.
-    If the most recent time has no data, try the previous one — but all stations
-    are checked concurrently to keep total wait time minimal.
-    Returns only stations that have at least one available sounding.
+    Check each station in parallel for available sounding data.
+    Uses IEM as primary check, falling back to a direct Wyoming/GSL fetch
+    if IEM has no recent records.
     """
-    times = get_recent_sounding_times()
+    times = get_recent_sounding_times(count=2) # Only check most recent 2 for speed
 
     async def has_data(station: dict) -> tuple[dict, bool]:
         station_id = station.get("icao") or station.get("wmo")
-        # Use IEM to check availability (faster, more reliable than Wyoming)
-        available = await get_available_sounding_times_iem(station_id, hours_back=36)
+        # 1. Use IEM to check availability (fastest)
+        available = await get_available_sounding_times_iem(station_id, hours_back=24)
         if available:
             return station, True
-        # Fall back to Wyoming check
-        results = await asyncio.gather(*[
-            fetch_sounding(station_id, y, mo, d, h)
-            for y, mo, d, h in times
-        ])
-        return station, any(r is not None for r in results)
+            
+        # 2. Fall back to Wyoming/GSL check (actual fetch)
+        # We only do this if IEM is empty, as it's much heavier.
+        # Check standard hours (00/12z) first as they are most likely.
+        for y, mo, d, h in times:
+            try:
+                # fetch_sounding handles Wyoming vs GSL internally
+                res = await fetch_sounding(station_id, y, mo, d, h)
+                if res:
+                    return station, True
+            except Exception:
+                continue
+                
+        return station, False
 
     results = await asyncio.gather(*[has_data(s) for s in stations])
     return [s for s, ok in results if ok]

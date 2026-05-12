@@ -976,7 +976,6 @@ fn clip_profile(
     }
 }
 
-
 #[pyfunction]
 fn find_nearest_stations_batch(
     lat: f64,
