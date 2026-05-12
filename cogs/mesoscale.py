@@ -29,6 +29,7 @@ def _log_task_exception(task: asyncio.Task) -> None:
 
 _md_index_head: Optional[Dict[str, str]] = None
 _md_index_unreachable: Optional[bool] = None
+_md_index_lock: asyncio.Lock = asyncio.Lock()
 
 _MD_NUMBER_RE = re.compile(r"MESOSCALE DISCUSSION\s+(\d+)", re.IGNORECASE)
 _MD_HREF_RE = re.compile(r'href="(?:/products/md/)?md(\d+)\.html"', re.IGNORECASE)
@@ -48,80 +49,81 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> Tuple[Optional[List[st
     global _md_index_head, _md_index_unreachable
     logger.debug(f"Fetching MD numbers (fresh={fresh})")
 
-    # 1. Load persistent state on first run
-    if _md_index_head is None:
-        raw_head = await get_state("md_index_head")
-        _md_index_head = _json.loads(raw_head) if raw_head else {}
-    
-    if _md_index_unreachable is None:
-        raw_unreach = await get_state("md_index_unreachable")
-        _md_index_unreachable = (raw_unreach == "true") if raw_unreach else False
+    async with _md_index_lock:
+        # 1. Load persistent state on first run
+        if _md_index_head is None:
+            raw_head = await get_state("md_index_head")
+            _md_index_head = _json.loads(raw_head) if raw_head else {}
 
-    if not fresh:
-        meta = await http_head_meta(SPC_MD_INDEX_URL)
-        if meta is not None and _md_index_head:
-            # Require ALL non-empty validators to match.
-            checks = []
-            for key in ("etag", "last_modified", "content_length"):
-                if meta.get(key):
-                    checks.append(meta[key] == _md_index_head.get(key))
-            if checks and all(checks):
-                logger.debug("Index unchanged (HEAD match)")
-                return None, False
-        if meta:
-            _md_index_head.update(meta)
-            await set_state("md_index_head", _json.dumps(_md_index_head))
-    else:
-        # Clear the cached HEAD info if fresh is requested
-        _md_index_head = {}
-        await set_state("md_index_head", "{}")
+        if _md_index_unreachable is None:
+            raw_unreach = await get_state("md_index_unreachable")
+            _md_index_unreachable = (raw_unreach == "true") if raw_unreach else False
 
-    logger.debug(f"Requesting SPC index: {SPC_MD_INDEX_URL}")
-    html = await http_get_text(SPC_MD_INDEX_URL)
+        if not fresh:
+            meta = await http_head_meta(SPC_MD_INDEX_URL)
+            if meta is not None and _md_index_head:
+                # Require ALL non-empty validators to match.
+                checks = []
+                for key in ("etag", "last_modified", "content_length"):
+                    if meta.get(key):
+                        checks.append(meta[key] == _md_index_head.get(key))
+                if checks and all(checks):
+                    logger.debug("Index unchanged (HEAD match)")
+                    return None, False
+            if meta:
+                _md_index_head.update(meta)
+                await set_state("md_index_head", _json.dumps(_md_index_head))
+        else:
+            # Clear the cached HEAD info if fresh is requested
+            _md_index_head = {}
+            await set_state("md_index_head", "{}")
 
-    # If SPC is unreachable, try to scrape from IEM
-    if not html:
-        logger.warning("SPC index HTML empty/failed, falling back to IEM")
-        if not _md_index_unreachable:
-            logger.warning("SPC index unreachable — falling back to IEM for active MD list")
-            _md_index_unreachable = True
-            await set_state("md_index_unreachable", "true")
-        try:
-            # Fetch the raw text of SWOMCD products from the last 24 hours
-            sts = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M")
-            url = f"https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=SWOMCD&limit=10&sdate={sts}"
-            
-            text = await http_get_text(url, retries=2, timeout=15)
-            if text:
-                md_nums = set()
-                matches = _MD_NUMBER_RE.findall(text)
-                for m in matches:
-                    md_nums.add(m.zfill(4))
-                
-                logger.info(f"IEM fallback returned {len(md_nums)} MDs from last 24h")
-                return sorted(list(md_nums), reverse=True), True
-            else:
-                logger.warning("IEM fallback returned empty text")
-        except Exception as e:
-            logger.exception(f"IEM fallback for index failed: {e}")
-        
-        return None, True
+        logger.debug(f"Requesting SPC index: {SPC_MD_INDEX_URL}")
+        html = await http_get_text(SPC_MD_INDEX_URL)
 
-    if _md_index_unreachable:
-        logger.info("SPC index reachable again")
-        _md_index_unreachable = False
-        await set_state("md_index_unreachable", "false")
+        # If SPC is unreachable, try to scrape from IEM
+        if not html:
+            logger.warning("SPC index HTML empty/failed, falling back to IEM")
+            if not _md_index_unreachable:
+                logger.warning("SPC index unreachable — falling back to IEM for active MD list")
+                _md_index_unreachable = True
+                await set_state("md_index_unreachable", "true")
+            try:
+                # Fetch the raw text of SWOMCD products from the last 24 hours
+                sts = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M")
+                url = f"https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=SWOMCD&limit=10&sdate={sts}"
 
-    numbers = _MD_HREF_RE.findall(html)
-    seen = set()
-    result = []
-    for n in numbers:
-        if n not in seen:
-            seen.add(n)
-            result.append(n.zfill(4))
-    
-    logger.debug(f"Scraped {len(result)} MD numbers from SPC index")
-    return result, False
+                text = await http_get_text(url, retries=2, timeout=15)
+                if text:
+                    md_nums = set()
+                    matches = _MD_NUMBER_RE.findall(text)
+                    for m in matches:
+                        md_nums.add(m.zfill(4))
+
+                    logger.info(f"IEM fallback returned {len(md_nums)} MDs from last 24h")
+                    return sorted(list(md_nums), reverse=True), True
+                else:
+                    logger.warning("IEM fallback returned empty text")
+            except Exception as e:
+                logger.exception(f"IEM fallback for index failed: {e}")
+
+            return None, True
+
+        if _md_index_unreachable:
+            logger.info("SPC index reachable again")
+            _md_index_unreachable = False
+            await set_state("md_index_unreachable", "false")
+
+        numbers = _MD_HREF_RE.findall(html)
+        seen = set()
+        result = []
+        for n in numbers:
+            if n not in seen:
+                seen.add(n)
+                result.append(n.zfill(4))
+
+        logger.debug(f"Scraped {len(result)} MD numbers from SPC index")
+        return result, False
 
 
 
