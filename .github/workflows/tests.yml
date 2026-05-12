@@ -52,7 +52,7 @@ jobs:
           pip install dist/*.whl
       - name: Run tests with coverage
         run: |
-          python -m pytest tests/ \
+          python -m pytest tests/ -n auto \
             --cov=cogs --cov=utils --cov=config --cov=main \
             --cov-report=term-missing --cov-report=xml -v
       - name: Upload coverage artifact
