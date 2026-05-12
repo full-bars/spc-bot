@@ -8,6 +8,8 @@ version numbers follow [SemVer](https://semver.org/).
 
 ### Fixed
 - **Circuit Breaker Log Noise.** Demoted the per-request "Circuit open for {host}, failing fast" log from WARNING to DEBUG. The breaker fast-failing is the desired behavior — the actual state transition is still logged at WARNING (`reached N failures. Circuit OPEN`) and INFO (`recovered. Closing circuit`). A single upstream outage was producing 20× amplification (one trip warning + tens of fast-fail warnings until recovery).
+- **LRU Hydration Order.** `hydrate_validators_from_store` now inserts entries via `_validators_set` instead of `OrderedDict.update`. The bulk `.update` bypassed move-to-end and the max-size eviction path, so a large persisted store could silently exceed `_VALIDATORS_CACHE_MAX` and leave the LRU order undefined for items loaded at startup.
+- **Executor Drain on Shutdown.** `shutdown_executors` now passes `wait=True, cancel_futures=True` to both `ProcessPoolExecutor.shutdown` calls. The previous `wait=False` caused in-flight hodo/sounding renders to be abandoned mid-write on SIGTERM, risking partial image files and silent result loss.
 
 ## [5.24.0] — 2026-05-11
 
