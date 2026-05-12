@@ -7,6 +7,7 @@ version numbers follow [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- **Mesoscale MD Index State Race.** Added a module-level `asyncio.Lock` (`_md_index_lock`) around the full body of `fetch_latest_md_numbers`. Concurrent callers from the `auto_post_md` background loop and the `/md` slash command handler could interleave the lazy hydration of `_md_index_head` / `_md_index_unreachable` with subsequent mutations, causing duplicate state-store reads or torn writes.
 - **Circuit Breaker Log Noise.** Demoted the per-request "Circuit open for {host}, failing fast" log from WARNING to DEBUG. The breaker fast-failing is the desired behavior — the actual state transition is still logged at WARNING (`reached N failures. Circuit OPEN`) and INFO (`recovered. Closing circuit`). A single upstream outage was producing 20× amplification (one trip warning + tens of fast-fail warnings until recovery).
 
 ## [5.24.0] — 2026-05-11
