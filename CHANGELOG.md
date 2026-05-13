@@ -6,6 +6,8 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.25.0] — 2026-05-13
+
 ### Performance
 - **Tenacity Retry Decorator Hoisted.** `http_get_bytes_conditional` and `http_get_json` previously reconstructed a `tenacity.retry(...)` decorator object on every invocation, paying the full strategy-compilation cost per HTTP call. Decorators are now built once at module load and cached by attempt-count in `_RETRY_CACHE`; the common cases (1–4 attempts) are pre-populated at import time. Non-default counts are lazily memoized on first use.
 - **Vectorized Station Coordinate Transform.** Replaced two `df.apply(lambda row: ...)` calls in `_fetch_stations` with column-wise `np.where` expressions. The old approach iterated row-by-row in Python (~900 iterations per startup fetch); the new approach evaluates the hemisphere-sign conversion in a single vectorized pass over the entire column.
