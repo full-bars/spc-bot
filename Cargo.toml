@@ -16,5 +16,5 @@ nom = "8.0.0"
 serde = { version = "1.0.200", features = ["derive"] }
 rstar = "0.12.0"
 once_cell = "1.19.0"
-geo = "0.26.0"
+geo = "0.33.1"
 regex = "1.10"
