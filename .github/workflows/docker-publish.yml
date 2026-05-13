@@ -28,6 +28,18 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
+      - name: Install Rust toolchain
+        run: |
+          if ! command -v cargo &>/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+          fi
+          . "$HOME/.cargo/env" || . "/root/.cargo/env"
+      - name: Build and install Rust extension
+        run: |
+          . "$HOME/.cargo/env" || . "/root/.cargo/env"
+          pip install maturin
+          maturin build --release --out dist
+          pip install dist/*.whl
       - name: Run tests
         run: python -m pytest tests/ -q
 
