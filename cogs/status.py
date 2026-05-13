@@ -302,10 +302,24 @@ class StatusView(discord.ui.View):
         )
         if active_high_risk:
             env_val += "*(Sounding Sweep Armed)*\n"
+        active_warnings = self.bot.state.active_warnings
+        warn_total = len(active_warnings)
+        if warn_total:
+            _phenom_label = {"TO": "🌪️ TOR", "SV": "⛈️ SVR", "FF": "🌊 FFW", "MA": "🚢 MAR"}
+            counts: dict[str, int] = {}
+            for vtec in active_warnings.values():
+                p = vtec.get("phenom", "?") if isinstance(vtec, dict) else "?"
+                counts[p] = counts.get(p, 0) + 1
+            warn_detail = " | ".join(
+                f"{_phenom_label.get(p, p)} `{n}`" for p, n in sorted(counts.items())
+            )
+            warn_line = f"**Active Warnings:** `{warn_total}` — {warn_detail}"
+        else:
+            warn_line = f"**Active Warnings:** `0`"
         env_val += (
             f"**Active MDs:** `{len(self.bot.state.active_mds)}`\n"
             f"**Active Watches:** `{len(self.bot.state.active_watches)}`\n"
-            f"**Active Warnings:** `{len(self.bot.state.active_warnings)}`"
+            + warn_line
         )
         embed.add_field(name="🌩️ Environment", value=env_val, inline=True)
 
