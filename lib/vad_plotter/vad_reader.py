@@ -1,16 +1,17 @@
 from __future__ import print_function
-import numpy as np
-import struct
-import re
+
 import logging
-import asyncio
+import re
+import struct
+import zlib
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-import zlib
+import numpy as np
+
 from lib.vad_plotter.wsr88d import build_has_name
-from utils.http import http_get_bytes, http_get_text, circuit_breaker
+from utils.http import circuit_breaker, http_get_bytes, http_get_text
 
 logger = logging.getLogger("spc_bot.vad_reader")
 
@@ -44,10 +45,10 @@ def _normalize_nids_bytes(raw_bytes: bytes) -> bytes:
     # The standard structure we expect is:
     # [30 bytes WMO] [18 bytes Msg Header] [12 bytes PDB prefix] [Product Code 48]
     # Total offset to code = 30 + 18 + 12 = 60.
-    
+
     # If the file is already raw from TGFTP, it should have 48 at offset 60.
     # If it's unwrapped, it might have 48 at offset 30 (18 Msg + 12 PDB).
-    
+
     found_offset = -1
 
     # Try Rust optimized search first
@@ -71,19 +72,20 @@ def _normalize_nids_bytes(raw_bytes: bytes) -> bytes:
                         if msg_code == 48:
                             found_offset = i
                             break
-    
+
     if found_offset != -1:
         # We want the message to start 60 bytes BEFORE the PDB product code
         # (30 WMO + 18 Msg Header + 12 PDB prefix).
-        # We will strip whatever is there and prepend exactly 30 dummy bytes 
+        # We will strip whatever is there and prepend exactly 30 dummy bytes
         # so the existing _read_headers (which skips 30) works perfectly.
         nids_start = found_offset - 30 # Start of Message Header
         payload = raw_bytes[nids_start:]
         return b"A" * 30 + payload
-        
+
     return raw_bytes
 
 from collections.abc import Mapping
+
 
 class VADFile(Mapping):
     fields = ['wind_dir', 'wind_spd', 'rms_error', 'divergence', 'slant_range', 'elev_angle']
@@ -95,7 +97,7 @@ class VADFile(Mapping):
             data = file_or_bytes.read()
         else:
             data = bytes(file_or_bytes)
-            
+
         normalized = _normalize_nids_bytes(data)
         self._rpg = BytesIO(normalized)
         self._data: Optional[Dict[str, np.ndarray]] = None
@@ -289,11 +291,11 @@ class VADFile(Mapping):
             try:
                 # Seek to tabular block offset in the original stream
                 offset_tabular = self._tabular_offset if hasattr(self, '_tabular_offset') else 0
-                
+
                 # Get the raw bytes from the BytesIO object
                 self._rpg.seek(0)
                 raw_bytes = self._rpg.read()
-                
+
                 # Correct absolute offset (30 bytes WMO + NIDS relative offset)
                 abs_offset = 30 + offset_tabular
                 res = spc_rust_core.parse_vwp_tabular_data(raw_bytes, abs_offset)
@@ -368,13 +370,14 @@ import aioboto3
 import botocore
 from botocore.config import Config
 
+
 async def _list_s3_vad_times(rid: str) -> List[Tuple[str, datetime]]:
     """List recent VAD files from S3 for a site."""
     rid_upper = rid.upper()
     # The S3 bucket is alphabetical. We'll try the current day first.
     now = datetime.now(timezone.utc)
     prefix = f"{rid_upper}_NVW_{now.strftime('%Y_%m_%d')}"
-    
+
     session = aioboto3.Session()
     try:
         async with session.client(
@@ -388,10 +391,10 @@ async def _list_s3_vad_times(rid: str) -> List[Tuple[str, datetime]]:
                 yesterday = now - timedelta(days=1)
                 prefix_y = f"{rid_upper}_NVW_{yesterday.strftime('%Y_%m_%d')}"
                 response = await s3.list_objects_v2(Bucket=_S3_BUCKET, Prefix=prefix_y)
-            
+
             if "Contents" not in response:
                 return []
-            
+
             results = []
             for obj in response["Contents"]:
                 key = obj["Key"]
@@ -402,7 +405,7 @@ async def _list_s3_vad_times(rid: str) -> List[Tuple[str, datetime]]:
                     results.append((key, ts))
                 except (ValueError, IndexError):
                     continue
-            
+
             # Sort newest first
             return sorted(results, key=lambda x: x[1], reverse=True)
     except Exception as e:
@@ -411,7 +414,7 @@ async def _list_s3_vad_times(rid: str) -> List[Tuple[str, datetime]]:
 
 async def find_file_times(rid: str) -> List[Tuple[str, datetime]]:
     host = "tgftp.nws.noaa.gov"
-    
+
     # Try TGFTP if circuit is closed
     if not circuit_breaker.is_open(host):
         url = "%s/SI.%s/" % (_base_url, rid.lower())
@@ -460,7 +463,7 @@ async def download_vad(
     host = "tgftp.nws.noaa.gov"
     content = None
     status = None
-    
+
     # Attempt TGFTP if circuit is closed
     if not circuit_breaker.is_open(host):
         if time is None:
@@ -504,7 +507,7 @@ async def download_vad(
         s3_times = await _list_s3_vad_times(rid)
         if not s3_times:
             raise ValueError(f"Could not find VAD data for {rid} on TGFTP or S3")
-        
+
         target_key = None
         if time:
             time_utc = time.replace(tzinfo=timezone.utc) if not time.tzinfo else time
@@ -514,10 +517,10 @@ async def download_vad(
                     break
         else:
             target_key = s3_times[0][0] # Latest
-            
+
         if not target_key:
              raise ValueError(f"No VAD files before {time} found on S3 for {rid}")
-             
+
         session = aioboto3.Session()
         try:
             async with session.client(
@@ -538,5 +541,5 @@ async def download_vad(
             with open("%s/%s" % (cache_path, iname), 'wb') as floc:
                 floc.write(content)
         return vad
-        
+
     raise ValueError(f"VAD data unavailable for {rid}")

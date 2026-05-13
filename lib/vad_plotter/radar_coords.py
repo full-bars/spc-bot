@@ -2,7 +2,8 @@
 lib/vad_plotter/radar_coords.py - Static geographic coordinates for WSR-88D and TDWR sites.
 """
 
-from typing import Dict, Tuple, Optional
+from typing import Dict, Optional, Tuple
+
 from utils.geo import haversine
 
 RADAR_COORDS: Dict[str, Tuple[float, float]] = {

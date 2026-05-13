@@ -8,7 +8,13 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from config import WARNINGS_CHANNEL_ID, TOR_CHANNEL_ID, SVR_CHANNEL_ID, FFW_CHANNEL_ID, SPS_CHANNEL_ID
+from config import (
+    FFW_CHANNEL_ID,
+    SPS_CHANNEL_ID,
+    SVR_CHANNEL_ID,
+    TOR_CHANNEL_ID,
+    WARNINGS_CHANNEL_ID,
+)
 from utils.state_store import get_state, set_state
 
 logger = logging.getLogger("spc_bot.warning_channels")

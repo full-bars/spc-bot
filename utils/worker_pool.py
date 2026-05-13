@@ -22,9 +22,9 @@ _sounding_semaphore: Optional[asyncio.Semaphore] = None
 
 def _worker_init():
     """Initialize each worker process by pre-importing heavy libraries."""
+    import io as _io
     import logging as _logging
     import sys as _sys
-    import io as _io
 
     # Silence inherited loggers to prevent double-logging to stdout
     for name in ("spc_bot", None):
@@ -35,7 +35,7 @@ def _worker_init():
 
     import matplotlib as _mpl
     _mpl.use("Agg")
-    
+
     # Silence SounderPy banner
     _stdout = _sys.stdout
     _sys.stdout = _io.StringIO()

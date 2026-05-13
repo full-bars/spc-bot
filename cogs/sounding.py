@@ -105,7 +105,7 @@ class SoundingCog(commands.Cog):
         dropped on load."""
         self._restore_attempted = True
         logger.debug("cog_load: restoring dedup state from state_store")
-        
+
         self.auto_sounding_watches.start()
         self.monitor_special_soundings.start()
         self.monitor_high_risk_soundings.start()
@@ -118,13 +118,13 @@ class SoundingCog(commands.Cog):
                 logger.info(f"New day {today}, clearing handled watches")
                 await clear_sounding_handled_watches()
                 await set_state("sounding_handled_date", today)
-            
+
             # Prune old sounding keys
             await prune_posted_soundings(max_days=2)
 
             self._posted_watch_soundings = await get_posted_soundings()
             self._handled_watches = await get_sounding_handled_watches()
-            
+
             logger.info(
                 f"Restored {len(self._posted_watch_soundings)} "
                 f"posted-sounding keys and {len(self._handled_watches)} "
@@ -266,7 +266,7 @@ class SoundingCog(commands.Cog):
             avail = await get_available_sounding_times_iem(sid, hours_back=18, skip_cache=True)
             if not avail:
                 return None
-            
+
             # We check ALL available soundings in the window, not just the newest,
             # in case multiple special releases happened (e.g. 18z then 20z).
             # Claim each key atomically (no await between check and add) so a
@@ -283,13 +283,13 @@ class SoundingCog(commands.Cog):
         check_results = await asyncio.gather(*[
             _check_target(sid, info) for sid, info in station_targets.items()
         ])
-        
+
         # Flatten and filter
         all_to_post = []
         for res in check_results:
             if res:
                 all_to_post.extend(res)
-        
+
         if not all_to_post:
             return
 
@@ -332,11 +332,11 @@ class SoundingCog(commands.Cog):
                 png_path = opath + ".png"
                 if not success or not os.path.exists(png_path):
                     continue
-                
+
                 applicable = await self._watches_near(station["lat"], station["lon"])
                 # We know there's at least one applicable watch because that's how we found the station
                 watches_frag = self._format_watches_caption(applicable, "0000", "Watch")
-                
+
                 caption = (
                     f"**Special Sounding — {station['name']} ({sid})**\n"
                     f"Valid: {mo}-{d}-{y} {h}z | {watches_frag}"
@@ -344,7 +344,7 @@ class SoundingCog(commands.Cog):
                 qwarn = sounding_quality_warning(data)
                 if qwarn:
                     caption += f"\n{qwarn}"
-                    
+
                 try:
                     await channel.send(caption, files=[discord.File(png_path)])
                     logger.info(f"Posted special release {sid} {h}z")
@@ -352,7 +352,7 @@ class SoundingCog(commands.Cog):
                 except Exception as e:
                     logger.exception(f"Failed to post {sid}: {e}")
 
-    
+
 
     @tasks.loop(minutes=15)
     async def monitor_high_risk_soundings(self):
@@ -660,7 +660,7 @@ class SoundingCog(commands.Cog):
 
         # Use SOUNDING_CHANNEL_ID if configured, fallback to passed channel
         target_channel = self.bot.get_channel(SOUNDING_CHANNEL_ID) or channel
-        
+
         affected_zones = nws_info.get("affected_zones", []) if isinstance(nws_info, dict) else []
         if not affected_zones:
             logger.warning(f"No affected zones for watch #{watch_num} — skipping")
@@ -987,7 +987,7 @@ class SoundingCog(commands.Cog):
                 except Exception as e:
                     logger.exception(f"Failed to post ACARS: {e}")
 
-    
+
 
     @discord.app_commands.command(
         name="sounding",
@@ -1098,7 +1098,7 @@ class SoundingCog(commands.Cog):
             await post_sounding(
                 interaction, nearest[0],
                 year, month, day, hour,
-                dark_mode, followup=True,
+                dark_mode,
             )
             return
 

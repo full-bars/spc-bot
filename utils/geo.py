@@ -64,7 +64,7 @@ def find_nearest_indices(
             return list(_find_nearest_stations_rust(lat, lon, targets, n))
         except Exception:
             pass
-    
+
     # Python fallback
     distances = [(i, haversine(lat, lon, t_lat, t_lon)) for i, (t_lat, t_lon) in enumerate(targets)]
     distances.sort(key=lambda x: x[1])
@@ -80,7 +80,7 @@ def points_in_polygon_counts(
             return list(_points_in_polygon_counts_rust(points, polygons))
         except Exception:
             pass
-            
+
     # Python fallback (minimal: just returns 0s to maintain contract if Rust fails)
     return [0] * len(polygons)
 
@@ -94,6 +94,6 @@ def points_in_polygon_lookup(
             return list(_points_in_polygon_lookup_rust(points, polygons))
         except Exception:
             pass
-            
+
     # Python fallback
     return [None] * len(points)

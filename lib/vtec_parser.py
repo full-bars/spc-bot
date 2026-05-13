@@ -7,8 +7,8 @@ geographic warning regions.
 These utilities have zero Discord dependencies and can be reused in CLI tools,
 batch processors, and other contexts.
 """
-import re
 import logging
+import re
 from typing import List, Optional, Tuple
 
 # VTEC string format (NWS Directive 10-1703):
@@ -104,7 +104,7 @@ def parse_warning_polygon(
     m = _LATLON_RE.search(text)
     if not m:
         return None
-    
+
     raw_coords_str = m.group(1)
 
     # Try Rust optimized parser first

@@ -1,19 +1,32 @@
 import logging
-import numpy as np
 from typing import Any, Dict, Tuple, Union
+
+import numpy as np
 
 logger = logging.getLogger("spc_bot")
 
 # Try to import Rust implementations; fall back to Python
 try:
     from spc_rust_core import (
-        compute_bunkers as _compute_bunkers_rust,
-        compute_srh as _compute_srh_rust,
-        compute_dtm as _compute_dtm_rust,
-        compute_crit_angl as _compute_crit_angl_rust,
-        compute_shear_mag as _compute_shear_mag_rust,
-        compute_sr_flow as _compute_sr_flow_rust,
         clip_profile as _clip_profile_rust,
+    )
+    from spc_rust_core import (
+        compute_bunkers as _compute_bunkers_rust,
+    )
+    from spc_rust_core import (
+        compute_crit_angl as _compute_crit_angl_rust,
+    )
+    from spc_rust_core import (
+        compute_dtm as _compute_dtm_rust,
+    )
+    from spc_rust_core import (
+        compute_shear_mag as _compute_shear_mag_rust,
+    )
+    from spc_rust_core import (
+        compute_sr_flow as _compute_sr_flow_rust,
+    )
+    from spc_rust_core import (
+        compute_srh as _compute_srh_rust,
     )
     _rust_available = True
 except ImportError:

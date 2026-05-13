@@ -32,9 +32,14 @@ try:
 finally:
     sys.stdout = _stdout
 
+from utils.geo import find_nearest_indices, haversine  # noqa: E402
+from utils.http import (  # noqa: E402
+    CircuitOpenError,
+    circuit_breaker,
+    ensure_session,
+    http_get_json,
+)
 from utils.state_store import get_state, set_state  # noqa: E402  # follows sounderpy import
-from utils.geo import haversine, find_nearest_indices  # noqa: E402
-from utils.http import http_get_json, circuit_breaker, ensure_session, CircuitOpenError  # noqa: E402
 
 logger = logging.getLogger("spc_bot")
 
@@ -112,7 +117,7 @@ def find_nearest_stations(lat: float, lon: float, df: pd.DataFrame, n: int = 3) 
     """Return the n nearest RAOB stations as a list of dicts."""
     targets = list(zip(df["lat"], df["lon"]))
     nearest_data = find_nearest_indices(lat, lon, targets, n)
-    
+
     results = []
     for idx, dist_km in nearest_data:
         row = df.iloc[idx]
@@ -313,7 +318,7 @@ async def get_md_area_centroid(raw_text: str) -> tuple[float, float] | None:
             continue
         try:
             # Format: DDMMDDMM (LatDDMM LonDDMM)
-            # SPC lons are often 3 digits if > 100, but in this block 
+            # SPC lons are often 3 digits if > 100, but in this block
             # they are usually 4 digits (e.g. 9845 means -98.45)
             lat_raw = int(part[:4])
             lon_raw = int(part[4:])
@@ -378,7 +383,7 @@ def _iem_level_is_valid(lv: dict) -> bool:
 
 
 def _iem_to_clean_data(profile: dict, station_id: str, station_name: str,
-                        lat: float, lon: float, elev: float, valid: str) -> dict:
+                        lat: float, lon: float, elev: float, valid: str) -> dict | None:
     """
     Convert IEM RAOB profile dict to SounderPy clean_data format.
     IEM fields: pres, hght, tmpc, dwpc, drct, sknt
@@ -433,7 +438,7 @@ def _iem_to_clean_data(profile: dict, station_id: str, station_name: str,
             # Handle possible alternate formats from IEM
             dt = datetime.strptime(valid, "%Y-%m-%dT%H:%M:%S")
             dt = dt.replace(tzinfo=timezone.utc)
-            
+
         run_time = [str(dt.year), str(dt.month).zfill(2),
                     str(dt.day).zfill(2), f"{dt.hour:02d}:{dt.minute:02d}"]
     except Exception as e:
@@ -679,6 +684,7 @@ async def get_acars_profiles_in_polygon(
         return []
 
     import sounderpy as spy  # noqa: PLC0415
+
     from utils.spc_outlook import is_inside_polygon
 
     now = datetime.now(timezone.utc)
@@ -750,7 +756,7 @@ def _fsl_to_clean_data(text: str, station_id: str, station_name: str,
     """Parse GSL 'FSL' format ASCII text into SounderPy clean_data."""
     lines = text.splitlines()
     levels = []
-    
+
     # FSL format data lines (Type 4, 5, 6) have 7 fields:
     # Type, Pressure (1/10 mb), Height (m), Temp (1/10 C), Dewpt (1/10 C), Wind Dir (deg), Wind Spd (kt)
     for line in lines:
@@ -761,17 +767,17 @@ def _fsl_to_clean_data(text: str, station_id: str, station_name: str,
             ltype = int(parts[0])
             if ltype not in (4, 5, 6):
                 continue
-                
+
             p_raw = int(parts[1])
             z_raw = int(parts[2])
             t_raw = int(parts[3])
             td_raw = int(parts[4])
             wdir_raw = int(parts[5])
             wspd_raw = int(parts[6])
-            
+
             if p_raw == 99999 or z_raw == 99999:
                 continue
-                
+
             levels.append({
                 "pres": p_raw / 10.0,
                 "hght": float(z_raw),
@@ -850,7 +856,7 @@ async def fetch_gsl_sounding(station_id: str, year: str, month: str,
         "09": "SEP", "10": "OCT", "11": "NOV", "12": "DEC"
     }
     month_name = month_map.get(month, "JAN")
-    
+
     url = (
         "https://rucsoundings.noaa.gov/get_raobs.cgi?"
         f"data_source=RAOB&latest=latest&start_year={year}&"
@@ -858,13 +864,13 @@ async def fetch_gsl_sounding(station_id: str, year: str, month: str,
         f"start_hour={hour}&start_min=0&n_hrs=1.0&fcst_len=0&"
         f"select_mdstns={station_id}&fsl_data_last=yes"
     )
-    
+
     try:
         from utils.http import http_get_text
         text = await http_get_text(url, retries=1, timeout=15)
         if not text or "No data available" in text:
             return None
-            
+
         clean = _fsl_to_clean_data(
             text, station_id, station_name or station_id,
             lat, lon, elev, [year, month, day, f"{hour}:00"]
@@ -916,12 +922,12 @@ async def get_available_sounding_times(
     avail = await get_available_sounding_times_iem(station_id, hours_back, skip_cache=skip_cache)
     if avail:
         return avail
-        
+
     # 2. Try Wyoming Probe for standard hours (00z/12z)
     # This is needed for international stations like SBSM that aren't in IEM.
     # We check standard hours in the requested window.
     probe_times = get_recent_sounding_times(n=max(2, (hours_back // 12) + 1))
-    
+
     # Filter probe times to only those within hours_back
     now = datetime.now(timezone.utc)
     valid_probe_times = []
@@ -929,16 +935,16 @@ async def get_available_sounding_times(
         dt = datetime(int(y), int(mo), int(d), int(h), tzinfo=timezone.utc)
         if (now - dt).total_seconds() / 3600 <= hours_back:
             valid_probe_times.append((y, mo, d, h))
-            
+
     if not valid_probe_times:
         return []
-        
+
     # Parallel probe Wyoming/GSL
     results = await asyncio.gather(*[
         fetch_sounding(station_id, y, mo, d, h)
         for y, mo, d, h in valid_probe_times
     ])
-    
+
     return [valid_probe_times[i] for i, res in enumerate(results) if res is not None]
 
 
@@ -959,25 +965,25 @@ def validate_sounding_data(data: Optional[dict], min_levels: int = 5) -> bool:
     """Check if sounding data dict is valid and has enough levels for plotting."""
     if not data or not isinstance(data, dict):
         return False
-    
+
     # Check for required SounderPy keys
     for key in ("p", "z", "T", "Td", "u", "v"):
         if key not in data or data[key] is None:
             return False
-            
+
     # Check level count and array consistency
     try:
         p_len = len(data["p"])
         if p_len < min_levels:
             return False
-            
+
         for key in ("z", "T", "Td", "u", "v"):
             if len(data[key]) != p_len:
                 return False
     except (TypeError, KeyError) as e:
         logger.debug(f"[SOUNDING] Structural validation failed: {e}")
         return False
-        
+
     # Check for sufficient valid data (prevent crashes in SounderPy/ecape-parcel)
     try:
         # Check if we have at least SOME non-zero wind data (prevent jagged hodographs)

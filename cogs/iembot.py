@@ -19,12 +19,9 @@ from typing import Optional
 
 from discord.ext import commands, tasks
 
-from config import IEMBOT_BOTSTALK_URL, IEMBOT_FEED_URL, IEM_NWSTEXT_URL
-from utils.state_store import (
-    get_state, set_state, 
-    get_product_cache, set_product_cache
-)
+from config import IEM_NWSTEXT_URL, IEMBOT_BOTSTALK_URL, IEMBOT_FEED_URL
 from utils.http import http_get_bytes
+from utils.state_store import get_product_cache, get_state, set_product_cache, set_state
 
 logger = logging.getLogger("spc_bot.iembot")
 
@@ -167,10 +164,11 @@ class IEMBotCog(commands.Cog):
                 product_id = msg.get("product_id", "")
                 if not product_id:
                     continue
-                
+
                 # Track IEMBot wire latency
                 try:
-                    from datetime import datetime as dt_class, timezone as tz_class
+                    from datetime import datetime as dt_class
+                    from datetime import timezone as tz_class
                     now = dt_class.now(tz_class.utc)
                     start_time = self.bot.state.bot_start_time
                     if isinstance(start_time, dt_class):
@@ -345,10 +343,11 @@ class IEMBotCog(commands.Cog):
                 product_id = msg.get("product_id", "")
                 if not product_id:
                     continue
-                
+
                 # Track IEMBot wire latency
                 try:
-                    from datetime import datetime as dt_class, timezone as tz_class
+                    from datetime import datetime as dt_class
+                    from datetime import timezone as tz_class
                     now = dt_class.now(tz_class.utc)
                     start_time = self.bot.state.bot_start_time
                     if isinstance(start_time, dt_class):

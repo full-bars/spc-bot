@@ -6,7 +6,7 @@ from typing import Dict, Optional, Tuple
 from urllib.parse import urlparse
 
 import aiohttp
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger("spc_bot")
 
@@ -198,7 +198,7 @@ async def http_get_bytes_conditional(
             latency = time.perf_counter() - start
             if _latency_callback:
                 _latency_callback(latency)
-            
+
             if response.status in (429, 503, 502, 504):
                 # Tenacity handles the backoff/retry; we just signal the failure
                 raise aiohttp.ClientResponseError(
@@ -207,12 +207,12 @@ async def http_get_bytes_conditional(
                     status=response.status,
                     message="Server returned retryable error"
                 )
-            
+
             if response.status == 304:
                 return None, 304, {"etag": etag or "", "last_modified": last_modified or ""}
-                
+
             response.raise_for_status() # Raise for 4xx/5xx
-            
+
             content = await response.read()
             validators = {
                 "etag": response.headers.get("ETag", ""),
@@ -254,7 +254,7 @@ async def http_head_ok(url: str, timeout: int = 20) -> bool:
     host = parsed.netloc
     if circuit_breaker.is_open(host):
         return False
-        
+
     try:
         session = await ensure_session()
         async with session.head(

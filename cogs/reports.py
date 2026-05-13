@@ -12,11 +12,11 @@ from config import WARNINGS_CHANNEL_ID
 from utils.http import http_get_bytes
 from utils.state_store import (
     add_posted_report,
-    add_posted_survey, 
+    add_posted_survey,
     add_significant_event,
-    get_posted_surveys, 
+    get_posted_surveys,
     prune_posted_reports,
-    prune_posted_surveys
+    prune_posted_surveys,
 )
 
 logger = logging.getLogger("spc_bot")
@@ -73,7 +73,7 @@ class ReportsCog(commands.Cog):
         """Handle LSR or PNS damage survey posts."""
         if product_id in self.bot.state.posted_reports:
             return
-        
+
         if pil == "LSR":
             await self._handle_lsr(product_id, raw_text)
         elif pil == "PNS":
@@ -81,13 +81,13 @@ class ReportsCog(commands.Cog):
 
     async def _handle_lsr(self, product_id: str, raw_text: str):
         # Local Storm Report parsing
-        # Usually multiple reports can be in one LSR product, but IEMbot usually 
+        # Usually multiple reports can be in one LSR product, but IEMbot usually
         # sends them individually or as a small block.
         # Format: TIME...EVENT...CITY...LAT/LON etc.
-        
+
         # Split by the standard LSR separator if multiple
         reports = re.split(r"\n\n(?=\d{4}\s+[A-Z])", raw_text)
-        
+
         channel = self.bot.get_channel(WARNINGS_CHANNEL_ID)
         if not channel:
             return
@@ -95,7 +95,7 @@ class ReportsCog(commands.Cog):
         for r in reports:
             if "LOCAL STORM REPORT" not in r and "EVENT" not in r:
                 continue
-            
+
             # Match Line 1: 0131 AM     TSTM WND DMG     DICKSON                 36.03N 87.39W
             m_l1 = re.search(r"^(\d{4}\s+[AP]M)\s+(.{16})\s+(.{24})\s+(\d+\.\d+N\s+\d+\.\d+W)", r, re.M)
             if not m_l1:
@@ -124,7 +124,7 @@ class ReportsCog(commands.Cog):
             # Specialized logic for automated stations (ASOS, AWOS, MTR)
             source_upper = source.upper()
             is_automated = any(x in source_upper for x in ("ASOS", "AWOS", "MTR"))
-            
+
             peak_wind_summary = ""
             if is_automated:
                 # Extract Peak Wind: PK WND 27045/2220 -> 45kt
@@ -139,7 +139,7 @@ class ReportsCog(commands.Cog):
 
             office = product_id.split("-")[1] if "-" in product_id else "NWS"
             lsr_url = f"https://mesonet.agron.iastate.edu/p.php?pid={product_id}"
-            
+
             # Approx timestamp for LSR
             lsr_ts = datetime.now(timezone.utc).timestamp()
             if product_id and len(product_id) >= 12:
@@ -147,16 +147,16 @@ class ReportsCog(commands.Cog):
                     lsr_ts = datetime.strptime(product_id[:12], "%Y%m%d%H%M").replace(tzinfo=timezone.utc).timestamp()
                 except Exception:
                     logger.debug("LSR timestamp parse failed for product_id %r, falling back to now()", product_id)
-            
+
             # Dedup check for Tornadoes (Discord side)
             if "TORNADO" in event_type.upper():
-                from utils.state_store import find_matching_tornado
                 from utils.db import get_posted_warning_timestamp
+                from utils.state_store import find_matching_tornado
                 match = await find_matching_tornado(office, lsr_ts, location, window_hours=1.0)
                 if match:
                     event_id, vtec_id = match
                     logger.info(f"[REPORTS] Skipping Discord post for Tornado LSR {product_id}, matches {event_id}")
-                    
+
                     # Calculate Lead Time if we have a vtec_id
                     if vtec_id:
                         warn_ts = await get_posted_warning_timestamp(vtec_id)
@@ -197,7 +197,7 @@ class ReportsCog(commands.Cog):
                 timestamp=datetime.now(timezone.utc)
             )
             embed.set_footer(text=f"{office} LSR | {coords}")
-            
+
             # --- Persist State Before Sending ---
             self.bot.state.posted_reports.add(product_id)
             await add_posted_report(product_id)
@@ -226,7 +226,7 @@ class ReportsCog(commands.Cog):
         # Public Information Statement - Damage Survey
         if "DAMAGE SURVEY" not in raw_text.upper():
             return
-        
+
         channel = self.bot.get_channel(WARNINGS_CHANNEL_ID)
         if not channel:
             return
@@ -248,17 +248,17 @@ class ReportsCog(commands.Cog):
                 ef_nums.append(-1) # Unknown
             else:
                 ef_nums.append(int(r))
-        
+
         max_ef = max(ef_nums) if ef_nums else None
         rating_str = f"EF{max_ef}" if max_ef is not None and max_ef >= 0 else ("EFU" if max_ef == -1 else "N/A")
-        
+
         # 3. Location/Event Name
         m_event = re.search(r"\.\.\.(.*?)\.\.\.", raw_text)
         event_name = m_event.group(1).strip() if m_event else "NWS Damage Survey"
 
         office = product_id.split("-")[1] if "-" in product_id else "NWS"
         pns_url = f"https://mesonet.agron.iastate.edu/p.php?pid={product_id}"
-        
+
         # 4. Count total events in this product
         total_tors = len(ef_nums)
         tor_count_msg = f" ({total_tors} tornadoes)" if total_tors > 1 else ""
@@ -298,9 +298,9 @@ class ReportsCog(commands.Cog):
             timestamp=datetime.now(timezone.utc)
         )
         embed.set_footer(text=f"{office} PNS | {product_id}")
-        
+
         await channel.send(embed=embed, view=view)
-        
+
         self.bot.state.posted_reports.add(product_id)
         await add_posted_report(product_id)
         await prune_posted_reports()
@@ -310,7 +310,7 @@ class ReportsCog(commands.Cog):
         # Patterns: MM/DD/YYYY or Month DD, YYYY
         event_date = None
         event_ts = datetime.now(timezone.utc).timestamp()
-        
+
         # Numerical: 05/21/2024
         m_num = re.search(r"(\d{1,2})/(\d{1,2})/(\d{4})", raw_text)
         if m_num:
@@ -339,11 +339,11 @@ class ReportsCog(commands.Cog):
 
         from utils.state_store import find_matching_tornado
         match = await find_matching_tornado(office, event_ts, event_name)
-        
+
         # Only log to significant events if it's a Tornado survey
         # (check event_name and rating)
         is_tornado = "TORNADO" in event_name.upper() or rating_str.startswith("EF")
-        
+
         if is_tornado:
             if match:
                 event_id, vtec_id = match
@@ -396,7 +396,7 @@ class ReportsCog(commands.Cog):
                 if arg.get("id") == "datglobalid":
                     options = arg.get("options", {})
                     break
-            
+
             if not options:
                 return
 
@@ -407,7 +407,7 @@ class ReportsCog(commands.Cog):
             for guid, label in options.items():
                 if guid in self.posted_surveys:
                     continue
-                
+
                 # Format: datglobalid:{GUID}::dat:YYYY-MM-DD::cmap:gist_rainbow::_r:t::dpi:100.png
                 img_url = (
                     f"https://mesonet.agron.iastate.edu/plotting/auto/plot/253/"
@@ -418,18 +418,18 @@ class ReportsCog(commands.Cog):
                 # --- Mapping Logic: Local Render (Primary) -> IEM Autoplot (Fallback) ---
                 file_to_send = None
                 source_text = "Local DAT Render"
-                
+
                 # Try high-detail local render first
                 from utils.dat_api import fetch_dat_track_geometry  # noqa: PLC0415
                 from utils.map_utils import render_tornado_track  # noqa: PLC0415
-                
+
                 paths = await fetch_dat_track_geometry(guid)
                 if paths:
                     out_path = os.path.join("cache", f"track_{guid}.png")
                     render_tornado_track(paths, out_path)
                     if os.path.exists(out_path):
                         file_to_send = discord.File(out_path, filename=f"track_{guid}.png")
-                
+
                 # If local render failed (no geometry yet), fall back to IEM
                 if not file_to_send:
                     source_text = "IEM Autoplot 253"
@@ -438,21 +438,21 @@ class ReportsCog(commands.Cog):
                     if status != 200:
                         logger.info(f"[REPORTS] Both local and IEM maps unavailable for {guid}")
                         # We'll post without an image for now, or just use the URL and hope it populates
-                    
+
                 embed = discord.Embed(
                     title="🌪️ Tornado Track + Lead Time",
                     description=f"**Event:** {label}\n**Date:** {event_date}",
                     color=discord.Color.red(),
                     url=f"https://mesonet.agron.iastate.edu/plotting/auto/?q=253&dat={event_date.replace('-', '/')}&datglobalid={guid}"
                 )
-                
+
                 if file_to_send:
                     embed.set_image(url=f"attachment://{file_to_send.filename}")
                 else:
                     embed.set_image(url=img_url)
-                    
+
                 embed.set_footer(text=f"{source_text} | {guid}")
-                
+
                 await channel.send(embed=embed, file=file_to_send)
                 self.posted_surveys.add(guid)
                 await add_posted_survey(guid)
@@ -460,7 +460,7 @@ class ReportsCog(commands.Cog):
                 logger.info(f"[REPORTS] Posted survey map for {guid} ({label}) via {source_text}")
 
                 # Link DAT guid to tornado and cache photos
-                from utils.events_db import link_dat_guid_to_tornado, cache_dat_photos
+                from utils.events_db import cache_dat_photos, link_dat_guid_to_tornado
                 match_result = await link_dat_guid_to_tornado(event_date, guid, label)
                 if match_result:
                     event_id, location, magnitude, coords = match_result
@@ -492,14 +492,14 @@ class ReportsCog(commands.Cog):
                 pid = props.get("product_id")
                 if not pid or pid in self.bot.state.posted_reports:
                     continue
-                
+
                 # Check significance
                 is_sig = False
                 typetext = props.get("typetext", "").upper()
-                
+
                 if typetext == "TORNADO":
                     is_sig = True
-                
+
                 if is_sig:
                     # We found a significant report not seen via iembot fast-path
                     # Log it
@@ -517,7 +517,7 @@ class ReportsCog(commands.Cog):
 
                     office = props.get("wfo")
                     location = f"{props.get('city')}, {props.get('state')}"
-                    
+
                     if typetext == "TORNADO":
                         event_type = "Tornado"
                         magnitude = "Confirmed"

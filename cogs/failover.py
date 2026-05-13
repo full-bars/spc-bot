@@ -239,7 +239,8 @@ class FailoverCog(commands.Cog):
         )
 
     async def _read_lease_holder(self) -> str | None:
-        return await self._upstash("GET", LEASE_KEY)
+        result = await self._upstash("GET", LEASE_KEY)
+        return str(result) if result is not None else None
 
     async def _release_lease(self) -> None:
         # Only release if it's still ours — otherwise we'd clobber a
@@ -262,7 +263,7 @@ class FailoverCog(commands.Cog):
 
             # 2. Check for manual override
             manual_primary = await self._upstash("GET", "spcbot:manual_primary")
-            
+
             if manual_primary:
                 if self._is_our_node(manual_primary):
                     # We are the designated primary
@@ -566,7 +567,7 @@ class FailoverView(discord.ui.View):
     ):
         super().__init__(timeout=60)
         self.cog = cog
-        
+
         options = []
         for node in nodes:
             label = node
@@ -574,14 +575,14 @@ class FailoverView(discord.ui.View):
                 label += " (Active Primary)"
             if node == cog._identity:
                 label += " (This Node)"
-            
+
             options.append(discord.SelectOption(
                 label=label,
                 value=node,
                 description=f"Force {node} to be Primary",
                 default=(node == current_manual)
             ))
-        
+
         options.append(discord.SelectOption(
             label="❌ Clear Manual Override",
             value="CLEAR",

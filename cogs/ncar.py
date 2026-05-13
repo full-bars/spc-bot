@@ -4,6 +4,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 
+import aiohttp
 import discord
 from discord.ext import commands, tasks
 
@@ -14,10 +15,8 @@ from utils.cache import (
     get_cache_path_for_url,
     is_placeholder_image,
 )
-from utils.state_store import delete_state, get_state, set_hash, set_state
 from utils.http import ensure_session
-
-import aiohttp
+from utils.state_store import delete_state, get_state, set_hash, set_state
 
 logger = logging.getLogger("spc_bot")
 

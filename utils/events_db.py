@@ -21,9 +21,9 @@ from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
 import aiohttp
-from utils.http import http_get_json, ensure_session
-
 import aiosqlite
+
+from utils.http import ensure_session, http_get_json
 
 logger = logging.getLogger("spc_bot")
 
@@ -189,7 +189,7 @@ async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> Opti
             _mark_dirty()
             logger.info(f"Linked DAT {guid} to event {best_id}")
             return (best_id, best_row["location"], best_row["magnitude"], best_row["coords"])
-            
+
     except Exception as e:
         logger.warning(f"link_dat_guid_to_tornado failed: {e}")
     return None
@@ -206,7 +206,7 @@ async def backfill_dat_guids(days: int = 30):
     # 1. Fetch recently updated tracks from DAT
     # ArcGIS uses Unix timestamps in milliseconds for date filters
     cutoff_ms = int((time.time() - (days * 86400)) * 1000)
-    
+
     url = (
         "https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/1/query"
         f"?where=last_edited_date >= {cutoff_ms}&outFields=event_id,event_name,efscale&returnGeometry=true&outSR=4326&f=json"
@@ -344,7 +344,7 @@ async def fetch_dat_photos(
             "https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/0"
             f"/queryAttachments?objectIds={ids_str}&f=json"
         )
-        
+
         urls = []
         bulk_data = await http_get_json(bulk_url, retries=1, timeout=10)
         if bulk_data and "attachmentGroups" in bulk_data:
@@ -593,7 +593,7 @@ def restore_from_sync() -> None:
     if not os.path.exists(_SYNC_PATH):
         logger.info("No sync snapshot found — starting fresh events.db")
         return
-    
+
     global _db
     if _db is not None:
         logger.warning("Cannot restore while DB is open — close it first")
@@ -605,7 +605,7 @@ def restore_from_sync() -> None:
         if os.path.getsize(_SYNC_PATH) < 4096: # Minimal SQLite file size
              logger.warning("Sync snapshot too small, skipping restore")
              return
-             
+
         shutil.copy2(_SYNC_PATH, _EVENTS_DB_PATH)
         logger.info("Restored events.db from sync snapshot")
     except Exception as e:

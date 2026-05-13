@@ -82,15 +82,15 @@ def _build_buffered_polygon(features: list, buffer_km: float):
     selected = []
     labels_present = set()
     max_risk_idx = 0
-    
+
     for feat in features:
         props = feat.get("properties", {}) or {}
         label = props.get("LABEL", "").strip().upper()
-        
+
         # Track overall highest risk
         if label in RISK_MAP:
             max_risk_idx = max(max_risk_idx, RISK_MAP[label])
-        
+
         if label not in HIGH_RISK_LABELS:
             continue
         geom = feat.get("geometry")

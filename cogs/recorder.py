@@ -1,17 +1,17 @@
 import asyncio
-import logging
 import json
-from datetime import datetime, timezone
-from typing import Dict, Set, Optional
+import logging
 import os
-from PIL import Image
+from datetime import datetime, timezone
+from typing import Dict, Optional, Set
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
+from PIL import Image
 
+from config import ARCHIVE_DIR, RECORDING_DIR
 from lib.vad_plotter.vad_reader import download_vad, find_file_times
-from config import RECORDING_DIR, ARCHIVE_DIR
 from utils.state_store import get_state, set_state
 from utils.worker_pool import get_executor
 
@@ -27,7 +27,7 @@ class VADRecordingMission:
         self.start_ts = trigger_ts - (60 * 60) # 1h lookback
         self.end_ts = trigger_ts + (90 * 60)   # 90m follow-up
         self.processed_timestamps: Set[float] = set()
-        
+
         # Create storage directory
         self.dir = os.path.join(RECORDING_DIR, f"{site_id}_{int(trigger_ts)}")
         os.makedirs(self.dir, exist_ok=True)
@@ -62,11 +62,11 @@ class RecorderCog(commands.Cog):
         self.bot = bot
         self.active_missions: Dict[str, VADRecordingMission] = {}
         self.executor = get_executor()
-        
+
         # Ensure directories exist
         os.makedirs(RECORDING_DIR, exist_ok=True)
         os.makedirs(ARCHIVE_DIR, exist_ok=True)
-        
+
         self.recorder_loop.start()
 
     def cog_unload(self):
@@ -99,7 +99,7 @@ class RecorderCog(commands.Cog):
         else:
             self.active_missions[site_id] = VADRecordingMission(site_id, trigger_ts, {event_id} if event_id else None)
             logger.info(f"Started NEW mission for {site_id} (Initial Event: {event_id})")
-        
+
         await self._persist_missions()
 
     @tasks.loop(minutes=5)
@@ -111,12 +111,12 @@ class RecorderCog(commands.Cog):
                 return
 
         now = datetime.now(timezone.utc).timestamp()
-        
+
         # 1. Fetch data for all active missions
         tasks_list = []
         for site_id, mission in self.active_missions.items():
             tasks_list.append(self._record_step(mission))
-            
+
         if tasks_list:
             await asyncio.gather(*tasks_list, return_exceptions=True)
             await self._persist_missions() # Save progress (processed_timestamps)
@@ -138,14 +138,14 @@ class RecorderCog(commands.Cog):
         """Fetch available VAD scans for the mission window."""
         try:
             available_times = await find_file_times(mission.site_id)
-            
+
             mission_start = datetime.fromtimestamp(mission.start_ts, timezone.utc)
             mission_end = datetime.fromtimestamp(mission.end_ts, timezone.utc)
-            
+
             for fn, dt in available_times:
                 dt_utc = dt.replace(tzinfo=timezone.utc) if not dt.tzinfo else dt
                 ts = dt_utc.timestamp()
-                
+
                 if mission_start <= dt_utc <= mission_end and ts not in mission.processed_timestamps:
                     try:
                         await download_vad(mission.site_id, time=dt_utc, cache_path=mission.dir)
@@ -153,7 +153,7 @@ class RecorderCog(commands.Cog):
                         logger.debug(f"Saved scan for {mission.site_id} @ {dt_utc}")
                     except Exception as e:
                         logger.warning(f"Failed to fetch {mission.site_id} @ {dt_utc}: {e}")
-                        
+
         except Exception as e:
             logger.error(f"Step failed for {mission.site_id}: {e}")
 
@@ -267,9 +267,9 @@ class RecorderCog(commands.Cog):
 
     @staticmethod
     def _render_frame_worker(input_path, output_path, rid):
-        from lib.vad_plotter.vad_reader import VADFile
-        from lib.vad_plotter.plot import plot_hodograph
         from lib.vad_plotter.params import compute_parameters
+        from lib.vad_plotter.plot import plot_hodograph
+        from lib.vad_plotter.vad_reader import VADFile
         try:
             with open(input_path, 'rb') as f:
                 vad = VADFile(f)
@@ -292,8 +292,9 @@ class RecorderCog(commands.Cog):
     @staticmethod
     def _calc_srh_worker(mission_dir, files):
         import numpy as np
-        from lib.vad_plotter.vad_reader import VADFile
+
         from lib.vad_plotter.params import compute_bunkers, compute_srh
+        from lib.vad_plotter.vad_reader import VADFile
         srh_max = 0.0
         for filename in files:
             p = os.path.join(mission_dir, filename)
@@ -304,11 +305,11 @@ class RecorderCog(commands.Cog):
                     vad = VADFile(f)
                 if len(vad['wind_dir']) < 2:
                     continue
-                
+
                 # compute_bunkers returns (right, left, mean) vectors in (dir, spd)
                 brm, _, _ = compute_bunkers(vad)
                 srh = compute_srh(vad, brm, 1.0) # 1km SRH
-                
+
                 if not np.isnan(srh):
                     srh_max = max(srh_max, srh)
             except Exception:
