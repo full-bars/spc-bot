@@ -6,6 +6,21 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.25.1] — 2026-05-13
+
+### Added
+- **Warning type breakdown on `/status`.** The Active Warnings line in the Environment field now shows per-phenomenon counts when warnings are active (e.g. `🌪️ TOR \`2\` | ⛈️ SVR \`5\` | 🌊 FFW \`1\``). Falls back to a plain count when no warnings are active.
+
+### Fixed
+- **`followup.send` missing `wait=True`.** Six `interaction.followup.send(...)` calls in `status.py`, `watches.py`, and `radar/downloads.py` were assigning the result to `view.message` without `wait=True`. Discord returns `None` in that case, so view auto-update and edit paths (live-refreshing `/status`, `/taskmgr`, `/logs`, watch paginator, download progress) were silently receiving `None` and could not edit themselves.
+- **`post_sounding` phantom kwarg.** A `followup=True` keyword argument was passed to `post_sounding` in `sounding.py`; the parameter does not exist in the function signature.
+- **`_iem_to_clean_data` return type.** Annotated `-> dict` but returned `None` on empty profiles; corrected to `-> dict | None`.
+- **`_read_lease_holder` return type.** Cast the untyped `_upstash` result to `str` before returning to satisfy the `str | None` annotation in `failover.py`.
+- **`warnings.py` channel return type.** Cast `get_channel()` results to `discord.abc.Messageable` to match the method's declared return type.
+
+### Performance
+- **Ruff hygiene sweep.** 371 auto-fixed violations across 39 files: trailing/blank-line whitespace, unsorted import blocks, redundant `str.split`, and unused imports.
+
 ## [5.25.0] — 2026-05-13
 
 ### Performance
