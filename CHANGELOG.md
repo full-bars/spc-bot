@@ -6,6 +6,8 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.25.0] — 2026-05-13
+
 ### Performance
 - **Tenacity Retry Decorator Hoisted.** `http_get_bytes_conditional` and `http_get_json` previously reconstructed a `tenacity.retry(...)` decorator object on every invocation, paying the full strategy-compilation cost per HTTP call. Decorators are now built once at module load and cached by attempt-count in `_RETRY_CACHE`; the common cases (1–4 attempts) are pre-populated at import time. Non-default counts are lazily memoized on first use.
 - **Vectorized Station Coordinate Transform.** Replaced two `df.apply(lambda row: ...)` calls in `_fetch_stations` with column-wise `np.where` expressions. The old approach iterated row-by-row in Python (~900 iterations per startup fetch); the new approach evaluates the hemisphere-sign conversion in a single vectorized pass over the entire column.
@@ -15,6 +17,16 @@ version numbers follow [SemVer](https://semver.org/).
 - **Circuit Breaker Log Noise.** Demoted the per-request "Circuit open for {host}, failing fast" log from WARNING to DEBUG. The breaker fast-failing is the desired behavior — the actual state transition is still logged at WARNING (`reached N failures. Circuit OPEN`) and INFO (`recovered. Closing circuit`). A single upstream outage was producing 20× amplification (one trip warning + tens of fast-fail warnings until recovery).
 - **LRU Hydration Order.** `hydrate_validators_from_store` now inserts entries via `_validators_set` instead of `OrderedDict.update`. The bulk `.update` bypassed move-to-end and the max-size eviction path, so a large persisted store could silently exceed `_VALIDATORS_CACHE_MAX` and leave the LRU order undefined for items loaded at startup.
 - **Executor Drain on Shutdown.** `shutdown_executors` now passes `wait=True, cancel_futures=True` to both `ProcessPoolExecutor.shutdown` calls. The previous `wait=False` caused in-flight hodo/sounding renders to be abandoned mid-write on SIGTERM, risking partial image files and silent result loss.
+
+### Rust
+- **Phase 7 — VAD Plotter Math.** Ported `compute_shear_mag`, `compute_sr_flow`, and `clip_profile` from `lib/vad_plotter/params.py` to Rust. Includes a vectorized `linspace` helper and a `_interp_linear` implementation that matches NumPy's `left=nan, right=nan` boundary behavior. Verified at `1e-9` tolerance against the Python implementations using the `test.vwp` fixture.
+- **Phase 8 — Batch Spatial Joins.** Added `find_nearest_stations_batch`, `points_in_polygon_counts`, and `points_in_polygon_lookup` to the Rust core (`utils/geo`). Refactored `find_nearest_stations` in `cogs/sounding_utils.py` to use the Rust `find_nearest_indices` fast-path, replacing a row-wise Pandas `nsmallest`. Parity and integration tests in `tests/test_rust_phase8.py`.
+
+### Fixed
+- **International Sounding Availability.** `filter_stations_with_data` now falls back to a direct Wyoming/GSL archive probe when IEM returns empty results for non-CONUS stations (e.g. SBSM/Santa Maria). Previously these stations incorrectly showed "no recent data" despite full profiles being available in the Wyoming archive. Rolled into a unified `get_available_sounding_times` helper in the follow-up fix so the Wyoming probe applies consistently across all availability checks.
+- **Sounding Theme Toggle.** Label changed to "Switch to Dark/Light Mode" for clarity, emojis standardized, and button row indexing fixed to prevent UI collisions with other sounding controls.
+- **Upstash Daily Quota Guard.** Added a local daily command counter in `utils/db.py` and a soft-quota guard in `_upstash_cmd`. Logs a `WARNING` when usage reaches 8,000 (80% of the 10,000-command free tier) and raises `_UpstashUnavailable` to fall back to SQLite at the hard limit. The warning is emitted once per process per day to avoid log spam.
+- **NWWS Ping Loop Leak.** `NWWSClient.disconnect` now explicitly cancels and clears `_ping_task`, preventing the keep-alive loop from outliving the XMPP session across reconnects.
 
 ### CI
 - **Parallel test execution.** Added `pytest-xdist` to `requirements-dev.txt` and enabled `-n auto` in the CI test step, distributing tests across all available CPU cores. `pytest.ini` addopts unchanged so local runs stay serial.

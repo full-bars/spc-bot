@@ -34,6 +34,16 @@ While the failover manages *who* posts, the state must remain consistent.
 - **SQLite Mirror:** A local `bot_state.db` provides a durable mirror and handles outage survival if Upstash is unreachable.
 - **Syncthing:** Replicates the historical `events.db` archive cross-node, ensuring the Standby has the full record if it promotes.
 
+### Upstash Quota Exhaustion
+
+The bot enforces a daily command quota guard against the Upstash free-tier limit (10,000 commands/day):
+
+- **At 8,000 commands:** A one-time `WARNING` is logged (`Upstash daily quota warning: X/10000`). Upstash remains fully active.
+- **At 10,000 commands:** The bot raises `_UpstashUnavailable` and silently falls back to SQLite for all state operations — posting, deduplication, and HA heartbeats all continue via the local mirror. **The node does not crash or demote itself.**
+- **Reset:** The counter resets at UTC midnight. Upstash operations resume automatically on the next call after reset.
+
+Quota exhaustion is operationally transparent: from Discord's perspective the bot continues to post and deduplicate correctly. The only observable effect is that Upstash-sourced cross-node state (e.g., lease renewal) relies on the last synced SQLite snapshot until midnight.
+
 ## ⚙️ Environment Checklist
 
 Set these on both nodes:

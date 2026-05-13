@@ -33,7 +33,7 @@ spc-bot/
 │   ├── spc_urls.py          # SPC outlook URL resolution
 │   ├── spc_outlook.py       # SPC Day 1 categorical polygon (MDT/HIGH) with geodesic buffer
 ├── backoff.py           # Exponential backoff tracker for task loops
-├── worker_pool.py       # Shared ProcessPoolExecutor for background rendering
+├── worker_pool.py       # Two separate ProcessPoolExecutors: "Fast Hodo" (hodograph/VAD rendering) and "Heavy Sounding" (SounderPy plot generation)
 └── db.py                # Async SQLite backend used internally by state_store as the durable mirror; also home of http_validators
 
 ├── cogs/
@@ -52,8 +52,8 @@ spc-bot/
 │   ├── scp.py               # NIU/Gensini SCP graphics, twice daily
 │   ├── csu_mlp.py           # CSU-MLP consolidated /csu command with Choice dropdown
 │   ├── ncar.py              # NCAR WxNext2 AI severe weather forecast
-│   ├── sounding.py          # RAOB+ACARS sounding plots; auto-posts near active watches
-│   ├── sounding_utils.py    # Location resolution, IEM fetch (all hours), ACARS fetch, plot generation
+│   ├── sounding.py          # RAOB+ACARS sounding plots; auto-posts near active watches; asyncio.Semaphore queue with position feedback
+│   ├── sounding_utils.py    # Location resolution, IEM fetch (all hours), ACARS fetch, plot generation; disk-caches plots with hash-based dedup
 │   ├── sounding_views.py    # Discord UI: CombinedSoundingView, IEMTimeSelectionView, ACARS views
 │   ├── hodograph.py         # VWP hodograph generation via /hodograph
 │   ├── failover.py          # Leader election via an Upstash lease (no HTTP tunnel — v5+)
@@ -125,6 +125,8 @@ High-performance Rust core via PyO3 with Python fallback for all operations:
 - **NWWS Product ID Normalizer** (Phase 4): ISO8601 timestamp conversion and product ID deduplication
 - **Haversine Distance Calculator** (Phase 5): Geospatial queries for station lookups
 - **Comprehensive Unit Tests** (Phase 6): 30+ tests covering all Rust internals
+- **VAD Storm-Mode Math** (Phase 7): `compute_shear_mag`, `compute_sr_flow`, `clip_profile` from `lib/vad_plotter/params.py` now Rust-backed
+- **Batch Spatial Joins** (Phase 8): `find_nearest_stations_batch`, `points_in_polygon_counts`, `points_in_polygon_lookup` in `utils/geo`; `find_nearest_stations` uses Rust fast-path via rstar R*-tree
 
 All Rust functions maintain pure-Python fallback implementations. FFI detection at runtime gracefully downgrades to Python if Rust extension is unavailable.
 
@@ -169,13 +171,13 @@ The test suite has **382 tests** covering:
 - Failover scenarios and race conditions
 - HTTP caching and retry logic
 - Forecasting model parsing
-- **Rust FFI tests** (Phases 1–6): SRH/Bunkers, VTEC parser, image cache validator, product ID normalizer, haversine distance, with Python fallback verification
+- **Rust FFI tests** (Phases 1–8): SRH/Bunkers, VTEC parser, image cache validator, product ID normalizer, haversine distance, VAD storm-mode math, batch spatial joins — with Python fallback verification
 
 Run tests with:
 ```bash
 pip install -r requirements-dev.txt
 VIRTUAL_ENV=venv maturin develop --release  # Build Rust extension
-python -m pytest tests/ -v
+python -m pytest tests/ -n auto -v          # pytest-xdist parallel execution
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md#running-tests) for coverage reports and lint checks.
+CI additionally runs a **mypy gate** on `utils/` and a **Rust clippy/fmt** job on every push. See [CONTRIBUTING.md](CONTRIBUTING.md#running-tests) for coverage reports and lint checks.

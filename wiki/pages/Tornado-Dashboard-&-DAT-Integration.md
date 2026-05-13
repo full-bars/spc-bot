@@ -26,7 +26,7 @@ The bot is deeply integrated with the NWS DAT for high-resolution post-storm dat
 
 The bot uses a **geographic and temporal matching engine** to link real-time warnings to post-storm surveys:
 1. **LSR Linkage:** Links "Confirmed Tornado" reports to the warning that covered them.
-2. **Survey Linkage:** Uses a haversine distance search (50km radius) to link DAT tracks to the original "Significant Events" logged in the bot's `events.db`.
+2. **Survey Linkage:** Uses a haversine distance search (50km radius) to link DAT tracks to the original "Significant Events" logged in the bot's `events.db`. This search is Rust-accelerated via batch haversine (Phase 5 of the Rust integration), replacing what was previously a ~900-iteration Python loop.
 
 ## 💾 The `events.db` Archive
 

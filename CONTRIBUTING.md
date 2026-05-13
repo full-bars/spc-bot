@@ -205,6 +205,10 @@ The bot implements two cleanup paths. `utils/cache_utils.py` runs once after sta
 
 The `/sounding` command geocodes the location, finds nearby RAOB stations that have verified data in the Wyoming archive, and presents an interactive station and time picker. Plots are generated headlessly via SounderPy and posted to the channel where the command was used. Per-user dark mode preference is persisted to the local SQLite database. Auto-posting of soundings is active in three modes: (1) **proactive pre-warming** when the MD cog detects a mesoscale discussion with ≥80% watch issuance probability; (2) **immediately on watch issuance**, using the most recent IEM-available sounding time (any hour); (3) **at 00z/12z** for all active watches. Up to 3 RAOB stations and 2 ACARS profiles per watch. At 00z/12z, Wyoming and IEM are raced simultaneously — whichever returns data first wins.
 
+**Disk caching**: generated sounding plots are cached to disk using a hash-based key so identical requests skip re-rendering. **Queue management**: concurrent plot requests are governed by an `asyncio.Semaphore`; users see a "Plot Queued (Position X)..." message while waiting so the interaction does not time out.
+
+**Worker pool split**: sounding generation runs in a dedicated "Heavy Sounding" `ProcessPoolExecutor` (isolated from the "Fast Hodo" pool used for hodograph/VAD rendering) to prevent long SounderPy renders from blocking time-sensitive hodo requests.
+
 ### CSU-MLP and NCAR WxNext2
 
 Both poll once daily around model update time. State is persisted via `state_store` (Upstash + SQLite) so restarts and failovers don't cause duplicate posts.
@@ -270,6 +274,8 @@ Same tables as historical `utils/db.py`: `image_hashes`, `posted_mds`, `posted_w
 
 Projected ~8.2 k commands/day across both nodes (primary heartbeat writes, standby heartbeat reads, periodic bulk refreshes, state mutations) against the 10 k/day free-tier ceiling. Hot reads are served from the in-process cache, not billed.
 
+**Soft-quota guard**: `state_store` tracks the rolling daily Upstash command count. At **8 k/day** a warning is logged; at **10 k/day** the store automatically falls back to SQLite for all reads and writes for the remainder of the UTC day, preventing hard rate-limit errors.
+
 ---
 
 ## Running Tests
@@ -296,6 +302,18 @@ Lint (same selection CI uses):
 ```bash
 ruff check --select=E9,F63,F7,F82,F401 --exclude=venv,lib,cache .
 ```
+
+### CI pipeline
+
+The GitHub Actions workflow runs three jobs on every push and pull request:
+
+| Job | What it checks |
+|---|---|
+| **pytest** | Full test suite via `pytest -n auto` (pytest-xdist parallel execution) with coverage |
+| **mypy** | Static type check on `utils/` (`mypy utils/`) |
+| **rust** | `cargo fmt --check` and `cargo clippy -- -D warnings` on `src_rust/` |
+
+All three jobs must pass before a PR can be merged.
 
 ---
 

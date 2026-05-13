@@ -8,8 +8,16 @@ The `/sounding` command plots RAOB (weather balloon) and ACARS (aircraft) data u
 - **Location Support:** Accepts 3-letter site IDs (e.g., `OUN`), 4-letter ICAO codes (`KOUN`), or city names (`Norman, OK`).
 - **Data Sources:** Automatically tries **IEM**, **Wyoming**, and **GSL** (FSL) in a prioritized hierarchy with circuit-breaker logic.
 - **Interactive UI:** Users can select specific times (e.g., `00z`, `12z`) or recent special releases (e.g., `18z`, `20z`) via a dropdown menu.
-- **Performance:** As of v5.20.0, the initial "Checking Station Availability..." step is optimized with concurrent request limiting (max 5 simultaneous), reducing lookup time from 10–30s to 1–3s.
-- **Dark Mode:** Toggle between light and dark plot themes using the built-in mode switch button (preserves station data on mode change).
+- **Performance:** The initial "Checking Station Availability..." step is optimized with concurrent request limiting, reducing lookup time from 10–30s to 1–3s.
+- **International Stations:** For stations not listed in the IEM station inventory (e.g., `SBSM`/Santa Maria), availability is confirmed via a Wyoming archive fallback probe, ensuring non-CONUS stations show correctly.
+- **Dark Mode:** Toggle between light and dark plot themes using the **Switch to Dark/Light Mode** button (preserves station data on mode change).
+
+### Queue Management & Caching
+
+Sounding renders run in a dedicated **Heavy Sounding** executor, isolated from hodograph requests so that a slow or queued sounding plot never delays a hodograph update.
+
+- **Queue position feedback:** When all sounding workers are busy, the bot replies with "Plot Queued (Position X)…" and updates the message as the request advances through the queue. An `asyncio.Semaphore` controls concurrency.
+- **Disk caching with hash dedup:** Rendered sounding images are cached to disk keyed by a hash of location + time + theme. Repeated requests for the same combination return the cached image immediately without re-rendering.
 
 ## 🌪️ Watch-Triggered Soundings
 
@@ -24,7 +32,7 @@ The `/hodograph` command generates a Vertical Wind Profile (VWP) hodograph for a
 - **High-Availability:** Uses **AWS S3** as a primary data source with automatic fallback to **TGFTP**, ensuring reliability during NWS server outages.
 - **Real-time Surface Wind:** Automatically fetches the latest ASOS surface observation near the radar to provide an accurate surface-to-1km profile.
 - **Parameter Table:** Includes a comprehensive storm-parameter table (Bunkers motion, SRH, Shear) rendered alongside the plot.
-- **Performance (v5.20.0+):** Hodograph storm-parameter calculations (Bunkers displacement, Storm-Relative Helicity, Critical Angle) are accelerated using Rust with Python fallback, reducing computation time for large profiles.
+- **Performance:** Hodograph storm-parameter calculations (Bunkers displacement, Storm-Relative Helicity, Critical Angle) are accelerated using Rust with Python fallback, reducing computation time for large profiles. Hodographs run in a dedicated **Fast Hodo** executor and are never blocked by concurrent sounding renders.
 
 ## 🎥 VAD Forensics
 
@@ -32,6 +40,15 @@ Introduced in **v5.14.0**, the bot automatically records the wind environment du
 - **Trigger:** Any Tornado Warning with an `OBSERVED` tag starts a **2.5-hour mission**.
 - **Evolution GIFs:** Captures a 1-hour lookback and a 90-minute follow-up window, stitching them into an animated evolution of the vertical wind profile.
 - **Permanent Record:** Calculates the **Peak 0-1km SRH** during the event and archives it in `events.db` along with the GIF.
+
+## ⚙️ Rust-Accelerated VAD Math (Phase 7)
+
+Key VAD math routines in `vad_plotter/params.py` are now backed by compiled Rust via try-Rust → fallback-to-Python wrappers:
+- `compute_shear_mag` — bulk shear magnitude between two pressure levels
+- `compute_sr_flow` — storm-relative flow vectors
+- `clip_profile` — profile clipping to a depth layer
+
+If the Rust extension is unavailable (e.g., unsupported platform), each function transparently falls back to the pure-Python implementation with no user-visible change.
 
 ## 🔬 Scientific Stack
 
