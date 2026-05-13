@@ -20,9 +20,15 @@ SPCBot is configured via a `.env` file in the project root. Below is a comprehen
 | `NWWS_PASSWORD` | NWWS-OI XMPP password. | (empty) |
 | `NWWS_SERVER` | NWWS-OI XMPP server address. | `nwws-oi.weather.gov` |
 | `WARNINGS_CHANNEL_ID` | Channel for TOR/SVR/FFW alerts. | `SPC_CHANNEL_ID` |
+| `TOR_CHANNEL_ID` | Dedicated channel for Tornado Warning (TOR) posts. | `WARNINGS_CHANNEL_ID` |
+| `SVR_CHANNEL_ID` | Dedicated channel for Severe Thunderstorm Warning (SVR) posts. | `WARNINGS_CHANNEL_ID` |
+| `FFW_CHANNEL_ID` | Dedicated channel for Flash Flood Warning (FFW) posts. | `WARNINGS_CHANNEL_ID` |
+| `SPS_CHANNEL_ID` | Dedicated channel for Special Weather Statement (SPS) posts. | `WARNINGS_CHANNEL_ID` |
 | `HEALTH_CHANNEL_ID` | Channel for health alerts and watchdog notifications. | `SPC_CHANNEL_ID` |
 | `SOUNDING_CHANNEL_ID` | Channel for automated sounding posts. | `SPC_CHANNEL_ID` |
 | `DEV_CHANNEL_ID` | Channel for developer/admin operational alerts. | `HEALTH_CHANNEL_ID`, then `SPC_CHANNEL_ID` |
+
+**Warning-type channel fallback chain:** For each warning type the bot resolves the destination as: type-specific ID (`TOR_CHANNEL_ID`, `SVR_CHANNEL_ID`, `FFW_CHANNEL_ID`, `SPS_CHANNEL_ID`) → `WARNINGS_CHANNEL_ID` → `SPC_CHANNEL_ID`. These IDs can also be changed at runtime without a restart via `/enablewarnings`, `/disablewarnings`, and `/displaysetup`.
 
 ## 🔄 High Availability (Failover)
 

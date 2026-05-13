@@ -14,7 +14,7 @@ NWWS-OI fast path, IEMBot fallback, NWS API polling, SPC watch alerts with dedup
 
 **Scientific Tools:** Interactive RAOB/ACARS sounding plots (auto-posted near active watches and MDT/HIGH risk areas), VWP hodographs, searchable tornado forensics archive, NEXRAD Level 2 downloader, and IEM-based tornado analytics.
 
-**System:** Real-time `/status` dashboard, owner-only `/taskmgr` and `/logs` monitoring, dual-endpoint watchdog, leader-election failover with Upstash Redis, SQLite durability, optional Syncthing event archive replication, and an optional Rust hybrid core.
+**System:** Real-time `/status` dashboard, owner-only `/taskmgr` and `/logs` monitoring, dual-endpoint watchdog, leader-election failover with Upstash Redis, SQLite durability, optional Syncthing event archive replication, and a Rust hybrid core (Phases 1–8) that accelerates VAD hodograph math, VTEC parsing, XXH3 image hashing, NWWS product ID normalization, haversine distance queries, VAD storm-mode calculations (`shear_mag`, `sr_flow`, `clip_profile`), and batch spatial joins (`find_nearest_stations_batch`, `points_in_polygon_counts`). All Rust paths fall back to pure Python if the extension is unavailable.
 
 ## Quick Start
 

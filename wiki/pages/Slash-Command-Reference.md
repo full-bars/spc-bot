@@ -34,6 +34,13 @@ SPCBot uses Discord Slash Commands for all user interactions. Commands are organ
 
 Some analytics commands expose experimental IEM Autoplot workflows and are still being hardened for production use.
 
+## 🔔 Warning Channel Management
+| Command | Description | Parameters |
+|---|---|---|
+| `/enablewarnings` | Enable warning posting for the current channel (or a specified channel). Setting persists to the state store. | `channel` (optional) |
+| `/disablewarnings` | Disable warning posting for the current channel. | None |
+| `/displaysetup` | Show the current per-type channel routing configuration (TOR/SVR/FFW/SPS channel assignments and enabled state). | None |
+
 ## 🧪 Models & System
 | Command | Description | Parameters |
 |---|---|---|

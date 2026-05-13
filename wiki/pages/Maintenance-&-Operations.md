@@ -74,6 +74,16 @@ Symptoms: failover lease warnings, dirty-write reconciliation logs, or standby u
 3. Let SQLite mirror continue local durability; dirty writes are replayed when Upstash returns.
 4. Avoid manual role swaps until the lease store recovers unless the current primary is clearly down.
 
+### Upstash Quota Warning
+Symptom: `/logs` shows `WARNING Upstash daily quota warning: X/10000`.
+
+The bot tracks daily Upstash command usage and enforces a soft quota guard:
+- **At 8,000 commands (80%):** A single `WARNING` is logged. The bot continues using Upstash normally — no action is required unless the server is handling an unusually high alert volume.
+- **At 10,000 commands (hard limit):** The bot raises an internal `_UpstashUnavailable` and automatically falls back to SQLite for all state operations. HA heartbeats continue via SQLite — the node does not crash or stop posting.
+- **Reset:** The counter resets daily at UTC midnight. Normal operation resumes automatically on the next Upstash call after midnight.
+
+If quota exhaustion is a recurring pattern, consider whether a runaway loop or unusual traffic spike is inflating command counts.
+
 ### Split-Brain Suspicion
 Symptoms: both nodes appear to post or both report `PRIMARY`.
 
@@ -89,6 +99,11 @@ Symptoms: slash commands are missing, stale, or return interaction errors.
 2. Check `/logs` for Discord HTTP errors or permission failures.
 3. Confirm the bot is invited with `applications.commands` scope.
 4. Restart only the primary if command sync failed during startup.
+
+### Sounding Queue Saturation
+Symptom: users see `Plot Queued (Position X)...` instead of an immediate sounding image.
+
+The sounding renderer uses a dedicated `Heavy Sounding` worker pool (separate from the `Fast Hodo` radar pool). When all workers are busy, new requests are queued and users receive a position message. The queue auto-clears as workers finish — no operator action is needed. A 60-second render timeout prevents deadlock; requests that exceed the timeout are discarded and the user sees an error. If queuing is persistent, the server may be under unusually high sounding load.
 
 ### Cache Disk Pressure
 Symptoms: large `cache/`, slow image/radar commands, or filesystem warnings.
