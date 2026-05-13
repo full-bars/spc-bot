@@ -1,7 +1,7 @@
 # utils/spc_urls.py
 import logging
 import re
-from typing import List, Dict, Tuple, Optional
+from typing import Dict, List, Optional, Tuple
 
 from config import (
     SPC_OUTLOOK_BASE,
@@ -24,18 +24,18 @@ async def get_spc_urls(day: int) -> List[str]:
     """
     fallback: List[str] = []
     page_url = f"{SPC_OUTLOOK_BASE}/day{day}otlk.html"
-    
+
     cached_etag, cached_lm, cached_urls = _OUTLOOK_CACHE.get(day, (None, None, []))
 
     try:
         content, status, new_headers = await http_get_bytes_conditional(
             page_url, etag=cached_etag, last_modified=cached_lm
         )
-        
+
         if status == 304:
             logger.debug(f"[DYN_URL] day{day} page unchanged (304 Not Modified)")
             return cached_urls
-            
+
         if not content or status != 200:
             logger.warning(
                 f"[DYN_URL] Failed to fetch day{day} page (status={status})"

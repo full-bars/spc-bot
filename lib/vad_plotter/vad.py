@@ -1,26 +1,26 @@
 from __future__ import print_function
 
-import numpy as np
-import sys
 import os
+import sys
+
+import numpy as np
 
 # Allow running as a subprocess from any working directory
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from lib.vad_plotter.vad_reader import download_vad, VADFile
-from lib.vad_plotter.params import compute_parameters
-from lib.vad_plotter.plot import plot_hodograph
-from lib.vad_plotter.wsr88d import build_has_name
-from lib.vad_plotter.asos import get_asos_surface_wind
-
-import re
 import argparse
 import asyncio
-import logging
-from datetime import datetime, timedelta, timezone
-from typing import Optional, Tuple, Any
 import json
-import glob
+import logging
+import re
+from datetime import datetime, timezone
+from typing import Any, Optional, Tuple
+
+from lib.vad_plotter.asos import get_asos_surface_wind
+from lib.vad_plotter.params import compute_parameters
+from lib.vad_plotter.plot import plot_hodograph
+from lib.vad_plotter.vad_reader import VADFile, download_vad
+from lib.vad_plotter.wsr88d import build_has_name
 
 logger = logging.getLogger("spc_bot")
 
@@ -63,14 +63,14 @@ def parse_time(time_str: str) -> datetime:
 
 
 async def vad_plotter(
-    radar_id: str, 
-    storm_motion: str = 'right-mover', 
-    sfc_wind: Optional[str] = None, 
+    radar_id: str,
+    storm_motion: str = 'right-mover',
+    sfc_wind: Optional[str] = None,
     time: Optional[str] = None,
-    fname: Optional[str] = None, 
-    local_path: Optional[str] = None, 
-    cache_path: Optional[str] = None, 
-    web: bool = False, 
+    fname: Optional[str] = None,
+    local_path: Optional[str] = None,
+    cache_path: Optional[str] = None,
+    web: bool = False,
     fixed: bool = False,
     executor: Optional[Any] = None
 ) -> None:
@@ -122,11 +122,11 @@ async def vad_plotter(
         logger.info("[VAD] Storm motion: --/--")
 
     # Move CPU-bound plotting to an executor to keep the event loop free.
-    # Note: matplotlib is not thread-safe by default, but plot_hodograph 
-    # creates its own figure and closes it, which is usually okay in a 
+    # Note: matplotlib is not thread-safe by default, but plot_hodograph
+    # creates its own figure and closes it, which is usually okay in a
     # thread as long as it's not the main GUI thread.
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(executor, 
+    await loop.run_in_executor(executor,
         plot_hodograph, vad, params, fname, web, fixed, (local_path is not None), sfc_wind_str
     )
 

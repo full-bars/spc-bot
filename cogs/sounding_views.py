@@ -59,22 +59,22 @@ async def post_sounding(
 
     for y, mo, d, h in all_times:
         time_label = f"{mo}-{d}-{y} {h}z"
-        
+
         # ── Fast Cache Check ──────────────────────────────────────────
         # Check if the plot already exists on disk before doing any network/CPU work
         output_path = _plot_path(station_id, y, mo, d, h, dark_mode)
         png_path = output_path + ".png"
-        
+
         if os.path.exists(png_path):
             logger.info(f"[SOUNDING] Cache hit (image) for {station_id} {y}/{mo}/{d} {h}z")
             used_year, used_month, used_day, used_hour = y, mo, d, h
             if (y, mo, d, h) != (year, month, day, hour):
                 orig_label = f"{month}-{day}-{year} {hour}z"
                 fallback_note = f" (no data for {orig_label}, showing {time_label})"
-            
+
             # Post immediately!
             await _send_sounding_embed(
-                interaction, station_id, label, f"{mo}-{d}-{y} {h}z", 
+                interaction, station_id, label, f"{mo}-{d}-{y} {h}z",
                 dark_mode, png_path, fallback_note, status_msg
             )
             return
@@ -114,10 +114,10 @@ async def post_sounding(
 
     # Generate plot (only if we didn't hit the image cache above)
     time_label = f"{used_month}-{used_day}-{used_year} {used_hour}z"
-    
+
     from utils.worker_pool import get_sounding_semaphore
     sem = get_sounding_semaphore()
-    
+
     if sem.locked():
         # Pool is full, show queued status
         pos = len(sem._waiters) + 1 if hasattr(sem, '_waiters') else 1
@@ -166,7 +166,7 @@ async def post_sounding(
         return
 
     await _send_sounding_embed(
-        interaction, station_id, label, time_label, 
+        interaction, station_id, label, time_label,
         dark_mode, png_path, fallback_note, status_msg, clean_data
     )
 
@@ -199,7 +199,7 @@ async def _send_sounding_embed(
     caption = "**RAOB Sounding \u2014 {}**\nValid: {} | {} mode{}{}".format(
         label, time_label, mode_label, source_str, fallback_note
     )
-    
+
     if clean_data:
         qwarn = sounding_quality_warning(clean_data)
         if qwarn:
@@ -211,7 +211,7 @@ async def _send_sounding_embed(
                 await status_msg.delete()
             except discord.HTTPException:
                 pass
-        
+
         await interaction.channel.send(caption, files=[discord.File(png_path)])
         logger.info(f"[SOUNDING] Posted {station_id} {time_label}")
     except Exception as e:
@@ -475,7 +475,7 @@ class CombinedSoundingView(View):
 
                     from utils.worker_pool import get_sounding_semaphore
                     sem = get_sounding_semaphore()
-                    
+
                     if sem.locked():
                         pos = len(sem._waiters) + 1 if hasattr(sem, '_waiters') else 1
                         queue_embed = discord.Embed(
@@ -619,7 +619,7 @@ async def _post_from_clean_data(
     label = f"{station_name} ({station_id})"
     from utils.worker_pool import get_sounding_semaphore
     sem = get_sounding_semaphore()
-    
+
     if sem.locked():
         pos = len(sem._waiters) + 1 if hasattr(sem, '_waiters') else 1
         logger.info(f"[SOUNDING] Queueing plot for {label} (Position: {pos})")

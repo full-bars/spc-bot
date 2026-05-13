@@ -19,39 +19,46 @@ import json as _json
 import logging
 import re
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
-from typing import Optional, Tuple
+from typing import Optional, Tuple, cast
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from config import NWS_ALERTS_WARNINGS_URL, WARNINGS_CHANNEL_ID, TOR_CHANNEL_ID, SVR_CHANNEL_ID, FFW_CHANNEL_ID, SPS_CHANNEL_ID
+from cogs.warning_format import (
+    _area_with_state,
+    _download_warning_image,
+    _vtec_unix_ts,
+    _vtec_url,
+    build_concise_warning_text,
+    get_tornado_attributes,
+    get_warning_style,
+    iem_autoplot_url,
+)
+from cogs.warning_ui import (
+    EnvironmentalView,
+    TornadoDashboardView,
+)
+from config import (
+    FFW_CHANNEL_ID,
+    NWS_ALERTS_WARNINGS_URL,
+    SPS_CHANNEL_ID,
+    SVR_CHANNEL_ID,
+    TOR_CHANNEL_ID,
+    WARNINGS_CHANNEL_ID,
+)
 from lib.vad_plotter.radar_coords import get_nearest_radar
-from lib.vtec_parser import parse_vtec, parse_warning_polygon, get_polygon_centroid
+from lib.vtec_parser import get_polygon_centroid, parse_vtec, parse_warning_polygon
 from utils.backoff import TaskBackoff
 from utils.http import http_get_bytes, http_get_bytes_conditional
 from utils.state_store import (
     add_posted_warning,
     add_significant_event,
     get_recent_significant_events,
-    prune_posted_warnings,
     get_state,
-)
-from cogs.warning_format import (
-    get_warning_style,
-    get_tornado_attributes,
-    iem_autoplot_url,
-    build_concise_warning_text,
-    _vtec_url,
-    _vtec_unix_ts,
-    _area_with_state,
-    _download_warning_image,
-)
-from cogs.warning_ui import (
-    EnvironmentalView,
-    TornadoDashboardView,
+    prune_posted_warnings,
 )
 
 logger = logging.getLogger("spc_bot.warnings")
@@ -161,7 +168,7 @@ class WarningsCog(commands.Cog):
                     if missing:
                         await self._notify_channel_error(ch, missing)
                         return None
-                    return ch
+                    return cast(discord.abc.Messageable, ch)
         static_id = self._STATIC_CHANNEL_FOR_PHENOM.get(phenom, WARNINGS_CHANNEL_ID)
         logger.debug(f"[CH_RESOLVE] using static channel {static_id} for {phenom} (default fallback: {static_id == WARNINGS_CHANNEL_ID})")
         channel = self.bot.get_channel(static_id)
@@ -170,7 +177,7 @@ class WarningsCog(commands.Cog):
             if missing:
                 await self._notify_channel_error(channel, missing)
                 return None
-        return channel
+        return cast(discord.abc.Messageable, channel) if channel else None
 
     # ── iembot fast-trigger path ───────────────────────────────────────────
     #
@@ -542,7 +549,7 @@ class WarningsCog(commands.Cog):
         # Area was stored in posted_warnings when the warning was first posted.
         area = info.get("area", "")
 
-        office = (vtec or {}).get("office", vtec_id.split(".")[0])
+        office = (vtec or {}).get("office", vtec_id.split(".", maxsplit=1)[0])
         if office.startswith("K") and len(office) == 4:
             office = office[1:]
 
@@ -579,11 +586,11 @@ class WarningsCog(commands.Cog):
             # If it's an expiration, use +1 minute to definitely hit the "inactive" state
             if reason == "Expired":
                 now = now + timedelta(minutes=1)
-                
+
             valid_time = now.strftime("%Y-%m-%d %H%M")
             image_url = iem_autoplot_url(vtec, valid_time=valid_time)
             filename = f"cancel_{vtec_id.replace('.', '_')}.png"
-            
+
             # Use a retry loop for cancellations too, as IEM indexing can be slow
             logger.debug(f"[CANCEL_IMG] Requesting watermarked image: {image_url}")
             for attempt in range(5):
@@ -592,7 +599,7 @@ class WarningsCog(commands.Cog):
                     if content and status == 200:
                         files.append(discord.File(BytesIO(content), filename=filename))
                         break
-                    
+
                     if attempt < 4:
                         await asyncio.sleep(2)
                         continue

@@ -8,12 +8,12 @@ from discord.ext import commands, tasks
 
 from config import AUTO_CACHE_FILE, SPC_CHANNEL_ID, SPC_URLS, SPC_URLS_FALLBACK
 from utils.backoff import TaskBackoff
-from utils.state_store import set_posted_urls
 from utils.cache import (
     check_partial_updates_parallel,
     save_downloaded_images,
 )
 from utils.spc_urls import get_spc_urls
+from utils.state_store import set_posted_urls
 
 logger = logging.getLogger("spc_bot.outlooks")
 
@@ -25,11 +25,11 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
     posting whatever is available.
     """
     day_key = f"day{day}"
-    
+
     # Locking: prevent concurrent checks for the same day (auto_post vs aggressive_check)
     if day_key in state.hashes._in_flight:
         return
-    
+
     state.hashes._in_flight.add(day_key)
     try:
         urls = await get_spc_urls(day)
@@ -80,7 +80,7 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
                 )
                 if day == 1:
                     return # Start waiting cycle for Day 1
-            
+
             # Now we know it's in the state
             elapsed = (
                 datetime.now(timezone.utc) - state.partial_update_state[day_key]["start_time"]

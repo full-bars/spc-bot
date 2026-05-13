@@ -10,11 +10,11 @@ from discord.app_commands import Choice
 from discord.ext import commands, tasks
 
 from config import MANUAL_CACHE_FILE, MODELS_CHANNEL_ID
-from utils.http import ensure_session
-from utils.state_store import get_state, set_state
 from utils.cache import (
     download_single_image,
 )
+from utils.http import ensure_session
+from utils.state_store import get_state, set_state
 
 logger = logging.getLogger("spc_bot.csu_mlp")
 
@@ -52,7 +52,7 @@ async def _resolve_panel_url(product: str, allow_yesterday: bool = False) -> tup
     """
     now_utc = datetime.now(timezone.utc)
     today = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
-    
+
     dates = [(today, "00z")]
     if allow_yesterday:
         dates.append((today - timedelta(days=1), "yesterday 00z"))
@@ -292,12 +292,12 @@ class CSUMLPCog(commands.Cog):
 
         # Use the first available missing day to determine the best init hour
         # for the current batch (either 12z or 00z).
-        # 
+        #
         # NOTE: We do NOT use allow_yesterday=True here. The auto-poll only
         # cares about fresh data for the current operational day. Manual
         # commands are more lenient to handle requests after midnight UTC.
         current_init_hour = None
-        
+
         for day in range(1, 9):
             if str(day) in self.bot.state.csu_posted:
                 continue
@@ -306,7 +306,7 @@ class CSUMLPCog(commands.Cog):
             url, label = await _resolve_best_url(day, force_hour=current_init_hour)
             if not url:
                 continue
-            
+
             # Lock in the init hour for this poll cycle based on the first success
             if current_init_hour is None and "z" in label:
                 current_init_hour = label.replace("z", "")
@@ -349,7 +349,7 @@ class CSUMLPCog(commands.Cog):
                 await _save_posted_today(self.bot.state.csu_posted)
                 self.bot.state.last_post_times[f"csu_day{day}"] = now_utc
                 logger.info(f"Auto-posted Day {day} ({label})")
-                
+
                 # Small pause to avoid hammering Discord API/local networking stack
                 await asyncio.sleep(1.0)
             except Exception as e:
@@ -395,7 +395,7 @@ class CSUMLPCog(commands.Cog):
                 await _save_posted_today(self.bot.state.csu_posted)
                 self.bot.state.last_post_times[f"csu_{state_key}"] = now_utc
                 logger.info(f"Auto-posted {label_name} ({label})")
-                
+
                 # Small pause to avoid hammering Discord API/local networking stack
                 await asyncio.sleep(1.0)
             except Exception as e:

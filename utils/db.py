@@ -93,12 +93,12 @@ async def get_db() -> aiosqlite.Connection:
         # Check again inside lock in case another coroutine connected first
         if _db is None:
             _db = await _connect()
-            
+
             # Populate read pool once write connection is established
             for _ in range(_READ_POOL_SIZE):
                 conn = await _connect(read_only=True)
                 await _read_pool.put(conn)
-                
+
     return _db
 
 
@@ -107,7 +107,7 @@ async def get_read_db() -> AsyncGenerator[aiosqlite.Connection, None]:
     """Check out a read-only connection from the pool."""
     # Ensure pool is initialized (get_db ensures this)
     await get_db()
-    
+
     conn = await _read_pool.get()
     try:
         yield conn
@@ -118,7 +118,7 @@ async def get_read_db() -> AsyncGenerator[aiosqlite.Connection, None]:
 async def _connect(read_only: bool = False) -> aiosqlite.Connection:
     """Open database connection with safe settings."""
     os.makedirs(CACHE_DIR, exist_ok=True)
-    
+
     # Use URI format for read-only access
     path = f"file:{DB_PATH}?mode=ro" if read_only else DB_PATH
     db = await aiosqlite.connect(path, timeout=10, uri=read_only)

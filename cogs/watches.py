@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 
 import discord
 from discord.ext import commands, tasks
-from utils.backoff import TaskBackoff
 
 from cogs.watch_fetch import (
     fetch_active_watches_nws,
@@ -20,6 +19,7 @@ from config import (
     SPC_CHANNEL_ID,
     SPC_VALID_WATCHES_URL,
 )
+from utils.backoff import TaskBackoff
 from utils.cache import (
     download_single_image,
 )
@@ -184,7 +184,7 @@ async def _execute_watches(interaction: discord.Interaction, bot: commands.Bot):
     embed = view.build_embed()
     files = view.build_files()
     msg = await interaction.followup.send(
-        embed=embed, files=files, view=view
+        embed=embed, files=files, view=view, wait=True
     )
     view.message = msg
 
@@ -222,7 +222,7 @@ class WatchesCog(commands.Cog):
             try:
                 image_url, text_summary, probs = await fetch_watch_details(watch_num)
                 has_real_probs = probs and "preliminary" not in probs
-                
+
                 cache_path = None
                 if image_url:
                     cache_path, _, _ = await download_single_image(
@@ -234,7 +234,7 @@ class WatchesCog(commands.Cog):
                     image_missing = await asyncio.to_thread(
                         lambda p=cache_path: is_placeholder_image(open(p, "rb").read())
                     )
-                
+
                 # If we have BOTH, we are fully upgraded.
                 if not image_missing and has_real_probs:
                     embed = _build_watch_embed(
@@ -253,7 +253,7 @@ class WatchesCog(commands.Cog):
                     logger.info(f"Full upgrade complete for #{watch_num}")
                     return
 
-                # If we only have Probs, or we're on the last attempt, do a 
+                # If we only have Probs, or we're on the last attempt, do a
                 # partial edit and transition to Stage 2 if needed.
                 if has_real_probs or attempt == 19:
                     embed = _build_watch_embed(
@@ -269,14 +269,14 @@ class WatchesCog(commands.Cog):
                     )
                     files = _watch_files(watch_num, cache_path) if not image_missing else []
                     await message.edit(embed=embed, attachments=files)
-                    
+
                     if not image_missing:
-                        # We have image but only preliminary probs? 
+                        # We have image but only preliminary probs?
                         # Continue fast-polling until probs are real.
                         continue
-                    
+
                     if has_real_probs:
-                        # We have real probs but still no image. 
+                        # We have real probs but still no image.
                         # Break to Stage 2 for dedicated image slow-poll.
                         logger.info(f"Probs updated for #{watch_num}; transitioning to slow-poll for image")
                         break
@@ -293,11 +293,11 @@ class WatchesCog(commands.Cog):
                 image_url, text_summary, probs = await fetch_watch_details(watch_num)
                 if not image_url:
                     continue
-                    
+
                 cache_path, _, _ = await download_single_image(
                     image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
                 )
-                
+
                 if cache_path and os.path.exists(cache_path):
                     if await asyncio.to_thread(
                         lambda p=cache_path: is_placeholder_image(open(p, "rb").read())
@@ -415,7 +415,7 @@ class WatchesCog(commands.Cog):
                 )
                 return
             now_utc = datetime.now(timezone.utc)
-            
+
             # ── Cancellations ──────────────────────────────────────────────
             for watch_num, info in list(self.bot.state.active_watches.items()):
                 wtype = info["type"] if isinstance(info, dict) else info

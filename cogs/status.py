@@ -10,6 +10,7 @@ import aiohttp
 import discord
 from discord.ext import commands, tasks
 
+import utils.http as _http
 from cogs.mesoscale import (
     clean_md_text_for_discord,
     extract_md_body,
@@ -17,16 +18,15 @@ from cogs.mesoscale import (
     fetch_md_details,
 )
 from config import MANUAL_CACHE_FILE, SCP_IMAGE_URLS, SPC_URLS, WPC_IMAGE_URLS, __version__
-import utils.http as _http
-from utils.db import get_write_failure_count
 from utils.cache import (
     check_all_urls_exist_parallel,
     download_images_parallel,
     download_single_image,
     format_timedelta,
 )
+from utils.db import get_write_failure_count
 from utils.discord_gateway import update_gateway_info
-from utils.spc_outlook import get_high_risk_polygon, peek_active_labels, get_current_risk_display
+from utils.spc_outlook import get_current_risk_display, get_high_risk_polygon, peek_active_labels
 from utils.spc_urls import get_spc_urls
 
 logger = logging.getLogger("spc_bot")
@@ -114,7 +114,7 @@ class MDPaginatorView(discord.ui.View):
         self.prev_btn.disabled = self.index == 0
         self.next_btn.disabled = self.index >= len(self.md_data) - 1
 
-    def build_response(self):
+    def build_response(self) -> tuple:
         """Returns (content, embeds, files) for the current MD."""
         data = self.md_data[self.index]
         md_num = data["num"]
@@ -129,7 +129,7 @@ class MDPaginatorView(discord.ui.View):
             url=md_page_url,
             color=discord.Color.dark_orange(),
         )
-        
+
         files = []
         if cache_path:
             files.append(discord.File(cache_path, filename=f"md_{md_num}.png"))
@@ -141,12 +141,12 @@ class MDPaginatorView(discord.ui.View):
             description=cleaned_text[:4090], # Stay under Discord embed limit
             color=discord.Color.dark_orange(),
         )
-        
+
         footer_text = f"MD {self.index + 1} of {len(self.md_data)}"
         if from_cache:
             footer_text = f"⚠️ SPC website unreachable — image served from cache | {footer_text}"
         text_embed.set_footer(text=footer_text)
-        
+
         return None, [img_embed, text_embed], files
 
     @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary)
@@ -187,7 +187,7 @@ async def is_owner(interaction: discord.Interaction) -> bool:
         return True
     if not interaction.client.application:
         await interaction.client.application_info()
-    
+
     owner = interaction.client.application.owner
     if isinstance(owner, discord.Team):
         return any(m.id == interaction.user.id for m in owner.members)
@@ -203,7 +203,7 @@ class StatusView(discord.ui.View):
         self.detailed = False
         self.should_update = True
 
-    async def build_embeds(self):
+    async def build_embeds(self) -> list:
         now = datetime.now(timezone.utc)
         hostname = socket.gethostname()
         host_ip = "unknown"
@@ -342,7 +342,7 @@ class StatusView(discord.ui.View):
 
         update_msg = " | Live Auto-refresh" if self.should_update else ""
         embed.set_footer(text=f"WXModelBot v{__version__}{update_msg}")
-        
+
         embeds = [embed]
 
         if self.detailed:
@@ -371,7 +371,7 @@ class StatusView(discord.ui.View):
                         status = "🟢" if task.is_running() else "🔴"
                         label = task_labels.get(task_name, task_name)
                         task_lines.append(f"{status} `{label}`")
-            
+
             if task_lines:
                 task_embed.description = "\n".join(task_lines)
             embeds.append(task_embed)
@@ -425,7 +425,7 @@ class TaskMgrView(discord.ui.View):
         self.message = None
         self.should_update = True
 
-    async def build_embed(self):
+    async def build_embed(self) -> discord.Embed:
         now = datetime.now(timezone.utc)
         color = discord.Color.blue()
         embed = discord.Embed(
@@ -464,7 +464,7 @@ class TaskMgrView(discord.ui.View):
                     if task.is_running() and task.next_iteration:
                         diff = task.next_iteration - now
                         next_iter = f" (next in {format_timedelta(diff)})"
-                    
+
                     task_lines.append(f"{status} `{label:<28}`{next_iter}")
 
         if task_lines:
@@ -518,14 +518,14 @@ class LogView(discord.ui.View):
         self.message = None
         self.should_update = True
 
-    def build_content(self):
+    def build_content(self) -> str:
         logs = []
         if hasattr(self.bot, "log_handler"):
             logs = self.bot.log_handler.get_logs()
-        
+
         if not logs:
             logs = ["No logs captured yet..."]
-        
+
         content = "🛰️ **SPCBot Live Console Output**\n"
         content += "```ansi\n"
         # Discord supports ANSI color codes in ```ansi blocks
@@ -798,11 +798,11 @@ class StatusCog(commands.Cog):
                 # Add a per-MD timeout to ensure one bad MD doesn't kill the whole command
                 res = await asyncio.wait_for(fetch_md_details(md_num), timeout=15.0)
                 image_url, summary, from_cache, raw_text = res
-                
+
                 # Extract the actual body text from the HTML
                 body_text = extract_md_body(raw_text)
                 logger.info(f"[/md] Fetched details for #{md_num} (body size: {len(body_text) if body_text else 0})")
-                
+
                 cache_path = None
                 if image_url:
                     logger.info(f"[/md] Downloading image for #{md_num}...")
@@ -839,7 +839,7 @@ class StatusCog(commands.Cog):
             logger.error(f"[/md] Hydration failed: {e}")
             await interaction.followup.send("Failed to load MD details.")
             return
-        
+
         if not md_data:
             await interaction.followup.send("No MD data could be retrieved.")
             return
@@ -848,10 +848,10 @@ class StatusCog(commands.Cog):
         if len(md_data) == 1:
             view.prev_btn.disabled = True
             view.next_btn.disabled = True
-        
+
         content, embeds, files = view.build_response()
         msg = await interaction.followup.send(
-            content=content, embeds=embeds, files=files, view=view
+            content=content, embeds=embeds, files=files, view=view, wait=True
         )
         view.message = msg
         logger.info("[/md] Successfully sent paginated response")
@@ -878,7 +878,7 @@ class StatusCog(commands.Cog):
 
         view = StatusView(self.bot, interaction)
         embeds = await view.build_embeds()
-        msg = await interaction.followup.send(embeds=embeds, view=view, ephemeral=True)
+        msg = await interaction.followup.send(embeds=embeds, view=view, ephemeral=True, wait=True)
         view.message = msg
         asyncio.create_task(view.start_auto_update())
 
@@ -891,7 +891,7 @@ class StatusCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         view = TaskMgrView(self.bot, interaction)
         embed = await view.build_embed( )
-        msg = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        msg = await interaction.followup.send(embed=embed, view=view, ephemeral=True, wait=True)
         view.message = msg
         asyncio.create_task(view.start_auto_update())
 
@@ -904,7 +904,7 @@ class StatusCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         view = LogView(self.bot, interaction)
         content = view.build_content()
-        msg = await interaction.followup.send(content=content, view=view, ephemeral=True)
+        msg = await interaction.followup.send(content=content, view=view, ephemeral=True, wait=True)
         view.message = msg
         asyncio.create_task(view.start_auto_update())
 

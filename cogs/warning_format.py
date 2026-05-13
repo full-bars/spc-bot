@@ -162,7 +162,7 @@ def iem_autoplot_url(vtec: dict, valid_time: Optional[str] = None) -> str:
 
     year = datetime.now(timezone.utc).year
     start = vtec.get("start") or ""
-    
+
     # Use provided valid_time if available (for cancellations/watermarks)
     # format should be 'YYYY-MM-DD HHMM' (UTC)
     if valid_time:
@@ -224,11 +224,11 @@ def _vtec_url(vtec: dict) -> str:
     """Build an IEM VTEC event page URL from a parsed vtec dict."""
     start = vtec.get("start", "")
     end = vtec.get("end", "")
-    
+
     # Use end time when start is missing or is the null-start sentinel (CON/EXT/CAN/EXP products)
     ref = start if (start and len(start) >= 11 and not _is_null_vtec_time(start)) \
               else (end if (end and len(end) >= 11 and not _is_null_vtec_time(end)) else "")
-              
+
     if ref:
         try:
             year = 2000 + int(ref[:2])
@@ -241,7 +241,7 @@ def _vtec_url(vtec: dict) -> str:
         now = datetime.now(timezone.utc)
         year = now.year
         iso = now.strftime("%Y-%m-%dT%H:%MZ")
-        
+
     action = vtec.get("action", "NEW")
     office = vtec.get("office", "")
     phenom = vtec["phenom"]
@@ -289,7 +289,7 @@ def _area_with_state(area_desc: str, ugc_codes: List[str], state_fallback: Optio
     # Parse county names from areaDesc - try to preserve "County, ST" pairs
     # Split by semicolon or newline first
     counties = [c.strip() for c in re.split(r'[;\n]\s*', area_desc) if c.strip()]
-    
+
     # If we only have one item and it has commas, it's likely a comma-separated list.
     # Split by comma but ONLY if not followed by a state abbreviation.
     if len(counties) == 1 and "," in counties[0]:
@@ -334,7 +334,7 @@ def _area_with_state(area_desc: str, ugc_codes: List[str], state_fallback: Optio
             r_clean = _STATE_REGEX.sub("", r.strip()).strip()
             if r_clean and (len(r_clean) > 2 or not r_clean.isupper()):
                 cleaned_remainder.append(r_clean)
-        
+
         if cleaned_remainder:
             if parts:
                 parts[-1] = parts[-1] + f", {', '.join(cleaned_remainder)}"
@@ -433,7 +433,7 @@ def build_concise_warning_text(
 
         if params.get("thunderstormDamageThreat"):
             tags.append(f"damage threat: {params['thunderstormDamageThreat'][0]}")
-            
+
         # Add "Tornado: POSSIBLE" if present in parameters
         if params.get("tornadoPossible"):
             tags.append("tornado: POSSIBLE")
@@ -454,7 +454,7 @@ def build_concise_warning_text(
             # Only add if it's high signal and NOT the name of the warning itself
             if val not in ("NONE", "FALSE"):
                 tags.append(f"tornado: {val}")
-                
+
         # Refined to catch specific magnitudes like "2.50 IN" or "GOLF BALL"
         # and ignore "HAIL THREAT...RADAR INDICATED"
         m_hail = re.search(r"(?:MAX )?HAIL(?: SIZE)?\.\.\.(?!RADAR|THREAT|NONE)(.+?)(?:\n|$)", text_to_search, re.I)
@@ -463,7 +463,7 @@ def build_concise_warning_text(
             # Skip zero-size hail — NWS emits "0.00 IN" as a default/null value
             if not re.match(r"^0+\.?0*\s+IN$", hail_val):
                 tags.append(f"hail: {hail_val}")
-            
+
         # Refined for wind
         m_wind = re.search(r"(?:MAX )?WIND(?: GUST)?\.\.\.(?!RADAR|THREAT|NONE)(.+?)(?:\n|$)", text_to_search, re.I)
         if m_wind:
@@ -480,7 +480,7 @@ def build_concise_warning_text(
         # Step A: Look for the standard "Warning for..." bullet
         # Refined regex: must NOT cross into common narrative headers or the next bullet
         m_area = re.search(r"(?:Warning for|Statement for|IMPACT)[\s.]+(.+?)(?=\n\s*\*|\n\s*At\s+|\n\s*LAT\.\.\.LON|\n\s*HAZARD\.\.\.|\n\s*SOURCE\.\.\.|\n\s*IMPACT\.\.\.|\n\s*PRECAUTIONARY|\n\s*PREPAREDNESS|$)", raw_text, re.I | re.DOTALL)
-        
+
         # Step B: Fallback to the technical header line (e.g., "CLEVELAND OK-MCCLAIN OK-")
         if not m_area:
             # Broadened to handle mixed case like "Inland Nassau FL-"
@@ -500,21 +500,21 @@ def build_concise_warning_text(
         if raw_list:
             # For raw text, we split by dots and 'AND' as well
             parts = re.split(r"\n|;|\.\.\.|\s+AND\s+", raw_list, flags=re.I)
-            
+
             # If we didn't get multiple parts, try a smart comma split
             if len(parts) <= 1:
                 parts = [c.strip() for c in re.split(r',(?!\s+[A-Z]{2}(?:\s|$|,|;))', raw_list) if c.strip()]
-                
+
             counties = []
             for p in parts:
                 c = p.strip().strip(".")
                 if not c or len(c) < 2: # Allow 2-letter state codes to be caught by filter
                     continue
-                    
+
                 # Truncate at "THROUGH" instead of skipping the whole part
                 if " THROUGH " in c.upper():
                     c = re.split(r"\s+THROUGH\s+", c, flags=re.I)[0]
-                    
+
                 # Skip if it contains garbage keywords as whole words
                 if _GEOGRAPHIC_GARBAGE_RE.search(c):
                     continue
@@ -534,7 +534,7 @@ def build_concise_warning_text(
                     if not _GEOGRAPHIC_GARBAGE_RE.search(c):
                         if c not in counties:
                             counties.append(c)
-            
+
             if counties:
                 area = ", ".join(counties)
 
@@ -542,9 +542,9 @@ def build_concise_warning_text(
         # Normalize prev_area: strip bracketed state info "[OK]" and " and " before diffing
         clean_prev = re.sub(r"\s*\[[A-Z]{2}\]", "", prev_area)
         clean_prev = clean_prev.replace(" and ", ", ")
-        
+
         prev_parts = [c.strip() for c in re.split(r'[;,]\s*', clean_prev) if c.strip()]
-        
+
         # Clean current area list: split and run through state stripper/garbage filter
         # This prevents "OK, OK" in the expands to list
         raw_curr = [c.strip() for c in re.split(r'[;,]\s*', area) if c.strip()]
@@ -581,7 +581,7 @@ def build_concise_warning_text(
                     parts.append(f"**continues** {', '.join(continuing)}")
                 if new_added:
                     parts.append(f"**expands to** {', '.join(new_added)}")
-                
+
                 area_formatted = f" ({', '.join(parts)})"
             else:
                 area_formatted = f" for {_area_with_state(area, ugc_codes or [], state_fallback=state_fallback)}"

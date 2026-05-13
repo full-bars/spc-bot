@@ -1,7 +1,7 @@
 # cogs/mesoscale.py
 import asyncio
-import json as _json
 import html as _html
+import json as _json
 import logging
 import os
 import re
@@ -232,10 +232,10 @@ async def fetch_md_details(
     if not html:
         fallback_url = f"https://www.spc.noaa.gov/products/md/mcd{md_number}.png"
         cached_path = get_cache_path_for_url(fallback_url)
-        
+
         # Check iembot cache for text as a last resort
         cached_text = await get_cached_md_text(md_number)
-        
+
         if os.path.exists(cached_path):
             logger.info(f"SPC unreachable for #{md_number}, serving image from cache")
             return fallback_url, None, True, cached_text
@@ -244,7 +244,7 @@ async def fetch_md_details(
             if iem_img:
                 logger.info(f"Got MD #{md_number} from IEM")
                 return iem_img, iem_summary, True, iem_raw or cached_text
-        
+
         if cached_text:
             logger.info(f"SPC/IEM unreachable for #{md_number}, but found text in iembot cache")
             return None, None, False, cached_text
@@ -303,7 +303,7 @@ def extract_md_body(raw_text: Optional[str]) -> Optional[str]:
     """
     if not raw_text:
         return None
-    
+
     # 1. Extraction from HTML if needed
     clean = None
     lowered_raw = raw_text.lower()
@@ -357,24 +357,24 @@ def clean_md_text_for_discord(text: str) -> str:
     """
     if not text:
         return ""
-    
+
     # 1. Clean existing double-asterisks to prevent formatting bugs
     text = text.replace("**", "")
-    
+
     # Standard SPC labels
     top_headers = ["Areas affected", "Concerning", "Valid", "Probability"]
     para_headers = ["SUMMARY", "DISCUSSION"]
     all_headers = top_headers + para_headers
-    
+
     # Filter out empty lines and redundant whitespace
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     cleaned = []
-    
+
     i = 0
     while i < len(lines):
         ln = lines[i]
         ln_lower = ln.lower()
-        
+
         # A. Check for paragraph labels (SUMMARY, DISCUSSION)
         para_label = next((h for h in para_headers if ln_lower.startswith(h.lower())), None)
         if para_label:
@@ -390,7 +390,7 @@ def clean_md_text_for_discord(text: str) -> str:
                         break
                     body_parts.append(lines[j])
                     j += 1
-                
+
                 body_text = " ".join(p for p in body_parts if p).strip()
                 cleaned.append(f"**{lbl.strip()}** {body_text}".strip())
                 i = j
@@ -424,7 +424,7 @@ def clean_md_text_for_discord(text: str) -> str:
         # C. Regular status lines (e.g., "The severe threat continues") or signatures
         cleaned.append(ln)
         i += 1
-        
+
     return "\n".join(cleaned)
 
 
@@ -534,12 +534,12 @@ class MesoscaleCog(commands.Cog):
         """Parse probability of watch issuance and signal SoundingCog if high."""
         if not raw_text:
             return
-        
+
         # Look for "PROBABILITY OF WATCH ISSUANCE...80 PERCENT" etc.
         m = re.search(r"PROBABILITY OF WATCH ISSUANCE\s*\.\.\.\s*(\d+)\s*PERCENT", raw_text, re.IGNORECASE)
         if not m:
             return
-        
+
         try:
             prob = int(m.group(1))
             if prob >= 80:
@@ -653,14 +653,14 @@ class MesoscaleCog(commands.Cog):
             if md_numbers is None:
                 # Both SPC and IEM failed - skip this cycle to avoid false cancellations
                 return
-            
+
             current_mds = set(md_numbers)
             # -1 sentinel disables lag-protection when the index is empty
             # (nothing to compare against, so all active MDs can be cancelled).
             current_max = max((int(m) for m in current_mds), default=-1)
 
             # ── MD cancellations ─────────────────────────────────────────────
-            # Run only when NOT in fallback mode. The authoritative source for 
+            # Run only when NOT in fallback mode. The authoritative source for
             # cancellations is the primary SPC index.
             if not is_fallback:
                 diff = self.bot.state.active_mds - current_mds

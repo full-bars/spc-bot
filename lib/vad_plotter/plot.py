@@ -3,16 +3,16 @@ from __future__ import print_function
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Optional
 
 import matplotlib as mpl
 
 mpl.use("agg")
+import numpy as np
 import pylab
 from matplotlib.lines import Line2D
 from matplotlib.patches import Circle
 
-import numpy as np
 from lib.vad_plotter.params import vec2comp
 
 logger = logging.getLogger("spc_bot")

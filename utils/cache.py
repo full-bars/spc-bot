@@ -16,12 +16,6 @@ from config import (
     CENTRAL,
     SPC_SCHEDULE,
 )
-from utils.state_store import (
-    set_hash,
-    set_hashes_batch,
-    get_all_validators,
-    set_validators,
-)
 from utils.change_detection import (
     calculate_hash_bytes,
     get_cache_path_for_url,
@@ -31,6 +25,12 @@ from utils.http import (
     ensure_session,
     http_get_bytes_conditional,
     http_head_ok,
+)
+from utils.state_store import (
+    get_all_validators,
+    set_hash,
+    set_hashes_batch,
+    set_validators,
 )
 
 # Per-URL HTTP validators (ETag, Last-Modified) from the most recent 200
@@ -353,7 +353,7 @@ async def save_downloaded_images(
         # Update in-memory cache first so subsequent checks in this loop see it
         for url, h in batch_updates.items():
             cache[url] = h
-            
+
         cache_type = "manual" if "manual" in cache_file_path else "auto"
         # Standardized await for DB integrity
         await set_hashes_batch(batch_updates, cache_type)
@@ -372,8 +372,8 @@ async def check_all_urls_exist_parallel(urls: List[str]) -> bool:
         )
     return ok
 async def fetch_with_validators(
-    url: str, 
-    retries: int = 3, 
+    url: str,
+    retries: int = 3,
     timeout: int = 30,
     retry_statuses: Optional[List[int]] = None
 ) -> Tuple[Optional[bytes], Optional[int]]:

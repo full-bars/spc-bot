@@ -176,7 +176,7 @@ async def _upstash_cmd(*args: Any) -> Any:
             logger.error("[STATE] Upstash daily quota (10k) EXCEEDED. Falling back to SQLite.")
             _upstash_quota_hit = True
         raise _UpstashUnavailable("Upstash daily quota exceeded")
-    
+
     if usage >= _UPSTASH_SOFT_QUOTA and not _upstash_quota_hit:
         logger.warning(f"[STATE] Upstash daily quota warning: {usage}/{_UPSTASH_DAILY_BUDGET} commands used.")
         _upstash_quota_hit = True # Log once per day per process
@@ -210,10 +210,10 @@ async def _upstash_cmd(*args: Any) -> Any:
                 # Hard failure from Redis itself — e.g. syntax error. Do
                 # not reconcile these; they're bugs, not transient.
                 raise RuntimeError(f"Upstash error: {body['error']}")
-            
+
             # Successfully executed a command
             await sqlite_backend.increment_upstash_commands(1)
-            
+
             return body.get("result")
     except asyncio.TimeoutError as e:
         raise _UpstashUnavailable(f"Upstash timeout: {e}") from e
@@ -951,26 +951,26 @@ async def mirror_to_sqlite() -> None:
     it starts taking new writes."""
     try:
         logger.info("[STATE] Mirroring Upstash → SQLite...")
-        
+
         # 1. Hashes
         for ct in ("auto", "manual"):
             h = await get_all_hashes(ct)
             if h:
                 await sqlite_backend.set_hashes_batch(h, ct)
-        
+
         # 2. Posted collections
         mds = await get_posted_mds()
         for m in mds:
             await sqlite_backend.add_posted_md(m)
-        
+
         watches = await get_posted_watches()
         for w in watches:
             await sqlite_backend.add_posted_watch(w)
-        
+
         reports = await get_posted_reports()
         for r in reports:
             await sqlite_backend.add_posted_report(r)
-        
+
         # 3. State
         states_scan = await _upstash_cmd("SCAN", 0, "MATCH", f"{_k_state('*')}")
         if states_scan and isinstance(states_scan, list) and len(states_scan) >= 2:
@@ -984,13 +984,13 @@ async def mirror_to_sqlite() -> None:
                             # Strip prefix
                             base_key = k.replace(f"{_k_state('')}", "")
                             await sqlite_backend.set_state(base_key, val)
-        
+
         # 4. Posted URLs
         for day in ("day1", "day2", "day3"):
             urls = await get_posted_urls(day)
             if urls:
                 await sqlite_backend.set_posted_urls(day, urls)
-        
+
         logger.info("[STATE] Mirroring complete")
     except Exception as e:
         logger.warning(f"[STATE] Mirroring failed: {e}")

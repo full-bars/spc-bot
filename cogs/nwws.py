@@ -24,7 +24,7 @@ from slixmpp import ClientXMPP, Message
 from slixmpp.exceptions import IqError, IqTimeout
 from slixmpp.xmlstream import ElementBase, register_stanza_plugin
 
-from config import NWWS_USER, NWWS_PASSWORD, NWWS_SERVER, NWWS_FIREHOSE_LOG
+from config import NWWS_FIREHOSE_LOG, NWWS_PASSWORD, NWWS_SERVER, NWWS_USER
 
 logger = logging.getLogger("spc_bot")
 
@@ -69,7 +69,7 @@ firehose_logger.propagate = False
 # Only add the handler once
 if not firehose_logger.handlers:
     fh = RotatingFileHandler(
-        NWWS_FIREHOSE_LOG, 
+        NWWS_FIREHOSE_LOG,
         maxBytes=10*1024*1024, # 10MB
         backupCount=1
     )
@@ -94,7 +94,7 @@ class NWWSClient(ClientXMPP):
         # Room is 'nwws' on the conference server
         self.room = f"nwws@conference.{NWWS_SERVER}"
         self.nick = jid.split('@')[0]
-        
+
         # Register the MUC plugin and our custom payload
         self.register_plugin('xep_0045') # Multi-User Chat
         self.register_plugin('xep_0199') # XMPP Ping
@@ -103,7 +103,7 @@ class NWWSClient(ClientXMPP):
         self.add_event_handler("session_start", self.session_start)
         self.add_event_handler("message", self.message)
         self.add_event_handler("disconnected", self.on_disconnect)
-        
+
         # Start ping task on session start
         self.add_event_handler("session_start", self._start_ping_task)
         self._ping_task: Optional[asyncio.Task] = None
@@ -126,7 +126,7 @@ class NWWSClient(ClientXMPP):
                 await asyncio.sleep(30)
         except asyncio.CancelledError:
             logger.debug("NWWS ping loop cancelled")
-        
+
         # Enable auto-reconnect at the slixmpp level
         self.reconnect = True
         self.use_ipv6 = False
@@ -144,7 +144,7 @@ class NWWSClient(ClientXMPP):
             await self.get_roster()
         except (IqError, IqTimeout):
             logger.error("Error fetching roster")
-        
+
         # Join the NWWS-OI Multi-User Chat
         logger.info(f"Joining room {self.room} as {self.nick}...")
         self.plugin['xep_0045'].join_muc(self.room, self.nick)
@@ -185,7 +185,8 @@ class NWWSClient(ClientXMPP):
 
         # Check for archived message (XEP-0203 delay element).
         # Real-time messages have delay stamps very close to now; archived messages are older.
-        from datetime import datetime as dt_class, timezone as tz_class
+        from datetime import datetime as dt_class
+        from datetime import timezone as tz_class
         is_archived = False
         try:
             delay_elem = msg.get('delay')
@@ -206,7 +207,8 @@ class NWWSClient(ClientXMPP):
 
         # Track NWWS message throughput for real-time messages
         if not is_archived:
-            from datetime import datetime as dt_class, timezone as tz_class
+            from datetime import datetime as dt_class
+            from datetime import timezone as tz_class
             now = dt_class.now(tz_class.utc)
             self.bot.state.nwws_msg_count += 1
 
@@ -236,7 +238,8 @@ class NWWSClient(ClientXMPP):
             logger.debug(f"Skipping archived message ({payload['awipsid']})")
 
         # Capture receive timestamp for accurate wire latency measurement
-        from datetime import datetime as dt_class, timezone as tz_class
+        from datetime import datetime as dt_class
+        from datetime import timezone as tz_class
         received_at = dt_class.now(tz_class.utc)
 
         # Route to processing
@@ -260,7 +263,8 @@ class NWWSClient(ClientXMPP):
             if not is_archived:
                 issue_val = payload['issue'] or issue_str
                 try:
-                    from datetime import datetime as dt_class, timezone as tz_class
+                    from datetime import datetime as dt_class
+                    from datetime import timezone as tz_class
                     start_time = self.bot.state.bot_start_time
 
                     # Only track latency if we have a valid start time and 60s has passed
@@ -285,7 +289,7 @@ class NWWSClient(ClientXMPP):
                     logger.debug(f"Latency calculation failed ({issue_val}): {e}")
 
             # 2. Routing Logic
-            
+
             # WATCHES (SEL products)
             if "SEL" in afos_pil:
                 m = re.search(r"(?:Tornado|Severe Thunderstorm)\s+Watch\s+Number\s+(\d+)", raw_text, re.IGNORECASE)
@@ -298,7 +302,7 @@ class NWWSClient(ClientXMPP):
                         if text:
                             from utils.state_store import set_product_cache
                             await set_product_cache(f"watch_{watch_num}", text, ttl=600)
-                        
+
                         wtype = "TORNADO" if "Tornado Watch" in raw_text else "SVR"
                         await watches_cog.post_watch_now(watch_num, {"type": wtype, "expires": None, "affected_zones": []})
                         logger.info(f"Triggered Watch {watch_num} via XMPP")
@@ -364,7 +368,7 @@ class NWWSCog(commands.Cog):
         if not all([NWWS_USER, NWWS_PASSWORD]):
             logger.warning("Credentials missing, NWWS cog disabled")
             return
-        
+
         self._should_be_connected = True
         self.monitor_connection.start()
 
@@ -380,7 +384,7 @@ class NWWSCog(commands.Cog):
             self._should_be_connected = True
             if not self.monitor_connection.is_running():
                 self.monitor_connection.start()
-        
+
         await self.monitor_connection()
 
     @tasks.loop(seconds=30)
@@ -396,7 +400,7 @@ class NWWSCog(commands.Cog):
         if self.xmpp_client is not None:
             if self.xmpp_client.is_connected:
                 return
-            
+
             if self.xmpp_client.transport is not None:
                 # Still in flight
                 return
@@ -408,7 +412,7 @@ class NWWSCog(commands.Cog):
         logger.info(f"Connecting to {NWWS_SERVER}...")
         jid = f"{NWWS_USER}@{NWWS_SERVER}"
         self.xmpp_client = NWWSClient(jid, NWWS_PASSWORD, self.bot)
-        
+
         try:
             self.xmpp_client.connect((NWWS_SERVER, 5222))
         except Exception as e:

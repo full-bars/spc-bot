@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import discord
 
-from cogs.radar.s3 import s3_download_file, list_files
+from cogs.radar.s3 import list_files, s3_download_file
 
 logger = logging.getLogger("spc_bot")
 
@@ -207,12 +207,12 @@ async def split_and_zip_files(
             for site, site_files in by_site.items()
             if site_files
         ]
-        
+
         all_zip_paths = []
         results = await asyncio.gather(*tasks)
         for result in results:
             all_zip_paths.extend(result)
-            
+
         return all_zip_paths
     except Exception as e:
         logger.exception(f"[RADAR] ZIP creation failed: {e}")
@@ -373,7 +373,7 @@ async def download_and_zip(
         description=f"Starting download of {total_files} files...\n",
         color=discord.Color.blue(),
     )
-    message = await interaction.followup.send(embed=embed)
+    message = await interaction.followup.send(embed=embed, wait=True)
     messages_to_delete.append(message)
 
     try:
