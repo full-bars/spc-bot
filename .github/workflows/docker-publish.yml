@@ -35,8 +35,6 @@ jobs:
           fi
           . "$HOME/.cargo/env" || . "/root/.cargo/env"
       - name: Build and install Rust extension
-        env:
-          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
         run: |
           . "$HOME/.cargo/env" || . "/root/.cargo/env"
           pip install maturin

@@ -199,7 +199,7 @@ fn parse_vwp_tabular_data<'py>(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    let dict = PyDict::new_bound(py);
+    let dict = PyDict::new(py);
     let mut wind_dir = Vec::with_capacity(records.len());
     let mut wind_spd = Vec::with_capacity(records.len());
     let mut rms_error = Vec::with_capacity(records.len());
@@ -764,7 +764,7 @@ fn parse_vtec<'py>(py: Python<'py>, text: &str) -> PyResult<Option<Bound<'py, Py
 
         let vtec_id = format!("{}.{}.{}.{}", office, phenom, sig, etn);
 
-        let result = PyDict::new_bound(py);
+        let result = PyDict::new(py);
         result.set_item("action", action)?;
         result.set_item("office", office)?;
         result.set_item("phenom", phenom)?;

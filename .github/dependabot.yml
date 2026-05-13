@@ -34,6 +34,22 @@ updates:
       - dependencies
       - ci
 
+  # Rust crate dependencies
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      cargo-minor-patch:
+        update-types:
+          - minor
+          - patch
+    labels:
+      - dependencies
+      - rust
+
   # Base images in the Dockerfile
   - package-ecosystem: docker
     directory: /
