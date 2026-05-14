@@ -162,10 +162,13 @@ class FailoverCog(commands.Cog):
             cmd = str(args[0]).upper()
             cmd_args = [str(a) for a in args[1:]]
             return await client.execute_command(cmd, *cmd_args)
+        except redis.exceptions.ReadOnlyError as e:
+            # Expected on a replica standby node — not a problem until promotion.
+            logger.debug(f"[FAILOVER] Redis read-only (replica standby): {e!r}")
+            return None
         except (
             redis.exceptions.ConnectionError,
             redis.exceptions.TimeoutError,
-            redis.exceptions.ReadOnlyError,
             OSError,
         ) as e:
             logger.warning(f"[FAILOVER] Redis error: {e!r}")
@@ -346,6 +349,17 @@ class FailoverCog(commands.Cog):
         from utils.events_db import restore_from_sync, set_syncthing_folder_mode  # noqa: PLC0415
         restore_from_sync()
         await set_syncthing_folder_mode("sendonly")
+
+        # If our local Redis is a replica, detach it so writes succeed.
+        try:
+            client = await self._get_redis()
+            info = await client.info("replication")
+            if info.get("role") == "slave":
+                logger.warning("[FAILOVER] Promoting Redis replica to standalone master (REPLICAOF NO ONE)")
+                await client.execute_command("REPLICAOF", "NO", "ONE")
+                await asyncio.sleep(0.5)
+        except Exception as e:
+            logger.warning(f"[FAILOVER] Could not promote Redis replica: {e}")
 
         state_store.invalidate_all_caches()
         await self._write_lease()
