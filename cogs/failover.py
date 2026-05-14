@@ -1,13 +1,13 @@
 """
-Failover cog (simplified — Redis-backed state edition).
+Failover cog — Leader election via Redis (self-hosted or Upstash).
 
-With shared state in Redis (either self-hosted or Upstash, see utils.state_store),
-the primary and standby no longer need to ship in-memory state between themselves.
-The HTTP `/state` and `/sync` endpoints, the cloudflared tunnel, and all the
-hydration machinery are gone.
+With shared state in Redis (see utils.state_store), the primary and standby
+coordinate leader election without needing to ship in-memory state between
+themselves. Reads and writes to Redis are handled through the state_store,
+which auto-detects and handles both self-hosted local Redis and Upstash Cloud.
 
-What this cog still does
-------------------------
+What this cog does
+-------------------
 Leader election via a short-lived Redis key:
 
     spcbot:primary_url   EX HEARTBEAT_TTL
@@ -15,8 +15,7 @@ Leader election via a short-lived Redis key:
 The "primary" is whichever node currently holds the key. The value is
 a per-process identifier so we can detect whether we still own the
 lease or someone else has taken it. The key name `primary_url` is
-retained for migration compatibility — the old code reads it too and
-interprets its presence correctly.
+retained for migration compatibility.
 
 Promotion semantics
 -------------------
@@ -27,9 +26,6 @@ Promotion semantics
   process cache so fresh reads hit Redis, loads all cogs, and
   begins holding the lease itself.
 - If a second holder appears the current holder steps back down.
-
-The v4.13.2 "liveness vs. reachability" split is no longer needed:
-liveness is Redis-mediated directly, and there's nothing to hydrate from.
 """
 
 from __future__ import annotations

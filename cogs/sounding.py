@@ -99,7 +99,7 @@ class SoundingCog(commands.Cog):
         await self.cog_load()
 
     async def cog_load(self):
-        """Restore posted-sounding keys from Upstash/SQLite so a restart
+        """Restore posted-sounding keys from Redis/SQLite so a restart
         during active wx doesn't re-post every station/watch combo the
         bot already covered today. Entries from previous UTC days are
         dropped on load."""

@@ -126,7 +126,7 @@ change detection on the static URL rather than HTML scraping.
 ### Mesoscale Discussions
 
 The MD cog polls the SPC mesoscale discussion index every 30 seconds. It tracks
-posted MD numbers in a persistent set and posts new ones as they appear. When an
+posted MD numbers in a persistent set via Redis (or SQLite if Redis is unavailable) and posts new ones as they appear. When an
 MD is no longer listed on the index, it posts a cancellation embed.
 
 ### Watches
@@ -164,7 +164,7 @@ scraping the SPC watch index HTML directly.
 
 ### IEMBot Real-Time Feed
 
-`IEMBotCog` polls `weather.im/iembot-json/room/spcchat` every 15 seconds. When a new SEL (watch) or SWOMCD (MD) product appears, the full text is fetched from `mesonet.agron.iastate.edu/api/1/nwstext/{product_id}` and cached via `state_store.set_product_cache` with a 10-minute TTL (written to both Upstash and SQLite). `fetch_watch_details` and `fetch_md_details` check the cache first, so embeds are populated within seconds of issuance — and the Upstash copy means a fresh primary after a failover already has the text. The last-seen seqnum is persisted via `state_store.set_state("iembot_last_seqnum", …)` through the same double-write path.
+`IEMBotCog` polls `weather.im/iembot-json/room/spcchat` every 15 seconds. When a new SEL (watch) or SWOMCD (MD) product appears, the full text is fetched from `mesonet.agron.iastate.edu/api/1/nwstext/{product_id}` and cached via `state_store.set_product_cache` with a 10-minute TTL (written to Redis and SQLite for durability). `fetch_watch_details` and `fetch_md_details` check the cache first, so embeds are populated within seconds of issuance. The last-seen seqnum is persisted via `state_store.set_state("iembot_last_seqnum", …)` through the same state store path.
 
 ### NWWS-OI (XMPP) Authority
 
@@ -193,7 +193,7 @@ changed (hash-based detection). Uses `MODELS_CHANNEL_ID`.
 2. **Follow-up**: Polls for new scans for the next 90m.
 3. **Rendering**: Uses the shared worker pool to generate animated GIFs.
 4. **Archival**: Peak 0-1km SRH is calculated and saved to `events.db` along with the GIF path.
-5. **Resumption**: Mission state is persisted to Upstash, allowing the bot to survive restarts or failovers during a recording window.
+5. **Resumption**: Mission state is persisted via Redis (or SQLite if unavailable), allowing the bot to survive restarts or failovers during a recording window.
 
 ### Cache Management
 
@@ -211,7 +211,7 @@ The `/sounding` command geocodes the location, finds nearby RAOB stations that h
 
 ### CSU-MLP and NCAR WxNext2
 
-Both poll once daily around model update time. State is persisted via `state_store` (Upstash + SQLite) so restarts and failovers don't cause duplicate posts.
+Both poll once daily around model update time. State is persisted via `state_store` (Redis + SQLite) so restarts and failovers don't cause duplicate posts.
 
 ---
 
@@ -236,7 +236,16 @@ Tasks are registered with the watchdog in `main.py` after cogs load.
 
 ## Persistence (v5+)
 
-Bot state goes through `utils/state_store.py`, which keeps a short-lived in-process cache, writes first to local SQLite for durability, and uses Upstash Redis as the shared operational store for HA deployments. Upstash failures queue dirty writes for later reconciliation.
+Bot state goes through `utils/state_store.py`, which keeps a short-lived in-process cache, writes to local SQLite for durability, and optionally uses a Redis backend (either self-hosted local Redis or Upstash Cloud) as the shared operational store for HA deployments.
+
+### Backend Configuration
+
+The bot auto-detects which Redis backend to use at startup:
+
+- **Self-Hosted Local Redis (Recommended)** — Configure via `REDIS_HOST`, `REDIS_PORT`, `REDIS_DB` environment variables. Best for production HA with zero quota limits and full control. Requires infrastructure management.
+- **Upstash Cloud Redis (Legacy/Optional)** — Configure via `REDIS_UPSTASH_URL` and `REDIS_UPSTASH_TOKEN`. Managed service option if you prefer no Redis ops.
+
+If neither backend is configured, the bot uses SQLite only (single-node mode).
 
 ### Data flow
 
@@ -244,14 +253,14 @@ Bot state goes through `utils/state_store.py`, which keeps a short-lived in-proc
     cogs → state_store → in-process cache (60 s TTL)
                           │
                           ├─→ SQLite mirror (durable local write)
-                          └─→ Upstash Redis (shared HA state, best effort)
+                          └─→ Redis backend (self-hosted or Upstash; best effort)
 ```
 
-- **Read**: cache hit → return. Miss → Upstash → populate cache. Upstash unavailable → fall back to SQLite.
-- **Write**: update cache immediately, write SQLite for local durability, then write Upstash best-effort. An Upstash failure enqueues the write on a dirty list; a background reconciler retries every 30 s until it lands.
-- **Startup resync**: on promotion (and optionally on boot) the node pushes anything SQLite has that Upstash is missing. Handles the "Upstash was down when we wrote, then we restarted" edge case.
+- **Read**: cache hit → return. Miss → Redis (if available) → populate cache. Redis unavailable → fall back to SQLite.
+- **Write**: update cache immediately, write SQLite for local durability, then write Redis best-effort. A Redis failure enqueues the write on a dirty list; a background reconciler retries every 30 s until it lands.
+- **Startup resync**: on promotion (and optionally on boot) the node pushes anything SQLite has that Redis is missing. Handles the "Redis was down when we wrote, then we restarted" edge case.
 
-### Upstash key schema
+### Redis key schema
 
 All keys are prefixed with `spcbot:` and are centralized in `utils/state_store.py` `_k_*` helpers.
 
@@ -270,11 +279,13 @@ All keys are prefixed with `spcbot:` and are centralized in `utils/state_store.p
 
 Same tables as historical `utils/db.py`: `image_hashes`, `posted_mds`, `posted_watches`, `bot_state`, `posted_urls`, `product_text_cache`. WAL mode, 5-second busy timeout. If the database fails an integrity check on startup it is renamed to `bot_state.db.corrupted` and recreated.
 
-### Free-tier Upstash budget
+### Upstash quota guard (Upstash backend only)
 
-Projected ~8.2 k commands/day across both nodes (primary heartbeat writes, standby heartbeat reads, periodic bulk refreshes, state mutations) against the 10 k/day free-tier ceiling. Hot reads are served from the in-process cache, not billed.
+When using the Upstash backend, `state_store` tracks the rolling daily command count against the 10 k/day free-tier ceiling. Hot reads are served from the in-process cache, not billed.
 
-**Soft-quota guard**: `state_store` tracks the rolling daily Upstash command count. At **8 k/day** a warning is logged; at **10 k/day** the store automatically falls back to SQLite for all reads and writes for the remainder of the UTC day, preventing hard rate-limit errors.
+**Soft-quota guard**: At **8 k/day** a warning is logged; at **10 k/day** the store automatically falls back to SQLite for all reads and writes for the remainder of the UTC day, preventing hard rate-limit errors.
+
+**Self-hosted Redis has no quota limits.**
 
 ---
 

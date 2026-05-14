@@ -14,7 +14,7 @@ NWWS-OI fast path, IEMBot fallback, NWS API polling, SPC watch alerts with dedup
 
 **Scientific Tools:** Interactive RAOB/ACARS sounding plots (auto-posted near active watches and MDT/HIGH risk areas), VWP hodographs, searchable tornado forensics archive, NEXRAD Level 2 downloader, and IEM-based tornado analytics.
 
-**System:** Real-time `/status` dashboard, owner-only `/taskmgr` and `/logs` monitoring, dual-endpoint watchdog, leader-election failover with Upstash Redis, SQLite durability, optional Syncthing event archive replication, and a Rust hybrid core (Phases 1–8) that accelerates VAD hodograph math, VTEC parsing, XXH3 image hashing, NWWS product ID normalization, haversine distance queries, VAD storm-mode calculations (`shear_mag`, `sr_flow`, `clip_profile`), and batch spatial joins (`find_nearest_stations_batch`, `points_in_polygon_counts`). All Rust paths fall back to pure Python if the extension is unavailable.
+**System:** Real-time `/status` dashboard with state monitoring, owner-only `/taskmgr` and `/logs` monitoring, dual-endpoint watchdog, leader-election failover with self-hosted or cloud Redis (Upstash), SQLite durability, optional Syncthing event archive replication, and a Rust hybrid core (Phases 1–8) that accelerates VAD hodograph math, VTEC parsing, XXH3 image hashing, NWWS product ID normalization, haversine distance queries, VAD storm-mode calculations (`shear_mag`, `sr_flow`, `clip_profile`), and batch spatial joins (`find_nearest_stations_batch`, `points_in_polygon_counts`). All Rust paths fall back to pure Python if the extension is unavailable.
 
 ## Quick Start
 
@@ -23,7 +23,7 @@ NWWS-OI fast path, IEMBot fallback, NWS API polling, SPC watch alerts with dedup
 - Discord bot token ([Discord Developer Portal](https://discord.com/developers/applications))
 - Discord channel IDs for SPC/model posts
 - A non-default `FAILOVER_TOKEN` (required at startup)
-- (Optional) [Upstash Redis](https://upstash.com/) for high-availability failover and shared operational state
+- (Optional) Redis for high-availability failover: either self-hosted local Redis or [Upstash Cloud](https://upstash.com/)
 
 ### Docker (Recommended)
 ```bash
@@ -57,13 +57,27 @@ Creates systemd service and bash aliases: `spcon`, `spcoff`, `spcstatus`, `spclo
 ## Optional Features
 
 ### High Availability (Primary/Standby Failover)
-Run two nodes with automatic failover via Upstash Redis. No HTTP tunnel required. Requires:
-- Upstash Redis instance
-- `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `FAILOVER_TOKEN` in `.env` on both nodes
-- `IS_PRIMARY=true` on primary, `IS_PRIMARY=false` on standby
-- `ADMIN_USER_ID` on both nodes if you want to manually designate the primary with `/failover`
+Run two nodes with automatic failover via Redis. Choose one of two deployment models:
 
-**See [High Availability & Failover](https://github.com/full-bars/spc-bot/wiki/High-Availability-&-Failover) in the wiki for complete setup.**
+**Option 1: Self-Hosted Local Redis (Recommended for Production)**
+- Install Redis 7.0+ on primary server
+- Configure replica with `REDIS_HOST`, `REDIS_PORT`, `REDIS_DB` in `.env`
+- Redis replication handles all data sync automatically
+- No external dependencies or API quotas
+- Optimal performance and full control
+
+**Option 2: Upstash Cloud Redis (Legacy/Cloud-First)**
+- Managed service with no Redis infrastructure to manage
+- Set `REDIS_UPSTASH_URL` and `REDIS_UPSTASH_TOKEN` in `.env`
+- Works across cloud providers without VPN or Tailscale
+- Subject to API quota limits (10k commands/day free tier)
+
+Both require:
+- Shared `FAILOVER_TOKEN` on both nodes
+- `IS_PRIMARY=true` on primary, `IS_PRIMARY=false` on standby
+- `ADMIN_USER_ID` on both nodes if you want manual `/failover` control
+
+**See [High Availability & Failover](https://github.com/full-bars/spc-bot/wiki/High-Availability-&-Failover) in the wiki for complete setup and failover procedures.**
 
 ### Events Archive Sync (Syncthing)
 Replicate the tornado events database (`cache/events.db`) across nodes for seamless standby promotion:

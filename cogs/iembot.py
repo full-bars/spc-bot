@@ -127,9 +127,8 @@ class IEMBotCog(commands.Cog):
 
         if not self._seqnum_loaded:
             try:
-                # state_store already handles Upstash-first, SQLite-fallback
-                # via its own read path — no need for a separate Upstash
-                # round-trip here.
+                # state_store handles Redis (or SQLite fallback) via its own
+                # read path — no need for manual coordination.
                 val = await get_state("iembot_last_seqnum")
                 if val:
                     self.bot.state.iembot_last_seqnum = int(val)
@@ -193,8 +192,7 @@ class IEMBotCog(commands.Cog):
 
             if new_seqnum > self.bot.state.iembot_last_seqnum:
                 self.bot.state.iembot_last_seqnum = new_seqnum
-                # state_store.set_state double-writes to SQLite and Upstash,
-                # so this single call replaces the old dual-path pattern.
+                # state_store.set_state handles both Redis and SQLite persistence.
                 await set_state("iembot_last_seqnum", str(new_seqnum))
 
         except Exception as e:
