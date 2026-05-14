@@ -112,7 +112,6 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: ${{ matrix.platform }}
           push: false
           load: true
           tags: spc-bot:ci
