@@ -544,7 +544,7 @@ class FailoverCog(commands.Cog):
                     "❌ No active nodes found in the registry.",
                     ephemeral=True
                 )
-                return redis.close()
+                return await redis.close()
 
             # Filter by age (5 minutes)
             now = int(time.time())
@@ -562,18 +562,11 @@ class FailoverCog(commands.Cog):
                     "❌ No nodes have sent a heartbeat in the last 5 minutes.",
                     ephemeral=True
                 )
-                return redis.close()
+                return await redis.close()
 
             # 3. Fetch current manual override
             current_manual_bytes = await redis.get("spcbot:manual_primary")
             current_manual = current_manual_bytes.decode("utf-8") if isinstance(current_manual_bytes, bytes) else (str(current_manual_bytes) if current_manual_bytes else None)
-        except Exception as e:
-            logger.exception(f"[FAILOVER] Failed to fetch nodes: {e}")
-            await interaction.followup.send(
-                f"❌ Failed to fetch nodes: {e}",
-                ephemeral=True
-            )
-            return redis.close()
 
             current_lease = await self._read_lease_holder()
 
@@ -588,6 +581,12 @@ class FailoverCog(commands.Cog):
                     f"to return to automatic failover."
                 ),
                 view=view,
+                ephemeral=True
+            )
+        except Exception as e:
+            logger.exception(f"[FAILOVER] Failed to fetch nodes: {e}")
+            await interaction.followup.send(
+                f"❌ Failed to fetch nodes: {e}",
                 ephemeral=True
             )
         finally:
