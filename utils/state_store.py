@@ -181,6 +181,7 @@ async def _redis_cmd(*args: Any) -> Any:
         redis_exc.ConnectionError,
         redis_exc.TimeoutError,
         redis_exc.BusyLoadingError,
+        redis_exc.ReadOnlyError,
         OSError,
         asyncio.TimeoutError,
     ) as e:
@@ -201,6 +202,7 @@ async def _scan_all_keys(pattern: str) -> List[str]:
     except (
         redis_exc.ConnectionError,
         redis_exc.TimeoutError,
+        redis_exc.ReadOnlyError,
         OSError,
     ) as e:
         raise _RedisUnavailable(f"Redis SCAN unavailable: {e}") from e
