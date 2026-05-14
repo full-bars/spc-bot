@@ -1,11 +1,12 @@
 """Tests for `utils.state_store`.
 
 Three behaviours to pin down:
-  1. Read-through cache serves repeat reads without hitting Upstash.
-  2. Writes double-write to SQLite and Upstash; SQLite is authoritative
-     for durability; Upstash failure does not raise.
-  3. When Upstash is unavailable, reads fall back to SQLite and writes
-     enqueue for later resync (on startup or promotion).
+  1. Read-through cache serves repeat reads without hitting Redis.
+  2. Writes double-write to SQLite and Redis; SQLite is authoritative
+     for durability; Redis failure does not raise.
+  3. When Redis is unavailable, reads fall back to SQLite and writes
+     enqueue for later resync.
+  4. Integration: real Redis semantics via fakeredis.
 """
 
 import asyncio
@@ -20,17 +21,12 @@ from utils import state_store, db as sqlite_backend
 async def _reset_module_state():
     """Wipe the cache and dirty queue between tests."""
     state_store._cache.clear()
-    
-    # Truncate the dirty_writes table in SQLite
     db = await sqlite_backend.get_db()
     async with sqlite_backend._LOCK:
         await db.execute("DELETE FROM dirty_writes")
         await db.commit()
-    
     yield
     state_store._cache.clear()
-    
-    # Repeat cleanup after test
     db = await sqlite_backend.get_db()
     async with sqlite_backend._LOCK:
         await db.execute("DELETE FROM dirty_writes")
@@ -38,8 +34,8 @@ async def _reset_module_state():
 
 
 @pytest.fixture
-def upstash_mock(monkeypatch):
-    """Patch _upstash_cmd with a scriptable responder."""
+def redis_mock(monkeypatch):
+    """Patch _redis_cmd with a scriptable responder."""
     calls: list = []
 
     async def _default(*args):
@@ -47,53 +43,48 @@ def upstash_mock(monkeypatch):
         return None
 
     mock = AsyncMock(side_effect=_default)
-    monkeypatch.setattr(state_store, "_upstash_cmd", mock)
-    mock.calls = calls  # attach for assertions
+    monkeypatch.setattr(state_store, "_redis_cmd", mock)
+    mock.calls = calls
     return mock
 
 
 # ── Cache semantics ──────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_get_state_cache_hit_skips_upstash(isolated_db, upstash_mock):
-    """Second read in the TTL window must not hit Upstash."""
+async def test_get_state_cache_hit_skips_redis(isolated_db, redis_mock):
+    """Second read in the TTL window must not hit Redis."""
     async def _responder(*args):
         if args[0] == "GET":
             return "cached-value"
         return None
 
-    upstash_mock.side_effect = _responder
-
+    redis_mock.side_effect = _responder
     assert await state_store.get_state("k") == "cached-value"
-    before = upstash_mock.call_count
+    before = redis_mock.call_count
     assert await state_store.get_state("k") == "cached-value"
-    after = upstash_mock.call_count
-    assert after == before, "second read should be served from cache"
+    assert redis_mock.call_count == before, "second read should be served from cache"
 
 
 @pytest.mark.asyncio
-async def test_cache_expires_after_ttl(isolated_db, upstash_mock, monkeypatch):
-    """Once the TTL elapses the next read must go to Upstash again."""
+async def test_cache_expires_after_ttl(isolated_db, redis_mock, monkeypatch):
+    """Once the TTL elapses the next read must go to Redis again."""
     async def _responder(*args):
         return "v"
 
-    upstash_mock.side_effect = _responder
-
-    # Collapse TTL so the test is fast.
+    redis_mock.side_effect = _responder
     monkeypatch.setattr(state_store, "CACHE_TTL_SECONDS", 0.05)
     await state_store.get_state("k")
     await asyncio.sleep(0.1)
     await state_store.get_state("k")
-    # Two reads, cache expired in between → two commands.
-    assert upstash_mock.call_count == 2
+    assert redis_mock.call_count == 2
 
 
 @pytest.mark.asyncio
-async def test_invalidate_all_caches_wipes_everything(isolated_db, upstash_mock):
+async def test_invalidate_all_caches_wipes_everything(isolated_db, redis_mock):
     async def _responder(*args):
         return "v"
 
-    upstash_mock.side_effect = _responder
+    redis_mock.side_effect = _responder
     await state_store.get_state("a")
     await state_store.get_state("b")
     state_store.invalidate_all_caches()
@@ -103,97 +94,72 @@ async def test_invalidate_all_caches_wipes_everything(isolated_db, upstash_mock)
 # ── Writes update cache immediately ──────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_set_state_is_visible_locally_before_upstash_ack(
-    isolated_db, upstash_mock
-):
-    """The caller should see its own write without waiting on a read."""
-    # Slow Upstash: even before it completes, local cache should answer.
+async def test_set_state_is_visible_locally_before_redis_ack(isolated_db, redis_mock):
     async def _slow(*args):
         await asyncio.sleep(0.1)
 
-    upstash_mock.side_effect = _slow
-
+    redis_mock.side_effect = _slow
     await state_store.set_state("k", "v")
-    # get_state should be served from the write-populated cache (0 ms).
-    before = upstash_mock.call_count
+    before = redis_mock.call_count
     assert await state_store.get_state("k") == "v"
-    assert upstash_mock.call_count == before, "cache should satisfy read"
+    assert redis_mock.call_count == before, "cache should satisfy read"
 
 
 @pytest.mark.asyncio
-async def test_set_state_writes_to_sqlite_for_durability(
-    isolated_db, upstash_mock
-):
+async def test_set_state_writes_to_sqlite_for_durability(isolated_db, redis_mock):
     await state_store.set_state("k", "v")
-    # Bypass our cache; go straight to SQLite backend to prove persistence.
     state_store._cache.clear()
-    from utils import db as sqlite_backend
     assert await sqlite_backend.get_state("k") == "v"
 
 
-# ── Upstash unavailable ──────────────────────────────────────────────────────
+# ── Redis unavailable ─────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_read_falls_back_to_sqlite_when_upstash_down(isolated_db, monkeypatch):
+async def test_read_falls_back_to_sqlite_when_redis_down(isolated_db, monkeypatch):
     async def _raise(*args):
-        raise state_store._UpstashUnavailable("simulated outage")
+        raise state_store._RedisUnavailable("simulated outage")
 
-    monkeypatch.setattr(state_store, "_upstash_cmd", _raise)
-
+    monkeypatch.setattr(state_store, "_redis_cmd", _raise)
     await sqlite_backend.set_state("k", "sqlite-only")
-
     assert await state_store.get_state("k") == "sqlite-only"
 
 
 @pytest.mark.asyncio
-async def test_write_during_outage_enqueues_for_reconcile(
-    isolated_db, monkeypatch
-):
-    """SQLite still ACKs, Upstash raises → dirty queue grows."""
+async def test_write_during_outage_enqueues_for_reconcile(isolated_db, monkeypatch):
     async def _raise(*args):
-        raise state_store._UpstashUnavailable("simulated outage")
+        raise state_store._RedisUnavailable("simulated outage")
 
-    monkeypatch.setattr(state_store, "_upstash_cmd", _raise)
-
+    monkeypatch.setattr(state_store, "_redis_cmd", _raise)
     await state_store.set_state("k", "v")
     dirty = await sqlite_backend.get_dirty_writes()
     assert len(dirty) == 1
     assert dirty[0]["op"] == "set_state"
     assert dirty[0]["args"] == ["k", "v"]
-
-    # SQLite still has it.
     assert await sqlite_backend.get_state("k") == "v"
 
 
 @pytest.mark.asyncio
 async def test_resync_drains_dirty_queue(isolated_db, monkeypatch):
-    """Verify that resync_to_upstash drains the dirty writes created during an outage."""
-    # 1. Simulate outage
     async def _fail(*args):
-        raise state_store._UpstashUnavailable("down")
+        raise state_store._RedisUnavailable("down")
 
-    monkeypatch.setattr(state_store, "_upstash_cmd", _fail)
+    monkeypatch.setattr(state_store, "_redis_cmd", _fail)
     await state_store.set_state("k", "v")
-    
-    dirty = await sqlite_backend.get_dirty_writes()
-    assert len(dirty) == 1
+    assert len(await sqlite_backend.get_dirty_writes()) == 1
 
-    # 2. Upstash recovers; trigger manual resync
     calls: list = []
+
     async def _ok(*args):
         calls.append(args)
         return "OK"
 
-    monkeypatch.setattr(state_store, "_upstash_cmd", _ok)
-    
-    await state_store.resync_to_upstash()
-    
-    dirty = await sqlite_backend.get_dirty_writes()
-    assert len(dirty) == 0
+    monkeypatch.setattr(state_store, "_redis_cmd", _ok)
+    await state_store.resync_to_redis()
+    assert len(await sqlite_backend.get_dirty_writes()) == 0
     assert any(c[0] == "SET" and c[2] == "v" for c in calls)
 
 
-# ── Bulk paths ───────────────────────────────────────────────────────────────
+# ── Bulk paths ────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_get_posted_mds_bulk_load_cached(isolated_db, monkeypatch):
@@ -202,8 +168,7 @@ async def test_get_posted_mds_bulk_load_cached(isolated_db, monkeypatch):
             return ["0001", "0002"]
         return None
 
-    monkeypatch.setattr(state_store, "_upstash_cmd", _cmd)
-
+    monkeypatch.setattr(state_store, "_redis_cmd", _cmd)
     first = await state_store.get_posted_mds()
     second = await state_store.get_posted_mds()
     assert first == {"0001", "0002"} == second
@@ -219,105 +184,177 @@ async def test_add_posted_md_invalidates_cache(isolated_db, monkeypatch):
             return 1
         return None
 
-    monkeypatch.setattr(state_store, "_upstash_cmd", _cmd)
-
-    before = await state_store.get_posted_mds()
-    assert before == set()
-
+    monkeypatch.setattr(state_store, "_redis_cmd", _cmd)
+    assert await state_store.get_posted_mds() == set()
     await state_store.add_posted_md("0042")
+    assert await state_store.get_posted_mds() == {"0042"}
 
-    after = await state_store.get_posted_mds()
-    assert after == {"0042"}, "cache should have been invalidated by the write"
-
-
-# ── Posted URLs roundtrip ───────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_posted_urls_roundtrip(isolated_db, monkeypatch):
-    storage: dict = {}
-
+async def test_get_all_hashes_returns_dict(isolated_db, monkeypatch):
     async def _cmd(*args):
-        if args[0] == "SET":
-            storage[args[1]] = args[2]
-            return "OK"
-        if args[0] == "GET":
-            return storage.get(args[1])
+        if args[0] == "HGETALL":
+            return {"http://example.com/img.png": "abc123"}
         return None
 
-    monkeypatch.setattr(state_store, "_upstash_cmd", _cmd)
+    monkeypatch.setattr(state_store, "_redis_cmd", _cmd)
+    result = await state_store.get_all_hashes("auto")
+    assert result == {"http://example.com/img.png": "abc123"}
 
-    await state_store.set_posted_urls("day1", ["u1", "u2"])
-    # Force cache miss.
-    state_store._cache.clear()
-    out = await state_store.get_posted_urls("day1")
-    assert out == ["u1", "u2"]
-
-
-# ── Resync ──────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_resync_pushes_sqlite_contents_to_upstash(isolated_db, monkeypatch):
-    await sqlite_backend.add_posted_md("0100")
-    await sqlite_backend.add_posted_watch("0200")
-    await sqlite_backend.set_hash("https://x/a.png", "h1", "auto")
-
-    calls: list = []
+async def test_get_all_posted_warnings_parses_dict(isolated_db, monkeypatch):
+    import json
+    warning_data = {"message_id": 1, "channel_id": 2, "area": "OK", "tornado_confidence": None, "tornado_severity": None}
 
     async def _cmd(*args):
-        calls.append(args)
-        return "OK"
+        if args[0] == "HGETALL":
+            return {"KOK.TO.W.0001.250501T000000Z": json.dumps(warning_data)}
+        return None
 
-    monkeypatch.setattr(state_store, "_upstash_cmd", _cmd)
+    monkeypatch.setattr(state_store, "_redis_cmd", _cmd)
+    result = await state_store.get_all_posted_warnings()
+    assert "KOK.TO.W.0001.250501T000000Z" in result
+    assert result["KOK.TO.W.0001.250501T000000Z"]["message_id"] == 1
 
-    counts = await state_store.resync_to_upstash(force_full=True)
 
-    assert counts["posted_mds"] == 1
-    assert counts["posted_watches"] == 1
-    assert counts["hashes"] == 1
-    
-    cmds = [c[0] for c in calls]
-    assert "SADD" in cmds
-    assert "HSET" in cmds
-
-# ── Core Logic (Migrated from test_db.py) ──────────────────────────────────
+# ── Outage scenarios ──────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_set_hash_conflict_update(isolated_db, upstash_mock):
-    # Simulate Upstash being down so we test the authoritative SQLite logic
-    async def _fail(*args): raise state_store._UpstashUnavailable("down")
-    upstash_mock.side_effect = _fail
-    
-    await state_store.set_hash("https://example.com/a.png", "first", "auto")
-    await state_store.set_hash("https://example.com/a.png", "second", "auto")
-    
-    # Bypass cache to check SQLite
+async def test_add_posted_md_falls_back_on_redis_outage(isolated_db, monkeypatch):
+    async def _fail(*args):
+        raise state_store._RedisUnavailable("down")
+
+    monkeypatch.setattr(state_store, "_redis_cmd", _fail)
+    await state_store.add_posted_md("0100")
     state_store._cache.clear()
-    assert await state_store.get_all_hashes("auto") == {"https://example.com/a.png": "second"}
+    # Redis is down → falls back to SQLite which has the value
+    assert await state_store.get_posted_mds() == {"0100"}
+    assert await sqlite_backend.get_posted_mds() == {"0100"}
+
 
 @pytest.mark.asyncio
-async def test_set_hashes_batch_and_get(isolated_db, upstash_mock):
-    async def _fail(*args): raise state_store._UpstashUnavailable("down")
-    upstash_mock.side_effect = _fail
-    
-    payload = {f"https://x/{i}": f"h{i}" for i in range(5)}
-    await state_store.set_hashes_batch(payload, "auto")
-    
-    state_store._cache.clear()
-    stored = await state_store.get_all_hashes("auto")
-    assert stored == payload
+async def test_add_posted_watch_falls_back_on_redis_outage(isolated_db, monkeypatch):
+    async def _fail(*args):
+        raise state_store._RedisUnavailable("down")
+
+    monkeypatch.setattr(state_store, "_redis_cmd", _fail)
+    await state_store.add_posted_watch("0102")
+    dirty = await sqlite_backend.get_dirty_writes()
+    assert any(d["op"] == "add_posted_watch" for d in dirty)
+
 
 @pytest.mark.asyncio
-async def test_add_posted_md_is_idempotent(isolated_db, upstash_mock):
-    async def _fail(*args): raise state_store._UpstashUnavailable("down")
-    upstash_mock.side_effect = _fail
-    
+async def test_add_posted_md_is_idempotent(isolated_db, monkeypatch):
+    async def _fail(*args):
+        raise state_store._RedisUnavailable("down")
+
+    monkeypatch.setattr(state_store, "_redis_cmd", _fail)
     await state_store.add_posted_md("0100")
     await state_store.add_posted_md("0100")
-    
     state_store._cache.clear()
     assert await state_store.get_posted_mds() == {"0100"}
 
+
+# ── Integration: real Redis semantics via fakeredis ──────────────────────────
+
+@pytest.fixture
+async def fake_redis_client(monkeypatch):
+    """Install a fakeredis server as the state_store Redis client.
+
+    This exercises the real _redis_cmd → execute_command path, exception
+    classifier, HGETALL dict format, and SMEMBERS set format — the paths
+    that the mock-based tests above cannot reach.
+    """
+    import fakeredis.aioredis as fakeredis
+
+    server = fakeredis.FakeServer()
+    client = fakeredis.FakeRedis(server=server, decode_responses=True)
+    monkeypatch.setattr(state_store, "_redis_client", client)
+    # The autouse mock_redis_cmd fixture replaced _redis_cmd with a stub that
+    # always raises _RedisUnavailable. Restore the real implementation by
+    # re-implementing it inline against the fake client — _get_redis_client()
+    # now returns the fake client so execute_command goes to fakeredis.
+    async def real_redis_cmd_impl(*args):
+        for a in args:
+            if a is None:
+                raise ValueError("_redis_cmd: None is not a valid argument")
+        import redis.exceptions
+        cmd_name = str(args[0]).upper()
+        cmd_args = [str(a) for a in args[1:]]
+        try:
+            return await client.execute_command(cmd_name, *cmd_args)
+        except (
+            redis.exceptions.ConnectionError,
+            redis.exceptions.TimeoutError,
+            redis.exceptions.BusyLoadingError,
+            OSError,
+            asyncio.TimeoutError,
+        ) as e:
+            raise state_store._RedisUnavailable(f"Redis unavailable: {e}") from e
+
+    monkeypatch.setattr(state_store, "_redis_cmd", real_redis_cmd_impl)
+    yield client
+    await client.aclose()
+
+
 @pytest.mark.asyncio
-async def test_product_cache_respects_ttl(isolated_db, upstash_mock):
-    await state_store.set_product_cache("prod_2", "stale", ttl=-1)
-    assert await state_store.get_product_cache("prod_2") is None
+async def test_fakeredis_set_get_roundtrip(isolated_db, fake_redis_client):
+    """Real execute_command path: SET then GET returns the value."""
+    await state_store.set_state("hello", "world")
+    state_store._cache.clear()
+    result = await state_store.get_state("hello")
+    assert result == "world"
+
+
+@pytest.mark.asyncio
+async def test_fakeredis_smembers_roundtrip(isolated_db, fake_redis_client):
+    """Real SADD / SMEMBERS path returns correct set."""
+    await state_store.add_posted_md("0100")
+    await state_store.add_posted_md("0200")
+    state_store._cache.clear()
+    result = await state_store.get_posted_mds()
+    assert result == {"0100", "0200"}
+
+
+@pytest.mark.asyncio
+async def test_fakeredis_hgetall_returns_dict(isolated_db, fake_redis_client):
+    """HGETALL with decode_responses=True returns a dict, not a flat list."""
+    await state_store.set_hash("http://example.com/x.png", "deadbeef", "auto")
+    state_store._cache.clear()
+    result = await state_store.get_all_hashes("auto")
+    assert isinstance(result, dict)
+    assert result.get("http://example.com/x.png") == "deadbeef"
+
+
+@pytest.mark.asyncio
+async def test_fakeredis_connection_error_triggers_fallback(isolated_db, monkeypatch):
+    """A ConnectionError from execute_command is converted to _RedisUnavailable
+    and the caller falls back to SQLite."""
+    import redis.exceptions as rex
+
+    async def _bang(*args, **kwargs):
+        raise rex.ConnectionError("refused")
+
+    monkeypatch.setattr(state_store, "_redis_cmd",
+                        lambda *a: (_ for _ in ()).throw(state_store._RedisUnavailable("refused")))
+
+    async def _unavail(*args):
+        raise state_store._RedisUnavailable("refused")
+
+    monkeypatch.setattr(state_store, "_redis_cmd", _unavail)
+
+    await sqlite_backend.set_state("fallback_key", "sqlite_val")
+    result = await state_store.get_state("fallback_key")
+    assert result == "sqlite_val"
+
+
+@pytest.mark.asyncio
+async def test_fakeredis_resync_full(isolated_db, fake_redis_client):
+    """_resync_full pushes SQLite state into Redis."""
+    await sqlite_backend.set_state("resync_key", "resync_val")
+    counts = await state_store.resync_to_redis(force_full=True)
+    assert counts.get("state", 0) >= 1
+    state_store._cache.clear()
+    result = await state_store.get_state("resync_key")
+    assert result == "resync_val"

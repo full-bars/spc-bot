@@ -36,15 +36,36 @@ os.environ.setdefault("CACHE_DIR", _TEST_CACHE)
 os.environ.setdefault("LOG_FILE", os.path.join(_TEST_CACHE, "spc_bot_test.log"))
 os.environ.setdefault("NWWS_FIREHOSE_LOG", "nwws_firehose_test.log")
 os.environ.setdefault("FAILOVER_TOKEN", "test-failover-token-not-real")
-# Force Upstash credentials to empty so load_dotenv() (called by config.py)
-# cannot override them with real values from .env. Without this, every call
-# to get_cached_md_text / get_product_cache makes a live Upstash network
-# request, burning free-tier quota and hanging the event loop on teardown.
-os.environ.setdefault("UPSTASH_REDIS_REST_URL", "")
-os.environ.setdefault("UPSTASH_REDIS_REST_TOKEN", "")
+# Force Redis config to point at a non-routable address so any test that
+# accidentally bypasses the mock gets a fast connection error rather than
+# hanging on a real Redis. Tests that need Redis use fakeredis explicitly.
+os.environ.setdefault("REDIS_URL", "redis://127.0.0.1:1/0")
 
 
 # ── Autouse fixtures ─────────────────────────────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def mock_redis_cmd(monkeypatch):
+    """Prevent real Redis connections in tests by making _redis_cmd raise
+    _RedisUnavailable. All state_store callers fall through to SQLite.
+
+    Tests that need real Redis semantics (test_state_store.py integration
+    tests) install fakeredis themselves and override _redis_client directly.
+    """
+    try:
+        from utils import state_store
+
+        async def _unavailable(*args, **kwargs):
+            raise state_store._RedisUnavailable("Redis not available in tests")
+
+        monkeypatch.setattr(state_store, "_redis_cmd", _unavailable)
+        # Also reset the module-level client so it isn't reused across tests.
+        monkeypatch.setattr(state_store, "_redis_client", None)
+    except Exception:
+        pass
+
+    yield
+
 
 @pytest.fixture(autouse=True)
 def global_suppress_create_task(request):
