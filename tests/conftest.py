@@ -67,20 +67,28 @@ def global_suppress_create_task(request):
 
 
 @pytest.fixture(autouse=True)
-def mock_redis_cmd(monkeypatch):
-    """Mock _redis_cmd to prevent real network connections in tests."""
-    from unittest.mock import AsyncMock
+def mock_redis_pool(monkeypatch):
+    """Mock Redis pool to prevent real network connections in tests."""
+    import redis.asyncio as aioredis
+    from unittest.mock import AsyncMock, MagicMock
 
-    async def mock_cmd(*args):
-        """Mock Redis command that returns None instead of connecting."""
-        # Tests that need actual Redis behavior can override this
-        return None
+    # Create a mock pool that returns mock clients
+    mock_pool = MagicMock()
+    mock_connection = AsyncMock()
+    mock_client = AsyncMock()
+    mock_client.execute_command = AsyncMock(return_value=None)
+    mock_client.close = AsyncMock()
+    mock_pool.get_connection = AsyncMock(return_value=mock_connection)
+    mock_pool.release = AsyncMock()
+
+    async def mock_ensure_redis_pool():
+        return mock_pool
 
     try:
         from utils import state_store
-        monkeypatch.setattr(state_store, "_redis_cmd", mock_cmd)
+        monkeypatch.setattr(state_store, "_ensure_redis_pool", mock_ensure_redis_pool)
     except Exception:
-        pass  # state_store not imported yet
+        pass
 
     yield
 
