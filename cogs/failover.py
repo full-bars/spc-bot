@@ -1,14 +1,14 @@
 """
-Failover cog (simplified — Upstash-backed state edition).
+Failover cog (simplified — Redis-backed state edition).
 
-With shared state in Upstash (see utils.state_store) the primary and
-standby no longer need to ship in-memory state between themselves.
-The HTTP `/state` and `/sync` endpoints, the cloudflared tunnel, and
-all the hydration machinery are gone.
+With shared state in Redis (either self-hosted or Upstash, see utils.state_store),
+the primary and standby no longer need to ship in-memory state between themselves.
+The HTTP `/state` and `/sync` endpoints, the cloudflared tunnel, and all the
+hydration machinery are gone.
 
 What this cog still does
 ------------------------
-Leader election via a short-lived Upstash key:
+Leader election via a short-lived Redis key:
 
     spcbot:primary_url   EX HEARTBEAT_TTL
 
@@ -24,13 +24,12 @@ Promotion semantics
 - Standby: reads the lease every SYNC_INTERVAL. If the key is missing
   for `MAX_FAILURES` consecutive cycles (primary has been silent for
   at least HEARTBEAT_TTL), the standby promotes: invalidates the
-  process cache so fresh reads come from Upstash, loads all cogs, and
+  process cache so fresh reads hit Redis, loads all cogs, and
   begins holding the lease itself.
 - If a second holder appears the current holder steps back down.
 
 The v4.13.2 "liveness vs. reachability" split is no longer needed:
-liveness is Upstash-mediated directly, and there's nothing to hydrate
-from.
+liveness is Redis-mediated directly, and there's nothing to hydrate from.
 """
 
 from __future__ import annotations
@@ -42,7 +41,6 @@ import socket
 import time
 import uuid
 
-import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -53,8 +51,6 @@ from utils import state_store
 
 logger = logging.getLogger("spc_bot")
 
-UPSTASH_URL = os.getenv("UPSTASH_REDIS_REST_URL", "")
-UPSTASH_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
 FAILOVER_TOKEN = os.getenv("FAILOVER_TOKEN", "")
 
 HEARTBEAT_TTL = 420  # seconds
@@ -62,8 +58,6 @@ SYNC_INTERVAL = 30   # seconds
 
 STARTUP_GRACE_SECONDS = 120
 MAX_FAILURES = max(5, HEARTBEAT_TTL // (2 * SYNC_INTERVAL))
-
-UPSTASH_HEADERS = {"Authorization": f"Bearer {UPSTASH_TOKEN}"}
 
 LEASE_KEY = "spcbot:primary_url"
 
@@ -102,15 +96,10 @@ class FailoverCog(commands.Cog):
         # when promoted — it represents the node's hard-coded intent.
         self._identity = _node_identity(bot.state.is_primary)
         self._cog_load_monotonic: float | None = None
-        # Dedicated session for leader-election traffic, kept separate from
-        # utils.http.http_session so lease operations don't interfere (and
-        # aren't interfered with) by the shared pool if it misbehaves.
-        self._session: aiohttp.ClientSession | None = None
 
     async def cog_load(self):
         _require_failover_token()
         self._cog_load_monotonic = time.monotonic()
-        self._session = aiohttp.ClientSession()
         self.sync_loop.start()
 
     def _is_our_node(self, target: str) -> bool:
@@ -133,8 +122,15 @@ class FailoverCog(commands.Cog):
         cogs and post duplicates before the first sync_loop tick detected
         another node already held the lease.
         """
+        redis = state_store._redis_pool
         # Manual override wins over env var and over the lease.
-        manual = await self._upstash("GET", "spcbot:manual_primary")
+        try:
+            manual_bytes = await redis.get("spcbot:manual_primary") if redis else None
+            manual = manual_bytes.decode("utf-8") if isinstance(manual_bytes, bytes) else (str(manual_bytes) if manual_bytes else None)
+        except Exception as e:
+            logger.debug(f"[FAILOVER] Failed to read manual override at startup: {e}")
+            manual = None
+
         if manual:
             if self._is_our_node(manual):
                 logger.info(
@@ -188,9 +184,9 @@ class FailoverCog(commands.Cog):
         )
         await self._write_lease()
 
-        # Push anything SQLite has to Upstash before loading other cogs.
-        # This handles the case where the primary rebooted after an Upstash
-        # outage and the local SQLite mirror is more recent than Upstash.
+        # Push anything SQLite has to Redis before loading other cogs.
+        # This handles the case where the primary rebooted after a Redis
+        # outage and the local SQLite mirror is more recent than Redis.
         try:
             await state_store.resync_to_upstash()
         except Exception as e:
@@ -202,53 +198,43 @@ class FailoverCog(commands.Cog):
         self.sync_loop.cancel()
         if self.bot.state.is_primary:
             await self._release_lease()
-        if self._session is not None and not self._session.closed:
-            await self._session.close()
-            self._session = None
 
-    # ── Upstash ──────────────────────────────────────────────────────────
-
-    async def _upstash(self, *args) -> object | None:
-        """Single REST command. Uses a dedicated session (see cog_load)
-        so leader election keeps working even if utils.http is
-        misbehaving (the two paths are independent)."""
-        if not UPSTASH_URL or not UPSTASH_TOKEN:
-            return None
-        if self._session is None or self._session.closed:
-            # Can happen during cog reload or an unexpected unload; recreate.
-            self._session = aiohttp.ClientSession()
-        try:
-            headers = {**UPSTASH_HEADERS, "Content-Type": "application/json"}
-            async with self._session.post(
-                UPSTASH_URL,
-                headers=headers,
-                json=[str(a) for a in args],
-                timeout=aiohttp.ClientTimeout(total=5),
-            ) as resp:
-                if resp.status != 200:
-                    return None
-                data = await resp.json()
-                return data.get("result")
-        except Exception as e:
-            logger.warning(f"[FAILOVER] Upstash error: {e!r}")
-            return None
+    # ── Redis Operations ────────────────────────────────────────────────
 
     async def _write_lease(self) -> None:
-        await self._upstash(
-            "SET", LEASE_KEY, self._identity, "EX", str(HEARTBEAT_TTL)
-        )
+        """Renew the primary lease in Redis."""
+        try:
+            redis = state_store._redis_pool
+            if redis is None:
+                logger.warning("[FAILOVER] Redis pool unavailable, cannot write lease")
+                return
+            await redis.set(LEASE_KEY, self._identity, ex=HEARTBEAT_TTL)
+        except Exception as e:
+            logger.warning(f"[FAILOVER] Failed to write lease: {e}")
 
     async def _read_lease_holder(self) -> str | None:
-        result = await self._upstash("GET", LEASE_KEY)
-        return str(result) if result is not None else None
+        """Read who currently holds the primary lease."""
+        try:
+            redis = state_store._redis_pool
+            if redis is None:
+                return None
+            result = await redis.get(LEASE_KEY)
+            return result.decode("utf-8") if isinstance(result, bytes) else (str(result) if result else None)
+        except Exception as e:
+            logger.warning(f"[FAILOVER] Failed to read lease: {e}")
+            return None
 
     async def _release_lease(self) -> None:
-        # Only release if it's still ours — otherwise we'd clobber a
-        # brand-new primary that just took over.
-        holder = await self._read_lease_holder()
-        if holder == self._identity:
-            await self._upstash("DEL", LEASE_KEY)
-            logger.info("[FAILOVER] Released primary lease on shutdown")
+        """Release the primary lease (shutdown cleanup)."""
+        try:
+            holder = await self._read_lease_holder()
+            if holder == self._identity:
+                redis = state_store._redis_pool
+                if redis is not None:
+                    await redis.delete(LEASE_KEY)
+                    logger.info("[FAILOVER] Released primary lease on shutdown")
+        except Exception as e:
+            logger.warning(f"[FAILOVER] Failed to release lease: {e}")
 
     # ── Sync loop ────────────────────────────────────────────────────────
 
@@ -256,13 +242,24 @@ class FailoverCog(commands.Cog):
     async def sync_loop(self):
         await self.bot.wait_until_ready()
         try:
+            redis = state_store._redis_pool
+            if redis is None:
+                logger.debug("[FAILOVER] Redis pool unavailable, skipping sync cycle")
+                return
+
             # 1. Update heartbeat registry
-            await self._upstash(
-                "HSET", "spcbot:nodes", self._identity, str(int(time.time()))
-            )
+            try:
+                await redis.hset("spcbot:nodes", self._identity, str(int(time.time())))
+            except Exception as e:
+                logger.debug(f"[FAILOVER] Failed to update heartbeat: {e}")
 
             # 2. Check for manual override
-            manual_primary = await self._upstash("GET", "spcbot:manual_primary")
+            try:
+                manual_primary = await redis.get("spcbot:manual_primary")
+                manual_primary = manual_primary.decode("utf-8") if isinstance(manual_primary, bytes) else (str(manual_primary) if manual_primary else None)
+            except Exception as e:
+                logger.debug(f"[FAILOVER] Failed to read manual override: {e}")
+                manual_primary = None
 
             if manual_primary:
                 if self._is_our_node(manual_primary):
@@ -275,7 +272,7 @@ class FailoverCog(commands.Cog):
                     if self.bot.state.is_primary:
                         logger.warning(f"[FAILOVER] Manual override: Demoting node '{self._identity}' to Standby (Target is '{manual_primary}')")
                         await self._demote()
-                    return # Skip normal cycles if we've been told to be standby
+                    return
 
             # 3. Proceed with normal cycle
             if self.bot.state.is_primary:
@@ -298,24 +295,30 @@ class FailoverCog(commands.Cog):
             # We hold the lease (or it was empty and readable) — renew normally.
             await self._write_lease()
             return
-        # holder is None: either the key expired or Upstash read failed.  A
+
+        # holder is None: either the key expired or a Redis read failed.  A
         # plain SET here would silently overwrite a standby that promoted during
         # a connectivity gap.  Use SET NX so we only claim the key if it is
         # genuinely absent; if another node holds it, the NX write returns null.
-        result = await self._upstash(
-            "SET", LEASE_KEY, self._identity, "NX", "EX", str(HEARTBEAT_TTL)
-        )
-        if result is None:
-            # NX write failed: key already held by another node (or Upstash error).
-            # Re-read to check and demote if necessary.
-            holder = await self._read_lease_holder()
-            if holder and holder != self._identity:
-                logger.warning(
-                    f"[FAILOVER] Another node ({holder}) holds the lease after NX — demoting"
-                )
-                await self._demote()
-            return
-        logger.info("[FAILOVER] Reclaimed expired lease via NX write")
+        try:
+            redis = state_store._redis_pool
+            if redis is None:
+                return
+            # redis.set returns True if NX succeeded, None/False if key already exists
+            result = await redis.set(LEASE_KEY, self._identity, nx=True, ex=HEARTBEAT_TTL)
+            if result is None or result is False:
+                # NX write failed: key already held by another node.
+                # Re-read to check and demote if necessary.
+                holder = await self._read_lease_holder()
+                if holder and holder != self._identity:
+                    logger.warning(
+                        f"[FAILOVER] Another node ({holder}) holds the lease after NX — demoting"
+                    )
+                    await self._demote()
+                return
+            logger.info("[FAILOVER] Reclaimed expired lease via NX write")
+        except Exception as e:
+            logger.warning(f"[FAILOVER] Failed to reclaim lease via NX: {e}")
 
     def _in_startup_grace(self) -> bool:
         if self._cog_load_monotonic is None:
@@ -357,8 +360,8 @@ class FailoverCog(commands.Cog):
             self._primary_failures = 0
             return
 
-        # Key missing = primary silent for ≥ HEARTBEAT_TTL (Upstash expired it).
-        count = self._register_failure("Primary lease expired in Upstash")
+        # Key missing = primary silent for ≥ HEARTBEAT_TTL (lease expired).
+        count = self._register_failure("Primary lease expired")
         if count >= MAX_FAILURES:
             await self._promote()
 
@@ -373,14 +376,14 @@ class FailoverCog(commands.Cog):
         restore_from_sync()
         await set_syncthing_folder_mode("sendonly")
 
-        # Drop stale cache so fresh reads re-hit Upstash.
+        # Drop stale cache so fresh reads hit Redis.
         state_store.invalidate_all_caches()
 
         # Claim the lease immediately (before loading cogs so there's no
         # window where another watcher sees the key missing).
         await self._write_lease()
 
-        # Update local SQLite mirror from Upstash so this node's durable
+        # Update local SQLite mirror from Redis so this node's durable
         # store is fresh before it starts taking new writes.
         try:
             await state_store.mirror_to_sqlite()
@@ -396,33 +399,29 @@ class FailoverCog(commands.Cog):
         # Refresh the in-process BotState mirrors. Cogs still read
         # `bot.state.posted_mds`, `bot.state.auto_cache`, etc. as local
         # collections; those were populated from SQLite at boot and are
-        # now stale relative to what the old primary wrote to Upstash
+        # now stale relative to what the old primary wrote to Redis
         # while we were in standby.
         try:
             await self._rehydrate_bot_state()
         except Exception as e:
             logger.exception(f"[FAILOVER] Rehydrate on promotion failed: {e}")
 
-        # Push anything SQLite has that Upstash is missing. Handles the
-        # edge case where this node's prior writes during an Upstash
+        # Push anything SQLite has that Redis is missing. Handles the
+        # edge case where this node's prior writes during a Redis
         # outage are queued only on this machine.
         try:
             await state_store.resync_to_upstash()
         except Exception as e:
             logger.exception(f"[FAILOVER] Resync on promotion failed: {e}")
 
+        # Load cogs and start posting.
         for ext in ALL_EXTENSIONS:
             try:
                 await self.bot.load_extension(ext)
-                logger.info(f"[FAILOVER] Loaded {ext}")
             except Exception as e:
-                logger.exception(f"[FAILOVER] Failed to load {ext}: {e}")
+                logger.exception(f"[FAILOVER] Failed to load {ext} during promotion: {e}")
 
-        # Trigger immediate NWWS connection if available
-        nwws = self.bot.get_cog("NWWSCog")
-        if nwws:
-            asyncio.create_task(nwws.trigger_connection())
-
+        # Sync commands to Discord.
         try:
             synced = await self.bot.tree.sync()
             logger.info(f"[FAILOVER] Synced {len(synced)} slash commands")
@@ -430,11 +429,11 @@ class FailoverCog(commands.Cog):
             logger.exception(f"[FAILOVER] Failed to sync commands: {e}")
 
     async def _rehydrate_bot_state(self) -> None:
-        """Pull authoritative state from Upstash into BotState mirrors.
+        """Pull authoritative state from Redis into BotState mirrors.
 
         Cogs read the BotState collections synchronously; on promotion
         we need them to reflect what the outgoing primary wrote to
-        Upstash, not what we snapshotted at boot.
+        Redis, not what we snapshotted at boot.
         """
         st = self.bot.state
         st.auto_cache = await state_store.get_all_hashes("auto")
@@ -466,7 +465,7 @@ class FailoverCog(commands.Cog):
             except (ValueError, KeyError, TypeError) as e:
                 logger.debug(f"[FAILOVER] CSU state parse failed (ignored): {e}")
 
-        logger.info("[FAILOVER] Rehydrated BotState from Upstash")
+        logger.info("[FAILOVER] Rehydrated BotState from Redis")
 
     async def _demote(self) -> None:
         logger.info("[FAILOVER] Demoting to STANDBY")
@@ -505,33 +504,51 @@ class FailoverCog(commands.Cog):
 
         if interaction.user.id != authorized_id:
             await interaction.response.send_message(
-                "❌ You are not authorized to use this command.",
+                "❌ You do not have permission to use this command.",
                 ephemeral=True
             )
             return
 
         await interaction.response.defer(ephemeral=True)
 
-        # 2. Fetch active nodes from registry
-        # HGETALL returns [k1, v1, k2, v2, ...]
-        nodes_raw = await self._upstash("HGETALL", "spcbot:nodes")
-        if not nodes_raw or not isinstance(nodes_raw, list):
+        redis = state_store._redis_pool
+        if redis is None:
             await interaction.followup.send(
-                "❌ No active nodes found in the registry.",
+                "❌ Redis unavailable.",
                 ephemeral=True
             )
             return
 
-        # Parse nodes and filter by age (5 minutes)
-        now = int(time.time())
-        active_nodes = []
-        for i in range(0, len(nodes_raw), 2):
-            node_id = nodes_raw[i]
-            timestamp = int(nodes_raw[i+1])
-            if (now - timestamp) < 300: # 5 minutes
-                active_nodes.append(node_id)
+        # 2. Fetch active nodes from registry
+        try:
+            nodes_raw = await redis.hgetall("spcbot:nodes")
+            if not nodes_raw:
+                await interaction.followup.send(
+                    "❌ No active nodes found in the registry.",
+                    ephemeral=True
+                )
+                return
+            active_nodes = list(nodes_raw.keys())
+        except Exception as e:
+            logger.exception(f"[FAILOVER] Failed to fetch nodes: {e}")
+            await interaction.followup.send(
+                f"❌ Failed to fetch nodes: {e}",
+                ephemeral=True
+            )
+            return
 
-        if not active_nodes:
+        # Filter by age (5 minutes)
+        now = int(time.time())
+        recent_nodes = []
+        for node_id, timestamp_bytes in nodes_raw.items():
+            try:
+                timestamp = int(timestamp_bytes) if isinstance(timestamp_bytes, int) else int(timestamp_bytes.decode("utf-8"))
+                if (now - timestamp) < 300:
+                    recent_nodes.append(node_id.decode("utf-8") if isinstance(node_id, bytes) else node_id)
+            except (ValueError, AttributeError):
+                pass
+
+        if not recent_nodes:
             await interaction.followup.send(
                 "❌ No nodes have sent a heartbeat in the last 5 minutes.",
                 ephemeral=True
@@ -539,11 +556,17 @@ class FailoverCog(commands.Cog):
             return
 
         # 3. Fetch current manual override
-        current_manual = await self._upstash("GET", "spcbot:manual_primary")
+        try:
+            current_manual_bytes = await redis.get("spcbot:manual_primary")
+            current_manual = current_manual_bytes.decode("utf-8") if isinstance(current_manual_bytes, bytes) else (str(current_manual_bytes) if current_manual_bytes else None)
+        except Exception as e:
+            logger.debug(f"[FAILOVER] Failed to fetch manual override: {e}")
+            current_manual = None
+
         current_lease = await self._read_lease_holder()
 
         # 4. Present UI
-        view = FailoverView(self, active_nodes, current_manual, current_lease)
+        view = FailoverView(self, recent_nodes, current_manual, current_lease)
         await interaction.followup.send(
             content=(
                 f"**Failover Management**\n"
@@ -605,19 +628,28 @@ class FailoverSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         target = self.values[0]
+        redis = state_store._redis_pool
 
-        if target == "CLEAR":
-            await self.cog._upstash("DEL", "spcbot:manual_primary")
-            msg = "✅ Manual override cleared. Returning to automatic failover."
-        else:
-            # Store just the hostname (strip role prefix and per-process UUID)
-            # so the override survives process restarts on the same host.
-            # Identity format is "role:hostname:uuid", so index 1 is hostname.
-            hostname = target.split(":")[1]
-            await self.cog._upstash("SET", "spcbot:manual_primary", hostname)
-            msg = f"✅ Manual override set: `{hostname}` is now the designated Primary."
+        if redis is None:
+            await interaction.response.edit_message(content="❌ Redis unavailable.", view=None)
+            return
 
-        await interaction.response.edit_message(content=msg, view=None)
+        try:
+            if target == "CLEAR":
+                await redis.delete("spcbot:manual_primary")
+                msg = "✅ Manual override cleared. Returning to automatic failover."
+            else:
+                # Store just the hostname (strip role prefix and per-process UUID)
+                # so the override survives process restarts on the same host.
+                # Identity format is "role:hostname:uuid", so index 1 is hostname.
+                hostname = target.split(":")[1]
+                await redis.set("spcbot:manual_primary", hostname)
+                msg = f"✅ Manual override set: `{hostname}` is now the designated Primary."
+
+            await interaction.response.edit_message(content=msg, view=None)
+        except Exception as e:
+            logger.exception(f"[FAILOVER] Failed to update override: {e}")
+            await interaction.response.edit_message(content=f"❌ Failed: {e}", view=None)
 
 
 async def setup(bot):
