@@ -165,6 +165,7 @@ class FailoverCog(commands.Cog):
         except (
             redis.exceptions.ConnectionError,
             redis.exceptions.TimeoutError,
+            redis.exceptions.ReadOnlyError,
             OSError,
         ) as e:
             logger.warning(f"[FAILOVER] Redis error: {e!r}")
@@ -187,6 +188,7 @@ class FailoverCog(commands.Cog):
         except (
             redis.exceptions.ConnectionError,
             redis.exceptions.TimeoutError,
+            redis.exceptions.ReadOnlyError,
             OSError,
         ) as e:
             logger.warning(f"[FAILOVER] Renew lease error: {e!r}")
@@ -206,6 +208,7 @@ class FailoverCog(commands.Cog):
         except (
             redis.exceptions.ConnectionError,
             redis.exceptions.TimeoutError,
+            redis.exceptions.ReadOnlyError,
             OSError,
         ) as e:
             logger.warning(f"[FAILOVER] Release lease error: {e!r}")
