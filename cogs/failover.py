@@ -1,36 +1,34 @@
 """
-Failover cog (simplified — Upstash-backed state edition).
+Failover cog — Redis-backed leader election.
 
-With shared state in Upstash (see utils.state_store) the primary and
+With shared state in Redis (see utils.state_store) the primary and
 standby no longer need to ship in-memory state between themselves.
-The HTTP `/state` and `/sync` endpoints, the cloudflared tunnel, and
-all the hydration machinery are gone.
 
-What this cog still does
-------------------------
-Leader election via a short-lived Upstash key:
+What this cog does
+------------------
+Leader election via a short-lived Redis key:
 
     spcbot:primary_url   EX HEARTBEAT_TTL
 
 The "primary" is whichever node currently holds the key. The value is
 a per-process identifier so we can detect whether we still own the
-lease or someone else has taken it. The key name `primary_url` is
-retained for migration compatibility — the old code reads it too and
-interprets its presence correctly.
+lease or someone else has taken it.
 
 Promotion semantics
 -------------------
-- Primary: writes the lease every SYNC_INTERVAL with EX HEARTBEAT_TTL.
+- Primary: renews the lease every SYNC_INTERVAL with a Lua conditional
+  SET (only renews if the key still equals our identity, preventing a
+  demoted node from accidentally reclaiming after a split-brain).
 - Standby: reads the lease every SYNC_INTERVAL. If the key is missing
-  for `MAX_FAILURES` consecutive cycles (primary has been silent for
-  at least HEARTBEAT_TTL), the standby promotes: invalidates the
-  process cache so fresh reads come from Upstash, loads all cogs, and
-  begins holding the lease itself.
+  for MAX_FAILURES consecutive cycles the standby promotes.
 - If a second holder appears the current holder steps back down.
 
-The v4.13.2 "liveness vs. reachability" split is no longer needed:
-liveness is Upstash-mediated directly, and there's nothing to hydrate
-from.
+Lease safety
+------------
+All lease operations use atomic Lua scripts to avoid TOCTOU races:
+- Release: check-and-delete in a single script (C5 fix).
+- Renewal: conditional SET only if we still hold the key (C6 fix).
+- Reclaim: SET NX (already correct).
 """
 
 from __future__ import annotations
@@ -42,8 +40,9 @@ import socket
 import time
 import uuid
 
-import aiohttp
 import discord
+import redis.asyncio as aioredis
+import redis.exceptions
 from discord import app_commands
 from discord.ext import commands, tasks
 from discord.ext.commands import ExtensionNotLoaded
@@ -53,27 +52,44 @@ from utils import state_store
 
 logger = logging.getLogger("spc_bot")
 
-UPSTASH_URL = os.getenv("UPSTASH_REDIS_REST_URL", "")
-UPSTASH_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
 FAILOVER_TOKEN = os.getenv("FAILOVER_TOKEN", "")
 
-HEARTBEAT_TTL = 420  # seconds
-SYNC_INTERVAL = 30   # seconds
+HEARTBEAT_TTL  = 420  # seconds — lease expiry
+SYNC_INTERVAL  = 30   # seconds — heartbeat / check cadence
 
 STARTUP_GRACE_SECONDS = 120
 MAX_FAILURES = max(5, HEARTBEAT_TTL // (2 * SYNC_INTERVAL))
 
-UPSTASH_HEADERS = {"Authorization": f"Bearer {UPSTASH_TOKEN}"}
-
 LEASE_KEY = "spcbot:primary_url"
+NODES_KEY = "spcbot:nodes"
+MANUAL_KEY = "spcbot:manual_primary"
+
+# Lua: atomic check-and-delete (C5 fix).
+# Returns 1 if deleted, 0 if key belonged to someone else.
+_LUA_RELEASE = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('del', KEYS[1])
+else
+    return 0
+end
+"""
+
+# Lua: conditional renewal — only renew if we still hold the key (C6 fix).
+# Returns "OK" on renewal, nil if key belongs to someone else or is gone.
+_LUA_RENEW = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('set', KEYS[1], ARGV[1], 'EX', tonumber(ARGV[2]))
+else
+    return nil
+end
+"""
 
 
 def _require_failover_token() -> str:
     if not FAILOVER_TOKEN or FAILOVER_TOKEN == "changeme":
         raise RuntimeError(
-            "FAILOVER_TOKEN environment variable must be set to a strong, "
-            "non-default value. Refusing to participate in leader election "
-            "with a known/missing token."
+            "FAILOVER_TOKEN must be set to a strong non-default value. "
+            "Refusing to participate in leader election."
         )
     return FAILOVER_TOKEN
 
@@ -82,12 +98,7 @@ _PROCESS_UUID = uuid.uuid4().hex[:8]
 
 
 def _node_identity(is_primary: bool) -> str:
-    """Per-process identifier used as the lease value.
-
-    Includes a role prefix ('P' for configured primary, 'S' for standby)
-    so that a rebooting primary can identify if the current lease holder
-    is just a promoted standby and pre-empt it.
-    """
+    """Per-process lease value: role:hostname:uuid."""
     role = "P" if is_primary else "S"
     return f"{role}:{socket.gethostname()}:{_PROCESS_UUID}"
 
@@ -98,186 +109,168 @@ class FailoverCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self._primary_failures = 0
-        # Store the INITIAL configured identity. This doesn't change
-        # when promoted — it represents the node's hard-coded intent.
         self._identity = _node_identity(bot.state.is_primary)
         self._cog_load_monotonic: float | None = None
-        # Dedicated session for leader-election traffic, kept separate from
-        # utils.http.http_session so lease operations don't interfere (and
-        # aren't interfered with) by the shared pool if it misbehaves.
-        self._session: aiohttp.ClientSession | None = None
+        # Dedicated Redis client for leader-election traffic — kept separate
+        # from utils.state_store so lease operations stay independent of the
+        # shared pool's health.
+        self._redis: aioredis.Redis | None = None
+
+    def _build_redis(self) -> aioredis.Redis:
+        redis_url = state_store.REDIS_URL
+        pool = aioredis.ConnectionPool.from_url(
+            redis_url,
+            socket_timeout=5.0,
+            socket_connect_timeout=5.0,
+            decode_responses=True,
+            max_connections=5,
+        )
+        return aioredis.Redis(connection_pool=pool)
+
+    async def _get_redis(self) -> aioredis.Redis:
+        if self._redis is None:
+            self._redis = self._build_redis()
+        return self._redis
 
     async def cog_load(self):
         _require_failover_token()
         self._cog_load_monotonic = time.monotonic()
-        self._session = aiohttp.ClientSession()
+        self._redis = self._build_redis()
         self.sync_loop.start()
-
-    def _is_our_node(self, target: str) -> bool:
-        """True if *target* designates this process.
-
-        Accepts either the full per-process identity (``hostname:uuid``) or a
-        bare hostname so that the /failover Discord command (which stores just
-        the hostname) still works correctly.
-        """
-        return target == self._identity or target == socket.gethostname()
-
-    async def startup_lease_check(self) -> bool:
-        """Synchronous lease probe run during setup_hook, before other cogs
-        are loaded. Decides whether this node should boot as primary.
-
-        Returns True if this node should load cogs as primary, False if it
-        should stay standby. Updates `bot.state.is_primary` accordingly.
-
-        Closes the 30-second window where a rebooting primary would load
-        cogs and post duplicates before the first sync_loop tick detected
-        another node already held the lease.
-        """
-        # Manual override wins over env var and over the lease.
-        manual = await self._upstash("GET", "spcbot:manual_primary")
-        if manual:
-            if self._is_our_node(manual):
-                logger.info(
-                    f"[FAILOVER] Startup: manual override names us "
-                    f"('{self._identity}') as Primary — claiming lease"
-                )
-                await self._write_lease()
-                self.bot.state.is_primary = True
-                try:
-                    await state_store.resync_to_upstash()
-                except Exception as e:
-                    logger.warning(f"[FAILOVER] Startup resync (manual) failed: {e}")
-                return True
-            logger.info(
-                f"[FAILOVER] Startup: manual override names '{manual}' as "
-                f"Primary — booting as STANDBY"
-            )
-            self.bot.state.is_primary = False
-            return False
-
-        holder = await self._read_lease_holder()
-        if holder and holder != self._identity:
-            # Pre-emption logic: if WE are a configured primary, and the current
-            # holder is a standby (prefixed with 'S:'), we take the lease.
-            if self._identity.startswith("P:") and holder.startswith("S:"):
-                logger.warning(
-                    f"[FAILOVER] Startup: lease held by Standby node '{holder}'. "
-                    f"We are configured Primary — pre-empting."
-                )
-                # Proceed to claim lease below
-            else:
-                logger.warning(
-                    f"[FAILOVER] Startup: lease held by '{holder}' — booting as "
-                    f"STANDBY regardless of IS_PRIMARY env"
-                )
-                self.bot.state.is_primary = False
-                return False
-
-        # Lease is free, already ours, or we are pre-empting a standby.
-        # Safe to boot as primary if that's what we were configured as.
-        if not self.bot.state.is_primary:
-            logger.info(
-                "[FAILOVER] Startup: lease is free but node configured as "
-                "STANDBY — not self-promoting"
-            )
-            return False
-
-        logger.info(
-            f"[FAILOVER] Startup: lease free/ours — claiming as Primary "
-            f"('{self._identity}')"
-        )
-        await self._write_lease()
-
-        # Push anything SQLite has to Upstash before loading other cogs.
-        # This handles the case where the primary rebooted after an Upstash
-        # outage and the local SQLite mirror is more recent than Upstash.
-        try:
-            await state_store.resync_to_upstash()
-        except Exception as e:
-            logger.warning(f"[FAILOVER] Startup resync failed: {e}")
-
-        return True
 
     async def cog_unload(self):
         self.sync_loop.cancel()
         if self.bot.state.is_primary:
             await self._release_lease()
-        if self._session is not None and not self._session.closed:
-            await self._session.close()
-            self._session = None
+        if self._redis is not None:
+            try:
+                await self._redis.aclose()
+            except Exception:
+                pass
+            self._redis = None
 
-    # ── Upstash ──────────────────────────────────────────────────────────
+    def _is_our_node(self, target: str) -> bool:
+        return target == self._identity or target == socket.gethostname()
 
-    async def _upstash(self, *args) -> object | None:
-        """Single REST command. Uses a dedicated session (see cog_load)
-        so leader election keeps working even if utils.http is
-        misbehaving (the two paths are independent)."""
-        if not UPSTASH_URL or not UPSTASH_TOKEN:
-            return None
-        if self._session is None or self._session.closed:
-            # Can happen during cog reload or an unexpected unload; recreate.
-            self._session = aiohttp.ClientSession()
+    # ── Low-level Redis helpers ───────────────────────────────────────────
+
+    async def _exec(self, *args) -> object | None:
+        """Execute a Redis command via the dedicated client. Returns None on
+        any connection error so lease logic degrades gracefully."""
         try:
-            headers = {**UPSTASH_HEADERS, "Content-Type": "application/json"}
-            async with self._session.post(
-                UPSTASH_URL,
-                headers=headers,
-                json=[str(a) for a in args],
-                timeout=aiohttp.ClientTimeout(total=5),
-            ) as resp:
-                if resp.status != 200:
-                    return None
-                data = await resp.json()
-                return data.get("result")
-        except Exception as e:
-            logger.warning(f"[FAILOVER] Upstash error: {e!r}")
+            client = await self._get_redis()
+            cmd = str(args[0]).upper()
+            cmd_args = [str(a) for a in args[1:]]
+            return await client.execute_command(cmd, *cmd_args)
+        except (
+            redis.exceptions.ConnectionError,
+            redis.exceptions.TimeoutError,
+            OSError,
+        ) as e:
+            logger.warning(f"[FAILOVER] Redis error: {e!r}")
             return None
 
     async def _write_lease(self) -> None:
-        await self._upstash(
-            "SET", LEASE_KEY, self._identity, "EX", str(HEARTBEAT_TTL)
-        )
+        """Unconditional lease write — used only on startup/promotion where
+        we are claiming the key for the first time."""
+        await self._exec("SET", LEASE_KEY, self._identity, "EX", str(HEARTBEAT_TTL))
+
+    async def _renew_lease(self) -> bool:
+        """Conditionally renew lease only if we still hold it (C6 fix).
+        Returns True if renewed, False if someone else holds the key."""
+        try:
+            client = await self._get_redis()
+            result = await client.eval(
+                _LUA_RENEW, 1, LEASE_KEY, self._identity, str(HEARTBEAT_TTL)
+            )
+            return result is not None
+        except (
+            redis.exceptions.ConnectionError,
+            redis.exceptions.TimeoutError,
+            OSError,
+        ) as e:
+            logger.warning(f"[FAILOVER] Renew lease error: {e!r}")
+            return False
 
     async def _read_lease_holder(self) -> str | None:
-        result = await self._upstash("GET", LEASE_KEY)
+        result = await self._exec("GET", LEASE_KEY)
         return str(result) if result is not None else None
 
     async def _release_lease(self) -> None:
-        # Only release if it's still ours — otherwise we'd clobber a
-        # brand-new primary that just took over.
-        holder = await self._read_lease_holder()
-        if holder == self._identity:
-            await self._upstash("DEL", LEASE_KEY)
-            logger.info("[FAILOVER] Released primary lease on shutdown")
+        """Atomically release the lease only if we still hold it (C5 fix)."""
+        try:
+            client = await self._get_redis()
+            result = await client.eval(_LUA_RELEASE, 1, LEASE_KEY, self._identity)
+            if result:
+                logger.info("[FAILOVER] Released primary lease on shutdown")
+        except (
+            redis.exceptions.ConnectionError,
+            redis.exceptions.TimeoutError,
+            OSError,
+        ) as e:
+            logger.warning(f"[FAILOVER] Release lease error: {e!r}")
 
-    # ── Sync loop ────────────────────────────────────────────────────────
+    # ── Startup lease check ───────────────────────────────────────────────
+
+    async def startup_lease_check(self) -> bool:
+        """Probe the lease before other cogs load. Returns True if this node
+        should boot as primary."""
+        manual = await self._exec("GET", MANUAL_KEY)
+        if manual:
+            if self._is_our_node(manual):
+                logger.info(f"[FAILOVER] Startup: manual override names us as Primary")
+                await self._write_lease()
+                self.bot.state.is_primary = True
+                try:
+                    await state_store.resync_to_redis()
+                except Exception as e:
+                    logger.warning(f"[FAILOVER] Startup resync (manual) failed: {e}")
+                return True
+            logger.info(f"[FAILOVER] Startup: manual override names '{manual}' — booting as STANDBY")
+            self.bot.state.is_primary = False
+            return False
+
+        holder = await self._read_lease_holder()
+        if holder and holder != self._identity:
+            if self._identity.startswith("P:") and holder.startswith("S:"):
+                logger.warning(f"[FAILOVER] Startup: lease held by Standby '{holder}' — pre-empting")
+            else:
+                logger.warning(f"[FAILOVER] Startup: lease held by '{holder}' — booting as STANDBY")
+                self.bot.state.is_primary = False
+                return False
+
+        if not self.bot.state.is_primary:
+            logger.info("[FAILOVER] Startup: lease free but configured as STANDBY")
+            return False
+
+        logger.info(f"[FAILOVER] Startup: claiming lease as Primary ('{self._identity}')")
+        await self._write_lease()
+        try:
+            await state_store.resync_to_redis()
+        except Exception as e:
+            logger.warning(f"[FAILOVER] Startup resync failed: {e}")
+        return True
+
+    # ── Sync loop ─────────────────────────────────────────────────────────
 
     @tasks.loop(seconds=SYNC_INTERVAL)
     async def sync_loop(self):
         await self.bot.wait_until_ready()
         try:
-            # 1. Update heartbeat registry
-            await self._upstash(
-                "HSET", "spcbot:nodes", self._identity, str(int(time.time()))
-            )
-
-            # 2. Check for manual override
-            manual_primary = await self._upstash("GET", "spcbot:manual_primary")
+            await self._exec("HSET", NODES_KEY, self._identity, str(int(time.time())))
+            manual_primary = await self._exec("GET", MANUAL_KEY)
 
             if manual_primary:
                 if self._is_our_node(manual_primary):
-                    # We are the designated primary
                     if not self.bot.state.is_primary:
-                        logger.warning(f"[FAILOVER] Manual override: Promoting node '{self._identity}' to Primary")
+                        logger.warning(f"[FAILOVER] Manual override: promoting '{self._identity}'")
                         await self._promote()
                 else:
-                    # Someone else is the designated primary
                     if self.bot.state.is_primary:
-                        logger.warning(f"[FAILOVER] Manual override: Demoting node '{self._identity}' to Standby (Target is '{manual_primary}')")
+                        logger.warning(f"[FAILOVER] Manual override: demoting to standby (target: '{manual_primary}')")
                         await self._demote()
-                    return # Skip normal cycles if we've been told to be standby
+                    return
 
-            # 3. Proceed with normal cycle
             if self.bot.state.is_primary:
                 await self._primary_cycle()
             else:
@@ -286,36 +279,32 @@ class FailoverCog(commands.Cog):
             logger.exception(f"[FAILOVER] Sync loop error: {e}")
 
     async def _primary_cycle(self) -> None:
-        """Hold the lease; step down if someone else grabbed it."""
         holder = await self._read_lease_holder()
         if holder and holder != self._identity:
-            logger.warning(
-                f"[FAILOVER] Another node ({holder}) holds the lease — demoting"
-            )
+            logger.warning(f"[FAILOVER] Another node ({holder}) holds lease — demoting")
             await self._demote()
             return
         if holder is not None:
-            # We hold the lease (or it was empty and readable) — renew normally.
-            await self._write_lease()
+            # We hold the lease — renew conditionally.
+            renewed = await self._renew_lease()
+            if not renewed:
+                # Lost the lease between read and renew — re-check and demote.
+                new_holder = await self._read_lease_holder()
+                if new_holder and new_holder != self._identity:
+                    logger.warning(f"[FAILOVER] Lost lease to {new_holder} during renewal — demoting")
+                    await self._demote()
             return
-        # holder is None: either the key expired or Upstash read failed.  A
-        # plain SET here would silently overwrite a standby that promoted during
-        # a connectivity gap.  Use SET NX so we only claim the key if it is
-        # genuinely absent; if another node holds it, the NX write returns null.
-        result = await self._upstash(
+        # Lease expired — reclaim with NX so we don't stomp a legitimate holder.
+        result = await self._exec(
             "SET", LEASE_KEY, self._identity, "NX", "EX", str(HEARTBEAT_TTL)
         )
         if result is None:
-            # NX write failed: key already held by another node (or Upstash error).
-            # Re-read to check and demote if necessary.
-            holder = await self._read_lease_holder()
-            if holder and holder != self._identity:
-                logger.warning(
-                    f"[FAILOVER] Another node ({holder}) holds the lease after NX — demoting"
-                )
+            new_holder = await self._read_lease_holder()
+            if new_holder and new_holder != self._identity:
+                logger.warning(f"[FAILOVER] NX failed — lease held by {new_holder} — demoting")
                 await self._demote()
             return
-        logger.info("[FAILOVER] Reclaimed expired lease via NX write")
+        logger.info("[FAILOVER] Reclaimed expired lease via NX")
 
     def _in_startup_grace(self) -> bool:
         if self._cog_load_monotonic is None:
@@ -324,90 +313,54 @@ class FailoverCog(commands.Cog):
 
     def _register_failure(self, reason: str) -> int:
         if self._in_startup_grace():
-            logger.info(
-                f"[FAILOVER] {reason} — in startup grace "
-                f"({STARTUP_GRACE_SECONDS}s), not counting toward promotion"
-            )
+            logger.info(f"[FAILOVER] {reason} — in startup grace, not counting")
             return 0
         self._primary_failures += 1
-        logger.warning(
-            f"[FAILOVER] {reason} "
-            f"(failure {self._primary_failures}/{MAX_FAILURES})"
-        )
+        logger.warning(f"[FAILOVER] {reason} (failure {self._primary_failures}/{MAX_FAILURES})")
         return self._primary_failures
 
     async def _standby_cycle(self) -> None:
         holder = await self._read_lease_holder()
         if holder:
-            # Pre-emption logic: if WE are a configured primary, and the current
-            # holder is a standby (prefixed with 'S:'), we take the lease.
             if self._identity.startswith("P:") and holder.startswith("S:"):
-                 logger.warning(
-                     f"[FAILOVER] Standby Primary detected promoted Standby node "
-                     f"'{holder}' holding lease. Reclaiming."
-                 )
-                 await self._promote()
-                 return
-
+                logger.warning(f"[FAILOVER] Configured Primary reclaiming lease from Standby '{holder}'")
+                await self._promote()
+                return
             if self._primary_failures > 0:
-                logger.info(
-                    f"[FAILOVER] Primary lease held by {holder}; clearing "
-                    f"{self._primary_failures} prior failures"
-                )
+                logger.info(f"[FAILOVER] Primary lease held by {holder}; clearing {self._primary_failures} failures")
             self._primary_failures = 0
             return
-
-        # Key missing = primary silent for ≥ HEARTBEAT_TTL (Upstash expired it).
-        count = self._register_failure("Primary lease expired in Upstash")
+        count = self._register_failure("Primary lease expired")
         if count >= MAX_FAILURES:
             await self._promote()
 
-    # ── Promotion / demotion ─────────────────────────────────────────────
+    # ── Promotion / demotion ──────────────────────────────────────────────
 
     async def _promote(self) -> None:
         logger.warning("[FAILOVER] !!! PROMOTING TO PRIMARY !!!")
         self.bot.state.is_primary = True
 
-        # Restore events.db from Syncthing snapshot before cogs load.
         from utils.events_db import restore_from_sync, set_syncthing_folder_mode  # noqa: PLC0415
         restore_from_sync()
         await set_syncthing_folder_mode("sendonly")
 
-        # Drop stale cache so fresh reads re-hit Upstash.
         state_store.invalidate_all_caches()
-
-        # Claim the lease immediately (before loading cogs so there's no
-        # window where another watcher sees the key missing).
         await self._write_lease()
 
-        # Update local SQLite mirror from Upstash so this node's durable
-        # store is fresh before it starts taking new writes.
         try:
             await state_store.mirror_to_sqlite()
         except Exception as e:
             logger.exception(f"[FAILOVER] Mirroring on promotion failed: {e}")
 
-        # Brief pause so the outgoing Primary's next sync cycle can detect
-        # the new lease holder and demote before we start posting. Keeps the
-        # dual-primary window under one sync interval (~30 s) in normal cases
-        # and under a few seconds in the common pre-emption path.
         await asyncio.sleep(2.0)
 
-        # Refresh the in-process BotState mirrors. Cogs still read
-        # `bot.state.posted_mds`, `bot.state.auto_cache`, etc. as local
-        # collections; those were populated from SQLite at boot and are
-        # now stale relative to what the old primary wrote to Upstash
-        # while we were in standby.
         try:
             await self._rehydrate_bot_state()
         except Exception as e:
             logger.exception(f"[FAILOVER] Rehydrate on promotion failed: {e}")
 
-        # Push anything SQLite has that Upstash is missing. Handles the
-        # edge case where this node's prior writes during an Upstash
-        # outage are queued only on this machine.
         try:
-            await state_store.resync_to_upstash()
+            await state_store.resync_to_redis()
         except Exception as e:
             logger.exception(f"[FAILOVER] Resync on promotion failed: {e}")
 
@@ -418,7 +371,6 @@ class FailoverCog(commands.Cog):
             except Exception as e:
                 logger.exception(f"[FAILOVER] Failed to load {ext}: {e}")
 
-        # Trigger immediate NWWS connection if available
         nwws = self.bot.get_cog("NWWSCog")
         if nwws:
             asyncio.create_task(nwws.trigger_connection())
@@ -430,12 +382,6 @@ class FailoverCog(commands.Cog):
             logger.exception(f"[FAILOVER] Failed to sync commands: {e}")
 
     async def _rehydrate_bot_state(self) -> None:
-        """Pull authoritative state from Upstash into BotState mirrors.
-
-        Cogs read the BotState collections synchronously; on promotion
-        we need them to reflect what the outgoing primary wrote to
-        Upstash, not what we snapshotted at boot.
-        """
         st = self.bot.state
         st.auto_cache = await state_store.get_all_hashes("auto")
         st.manual_cache = await state_store.get_all_hashes("manual")
@@ -452,8 +398,6 @@ class FailoverCog(commands.Cog):
             if urls:
                 st.last_posted_urls[day_key] = urls
 
-        # Pull today's CSU-MLP posted-days set so we don't re-post panels
-        # the outgoing primary already handled this UTC day.
         csu_raw = await state_store.get_state("csu_mlp_posted")
         if isinstance(csu_raw, str):
             try:
@@ -466,7 +410,7 @@ class FailoverCog(commands.Cog):
             except (ValueError, KeyError, TypeError) as e:
                 logger.debug(f"[FAILOVER] CSU state parse failed (ignored): {e}")
 
-        logger.info("[FAILOVER] Rehydrated BotState from Upstash")
+        logger.info("[FAILOVER] Rehydrated BotState from Redis")
 
     async def _demote(self) -> None:
         logger.info("[FAILOVER] Demoting to STANDBY")
@@ -478,7 +422,7 @@ class FailoverCog(commands.Cog):
             try:
                 await self.bot.unload_extension(ext)
             except ExtensionNotLoaded:
-                pass  # expected when demoting a node that was never promoted
+                pass
             except Exception as e:
                 logger.warning(f"[FAILOVER] Failed to unload {ext} during demote: {e}")
                 failed.append(ext)
@@ -489,14 +433,13 @@ class FailoverCog(commands.Cog):
             )
         self._primary_failures = 0
 
-    # ── Slash Command ───────────────────────────────────────────────────
+    # ── Slash command ─────────────────────────────────────────────────────
 
     @app_commands.command(
         name="failover",
         description="Manually designate the Primary node (Admin only)"
     )
     async def failover_slash(self, interaction: discord.Interaction):
-        # 1. Authorization check
         raw_admin_id = os.getenv("ADMIN_USER_ID", "0")
         try:
             authorized_id = int(raw_admin_id)
@@ -504,45 +447,34 @@ class FailoverCog(commands.Cog):
             authorized_id = 0
 
         if interaction.user.id != authorized_id:
-            await interaction.response.send_message(
-                "❌ You are not authorized to use this command.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("❌ Not authorized.", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
 
-        # 2. Fetch active nodes from registry
-        # HGETALL returns [k1, v1, k2, v2, ...]
-        nodes_raw = await self._upstash("HGETALL", "spcbot:nodes")
-        if not nodes_raw or not isinstance(nodes_raw, list):
-            await interaction.followup.send(
-                "❌ No active nodes found in the registry.",
-                ephemeral=True
-            )
+        # HGETALL with decode_responses=True returns a dict[str, str].
+        try:
+            client = await self._get_redis()
+            nodes_raw: dict = await client.hgetall(NODES_KEY) or {}
+        except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError, OSError):
+            await interaction.followup.send("❌ Redis unavailable.", ephemeral=True)
             return
 
-        # Parse nodes and filter by age (5 minutes)
         now = int(time.time())
-        active_nodes = []
-        for i in range(0, len(nodes_raw), 2):
-            node_id = nodes_raw[i]
-            timestamp = int(nodes_raw[i+1])
-            if (now - timestamp) < 300: # 5 minutes
-                active_nodes.append(node_id)
+        active_nodes = [
+            node_id for node_id, ts_str in nodes_raw.items()
+            if (now - int(ts_str)) < 300
+        ]
 
         if not active_nodes:
             await interaction.followup.send(
-                "❌ No nodes have sent a heartbeat in the last 5 minutes.",
-                ephemeral=True
+                "❌ No nodes have sent a heartbeat in the last 5 minutes.", ephemeral=True
             )
             return
 
-        # 3. Fetch current manual override
-        current_manual = await self._upstash("GET", "spcbot:manual_primary")
+        current_manual = await self._exec("GET", MANUAL_KEY)
         current_lease = await self._read_lease_holder()
 
-        # 4. Present UI
         view = FailoverView(self, active_nodes, current_manual, current_lease)
         await interaction.followup.send(
             content=(
@@ -553,7 +485,7 @@ class FailoverCog(commands.Cog):
                 f"to return to automatic failover."
             ),
             view=view,
-            ephemeral=True
+            ephemeral=True,
         )
 
 
@@ -575,19 +507,18 @@ class FailoverView(discord.ui.View):
                 label += " (Active Primary)"
             if node == cog._identity:
                 label += " (This Node)"
-
             options.append(discord.SelectOption(
                 label=label,
                 value=node,
                 description=f"Force {node} to be Primary",
-                default=(node == current_manual)
+                default=(node == current_manual),
             ))
 
         options.append(discord.SelectOption(
             label="❌ Clear Manual Override",
             value="CLEAR",
             description="Return to standard automatic failover",
-            emoji="🔄"
+            emoji="🔄",
         ))
 
         self.add_item(FailoverSelect(cog, options))
@@ -599,7 +530,7 @@ class FailoverSelect(discord.ui.Select):
             placeholder="Choose a target Primary node...",
             min_values=1,
             max_values=1,
-            options=options
+            options=options,
         )
         self.cog = cog
 
@@ -607,14 +538,14 @@ class FailoverSelect(discord.ui.Select):
         target = self.values[0]
 
         if target == "CLEAR":
-            await self.cog._upstash("DEL", "spcbot:manual_primary")
+            await self.cog._exec("DEL", MANUAL_KEY)
             msg = "✅ Manual override cleared. Returning to automatic failover."
         else:
-            # Store just the hostname (strip role prefix and per-process UUID)
-            # so the override survives process restarts on the same host.
-            # Identity format is "role:hostname:uuid", so index 1 is hostname.
-            hostname = target.split(":")[1]
-            await self.cog._upstash("SET", "spcbot:manual_primary", hostname)
+            # Store just the hostname so the override survives process restarts.
+            # Identity format: "role:hostname:uuid" → index 1 is hostname.
+            parts = target.split(":")
+            hostname = parts[1] if len(parts) >= 2 else target
+            await self.cog._exec("SET", MANUAL_KEY, hostname)
             msg = f"✅ Manual override set: `{hostname}` is now the designated Primary."
 
         await interaction.response.edit_message(content=msg, view=None)
