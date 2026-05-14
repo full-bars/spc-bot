@@ -87,9 +87,17 @@ jobs:
       # behind an optional feature so `cargo test --no-default-features` works.
 
   docker-build:
-    # Verify the image builds on all pushes and PRs.
-    runs-on: ubuntu-latest
+    # Verify the image builds on all pushes and PRs; pre-warms GHA layer cache
+    # for both platforms so docker-publish release builds hit cache, not scratch.
     needs: [test, mypy, rust]
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: [self-hosted, Linux, ARM64]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v6
       - uses: docker/setup-buildx-action@v4
@@ -97,11 +105,12 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
+          platforms: ${{ matrix.platform }}
           push: false
           load: true
           tags: spc-bot:ci
-          cache-from: type=gha,scope=build-linux/amd64
-          cache-to: type=gha,mode=max,scope=build-linux/amd64
+          cache-from: type=gha,scope=build-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=build-${{ matrix.platform }}
       - name: Smoke test — image imports main.py
         env:
           DISCORD_TOKEN: ci-smoke-token
