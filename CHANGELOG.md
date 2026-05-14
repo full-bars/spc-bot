@@ -6,6 +6,14 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.25.2] — 2026-05-13
+
+### Added
+- **`/wxsummary` command.** Fetches the live weather briefing from Project WxEye (updates every 20 min) and renders a Discord embed with briefing text, SPC Day 1 risk, WAI, top state, field activity (chasers/live), and tags — color-coded by tone (active/elevated/light/calm).
+
+### Fixed
+- **Hyphenated EF ratings in PNS parser.** `_PNS_RATING_RE` and the inline `re.findall` in `ReportsCog` now match both `EF2` and `EF-2` style tornado ratings from NWS post-event narratives. Some NWS offices emit the hyphenated form; the old regex silently dropped those ratings, causing incorrect max-EF detection.
+
 ## [5.25.1] — 2026-05-13
 
 ### Added
