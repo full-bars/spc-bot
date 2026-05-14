@@ -170,24 +170,24 @@ async def test_resync_drains_dirty_queue(isolated_db, monkeypatch):
     """Verify that resync_to_upstash drains the dirty writes created during an outage."""
     # 1. Simulate outage
     async def _fail(*args):
-        raise state_store._UpstashUnavailable("down")
+        raise state_store._RedisUnavailable("down")
 
-    monkeypatch.setattr(state_store, "_upstash_cmd", _fail)
+    monkeypatch.setattr(state_store, "_redis_cmd", _fail)
     await state_store.set_state("k", "v")
-    
+
     dirty = await sqlite_backend.get_dirty_writes()
     assert len(dirty) == 1
 
-    # 2. Upstash recovers; trigger manual resync
+    # 2. Redis recovers; trigger manual resync
     calls: list = []
     async def _ok(*args):
         calls.append(args)
         return "OK"
 
-    monkeypatch.setattr(state_store, "_upstash_cmd", _ok)
-    
+    monkeypatch.setattr(state_store, "_redis_cmd", _ok)
+
     await state_store.resync_to_upstash()
-    
+
     dirty = await sqlite_backend.get_dirty_writes()
     assert len(dirty) == 0
     assert any(c[0] == "SET" and c[2] == "v" for c in calls)
@@ -202,7 +202,7 @@ async def test_get_posted_mds_bulk_load_cached(isolated_db, monkeypatch):
             return ["0001", "0002"]
         return None
 
-    monkeypatch.setattr(state_store, "_upstash_cmd", _cmd)
+    monkeypatch.setattr(state_store, "_redis_cmd", _cmd)
 
     first = await state_store.get_posted_mds()
     second = await state_store.get_posted_mds()
@@ -219,7 +219,7 @@ async def test_add_posted_md_invalidates_cache(isolated_db, monkeypatch):
             return 1
         return None
 
-    monkeypatch.setattr(state_store, "_upstash_cmd", _cmd)
+    monkeypatch.setattr(state_store, "_redis_cmd", _cmd)
 
     before = await state_store.get_posted_mds()
     assert before == set()
@@ -244,7 +244,7 @@ async def test_posted_urls_roundtrip(isolated_db, monkeypatch):
             return storage.get(args[1])
         return None
 
-    monkeypatch.setattr(state_store, "_upstash_cmd", _cmd)
+    monkeypatch.setattr(state_store, "_redis_cmd", _cmd)
 
     await state_store.set_posted_urls("day1", ["u1", "u2"])
     # Force cache miss.
@@ -267,7 +267,7 @@ async def test_resync_pushes_sqlite_contents_to_upstash(isolated_db, monkeypatch
         calls.append(args)
         return "OK"
 
-    monkeypatch.setattr(state_store, "_upstash_cmd", _cmd)
+    monkeypatch.setattr(state_store, "_redis_cmd", _cmd)
 
     counts = await state_store.resync_to_upstash(force_full=True)
 
