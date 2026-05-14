@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-One-shot migration from local SQLite into Upstash Redis.
+Legacy migration: Seed Upstash Redis from local SQLite (Cloud deployments only).
 
-Reads the current bot state from `cache/bot_state.db` and writes every
-row into Upstash under the key schema defined in utils.state_store.
+Reads the current bot state from `cache/bot_state.db` and writes every row
+into Upstash Redis under the key schema defined in utils.state_store.
+
+NOTE: This script is intended for Upstash Cloud Redis deployments. For
+self-hosted local Redis, the state_store handles initial setup automatically.
 
 Safe to run repeatedly:
   - Redis SADD / HSET are idempotent; re-running won't duplicate data.
