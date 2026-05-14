@@ -203,6 +203,51 @@ class StatusView(discord.ui.View):
         self.detailed = False
         self.should_update = True
 
+    async def _get_cluster_status(self) -> str:
+        """Fetch cluster status from Redis (Primary/Standby state)."""
+        try:
+            from utils.state_store import get_redis
+            import time
+
+            redis = await get_redis()
+
+            # Get all registered nodes
+            nodes_data = await redis.hgetall("spcbot:nodes")
+            lease_holder = await redis.get("spcbot:primary_url")
+
+            if not nodes_data:
+                return "*(No nodes registered)*"
+
+            now = int(time.time())
+            stale_threshold = 90  # 3 sync cycles (30s each) + grace period
+
+            lines = []
+            for identity, timestamp_str in sorted(nodes_data.items()):
+                try:
+                    timestamp = int(float(timestamp_str))
+                    age = now - timestamp
+                    is_stale = age > stale_threshold
+
+                    # Parse identity: "P:hostname:uuid" or "S:hostname:uuid"
+                    parts = identity.split(":")
+                    if len(parts) >= 2:
+                        role = "🔴 PRIMARY" if parts[0] == "P" else "🟡 STANDBY"
+                        hostname = parts[1]
+
+                        # Add alive/stale indicator
+                        status = "✓" if not is_stale else "✗ STALE"
+                        is_lease_holder = identity == lease_holder
+                        lease_mark = " (holds lease)" if is_lease_holder else ""
+
+                        lines.append(f"{role} `{hostname}` {status}{lease_mark}")
+                except (ValueError, IndexError):
+                    lines.append(f"`{identity}` *(parse error)*")
+
+            return "\n".join(lines) if lines else "*(Unable to parse node data)*"
+        except Exception as e:
+            logger.debug(f"Could not fetch cluster status: {e}")
+            return f"*(Redis unavailable)*"
+
     async def build_embeds(self) -> list:
         now = datetime.now(timezone.utc)
         hostname = socket.gethostname()
@@ -322,6 +367,10 @@ class StatusView(discord.ui.View):
             + warn_line
         )
         embed.add_field(name="🌩️ Environment", value=env_val, inline=True)
+
+        # Cluster status (Primary/Standby nodes)
+        cluster_val = await self._get_cluster_status()
+        embed.add_field(name="🔗 Cluster Status", value=cluster_val, inline=False)
 
         # Circuits
         open_circuits = [h for h in _http.circuit_breaker.failures if _http.circuit_breaker.is_open(h)]
