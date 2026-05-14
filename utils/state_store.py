@@ -88,11 +88,9 @@ import os
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-import aiohttp
 import redis.asyncio as aioredis
 
 from utils import db as sqlite_backend
-from utils.http import ensure_session
 
 logger = logging.getLogger("spc_bot")
 
