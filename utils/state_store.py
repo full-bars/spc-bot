@@ -88,25 +88,37 @@ import os
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-import aiohttp
+import redis.asyncio as aioredis
 
 from utils import db as sqlite_backend
-from utils.http import ensure_session
 
 logger = logging.getLogger("spc_bot")
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-UPSTASH_URL = os.getenv("UPSTASH_REDIS_REST_URL", "")
-UPSTASH_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
+# Auto-detect: use REDIS_UPSTASH_URL if set (Upstash hosted Redis), else local
+_upstash_url = os.getenv("REDIS_UPSTASH_URL")
+if _upstash_url:
+    _REDIS_URL: str = _upstash_url
+    _BACKEND = "upstash"
+    logger.info("[STATE] Backend: Upstash Redis (via REDIS_UPSTASH_URL)")
+else:
+    _BACKEND = "local"
+    REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+    REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+    REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+    _REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
+    logger.info(f"[STATE] Backend: Local Redis ({REDIS_HOST}:{REDIS_PORT})")
 
 CACHE_TTL_SECONDS = 60.0
-UPSTASH_TIMEOUT_SECONDS = 5.0
+REDIS_TIMEOUT_SECONDS = 5.0
 
-# Upstash Free Tier Quota (10,000 commands / day)
+# Upstash free-tier quota: 10,000 commands/day. Soft quota is 80% for warnings.
 _UPSTASH_DAILY_BUDGET = 10000
 _UPSTASH_SOFT_QUOTA = 8000
-_upstash_quota_hit = False
+
+# Redis connection pool
+_redis_pool: Optional[aioredis.ConnectionPool] = None
 
 # Key prefixes — single source of truth. Never construct a key manually;
 # always go through one of the _k_* helpers.
@@ -153,72 +165,59 @@ def _k_product_cache(product_id: str) -> str:
 
 # ── Upstash REST client ──────────────────────────────────────────────────────
 
-class _UpstashUnavailable(Exception):
-    """Raised when Upstash is unreachable or not configured."""
+class _RedisUnavailable(Exception):
+    """Raised when local Redis is unreachable."""
 
 
-async def _upstash_cmd(*args: Any) -> Any:
-    """Execute a single Upstash REST command.
+async def _ensure_redis_pool() -> aioredis.ConnectionPool:
+    """Get or create the Redis connection pool (auto-detects Upstash vs local)."""
+    global _redis_pool
+    if _redis_pool is None:
+        try:
+            _redis_pool = aioredis.ConnectionPool.from_url(
+                _REDIS_URL,
+                encoding="utf-8",
+                decode_responses=True,
+            )
+            logger.info(f"[STATE] Redis pool created ({_BACKEND})")
+        except Exception as e:
+            logger.error(f"[STATE] Failed to create Redis pool: {e}")
+            raise _RedisUnavailable(f"Redis connection failed: {e}") from e
+    return _redis_pool
 
-    Each call is one HTTP round-trip and one billed command. The return
-    value is Upstash's `result` field (JSON-decoded). Raises
-    `_UpstashUnavailable` on any network-level failure or missing
-    configuration — callers treat that as "fall back to SQLite".
+
+async def _redis_cmd(*args: Any) -> Any:
+    """Execute a Redis command via redis.asyncio.
+
+    Returns the result directly (no JSON wrapping like Upstash had).
+    Raises `_RedisUnavailable` on connection failure — callers treat
+    that as "fall back to SQLite".
     """
-    global _upstash_quota_hit
-    if not UPSTASH_URL or not UPSTASH_TOKEN:
-        raise _UpstashUnavailable("Upstash not configured")
-
-    # Quota guard: check local counter (synced with DB)
-    usage = await sqlite_backend.get_upstash_commands_today()
-    if usage >= _UPSTASH_DAILY_BUDGET:
-        if not _upstash_quota_hit:
-            logger.error("[STATE] Upstash daily quota (10k) EXCEEDED. Falling back to SQLite.")
-            _upstash_quota_hit = True
-        raise _UpstashUnavailable("Upstash daily quota exceeded")
-
-    if usage >= _UPSTASH_SOFT_QUOTA and not _upstash_quota_hit:
-        logger.warning(f"[STATE] Upstash daily quota warning: {usage}/{_UPSTASH_DAILY_BUDGET} commands used.")
-        _upstash_quota_hit = True # Log once per day per process
-    elif usage < _UPSTASH_SOFT_QUOTA:
-        _upstash_quota_hit = False
-
-    # Reject None/bytes explicitly so we don't silently ship the literal
-    # "None" or a mojibake'd byte string to Upstash.
+    # Reject None/bytes explicitly
     for a in args:
         if a is None:
-            raise ValueError("_upstash_cmd: None is not a valid argument")
+            raise ValueError("_redis_cmd: None is not a valid argument")
 
-    session = await ensure_session()
     try:
-        async with session.post(
-            UPSTASH_URL,
-            headers={
-                "Authorization": f"Bearer {UPSTASH_TOKEN}",
-                "Content-Type": "application/json",
-            },
-            json=[str(a) for a in args],
-            timeout=aiohttp.ClientTimeout(total=UPSTASH_TIMEOUT_SECONDS),
-        ) as resp:
-            if resp.status != 200:
-                text = await resp.text()
-                raise _UpstashUnavailable(
-                    f"Upstash returned {resp.status}: {text[:200]}"
-                )
-            body = await resp.json()
-            if "error" in body:
-                # Hard failure from Redis itself — e.g. syntax error. Do
-                # not reconcile these; they're bugs, not transient.
-                raise RuntimeError(f"Upstash error: {body['error']}")
+        pool = await _ensure_redis_pool()
+        redis = aioredis.Redis(connection_pool=pool)
+        try:
+            # Convert args to strings and execute the command
+            cmd_name = str(args[0]).upper() if args else "PING"
+            cmd_args = [str(a) for a in args[1:]] if len(args) > 1 else []
 
-            # Successfully executed a command
-            await sqlite_backend.increment_upstash_commands(1)
-
-            return body.get("result")
+            # Execute via execute_command for flexibility
+            result = await redis.execute_command(cmd_name, *cmd_args)
+            return result
+        finally:
+            await redis.close()
     except asyncio.TimeoutError as e:
-        raise _UpstashUnavailable(f"Upstash timeout: {e}") from e
-    except aiohttp.ClientError as e:
-        raise _UpstashUnavailable(f"Upstash transport error: {e}") from e
+        raise _RedisUnavailable(f"Redis timeout: {e}") from e
+    except Exception as e:
+        if "connection" in str(e).lower() or isinstance(e, (ConnectionError, OSError)):
+            raise _RedisUnavailable(f"Redis error: {e}") from e
+        # Re-raise other errors (syntax errors, etc.)
+        raise
 
 
 # ── Local cache ──────────────────────────────────────────────────────────────
@@ -285,16 +284,16 @@ async def _replay(op: str, args: tuple) -> None:
         await _upstash_set_hash(url, hash_val, cache_type)
     elif op == "add_posted_md":
         (md_number,) = args
-        await _upstash_cmd("SADD", _k_posted_mds(), md_number)
+        await _redis_cmd("SADD", _k_posted_mds(), md_number)
     elif op == "add_posted_watch":
         (watch_number,) = args
-        await _upstash_cmd("SADD", _k_posted_watches(), watch_number)
+        await _redis_cmd("SADD", _k_posted_watches(), watch_number)
     elif op == "add_posted_survey":
         (dat_guid,) = args
-        await _upstash_cmd("SADD", _k_posted_surveys(), dat_guid)
+        await _redis_cmd("SADD", _k_posted_surveys(), dat_guid)
     elif op == "add_posted_report":
         (product_id,) = args
-        await _upstash_cmd("SADD", _k_posted_reports(), product_id)
+        await _redis_cmd("SADD", _k_posted_reports(), product_id)
     elif op == "add_posted_warning":
         # Handle both old (5-element) and new (7-element) formats
         vtec_id = args[0]
@@ -310,27 +309,27 @@ async def _replay(op: str, args: tuple) -> None:
             "tornado_confidence": tornado_confidence,
             "tornado_severity": tornado_severity,
         }
-        await _upstash_cmd("HSET", _k_posted_warnings(), vtec_id, json.dumps(data))
+        await _redis_cmd("HSET", _k_posted_warnings(), vtec_id, json.dumps(data))
     elif op == "set_state":
         key, value = args
-        await _upstash_cmd("SET", _k_state(key), value)
+        await _redis_cmd("SET", _k_state(key), value)
     elif op == "delete_state":
         (key,) = args
-        await _upstash_cmd("DEL", _k_state(key))
+        await _redis_cmd("DEL", _k_state(key))
     elif op == "set_posted_urls":
         day_key, urls = args
-        await _upstash_cmd("SET", _k_posted_urls(day_key), json.dumps(urls))
+        await _redis_cmd("SET", _k_posted_urls(day_key), json.dumps(urls))
     elif op == "set_product_cache":
         product_id, text, ttl = args
-        await _upstash_cmd(
+        await _redis_cmd(
             "SET", _k_product_cache(product_id), text, "EX", int(ttl)
         )
     elif op == "add_posted_sounding":
         (pkey,) = args
-        await _upstash_cmd("SADD", "spcbot:posted_soundings", pkey)
+        await _redis_cmd("SADD", "spcbot:posted_soundings", pkey)
     elif op == "add_sounding_handled_watch":
         (watch_number,) = args
-        await _upstash_cmd("SADD", "spcbot:sounding_handled_watches", watch_number)
+        await _redis_cmd("SADD", "spcbot:sounding_handled_watches", watch_number)
     else:
         raise ValueError(f"unknown replay op: {op}")
 
@@ -339,7 +338,7 @@ async def _replay(op: str, args: tuple) -> None:
 
 async def _upstash_set_hash(url: str, hash_val: str, cache_type: str) -> None:
     # We store the hash in a per-type Hash so get_all_hashes() can bulk-load.
-    await _upstash_cmd("HSET", _k_hash_url_lookup(cache_type, ""), url, hash_val)
+    await _redis_cmd("HSET", _k_hash_url_lookup(cache_type, ""), url, hash_val)
 
 
 # ── Public API — drop-in for utils.db ────────────────────────────────────────
@@ -375,18 +374,18 @@ async def get_hash(url: str, cache_type: Optional[str] = None) -> Optional[str]:
 
     try:
         if cache_type:
-            result = await _upstash_cmd(
+            result = await _redis_cmd(
                 "HGET", _k_hash_url_lookup(cache_type, url), url
             )
         else:
             auto_result, manual_result = await asyncio.gather(
-                _upstash_cmd("HGET", _k_hash_url_lookup("auto", url), url),
-                _upstash_cmd("HGET", _k_hash_url_lookup("manual", url), url),
+                _redis_cmd("HGET", _k_hash_url_lookup("auto", url), url),
+                _redis_cmd("HGET", _k_hash_url_lookup("manual", url), url),
             )
             result = auto_result or manual_result
         _cache_set(cache_key, result)
         return result
-    except _UpstashUnavailable as e:
+    except _RedisUnavailable as e:
         logger.debug(f"[STATE] get_hash({url}) falling back to SQLite: {e}")
         val = await sqlite_backend.get_hash(url, cache_type)
         _cache_set(cache_key, val, ttl=CACHE_TTL_SECONDS / 2)
@@ -405,7 +404,7 @@ async def set_hash(url: str, hash_val: str, cache_type: str = "auto") -> None:
 
     try:
         await _upstash_set_hash(url, hash_val, cache_type)
-    except _UpstashUnavailable as e:
+    except _RedisUnavailable as e:
         logger.warning(f"[STATE] set_hash queued for reconcile: {e}")
         await _enqueue_dirty("set_hash", (url, hash_val, cache_type))
 
@@ -419,21 +418,21 @@ async def get_all_hashes(cache_type: Optional[str] = None) -> Dict[str, str]:
 
     try:
         if cache_type:
-            result = await _upstash_cmd(
+            result = await _redis_cmd(
                 "HGETALL", _k_hash_url_lookup(cache_type, "")
             )
             mapping = _pairs_to_dict(result)
         else:
-            a = await _upstash_cmd(
+            a = await _redis_cmd(
                 "HGETALL", _k_hash_url_lookup("auto", "")
             )
-            m = await _upstash_cmd(
+            m = await _redis_cmd(
                 "HGETALL", _k_hash_url_lookup("manual", "")
             )
             mapping = {**_pairs_to_dict(a), **_pairs_to_dict(m)}
         _cache_set(cache_key, mapping)
         return dict(mapping)
-    except _UpstashUnavailable as e:
+    except _RedisUnavailable as e:
         logger.debug(f"[STATE] get_all_hashes falling back to SQLite: {e}")
         return await sqlite_backend.get_all_hashes(cache_type)
 
@@ -466,8 +465,8 @@ async def set_hashes_batch(hashes: Dict[str, str], cache_type: str = "auto") -> 
         for url, h in hashes.items():
             args.append(url)
             args.append(h)
-        await _upstash_cmd(*args)
-    except _UpstashUnavailable as e:
+        await _redis_cmd(*args)
+    except _RedisUnavailable as e:
         logger.warning(
             f"[STATE] set_hashes_batch ({len(hashes)}) queued for reconcile: {e}"
         )
@@ -484,11 +483,11 @@ async def get_posted_mds() -> Set[str]:
     if hit:
         return set(val)
     try:
-        result = await _upstash_cmd("SMEMBERS", _k_posted_mds())
+        result = await _redis_cmd("SMEMBERS", _k_posted_mds())
         members = set(result or [])
         _cache_set(cache_key, members)
         return set(members)
-    except _UpstashUnavailable as e:
+    except _RedisUnavailable as e:
         logger.debug(f"[STATE] get_posted_mds falling back to SQLite: {e}")
         val = await sqlite_backend.get_posted_mds()
         _cache_set(cache_key, val, ttl=CACHE_TTL_SECONDS / 2)
@@ -499,8 +498,8 @@ async def add_posted_md(md_number: str) -> None:
     _cache_invalidate("posted_mds")
     await sqlite_backend.add_posted_md(md_number)
     try:
-        await _upstash_cmd("SADD", _k_posted_mds(), md_number)
-    except _UpstashUnavailable as e:
+        await _redis_cmd("SADD", _k_posted_mds(), md_number)
+    except _RedisUnavailable as e:
         logger.warning(f"[STATE] add_posted_md({md_number}) queued: {e}")
         await _enqueue_dirty("add_posted_md", (md_number,))
 
@@ -522,11 +521,11 @@ async def get_posted_watches() -> Set[str]:
     if hit:
         return set(val)
     try:
-        result = await _upstash_cmd("SMEMBERS", _k_posted_watches())
+        result = await _redis_cmd("SMEMBERS", _k_posted_watches())
         members = set(result or [])
         _cache_set(cache_key, members)
         return set(members)
-    except _UpstashUnavailable as e:
+    except _RedisUnavailable as e:
         logger.debug(f"[STATE] get_posted_watches falling back to SQLite: {e}")
         val = await sqlite_backend.get_posted_watches()
         _cache_set(cache_key, val, ttl=CACHE_TTL_SECONDS / 2)
@@ -537,8 +536,8 @@ async def add_posted_watch(watch_number: str) -> None:
     _cache_invalidate("posted_watches")
     await sqlite_backend.add_posted_watch(watch_number)
     try:
-        await _upstash_cmd("SADD", _k_posted_watches(), watch_number)
-    except _UpstashUnavailable as e:
+        await _redis_cmd("SADD", _k_posted_watches(), watch_number)
+    except _RedisUnavailable as e:
         logger.warning(f"[STATE] add_posted_watch({watch_number}) queued: {e}")
         await _enqueue_dirty("add_posted_watch", (watch_number,))
 
@@ -556,11 +555,11 @@ async def get_posted_surveys() -> Set[str]:
     if hit:
         return set(val)
     try:
-        result = await _upstash_cmd("SMEMBERS", _k_posted_surveys())
+        result = await _redis_cmd("SMEMBERS", _k_posted_surveys())
         members = set(result or [])
         _cache_set(cache_key, members)
         return set(members)
-    except _UpstashUnavailable as e:
+    except _RedisUnavailable as e:
         logger.debug(f"[STATE] get_posted_surveys falling back to SQLite: {e}")
         val = await sqlite_backend.get_posted_surveys()
         _cache_set(cache_key, val, ttl=CACHE_TTL_SECONDS / 2)
@@ -571,8 +570,8 @@ async def add_posted_survey(dat_guid: str) -> None:
     _cache_invalidate("posted_surveys")
     await sqlite_backend.add_posted_survey(dat_guid)
     try:
-        await _upstash_cmd("SADD", _k_posted_surveys(), dat_guid)
-    except _UpstashUnavailable as e:
+        await _redis_cmd("SADD", _k_posted_surveys(), dat_guid)
+    except _RedisUnavailable as e:
         logger.warning(f"[STATE] add_posted_survey({dat_guid}) queued: {e}")
         await _enqueue_dirty("add_posted_survey", (dat_guid,))
 
@@ -590,11 +589,11 @@ async def get_posted_reports() -> Set[str]:
     if hit:
         return set(val)
     try:
-        result = await _upstash_cmd("SMEMBERS", _k_posted_reports())
+        result = await _redis_cmd("SMEMBERS", _k_posted_reports())
         members = set(result or [])
         _cache_set(cache_key, members)
         return set(members)
-    except _UpstashUnavailable as e:
+    except _RedisUnavailable as e:
         logger.debug(f"[STATE] get_posted_reports falling back to SQLite: {e}")
         val = await sqlite_backend.get_posted_reports()
         _cache_set(cache_key, val, ttl=CACHE_TTL_SECONDS / 2)
@@ -605,8 +604,8 @@ async def add_posted_report(product_id: str) -> None:
     _cache_invalidate("posted_reports")
     await sqlite_backend.add_posted_report(product_id)
     try:
-        await _upstash_cmd("SADD", _k_posted_reports(), product_id)
-    except _UpstashUnavailable as e:
+        await _redis_cmd("SADD", _k_posted_reports(), product_id)
+    except _RedisUnavailable as e:
         logger.warning(f"[STATE] add_posted_report({product_id}) queued: {e}")
         await _enqueue_dirty("add_posted_report", (product_id,))
 
@@ -661,7 +660,7 @@ async def get_all_posted_warnings() -> Dict[str, dict]:
         return dict(val)
     try:
         # We store as a hash in Upstash: {vtec_id -> JSON string}
-        result = await _upstash_cmd("HGETALL", _k_posted_warnings())
+        result = await _redis_cmd("HGETALL", _k_posted_warnings())
         # HGETALL returns [k1, v1, k2, v2, ...]
         mapping = {}
         if result:
@@ -673,7 +672,7 @@ async def get_all_posted_warnings() -> Dict[str, dict]:
                     continue
         _cache_set(cache_key, mapping)
         return dict(mapping)
-    except _UpstashUnavailable as e:
+    except _RedisUnavailable as e:
         logger.debug(f"[STATE] get_all_posted_warnings falling back to SQLite: {e}")
         val = await sqlite_backend.get_all_posted_warnings()
         _cache_set(cache_key, val, ttl=CACHE_TTL_SECONDS / 2)
@@ -701,8 +700,8 @@ async def add_posted_warning(
         "tornado_severity": tornado_severity,
     }
     try:
-        await _upstash_cmd("HSET", _k_posted_warnings(), vtec_id, json.dumps(data))
-    except _UpstashUnavailable as e:
+        await _redis_cmd("HSET", _k_posted_warnings(), vtec_id, json.dumps(data))
+    except _RedisUnavailable as e:
         logger.warning(f"[STATE] add_posted_warning({vtec_id}) queued: {e}")
         await _enqueue_dirty(
             "add_posted_warning",
@@ -724,11 +723,11 @@ async def get_posted_soundings() -> Set[str]:
         return set(val)
 
     try:
-        result = await _upstash_cmd("SMEMBERS", "spcbot:posted_soundings")
+        result = await _redis_cmd("SMEMBERS", "spcbot:posted_soundings")
         s = set(result or [])
         _cache_set("posted_soundings", s)
         return s
-    except _UpstashUnavailable:
+    except _RedisUnavailable:
         return await sqlite_backend.get_posted_soundings()
 
 
@@ -737,8 +736,8 @@ async def add_posted_sounding(pkey: str) -> None:
     _cache_invalidate("posted_soundings")
     await sqlite_backend.add_posted_sounding(pkey)
     try:
-        await _upstash_cmd("SADD", "spcbot:posted_soundings", pkey)
-    except _UpstashUnavailable as e:
+        await _redis_cmd("SADD", "spcbot:posted_soundings", pkey)
+    except _RedisUnavailable as e:
         logger.warning(f"[STATE] add_posted_sounding queued for reconcile: {e}")
         await _enqueue_dirty("add_posted_sounding", (pkey,))
 
@@ -756,11 +755,11 @@ async def get_sounding_handled_watches() -> Set[str]:
         return set(val)
 
     try:
-        result = await _upstash_cmd("SMEMBERS", "spcbot:sounding_handled_watches")
+        result = await _redis_cmd("SMEMBERS", "spcbot:sounding_handled_watches")
         s = set(result or [])
         _cache_set("sounding_handled_watches", s)
         return s
-    except _UpstashUnavailable:
+    except _RedisUnavailable:
         return await sqlite_backend.get_sounding_handled_watches()
 
 
@@ -769,8 +768,8 @@ async def add_sounding_handled_watch(watch_number: str) -> None:
     _cache_invalidate("sounding_handled_watches")
     await sqlite_backend.add_sounding_handled_watch(watch_number)
     try:
-        await _upstash_cmd("SADD", "spcbot:sounding_handled_watches", watch_number)
-    except _UpstashUnavailable as e:
+        await _redis_cmd("SADD", "spcbot:sounding_handled_watches", watch_number)
+    except _RedisUnavailable as e:
         logger.warning(f"[STATE] add_sounding_handled_watch queued for reconcile: {e}")
         await _enqueue_dirty("add_sounding_handled_watch", (watch_number,))
 
@@ -780,8 +779,8 @@ async def clear_sounding_handled_watches() -> None:
     _cache_invalidate("sounding_handled_watches")
     await sqlite_backend.clear_sounding_handled_watches()
     try:
-        await _upstash_cmd("DEL", "spcbot:sounding_handled_watches")
-    except _UpstashUnavailable:
+        await _redis_cmd("DEL", "spcbot:sounding_handled_watches")
+    except _RedisUnavailable:
         pass
 
 
@@ -794,10 +793,10 @@ async def get_state(key: str) -> Optional[str]:
     if hit:
         return val
     try:
-        result = await _upstash_cmd("GET", _k_state(key))
+        result = await _redis_cmd("GET", _k_state(key))
         _cache_set(cache_key, result)
         return result
-    except _UpstashUnavailable as e:
+    except _RedisUnavailable as e:
         logger.debug(f"[STATE] get_state({key}) falling back to SQLite: {e}")
         val = await sqlite_backend.get_state(key)
         _cache_set(cache_key, val, ttl=CACHE_TTL_SECONDS / 2)
@@ -808,8 +807,8 @@ async def set_state(key: str, value: str) -> None:
     _cache_set(f"state::{key}", value)
     await sqlite_backend.set_state(key, value)
     try:
-        await _upstash_cmd("SET", _k_state(key), value)
-    except _UpstashUnavailable as e:
+        await _redis_cmd("SET", _k_state(key), value)
+    except _RedisUnavailable as e:
         logger.warning(f"[STATE] set_state({key}) queued: {e}")
         await _enqueue_dirty("set_state", (key, value))
 
@@ -818,8 +817,8 @@ async def delete_state(key: str) -> None:
     _cache_invalidate(f"state::{key}")
     await sqlite_backend.delete_state(key)
     try:
-        await _upstash_cmd("DEL", _k_state(key))
-    except _UpstashUnavailable as e:
+        await _redis_cmd("DEL", _k_state(key))
+    except _RedisUnavailable as e:
         logger.warning(f"[STATE] delete_state({key}) queued: {e}")
         await _enqueue_dirty("delete_state", (key,))
 
@@ -832,7 +831,7 @@ async def get_posted_urls(day_key: str) -> List[str]:
     if hit:
         return list(val)
     try:
-        result = await _upstash_cmd("GET", _k_posted_urls(day_key))
+        result = await _redis_cmd("GET", _k_posted_urls(day_key))
         try:
             urls = json.loads(result) if result else []
         except json.JSONDecodeError:
@@ -840,7 +839,7 @@ async def get_posted_urls(day_key: str) -> List[str]:
             urls = await sqlite_backend.get_posted_urls(day_key)
         _cache_set(cache_key, urls)
         return list(urls)
-    except _UpstashUnavailable as e:
+    except _RedisUnavailable as e:
         logger.debug(f"[STATE] get_posted_urls({day_key}) falling back: {e}")
         val = await sqlite_backend.get_posted_urls(day_key)
         _cache_set(cache_key, val, ttl=CACHE_TTL_SECONDS / 2)
@@ -851,8 +850,8 @@ async def set_posted_urls(day_key: str, urls: List[str]) -> None:
     _cache_set(f"posted_urls::{day_key}", list(urls))
     await sqlite_backend.set_posted_urls(day_key, urls)
     try:
-        await _upstash_cmd("SET", _k_posted_urls(day_key), json.dumps(urls))
-    except _UpstashUnavailable as e:
+        await _redis_cmd("SET", _k_posted_urls(day_key), json.dumps(urls))
+    except _RedisUnavailable as e:
         logger.warning(f"[STATE] set_posted_urls({day_key}) queued: {e}")
         await _enqueue_dirty("set_posted_urls", (day_key, urls))
 
@@ -866,10 +865,10 @@ async def get_product_cache(product_id: str) -> Optional[str]:
         return val
     try:
         # Upstash respects the EX we set on write; expired keys return None.
-        result = await _upstash_cmd("GET", _k_product_cache(product_id))
+        result = await _redis_cmd("GET", _k_product_cache(product_id))
         _cache_set(cache_key, result, ttl=min(CACHE_TTL_SECONDS, 30.0))
         return result
-    except _UpstashUnavailable as e:
+    except _RedisUnavailable as e:
         logger.debug(f"[STATE] get_product_cache({product_id}) fallback: {e}")
         val = await sqlite_backend.get_product_cache(product_id)
         _cache_set(cache_key, val, ttl=CACHE_TTL_SECONDS / 2)
@@ -880,10 +879,10 @@ async def set_product_cache(product_id: str, text: str, ttl: int = 600) -> None:
     _cache_set(f"product_cache::{product_id}", text, ttl=min(CACHE_TTL_SECONDS, ttl))
     await sqlite_backend.set_product_cache(product_id, text, ttl)
     try:
-        await _upstash_cmd(
+        await _redis_cmd(
             "SET", _k_product_cache(product_id), text, "EX", int(ttl)
         )
-    except _UpstashUnavailable as e:
+    except _RedisUnavailable as e:
         logger.warning(f"[STATE] set_product_cache({product_id}) queued: {e}")
         await _enqueue_dirty("set_product_cache", (product_id, text, ttl))
 
@@ -950,7 +949,7 @@ async def resync_to_upstash(force_full: bool = False) -> Dict[str, int]:
         try:
             await _replay(item["op"], tuple(item["args"]))
             ids_to_delete.append(item["id"])
-        except _UpstashUnavailable:
+        except _RedisUnavailable:
             break
         except Exception as e:
             logger.exception(f"[STATE] Resync dropped {item['op']}: {e}")
@@ -990,12 +989,12 @@ async def mirror_to_sqlite() -> None:
             await sqlite_backend.add_posted_report(r)
 
         # 3. State
-        states_scan = await _upstash_cmd("SCAN", 0, "MATCH", f"{_k_state('*')}")
+        states_scan = await _redis_cmd("SCAN", 0, "MATCH", f"{_k_state('*')}")
         if states_scan and isinstance(states_scan, list) and len(states_scan) >= 2:
             keys = states_scan[1]
             if keys:
                 # Upstash MGET returns a list of values in the same order as keys
-                values = await _upstash_cmd("MGET", *keys)
+                values = await _redis_cmd("MGET", *keys)
                 if values:
                     for k, val in zip(keys, values):
                         if val:
@@ -1025,27 +1024,27 @@ async def _resync_full() -> Dict[str, int]:
                 for url, h in hashes.items():
                     args.append(url)
                     args.append(h)
-                await _upstash_cmd(*args)
+                await _redis_cmd(*args)
                 counts["hashes"] += len(hashes)
 
         mds = await sqlite_backend.get_posted_mds()
         if mds:
-            await _upstash_cmd("SADD", _k_posted_mds(), *mds)
+            await _redis_cmd("SADD", _k_posted_mds(), *mds)
             counts["posted_mds"] = len(mds)
 
         watches = await sqlite_backend.get_posted_watches()
         if watches:
-            await _upstash_cmd("SADD", _k_posted_watches(), *watches)
+            await _redis_cmd("SADD", _k_posted_watches(), *watches)
             counts["posted_watches"] = len(watches)
 
         surveys = await sqlite_backend.get_posted_surveys()
         if surveys:
-            await _upstash_cmd("SADD", _k_posted_surveys(), *surveys)
+            await _redis_cmd("SADD", _k_posted_surveys(), *surveys)
             counts["posted_surveys"] = len(surveys)
 
         reports = await sqlite_backend.get_posted_reports()
         if reports:
-            await _upstash_cmd("SADD", _k_posted_reports(), *reports)
+            await _redis_cmd("SADD", _k_posted_reports(), *reports)
             counts["posted_reports"] = len(reports)
 
         states = await sqlite_backend.get_all_state()
@@ -1054,7 +1053,7 @@ async def _resync_full() -> Dict[str, int]:
             for key, value in states.items():
                 args.append(_k_state(key))
                 args.append(value)
-            await _upstash_cmd(*args)
+            await _redis_cmd(*args)
             counts["state"] = len(states)
 
         urls_map = await sqlite_backend.get_all_posted_urls()
@@ -1063,11 +1062,11 @@ async def _resync_full() -> Dict[str, int]:
             for day_key, urls in urls_map.items():
                 args.append(_k_posted_urls(day_key))
                 args.append(json.dumps(urls))
-            await _upstash_cmd(*args)
+            await _redis_cmd(*args)
             counts["urls"] = len(urls_map)
 
         logger.info(f"[STATE] Resync → Upstash: {counts}")
         return counts
-    except _UpstashUnavailable as e:
+    except _RedisUnavailable as e:
         logger.warning(f"[STATE] Resync skipped — Upstash unavailable: {e}")
         return counts
