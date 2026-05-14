@@ -34,6 +34,10 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v6
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
       - name: Build Rust extensions
         run: maturin build --release --out dist && pip install dist/*.whl
       - name: Run tests with coverage
