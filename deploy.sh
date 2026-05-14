@@ -116,18 +116,21 @@ EOF
 fi
 
 # ── Optional: Failover setup ──────────────────────────────────────────────────
-if ! grep -q "^UPSTASH_REDIS_REST_URL=" "$ENV_FILE" 2>/dev/null; then
+# Skip if IS_PRIMARY is already set (i.e., failover is already configured)
+if ! grep -q "^IS_PRIMARY=" "$ENV_FILE" 2>/dev/null; then
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "  High Availability (optional)"
-    echo "  Requires an Upstash Redis instance."
+    echo "  Requires a local Redis instance."
     echo "  Skip this for single-node installs."
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     read -rp "  Set up Primary/Standby failover? [y/N] " _setup_failover
     if [[ "$_setup_failover" =~ ^[Yy]$ ]]; then
         echo ""
-        read -rp  "  Upstash Redis REST URL:   " _upstash_url
-        read -rsp "  Upstash Redis REST Token: " _upstash_token
+        read -rp  "  Redis host (default: localhost):     " _redis_host
+        _redis_host=${_redis_host:-localhost}
+        read -rp  "  Redis port (default: 6379):         " _redis_port
+        _redis_port=${_redis_port:-6379}
         echo ""
         read -rsp "  Shared failover secret:   " _failover_token
         echo ""
@@ -138,9 +141,9 @@ if ! grep -q "^UPSTASH_REDIS_REST_URL=" "$ENV_FILE" 2>/dev/null; then
 
         cat >> "$ENV_FILE" << EOF
 
-# Failover — Upstash Redis + leader election
-UPSTASH_REDIS_REST_URL=${_upstash_url}
-UPSTASH_REDIS_REST_TOKEN=${_upstash_token}
+# Failover — Local Redis + leader election
+REDIS_HOST=${_redis_host}
+REDIS_PORT=${_redis_port}
 FAILOVER_TOKEN=${_failover_token}
 ADMIN_USER_ID=${_admin_id}
 IS_PRIMARY=${_is_primary}
@@ -149,6 +152,8 @@ EOF
     else
         info "Skipping failover setup — bot will run as a single node."
     fi
+else
+    info "Failover already configured (IS_PRIMARY found). Skipping setup prompts."
 fi
 
 # ── Optional: Syncthing setup ─────────────────────────────────────────────────
