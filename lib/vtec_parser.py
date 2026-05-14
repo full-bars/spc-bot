@@ -110,9 +110,9 @@ def parse_warning_polygon(
     # Try Rust optimized parser first
     if RUST_AVAILABLE:
         try:
-            coords = spc_rust_core.extract_latlon_coords(raw_coords_str)
-            if coords:
-                return coords
+            rust_coords = spc_rust_core.extract_latlon_coords(raw_coords_str)
+            if rust_coords:
+                return rust_coords
         except Exception as e:
             logger.debug(f"Rust extract_latlon_coords failed: {e}. Falling back to Python.")
 
