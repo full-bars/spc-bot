@@ -103,6 +103,10 @@ REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 CACHE_TTL_SECONDS = 60.0
 REDIS_TIMEOUT_SECONDS = 5.0
 
+# Upstash free-tier quota: 10,000 commands/day. Soft quota is 80% for warnings.
+_UPSTASH_DAILY_BUDGET = 10000
+_UPSTASH_SOFT_QUOTA = 8000
+
 # Redis connection pool
 _redis_pool: Optional[aioredis.ConnectionPool] = None
 
