@@ -57,6 +57,7 @@ spc-bot/
 │   ├── sounding_views.py    # Discord UI: CombinedSoundingView, IEMTimeSelectionView, ACARS views
 │   ├── hodograph.py         # VWP hodograph generation via /hodograph
 │   ├── failover.py          # Leader election via an Upstash lease (no HTTP tunnel — v5+)
+│   ├── wxsummary.py         # /wxsummary: Project WxEye live weather briefing embed
 │   ├── status.py            # Bot status and manual slash commands
 │   └── radar/
 │       ├── __init__.py      # Radar cog: /download with quick-start site+time+count params
