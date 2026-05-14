@@ -11,6 +11,7 @@ import discord
 from discord.ext import commands, tasks
 
 import utils.http as _http
+from utils.state_store import get_upstash_stats
 from cogs.mesoscale import (
     clean_md_text_for_discord,
     extract_md_body,
@@ -338,6 +339,26 @@ class StatusView(discord.ui.View):
                 inline=False,
             )
             embed.color = discord.Color.red()
+
+        # Upstash quota
+        try:
+            upstash = await get_upstash_stats()
+            cmds = upstash["commands_today"]
+            budget = upstash["budget"]
+            dirty = upstash["dirty_count"]
+            pct = (cmds / budget * 100) if budget else 0
+            health = "🟢" if pct < 80 else ("🟡" if pct < 100 else "🔴")
+            upstash_val = (
+                f"**Commands today:** {health} `{cmds:,} / {budget:,}` ({pct:.1f}%)\n"
+                f"**Dirty queue:** `{dirty}`"
+            )
+            embed.add_field(name="📊 Upstash", value=upstash_val, inline=True)
+            if pct >= 100:
+                embed.color = discord.Color.red()
+            elif pct >= 80 and embed.color != discord.Color.red():
+                embed.color = discord.Color.gold()
+        except Exception as e:
+            logger.debug(f"Failed to fetch Upstash stats: {e}")
 
         # Recent activity (condensed)
         recent_lines = []
