@@ -271,24 +271,10 @@ async def fake_redis_client(monkeypatch):
     server = fakeredis.FakeServer()
     client = fakeredis.FakeRedis(server=server, decode_responses=True)
     monkeypatch.setattr(state_store, "_redis_client", client)
-    # Allow _redis_cmd to run normally (undo the autouse mock).
-    import importlib
-    real_redis_cmd = (
-        importlib.import_module("utils.state_store")
-        .__dict__["_redis_cmd"]
-    )
-    # Re-bind _redis_cmd to the real implementation by restoring the original.
-    # The autouse mock replaces it; we restore by patching _redis_client and
-    # letting _redis_cmd call _get_redis_client() which now returns fake client.
-    original_redis_cmd = state_store.__class__  # unused, just for structure
-
-    # The real _redis_cmd references _get_redis_client() which returns _redis_client.
-    # Since we set _redis_client = fake client, we need to restore the real _redis_cmd.
-    import utils.state_store as ss_module
-    import inspect
-    # Get the real _redis_cmd source-of-truth from the module's own __dict__
-    # before the autouse mock replaced it. Since monkeypatch stacks, we restore
-    # by simply wrapping execute_command directly.
+    # The autouse mock_redis_cmd fixture replaced _redis_cmd with a stub that
+    # always raises _RedisUnavailable. Restore the real implementation by
+    # re-implementing it inline against the fake client — _get_redis_client()
+    # now returns the fake client so execute_command goes to fakeredis.
     async def real_redis_cmd_impl(*args):
         for a in args:
             if a is None:
