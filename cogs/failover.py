@@ -210,11 +210,9 @@ class FailoverCog(commands.Cog):
         """Get a Redis client from the pool."""
         try:
             pool = await state_store._ensure_redis_pool()
-            client = aioredis.Redis(connection_pool=pool)
-            logger.info(f"[FAILOVER] Created Redis client: {type(client).__name__}")
-            return client
+            return aioredis.Redis(connection_pool=pool)
         except Exception as e:
-            logger.warning(f"[FAILOVER] Failed to create Redis client: {e}")
+            logger.warning(f"[FAILOVER] Redis unavailable: {e}")
             return None
 
     async def _write_lease(self) -> None:
