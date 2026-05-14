@@ -14,3 +14,4 @@ CLAUDE.md
 .coverage
 progress.md
 target/
+.stfolder/
