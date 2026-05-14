@@ -89,7 +89,7 @@ import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import aiohttp
-import aioredis
+import redis.asyncio as aioredis
 
 from utils import db as sqlite_backend
 from utils.http import ensure_session
@@ -175,7 +175,7 @@ async def _ensure_redis_pool() -> aioredis.ConnectionPool:
 
 
 async def _redis_cmd(*args: Any) -> Any:
-    """Execute a Redis command via aioredis.
+    """Execute a Redis command via redis.asyncio.
 
     Returns the result directly (no JSON wrapping like Upstash had).
     Raises `_RedisUnavailable` on connection failure — callers treat
@@ -188,18 +188,24 @@ async def _redis_cmd(*args: Any) -> Any:
 
     try:
         pool = await _ensure_redis_pool()
-        async with aioredis.Redis(connection_pool=pool) as redis:
+        redis = aioredis.Redis(connection_pool=pool)
+        try:
             # Convert args to strings and execute the command
             cmd_name = str(args[0]).upper() if args else "PING"
             cmd_args = [str(a) for a in args[1:]] if len(args) > 1 else []
 
-            # Execute via connection's execute_command for flexibility
+            # Execute via execute_command for flexibility
             result = await redis.execute_command(cmd_name, *cmd_args)
             return result
+        finally:
+            await redis.close()
     except asyncio.TimeoutError as e:
         raise _RedisUnavailable(f"Redis timeout: {e}") from e
-    except (aioredis.RedisError, ConnectionError, OSError) as e:
-        raise _RedisUnavailable(f"Redis error: {e}") from e
+    except Exception as e:
+        if "connection" in str(e).lower() or isinstance(e, (ConnectionError, OSError)):
+            raise _RedisUnavailable(f"Redis error: {e}") from e
+        # Re-raise other errors (syntax errors, etc.)
+        raise
 
 
 # ── Local cache ──────────────────────────────────────────────────────────────
