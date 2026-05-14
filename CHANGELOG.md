@@ -6,6 +6,24 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.26.1] — 2026-05-14
+
+### Fixed
+- **Redis backend rewrite (v2).** The initial v5.26.0 migration had critical bugs identified in code review and was reverted immediately after tagging; this release ships the corrected implementation. Fixes: socket timeouts applied to `ConnectionPool` (C1); exception classifier now catches `redis.exceptions.ConnectionError`, `TimeoutError`, `BusyLoadingError`, and `OSError` instead of bare built-ins (C2); `mirror_to_sqlite` paginates `SCAN` until cursor returns 0 (C3); `_release_lease` uses an atomic Lua check-and-delete to eliminate TOCTOU races (C5); `_renew_lease` uses a Lua conditional `SET` that only writes if the caller still holds the key (C6); a single long-lived `Redis` client replaces per-command instantiation (C7); `HGETALL` with `decode_responses=True` returns a `dict` and `failover_slash` now iterates `.items()` correctly (M3); all internal identifiers renamed from `_upstash_*` / `_Upstash*` to `_redis_*` / `_Redis*` (MI).
+- **ReadOnlyError on Redis replica.** Standby nodes running against a Redis replica now catch `redis.exceptions.ReadOnlyError` in `_redis_cmd` and return `None` instead of propagating the exception. Log level demoted to `DEBUG` to eliminate per-heartbeat spam during normal standby operation.
+- **Replica promotion on failover.** When `_promote()` is called, the cog now issues `REPLICAOF NO ONE` to detach the local Redis from its primary before taking the leader lease, so write commands succeed immediately after promotion without manual operator intervention.
+- **CI gate ordering.** `docker-build` job now `needs: [test, mypy, rust]` — previously it could run while type checks were still failing. Fixed an unused `patch` import in `test_failover_coverage` and corrected `redis`/`redis.asyncio` mypy import aliases that were producing false-positive errors.
+
+## [5.26.0] — 2026-05-14
+
+### Added
+- **Local Redis backend.** Replaced the Upstash REST API with a self-hosted Redis 7+ backend for all shared state and leader-election operations. Auto-detects backend via `REDIS_URL` / `REDIS_HOST` env vars; falls back to Upstash if `REDIS_UPSTASH_URL` is set. Eliminates external API quota consumption and reduces state-operation latency. (#372)
+- **Upstash quota stats in `/status`.** The Environment field now shows daily Upstash command usage and remaining quota when running in Upstash-backed mode. (#371)
+
+### CI
+- **Rust toolchain in test job.** Added `dtolnay/rust-toolchain@stable` and `Swatinem/rust-cache@v2` to the `test` job so Rust extensions are built and exercised during CI runs, not just in the standalone `rust` job.
+- **CI/CD pipeline improvements.** Parallel test execution with `pytest-xdist -n auto`; Docker layer cache reordering so `apt-get install` is not invalidated by code-only changes; `Dockerfile.ci` merged `apt-get` + `rustup` into a single `RUN` to eliminate cached apt layers.
+
 ## [5.25.2] — 2026-05-13
 
 ### Added
