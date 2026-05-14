@@ -97,8 +97,9 @@ logger = logging.getLogger("spc_bot")
 # ── Configuration ────────────────────────────────────────────────────────────
 
 # Auto-detect: use REDIS_UPSTASH_URL if set (Upstash hosted Redis), else local
-_REDIS_URL = os.getenv("REDIS_UPSTASH_URL")
-if _REDIS_URL:
+_upstash_url = os.getenv("REDIS_UPSTASH_URL")
+if _upstash_url:
+    _REDIS_URL: str = _upstash_url
     _BACKEND = "upstash"
     logger.info("[STATE] Backend: Upstash Redis (via REDIS_UPSTASH_URL)")
 else:
