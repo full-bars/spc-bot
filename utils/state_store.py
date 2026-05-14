@@ -96,9 +96,18 @@ logger = logging.getLogger("spc_bot")
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+# Auto-detect: use REDIS_UPSTASH_URL if set (Upstash hosted Redis), else local
+_REDIS_URL = os.getenv("REDIS_UPSTASH_URL")
+if _REDIS_URL:
+    _BACKEND = "upstash"
+    logger.info("[STATE] Backend: Upstash Redis (via REDIS_UPSTASH_URL)")
+else:
+    _BACKEND = "local"
+    REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+    REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+    REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+    _REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
+    logger.info(f"[STATE] Backend: Local Redis ({REDIS_HOST}:{REDIS_PORT})")
 
 CACHE_TTL_SECONDS = 60.0
 REDIS_TIMEOUT_SECONDS = 5.0
@@ -160,16 +169,16 @@ class _RedisUnavailable(Exception):
 
 
 async def _ensure_redis_pool() -> aioredis.ConnectionPool:
-    """Get or create the Redis connection pool."""
+    """Get or create the Redis connection pool (auto-detects Upstash vs local)."""
     global _redis_pool
     if _redis_pool is None:
         try:
             _redis_pool = aioredis.ConnectionPool.from_url(
-                f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}",
+                _REDIS_URL,
                 encoding="utf-8",
                 decode_responses=True,
             )
-            logger.info(f"[STATE] Redis pool created: {REDIS_HOST}:{REDIS_PORT}")
+            logger.info(f"[STATE] Redis pool created ({_BACKEND})")
         except Exception as e:
             logger.error(f"[STATE] Failed to create Redis pool: {e}")
             raise _RedisUnavailable(f"Redis connection failed: {e}") from e
