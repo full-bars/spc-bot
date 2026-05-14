@@ -41,6 +41,7 @@ import socket
 import time
 import uuid
 
+import redis.asyncio as aioredis
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -122,11 +123,15 @@ class FailoverCog(commands.Cog):
         cogs and post duplicates before the first sync_loop tick detected
         another node already held the lease.
         """
-        redis = state_store._redis_pool
         # Manual override wins over env var and over the lease.
         try:
-            manual_bytes = await redis.get("spcbot:manual_primary") if redis else None
-            manual = manual_bytes.decode("utf-8") if isinstance(manual_bytes, bytes) else (str(manual_bytes) if manual_bytes else None)
+            redis = await self._get_redis_client()
+            if redis:
+                manual_bytes = await redis.get("spcbot:manual_primary")
+                await redis.close()
+                manual = manual_bytes.decode("utf-8") if isinstance(manual_bytes, bytes) else (str(manual_bytes) if manual_bytes else None)
+            else:
+                manual = None
         except Exception as e:
             logger.debug(f"[FAILOVER] Failed to read manual override at startup: {e}")
             manual = None
@@ -201,24 +206,35 @@ class FailoverCog(commands.Cog):
 
     # ── Redis Operations ────────────────────────────────────────────────
 
+    async def _get_redis_client(self) -> aioredis.Redis | None:
+        """Get a Redis client from the pool."""
+        try:
+            pool = await state_store._ensure_redis_pool()
+            return aioredis.Redis(connection_pool=pool)
+        except Exception as e:
+            logger.debug(f"[FAILOVER] Redis unavailable: {e}")
+            return None
+
     async def _write_lease(self) -> None:
         """Renew the primary lease in Redis."""
         try:
-            redis = state_store._redis_pool
+            redis = await self._get_redis_client()
             if redis is None:
                 logger.warning("[FAILOVER] Redis pool unavailable, cannot write lease")
                 return
             await redis.set(LEASE_KEY, self._identity, ex=HEARTBEAT_TTL)
+            await redis.close()
         except Exception as e:
             logger.warning(f"[FAILOVER] Failed to write lease: {e}")
 
     async def _read_lease_holder(self) -> str | None:
         """Read who currently holds the primary lease."""
         try:
-            redis = state_store._redis_pool
+            redis = await self._get_redis_client()
             if redis is None:
                 return None
             result = await redis.get(LEASE_KEY)
+            await redis.close()
             return result.decode("utf-8") if isinstance(result, bytes) else (str(result) if result else None)
         except Exception as e:
             logger.warning(f"[FAILOVER] Failed to read lease: {e}")
@@ -229,9 +245,10 @@ class FailoverCog(commands.Cog):
         try:
             holder = await self._read_lease_holder()
             if holder == self._identity:
-                redis = state_store._redis_pool
+                redis = await self._get_redis_client()
                 if redis is not None:
                     await redis.delete(LEASE_KEY)
+                    await redis.close()
                     logger.info("[FAILOVER] Released primary lease on shutdown")
         except Exception as e:
             logger.warning(f"[FAILOVER] Failed to release lease: {e}")
@@ -242,24 +259,23 @@ class FailoverCog(commands.Cog):
     async def sync_loop(self):
         await self.bot.wait_until_ready()
         try:
-            redis = state_store._redis_pool
+            redis = await self._get_redis_client()
             if redis is None:
                 logger.debug("[FAILOVER] Redis pool unavailable, skipping sync cycle")
                 return
 
-            # 1. Update heartbeat registry
             try:
+                # 1. Update heartbeat registry
                 await redis.hset("spcbot:nodes", self._identity, str(int(time.time())))
-            except Exception as e:
-                logger.debug(f"[FAILOVER] Failed to update heartbeat: {e}")
 
-            # 2. Check for manual override
-            try:
-                manual_primary = await redis.get("spcbot:manual_primary")
-                manual_primary = manual_primary.decode("utf-8") if isinstance(manual_primary, bytes) else (str(manual_primary) if manual_primary else None)
+                # 2. Check for manual override
+                manual_primary_bytes = await redis.get("spcbot:manual_primary")
+                manual_primary = manual_primary_bytes.decode("utf-8") if isinstance(manual_primary_bytes, bytes) else (str(manual_primary_bytes) if manual_primary_bytes else None)
             except Exception as e:
-                logger.debug(f"[FAILOVER] Failed to read manual override: {e}")
+                logger.debug(f"[FAILOVER] Sync cycle Redis ops failed: {e}")
                 manual_primary = None
+            finally:
+                await redis.close()
 
             if manual_primary:
                 if self._is_our_node(manual_primary):
@@ -301,11 +317,12 @@ class FailoverCog(commands.Cog):
         # a connectivity gap.  Use SET NX so we only claim the key if it is
         # genuinely absent; if another node holds it, the NX write returns null.
         try:
-            redis = state_store._redis_pool
+            redis = await self._get_redis_client()
             if redis is None:
                 return
             # redis.set returns True if NX succeeded, None/False if key already exists
             result = await redis.set(LEASE_KEY, self._identity, nx=True, ex=HEARTBEAT_TTL)
+            await redis.close()
             if result is None or result is False:
                 # NX write failed: key already held by another node.
                 # Re-read to check and demote if necessary.
@@ -511,7 +528,7 @@ class FailoverCog(commands.Cog):
 
         await interaction.response.defer(ephemeral=True)
 
-        redis = state_store._redis_pool
+        redis = await self._get_redis_client()
         if redis is None:
             await interaction.followup.send(
                 "❌ Redis unavailable.",
@@ -519,65 +536,62 @@ class FailoverCog(commands.Cog):
             )
             return
 
-        # 2. Fetch active nodes from registry
         try:
+            # 2. Fetch active nodes from registry
             nodes_raw = await redis.hgetall("spcbot:nodes")
             if not nodes_raw:
                 await interaction.followup.send(
                     "❌ No active nodes found in the registry.",
                     ephemeral=True
                 )
-                return
-            active_nodes = list(nodes_raw.keys())
+                return redis.close()
+
+            # Filter by age (5 minutes)
+            now = int(time.time())
+            recent_nodes = []
+            for node_id, timestamp_bytes in nodes_raw.items():
+                try:
+                    timestamp = int(timestamp_bytes) if isinstance(timestamp_bytes, int) else int(timestamp_bytes.decode("utf-8"))
+                    if (now - timestamp) < 300:
+                        recent_nodes.append(node_id.decode("utf-8") if isinstance(node_id, bytes) else node_id)
+                except (ValueError, AttributeError):
+                    pass
+
+            if not recent_nodes:
+                await interaction.followup.send(
+                    "❌ No nodes have sent a heartbeat in the last 5 minutes.",
+                    ephemeral=True
+                )
+                return redis.close()
+
+            # 3. Fetch current manual override
+            current_manual_bytes = await redis.get("spcbot:manual_primary")
+            current_manual = current_manual_bytes.decode("utf-8") if isinstance(current_manual_bytes, bytes) else (str(current_manual_bytes) if current_manual_bytes else None)
         except Exception as e:
             logger.exception(f"[FAILOVER] Failed to fetch nodes: {e}")
             await interaction.followup.send(
                 f"❌ Failed to fetch nodes: {e}",
                 ephemeral=True
             )
-            return
+            return redis.close()
 
-        # Filter by age (5 minutes)
-        now = int(time.time())
-        recent_nodes = []
-        for node_id, timestamp_bytes in nodes_raw.items():
-            try:
-                timestamp = int(timestamp_bytes) if isinstance(timestamp_bytes, int) else int(timestamp_bytes.decode("utf-8"))
-                if (now - timestamp) < 300:
-                    recent_nodes.append(node_id.decode("utf-8") if isinstance(node_id, bytes) else node_id)
-            except (ValueError, AttributeError):
-                pass
+            current_lease = await self._read_lease_holder()
 
-        if not recent_nodes:
+            # 4. Present UI
+            view = FailoverView(self, recent_nodes, current_manual, current_lease)
             await interaction.followup.send(
-                "❌ No nodes have sent a heartbeat in the last 5 minutes.",
+                content=(
+                    f"**Failover Management**\n"
+                    f"Current Lease Holder: `{current_lease or 'None'}`\n"
+                    f"Manual Override: `{current_manual or 'None (Automatic)'}`\n\n"
+                    f"Select a node to force it to be Primary, or clear the override "
+                    f"to return to automatic failover."
+                ),
+                view=view,
                 ephemeral=True
             )
-            return
-
-        # 3. Fetch current manual override
-        try:
-            current_manual_bytes = await redis.get("spcbot:manual_primary")
-            current_manual = current_manual_bytes.decode("utf-8") if isinstance(current_manual_bytes, bytes) else (str(current_manual_bytes) if current_manual_bytes else None)
-        except Exception as e:
-            logger.debug(f"[FAILOVER] Failed to fetch manual override: {e}")
-            current_manual = None
-
-        current_lease = await self._read_lease_holder()
-
-        # 4. Present UI
-        view = FailoverView(self, recent_nodes, current_manual, current_lease)
-        await interaction.followup.send(
-            content=(
-                f"**Failover Management**\n"
-                f"Current Lease Holder: `{current_lease or 'None'}`\n"
-                f"Manual Override: `{current_manual or 'None (Automatic)'}`\n\n"
-                f"Select a node to force it to be Primary, or clear the override "
-                f"to return to automatic failover."
-            ),
-            view=view,
-            ephemeral=True
-        )
+        finally:
+            await redis.close()
 
 
 class FailoverView(discord.ui.View):
@@ -628,7 +642,7 @@ class FailoverSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         target = self.values[0]
-        redis = state_store._redis_pool
+        redis = await self.cog._get_redis_client()
 
         if redis is None:
             await interaction.response.edit_message(content="❌ Redis unavailable.", view=None)
@@ -650,6 +664,8 @@ class FailoverSelect(discord.ui.Select):
         except Exception as e:
             logger.exception(f"[FAILOVER] Failed to update override: {e}")
             await interaction.response.edit_message(content=f"❌ Failed: {e}", view=None)
+        finally:
+            await redis.close()
 
 
 async def setup(bot):
