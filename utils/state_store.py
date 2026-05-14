@@ -76,8 +76,8 @@ import os
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-import redis.asyncio as redis
-import redis.exceptions
+import redis.asyncio as aioredis
+import redis.exceptions as redis_exc
 
 from utils import db as sqlite_backend
 
@@ -140,21 +140,21 @@ class _RedisUnavailable(Exception):
 
 
 # Module-level client — created once, never closed per-command.
-_redis_client: Optional[redis.Redis] = None
+_redis_client: Optional[aioredis.Redis] = None
 
 
-def _build_redis_client() -> redis.Redis:
-    pool = redis.ConnectionPool.from_url(
+def _build_redis_client() -> aioredis.Redis:
+    pool = aioredis.ConnectionPool.from_url(
         REDIS_URL,
         socket_timeout=REDIS_TIMEOUT_SECONDS,
         socket_connect_timeout=REDIS_TIMEOUT_SECONDS,
         decode_responses=True,
         max_connections=10,
     )
-    return redis.Redis(connection_pool=pool)
+    return aioredis.Redis(connection_pool=pool)
 
 
-def _get_redis_client() -> redis.Redis:
+def _get_redis_client() -> aioredis.Redis:
     global _redis_client
     if _redis_client is None:
         _redis_client = _build_redis_client()
@@ -178,9 +178,9 @@ async def _redis_cmd(*args: Any) -> Any:
     try:
         return await client.execute_command(cmd_name, *cmd_args)
     except (
-        redis.exceptions.ConnectionError,
-        redis.exceptions.TimeoutError,
-        redis.exceptions.BusyLoadingError,
+        redis_exc.ConnectionError,
+        redis_exc.TimeoutError,
+        redis_exc.BusyLoadingError,
         OSError,
         asyncio.TimeoutError,
     ) as e:
@@ -199,8 +199,8 @@ async def _scan_all_keys(pattern: str) -> List[str]:
             if cursor == 0:
                 break
     except (
-        redis.exceptions.ConnectionError,
-        redis.exceptions.TimeoutError,
+        redis_exc.ConnectionError,
+        redis_exc.TimeoutError,
         OSError,
     ) as e:
         raise _RedisUnavailable(f"Redis SCAN unavailable: {e}") from e
