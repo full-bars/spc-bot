@@ -57,7 +57,7 @@ class TestGenerateHodograph:
         async def raise_timeout(*args, **kwargs):
             raise asyncio.TimeoutError()
 
-        with patch("lib.vad_plotter.vad.vad_plotter", side_effect=raise_timeout), \
+        with patch("cogs.hodograph.vad_plotter", side_effect=raise_timeout), \
              patch("cogs.hodograph.os.makedirs"):
             await generate_hodograph(interaction, "KTLX")
 
@@ -76,7 +76,7 @@ class TestGenerateHodograph:
         async def raise_exception(*args, **kwargs):
             raise Exception("Process failed")
 
-        with patch("lib.vad_plotter.vad.vad_plotter", side_effect=raise_exception), \
+        with patch("cogs.hodograph.vad_plotter", side_effect=raise_exception), \
              patch("cogs.hodograph.os.makedirs"):
             await generate_hodograph(interaction, "KTLX")
 
@@ -94,7 +94,7 @@ class TestGenerateHodograph:
         async def noop(*args, **kwargs):
             return None
 
-        with patch("lib.vad_plotter.vad.vad_plotter", side_effect=noop), \
+        with patch("cogs.hodograph.vad_plotter", side_effect=noop), \
              patch("cogs.hodograph.os.makedirs"), \
              patch("cogs.hodograph.os.path.exists", return_value=False):
             await generate_hodograph(interaction, "KTLX")
