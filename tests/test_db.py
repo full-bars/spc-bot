@@ -6,7 +6,7 @@ the unified state_store interface:
   1. SQL-based pruning queries (MDs, watches, warnings, soundings).
   2. Database integrity checks.
   3. Concurrent write serialization via the internal asyncio Lock.
-  4. Dirty-write queue management (Upstash reconciler storage).
+  4. Dirty-write queue management (Redis reconciler storage).
   5. Significant Events archive (events_db).
 """
 
@@ -55,7 +55,7 @@ async def test_concurrent_writes_serialized(isolated_db):
     assert len(await db.get_posted_mds()) == 50
 
 
-# ── Dirty Writes (Upstash Reconciler Storage) ──────────────────────────────
+# ── Dirty Writes (Redis Reconciler Storage) ──────────────────────────────
 
 async def test_dirty_write_queue_ops(isolated_db):
     await db.add_dirty_write("set_state", ("k", "v"))

@@ -1,10 +1,10 @@
 """Tests for `utils.state_store`.
 
 Three behaviours to pin down:
-  1. Read-through cache serves repeat reads without hitting Upstash.
-  2. Writes double-write to SQLite and Upstash; SQLite is authoritative
-     for durability; Upstash failure does not raise.
-  3. When Upstash is unavailable, reads fall back to SQLite and writes
+  1. Read-through cache serves repeat reads without hitting Redis.
+  2. Writes double-write to SQLite and Redis; SQLite is authoritative
+     for durability; Redis failure does not raise.
+  3. When Redis is unavailable, reads fall back to SQLite and writes
      enqueue for later resync (on startup or promotion).
 """
 
@@ -39,7 +39,7 @@ async def _reset_module_state():
 
 @pytest.fixture
 def upstash_mock(monkeypatch):
-    """Patch _upstash_cmd with a scriptable responder."""
+    """Patch _redis_cmd with a scriptable responder."""
     calls: list = []
 
     async def _default(*args):
@@ -47,7 +47,7 @@ def upstash_mock(monkeypatch):
         return None
 
     mock = AsyncMock(side_effect=_default)
-    monkeypatch.setattr(state_store, "_upstash_cmd", mock)
+    monkeypatch.setattr(state_store, "_redis_cmd", mock)
     mock.calls = calls  # attach for assertions
     return mock
 
@@ -56,7 +56,7 @@ def upstash_mock(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_get_state_cache_hit_skips_upstash(isolated_db, upstash_mock):
-    """Second read in the TTL window must not hit Upstash."""
+    """Second read in the TTL window must not hit Redis."""
     async def _responder(*args):
         if args[0] == "GET":
             return "cached-value"
@@ -73,7 +73,7 @@ async def test_get_state_cache_hit_skips_upstash(isolated_db, upstash_mock):
 
 @pytest.mark.asyncio
 async def test_cache_expires_after_ttl(isolated_db, upstash_mock, monkeypatch):
-    """Once the TTL elapses the next read must go to Upstash again."""
+    """Once the TTL elapses the next read must go to Redis again."""
     async def _responder(*args):
         return "v"
 
@@ -107,7 +107,7 @@ async def test_set_state_is_visible_locally_before_upstash_ack(
     isolated_db, upstash_mock
 ):
     """The caller should see its own write without waiting on a read."""
-    # Slow Upstash: even before it completes, local cache should answer.
+    # Slow Redis: even before it completes, local cache should answer.
     async def _slow(*args):
         await asyncio.sleep(0.1)
 
@@ -131,14 +131,14 @@ async def test_set_state_writes_to_sqlite_for_durability(
     assert await sqlite_backend.get_state("k") == "v"
 
 
-# ── Upstash unavailable ──────────────────────────────────────────────────────
+# ── Redis unavailable ──────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_read_falls_back_to_sqlite_when_upstash_down(isolated_db, monkeypatch):
     async def _raise(*args):
-        raise state_store._UpstashUnavailable("simulated outage")
+        raise state_store._RedisUnavailable("simulated outage")
 
-    monkeypatch.setattr(state_store, "_upstash_cmd", _raise)
+    monkeypatch.setattr(state_store, "_redis_cmd", _raise)
 
     await sqlite_backend.set_state("k", "sqlite-only")
 
@@ -149,11 +149,11 @@ async def test_read_falls_back_to_sqlite_when_upstash_down(isolated_db, monkeypa
 async def test_write_during_outage_enqueues_for_reconcile(
     isolated_db, monkeypatch
 ):
-    """SQLite still ACKs, Upstash raises → dirty queue grows."""
+    """SQLite still ACKs, Redis raises → dirty queue grows."""
     async def _raise(*args):
-        raise state_store._UpstashUnavailable("simulated outage")
+        raise state_store._RedisUnavailable("simulated outage")
 
-    monkeypatch.setattr(state_store, "_upstash_cmd", _raise)
+    monkeypatch.setattr(state_store, "_redis_cmd", _raise)
 
     await state_store.set_state("k", "v")
     dirty = await sqlite_backend.get_dirty_writes()
@@ -283,8 +283,8 @@ async def test_resync_pushes_sqlite_contents_to_upstash(isolated_db, monkeypatch
 
 @pytest.mark.asyncio
 async def test_set_hash_conflict_update(isolated_db, upstash_mock):
-    # Simulate Upstash being down so we test the authoritative SQLite logic
-    async def _fail(*args): raise state_store._UpstashUnavailable("down")
+    # Simulate Redis being down so we test the authoritative SQLite logic
+    async def _fail(*args): raise state_store._RedisUnavailable("down")
     upstash_mock.side_effect = _fail
     
     await state_store.set_hash("https://example.com/a.png", "first", "auto")
@@ -296,7 +296,7 @@ async def test_set_hash_conflict_update(isolated_db, upstash_mock):
 
 @pytest.mark.asyncio
 async def test_set_hashes_batch_and_get(isolated_db, upstash_mock):
-    async def _fail(*args): raise state_store._UpstashUnavailable("down")
+    async def _fail(*args): raise state_store._RedisUnavailable("down")
     upstash_mock.side_effect = _fail
     
     payload = {f"https://x/{i}": f"h{i}" for i in range(5)}

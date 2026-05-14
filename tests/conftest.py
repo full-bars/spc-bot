@@ -36,12 +36,13 @@ os.environ.setdefault("CACHE_DIR", _TEST_CACHE)
 os.environ.setdefault("LOG_FILE", os.path.join(_TEST_CACHE, "spc_bot_test.log"))
 os.environ.setdefault("NWWS_FIREHOSE_LOG", "nwws_firehose_test.log")
 os.environ.setdefault("FAILOVER_TOKEN", "test-failover-token-not-real")
-# Force Upstash credentials to empty so load_dotenv() (called by config.py)
-# cannot override them with real values from .env. Without this, every call
-# to get_cached_md_text / get_product_cache makes a live Upstash network
-# request, burning free-tier quota and hanging the event loop on teardown.
+# Force Redis credentials to empty so load_dotenv() (called by config.py)
+# cannot override them with real values from .env. Without this, tests might
+# make live Redis network requests which could hang the event loop on teardown.
 os.environ.setdefault("UPSTASH_REDIS_REST_URL", "")
 os.environ.setdefault("UPSTASH_REDIS_REST_TOKEN", "")
+os.environ.setdefault("REDIS_HOST", "")
+os.environ.setdefault("REDIS_PORT", "")
 
 
 # ── Autouse fixtures ─────────────────────────────────────────────────────────
