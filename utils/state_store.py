@@ -906,6 +906,24 @@ async def set_validators(url: str, etag: str, last_modified: str) -> None:
     await sqlite_backend.set_validators(url, etag, last_modified)
 
 
+# ── Upstash stats (for /status dashboard) ────────────────────────────────────
+
+async def get_upstash_stats() -> dict:
+    """Return daily command usage and dirty-write queue depth.
+
+    Returns dict with keys: commands_today, budget, soft_quota, dirty_count.
+    Used by /status to surface quota health to the user.
+    """
+    usage = await sqlite_backend.get_upstash_commands_today()
+    dirty = await sqlite_backend.get_dirty_writes()
+    return {
+        "commands_today": usage,
+        "budget": _UPSTASH_DAILY_BUDGET,
+        "soft_quota": _UPSTASH_SOFT_QUOTA,
+        "dirty_count": len(dirty),
+    }
+
+
 # ── Startup resync ───────────────────────────────────────────────────────────
 
 async def resync_to_upstash(force_full: bool = False) -> Dict[str, int]:
