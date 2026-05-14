@@ -2,6 +2,11 @@
 
 SPCBot uses Discord Slash Commands for all user interactions. Commands are organized into logical groups.
 
+## 🌦️ Weather Briefings
+| Command | Description | Parameters |
+|---|---|---|
+| `/wxsummary` | Current weather briefing from Project WxEye. Embed includes briefing text, SPC Day 1 risk, WAI, top state, field activity (chasers/live), and tags — color-coded by tone (active/elevated/light/calm). Updates every 20 min. | None |
+
 ## 📅 Outlooks & Discussions
 | Command | Description | Parameters |
 |---|---|---|
