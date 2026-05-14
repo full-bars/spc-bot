@@ -27,7 +27,7 @@ _LSR_LINE2_RE = re.compile(r"^(\d{2}/\d{2}/\d{4})\s+(.{24})\s+([A-Z]{2})\s+(.*)$
 _LSR_REMARKS_RE = re.compile(r"REMARKS\s*\.\.\.\s*(.*?)(?=\n\s*\n|\$\$|$)", re.I | re.DOTALL)
 _LSR_PK_WND_RE = re.compile(r"PK WND\s+\d{3}(\d{2,3})/?(\d{4})?", re.I)
 
-_PNS_RATING_RE = re.compile(r"Rating:\s*EF(\d|U)", re.I)
+_PNS_RATING_RE = re.compile(r"Rating:\s*EF-?(\d|U)", re.I)
 _PNS_EVENT_RE = re.compile(r"\.\.\.(.*?)\.\.\.")
 _PNS_SUMMARY_RE = re.compile(r"SUMMARY:\s*(.*?)(?=\n\s*\n|\$\$|$)", re.I | re.DOTALL)
 _PNS_TIME_RE = re.compile(r"(\d{1,2}:\d{2}\s+[AP]M\s+[A-Z]{3}.*?202\d)", re.I)
@@ -241,7 +241,7 @@ class ReportsCog(commands.Cog):
 
         # 2. Extract All Ratings and find the Max
         # Strictly match "Rating: EF{N}" to avoid legend matches
-        ratings = re.findall(r"Rating:\s*EF(\d|U)", search_text, re.I)
+        ratings = re.findall(r"Rating:\s*EF-?(\d|U)", search_text, re.I)
         ef_nums = []
         for r in ratings:
             if r.upper() == "U":
