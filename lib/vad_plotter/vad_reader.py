@@ -373,10 +373,13 @@ from botocore.config import Config
 
 async def _list_s3_vad_times(rid: str) -> List[Tuple[str, datetime]]:
     """List recent VAD files from S3 for a site."""
-    rid_upper = rid.upper()
+    # The S3 bucket unidata-nexrad-level3 uses 3-letter ICAO codes (omits leading K/P/T).
+    # e.g. KTLX -> TLX, KICT -> ICT, TDFW -> DFW, PGUM -> GUM.
+    site_id = rid[-3:].upper()
+    
     # The S3 bucket is alphabetical. We'll try the current day first.
     now = datetime.now(timezone.utc)
-    prefix = f"{rid_upper}_NVW_{now.strftime('%Y_%m_%d')}"
+    prefix = f"{site_id}_NVW_{now.strftime('%Y_%m_%d')}"
 
     session = aioboto3.Session()
     try:
@@ -389,10 +392,11 @@ async def _list_s3_vad_times(rid: str) -> List[Tuple[str, datetime]]:
             if "Contents" not in response:
                 # Try yesterday just in case (UTC day rollover)
                 yesterday = now - timedelta(days=1)
-                prefix_y = f"{rid_upper}_NVW_{yesterday.strftime('%Y_%m_%d')}"
+                prefix_y = f"{site_id}_NVW_{yesterday.strftime('%Y_%m_%d')}"
                 response = await s3.list_objects_v2(Bucket=_S3_BUCKET, Prefix=prefix_y)
 
             if "Contents" not in response:
+                logger.debug(f"[VAD] No S3 files found for {rid} with prefix {prefix} or {prefix_y}")
                 return []
 
             results = []
@@ -400,6 +404,9 @@ async def _list_s3_vad_times(rid: str) -> List[Tuple[str, datetime]]:
                 key = obj["Key"]
                 # Key format: SSS_NVW_YYYY_MM_DD_HH_MM_SS
                 try:
+                    # Verify key starts with SSS_NVW to avoid partial matches
+                    if not key.startswith(f"{site_id}_NVW"):
+                        continue
                     ts_str = "_".join(key.split("_")[2:])
                     ts = datetime.strptime(ts_str, "%Y_%m_%d_%H_%M_%S").replace(tzinfo=timezone.utc)
                     results.append((key, ts))

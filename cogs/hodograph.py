@@ -7,7 +7,9 @@ import os
 import discord
 from discord.ext import commands
 
+from lib.vad_plotter.vad import vad_plotter
 from lib.vad_plotter.wsr88d import _radar_info
+from utils.worker_pool import get_hodo_executor
 
 logger = logging.getLogger("spc_bot")
 
@@ -22,9 +24,6 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
     output_path = os.path.join(HODO_OUTPUT_DIR, f"{site.lower()}_hodograph.png")
 
     logger.info(f"[HODO] Generating hodograph for {site} in executor pool")
-
-    from lib.vad_plotter.vad import vad_plotter
-    from utils.worker_pool import get_hodo_executor
 
     try:
         await asyncio.wait_for(
@@ -43,33 +42,45 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
             timeout=60
         )
     except asyncio.TimeoutError:
-        logger.exception(f"[HODO] vad_plotter timed out for {site}")
-        await interaction.followup.send(
-            f"⏱️ Timed out fetching data for `{site}`. The radar may be offline or have no recent VWP data.",
-            ephemeral=True,
-        )
+        logger.warning(f"[HODO] vad_plotter timed out for {site}")
+        try:
+            await interaction.followup.send(
+                f"⏱️ Timed out fetching data for `{site}`. The radar may be offline or have no recent VWP data.",
+                ephemeral=True,
+            )
+        except discord.NotFound:
+            logger.debug(f"[HODO] Could not send timeout message for {site}: Interaction expired")
         return
     except Exception as e:
         logger.error(f"[HODO] vad_plotter failed for {site}: {e}")
-        await interaction.followup.send(
-            f"⚠️ Could not generate hodograph for `{site}`. The radar may not have recent data.",
-            ephemeral=True,
-        )
+        try:
+            await interaction.followup.send(
+                f"⚠️ Could not generate hodograph for `{site}`. The radar may not have recent data.",
+                ephemeral=True,
+            )
+        except discord.NotFound:
+            logger.debug(f"[HODO] Could not send error message for {site}: Interaction expired")
         return
 
     if not os.path.exists(output_path):
         logger.error(f"[HODO] Output file not found after successful run for {site}")
-        await interaction.followup.send(
-            f"⚠️ Hodograph image not generated for `{site}`.",
-            ephemeral=True,
-        )
+        try:
+            await interaction.followup.send(
+                f"⚠️ Hodograph image not generated for `{site}`.",
+                ephemeral=True,
+            )
+        except discord.NotFound:
+            logger.debug(f"[HODO] Could not send file-not-found message for {site}: Interaction expired")
         return
 
     logger.info(f"[HODO] Hodograph generated at {output_path}")
-    await interaction.followup.send(
-        content=f"**{site}** VWP Hodograph",
-        file=discord.File(output_path),
-    )
+    try:
+        await interaction.followup.send(
+            content=f"**{site}** VWP Hodograph",
+            file=discord.File(output_path),
+        )
+    except discord.NotFound:
+        logger.warning(f"[HODO] Failed to send final hodograph for {site}: Interaction expired")
 
 
 class RadarSuggestionView(discord.ui.View):
@@ -86,11 +97,17 @@ class RadarSuggestionView(discord.ui.View):
 
     def _make_callback(self, site: str):
         async def callback(interaction: discord.Interaction):
-            await interaction.response.defer(thinking=True)
-            for item in self.children:
-                item.disabled = True
-            await interaction.message.edit(view=self)
-            await generate_hodograph(interaction, site)
+            try:
+                await interaction.response.defer(thinking=True)
+                for item in self.children:
+                    item.disabled = True
+                # Use edit_original_response instead of message.edit to properly handle deferred interaction
+                await interaction.edit_original_response(view=self)
+                await generate_hodograph(interaction, site)
+            except discord.NotFound:
+                logger.debug(f"[HODO] Suggestion callback failed for {site}: Interaction expired")
+            except Exception as e:
+                logger.exception(f"[HODO] Error in suggestion callback for {site}: {e}")
         return callback
 
 

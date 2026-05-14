@@ -16,8 +16,12 @@ jobs:
         include:
           - platform: linux/amd64
             runner: ubuntu-latest
+            cache-from: type=gha,scope=build-linux/amd64
+            cache-to: type=gha,mode=max,scope=build-linux/amd64
           - platform: linux/arm64
             runner: [self-hosted, Linux, ARM64]
+            cache-from: type=local,src=/var/cache/buildx/spc-bot
+            cache-to: type=local,dest=/var/cache/buildx/spc-bot-new,mode=max
     runs-on: ${{ matrix.runner }}
     permissions:
       packages: write
@@ -48,8 +52,14 @@ jobs:
           context: .
           platforms: ${{ matrix.platform }}
           outputs: type=image,name=ghcr.io/${{ github.repository }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=build-${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=build-${{ matrix.platform }}
+          cache-from: ${{ matrix.cache-from }}
+          cache-to: ${{ matrix.cache-to }}
+
+      - name: Rotate local build cache (ARM64 only)
+        if: matrix.platform == 'linux/arm64'
+        run: |
+          rm -rf /var/cache/buildx/spc-bot
+          mv /var/cache/buildx/spc-bot-new /var/cache/buildx/spc-bot
 
       - name: Export digest
         run: |
