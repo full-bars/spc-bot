@@ -6,4 +6,5 @@ ALL_EXTENSIONS = [
     "cogs.sounding", "cogs.hodograph", "cogs.maintenance", "cogs.analytics",
     "cogs.recorder",
     "cogs.warning_channels",
+    "cogs.wxsummary",
 ]
