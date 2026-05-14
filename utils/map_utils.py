@@ -65,13 +65,13 @@ def render_tornado_track(paths: List[List[Tuple[float, float]]], output_path: st
 
     # Set extent with 30% margin
     margin = 0.3
-    ax.set_extent([min_lon - (lon_span * margin), max_lon + (lon_span * margin),
+    ax.set_extent([min_lon - (lon_span * margin), max_lon + (lon_span * margin),  # type: ignore[attr-defined]
                    min_lat - (lat_span * margin), max_lat + (lat_span * margin)],
                   crs=data_proj)
 
     # 3. Add Tiles and Features
     # Zoom level 11 is a good balance for tornado tracks
-    ax.add_image(request, 11)
+    ax.add_image(request, 11)  # type: ignore[attr-defined,arg-type,call-arg]
 
     # Add County lines (High Detail)
     counties = cfeature.NaturalEarthFeature(
@@ -80,8 +80,8 @@ def render_tornado_track(paths: List[List[Tuple[float, float]]], output_path: st
         scale='10m',
         facecolor='none'
     )
-    ax.add_feature(counties, edgecolor='#555555', linewidth=0.6, linestyle=':')
-    ax.add_feature(cfeature.STATES, edgecolor='black', linewidth=1.0)
+    ax.add_feature(counties, edgecolor='#555555', linewidth=0.6, linestyle=':')  # type: ignore[attr-defined]
+    ax.add_feature(cfeature.STATES, edgecolor='black', linewidth=1.0)  # type: ignore[attr-defined]
 
     # 4. Plot paths
     for path in paths:

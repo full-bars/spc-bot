@@ -1,10 +1,6 @@
 name: Build and Push CI Image
 
 on:
-  schedule:
-    # Build daily (7am Pacific Time / 2pm UTC) to keep deps current
-    # Scheduled for minimal disruption during active coding hours
-    - cron: '2 14 * * *'
   push:
     branches: [main]
     paths:
