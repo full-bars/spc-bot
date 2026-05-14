@@ -38,3 +38,4 @@ This project relies heavily on the incredible data and services provided by the 
 - **Colorado State University (CSU)**: Severe weather machine learning probabilities (CSU-MLP).
 - **Northern Illinois University (NIU)**: Supercell Composite Parameter (SCP) forecast graphics by Victor Gensini.
 - **National Center for Atmospheric Research (NCAR)**: WxNext2 AI convective hazard guidance.
+- **Project WxEye** ([sonde.projectweathereye.org](https://sonde.projectweathereye.org)): Weather briefing and situational awareness data used by the `/wxsummary` command.
