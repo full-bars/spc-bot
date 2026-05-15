@@ -228,18 +228,20 @@ class StatusView(discord.ui.View):
                     age = now - timestamp
                     is_stale = age > stale_threshold
 
+                    # Skip stale entries (process restarts from hours ago)
+                    if is_stale:
+                        continue
+
                     # Parse identity: "P:hostname:uuid" or "S:hostname:uuid"
                     parts = identity.split(":")
                     if len(parts) >= 2:
-                        role = "🔴 PRIMARY" if parts[0] == "P" else "🟡 STANDBY"
+                        role = "🟢 PRIMARY" if parts[0] == "P" else "🟡 STANDBY"
                         hostname = parts[1]
 
-                        # Add alive/stale indicator
-                        status = "✓" if not is_stale else "✗ STALE"
                         is_lease_holder = identity == lease_holder
                         lease_mark = " (holds lease)" if is_lease_holder else ""
 
-                        lines.append(f"{role} `{hostname}` {status}{lease_mark}")
+                        lines.append(f"{role} `{hostname}` ✓{lease_mark}")
                 except (ValueError, IndexError):
                     lines.append(f"`{identity}` *(parse error)*")
 
