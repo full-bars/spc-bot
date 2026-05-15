@@ -20,8 +20,8 @@ jobs:
             cache-to: type=gha,mode=max,scope=build-linux/amd64
           - platform: linux/arm64
             runner: [self-hosted, Linux, ARM64]
-            cache-from: type=local,src=/var/cache/buildx/spc-bot
-            cache-to: type=local,dest=/var/cache/buildx/spc-bot-new,mode=max
+            cache-from: type=local,src=/mnt/storage/actions-runner/.buildx-cache/spc-bot
+            cache-to: type=local,dest=/mnt/storage/actions-runner/.buildx-cache/spc-bot-new,mode=max
     runs-on: ${{ matrix.runner }}
     permissions:
       packages: write
@@ -58,8 +58,8 @@ jobs:
       - name: Rotate local build cache (ARM64 only)
         if: matrix.platform == 'linux/arm64'
         run: |
-          rm -rf /var/cache/buildx/spc-bot
-          mv /var/cache/buildx/spc-bot-new /var/cache/buildx/spc-bot
+          rm -rf /mnt/storage/actions-runner/.buildx-cache/spc-bot
+          mv /mnt/storage/actions-runner/.buildx-cache/spc-bot-new /mnt/storage/actions-runner/.buildx-cache/spc-bot
 
       - name: Export digest
         run: |
