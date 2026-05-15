@@ -7,7 +7,7 @@ SPCBot is designed for flexibility, supporting both containerized and native Lin
 - **Python 3.13+** (matches current production stack).
 - **Discord Bot Token**: Create one at the [Discord Developer Portal](https://discord.com/developers/applications).
 - **Discord Channel IDs**: At minimum, one SPC channel and one model channel.
-- **Upstash Redis** (Optional): Required only for High Availability (Failover).
+- **Redis** (Optional): Required only for High Availability (Failover). A local Redis instance on each node is recommended; no external service is needed.
 - **Syncthing** (Optional): Required for cross-node `events.db` replication.
 
 ## 🐳 Docker Deployment (Recommended)
@@ -60,7 +60,7 @@ Optional production features:
 |---|---|
 | Warning channel split | `WARNINGS_CHANNEL_ID`, `HEALTH_CHANNEL_ID`, `SOUNDING_CHANNEL_ID`, `DEV_CHANNEL_ID` |
 | NWWS-OI fast path | `NWWS_USER`, `NWWS_PASSWORD`, `NWWS_SERVER` |
-| High availability | `IS_PRIMARY`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `ADMIN_USER_ID` |
+| High availability | `IS_PRIMARY`, `ELECTION_REDIS_URL`, `ADMIN_USER_ID` |
 | Events DB sync | `EVENTS_DB_PATH`, `EVENTS_SYNC_DIR`, `SYNCTHING_API_KEY`, `SYNCTHING_FOLDER_ID` |
 | Off-server GIF backups | `RCLONE_REMOTE`, `RCLONE_DEST_DIR` |
 

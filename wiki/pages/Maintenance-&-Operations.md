@@ -46,7 +46,7 @@ Finalized GIFs are uploaded asynchronously after each recording mission. Local f
 
 ### Failover Manual Swap
 If you need to perform maintenance on the Primary node, use `/failover`.
-- The command opens an interactive selector listing active nodes from the Upstash node registry.
+- The command opens an interactive selector listing active nodes from the local Redis node registry.
 - Choosing a node stores a manual primary override for that hostname.
 - Clearing the override returns the pair to automatic lease-based failover.
 
@@ -66,23 +66,14 @@ Symptoms: `/status` shows NWWS disconnected or stale ping/throughput.
 3. Confirm `NWWS_USER`, `NWWS_PASSWORD`, and `NWWS_SERVER` are set correctly.
 4. Keep IEMBot/API polling online as fallback; do not restart both HA nodes at once during active weather.
 
-### Upstash Unavailable
-Symptoms: failover lease warnings, dirty-write reconciliation logs, or standby uncertainty.
+### Redis Unavailable
+Symptoms: failover lease warnings or standby uncertainty in `/logs`.
 
 1. Check `/status` on both nodes and identify which node is posting.
-2. Verify `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
-3. Let SQLite mirror continue local durability; dirty writes are replayed when Upstash returns.
-4. Avoid manual role swaps until the lease store recovers unless the current primary is clearly down.
-
-### Upstash Quota Warning
-Symptom: `/logs` shows `WARNING Upstash daily quota warning: X/10000`.
-
-The bot tracks daily Upstash command usage and enforces a soft quota guard:
-- **At 8,000 commands (80%):** A single `WARNING` is logged. The bot continues using Upstash normally — no action is required unless the server is handling an unusually high alert volume.
-- **At 10,000 commands (hard limit):** The bot raises an internal `_UpstashUnavailable` and automatically falls back to SQLite for all state operations. HA heartbeats continue via SQLite — the node does not crash or stop posting.
-- **Reset:** The counter resets daily at UTC midnight. Normal operation resumes automatically on the next Upstash call after midnight.
-
-If quota exhaustion is a recurring pattern, consider whether a runaway loop or unusual traffic spike is inflating command counts.
+2. Verify `ELECTION_REDIS_URL` points to a reachable Redis instance.
+3. Confirm Redis is running: `systemctl status redis` (or `redis-cli ping`).
+4. SQLite continues local durability while Redis is down — the node will not crash or stop posting.
+5. Avoid manual role swaps unless the current primary is clearly down.
 
 ### Split-Brain Suspicion
 Symptoms: both nodes appear to post or both report `PRIMARY`.
@@ -117,7 +108,7 @@ Symptoms: large `cache/`, slow image/radar commands, or filesystem warnings.
 Symptoms: integrity check failures or startup messages about recreating `bot_state.db`.
 
 1. Preserve the `.corrupted` database file for inspection.
-2. Confirm the replacement DB starts and rehydrates from Upstash where available.
+2. Confirm the replacement DB starts cleanly and that Redis replication is still in sync on standby.
 3. For HA setups, verify `events.db` replication before promoting a standby.
 4. If duplicate posts appear, reconcile posted MD/watch/warning state before resuming automation.
 
@@ -125,7 +116,7 @@ Symptoms: integrity check failures or startup messages about recreating `bot_sta
 
 | Path | Purpose | Backup Priority | Safe to Delete? |
 |---|---|---|---|
-| `cache/bot_state.db` | Operational dedupe and bot state mirror. | Medium; Upstash can rehydrate some state. | No, unless intentionally resetting state. |
+| `cache/bot_state.db` | Operational dedupe and bot state mirror. | Medium; Redis replication keeps standby in sync. | No, unless intentionally resetting state. |
 | `cache/events.db` | Historical confirmed tornado and forensics archive. | High. | No. |
 | `cache/event_archive/` | VAD evolution GIF archive. | High if not backed up remotely. | Only after backup/retention decision. |
 | `cache/vad_recordings/` | Temporary active recording missions. | Low after mission finalization. | Old orphaned dirs are pruned automatically. |
