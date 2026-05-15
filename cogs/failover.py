@@ -395,6 +395,8 @@ class FailoverCog(commands.Cog):
     async def _promote(self) -> None:
         logger.warning("[FAILOVER] !!! PROMOTING TO PRIMARY !!!")
         self.bot.state.is_primary = True
+        # Update identity so the next heartbeat HSET announces us as Primary ("P:").
+        self._identity = _node_identity(True)
 
         from utils.events_db import restore_from_sync, set_syncthing_folder_mode  # noqa: PLC0415
         restore_from_sync()
@@ -485,6 +487,7 @@ class FailoverCog(commands.Cog):
     async def _demote(self) -> None:
         logger.info("[FAILOVER] Demoting to STANDBY")
         self.bot.state.is_primary = False
+        self._identity = _node_identity(False)
         from utils.events_db import set_syncthing_folder_mode  # noqa: PLC0415
         await set_syncthing_folder_mode("receiveonly")
         failed = []

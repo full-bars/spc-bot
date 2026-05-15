@@ -235,11 +235,17 @@ class StatusView(discord.ui.View):
                     # Parse identity: "P:hostname:uuid" or "S:hostname:uuid"
                     parts = identity.split(":")
                     if len(parts) >= 2:
-                        role = "🟢 PRIMARY" if parts[0] == "P" else "🟡 STANDBY"
-                        hostname = parts[1]
-
                         is_lease_holder = identity == lease_holder
                         lease_mark = " (holds lease)" if is_lease_holder else ""
+
+                        if parts[0] == "P":
+                            role = "🟢 PRIMARY"
+                        elif is_lease_holder:
+                            # Standby-configured node that promoted — show as failover primary
+                            role = "🟠 PRIMARY ⚠️ FAILOVER"
+                        else:
+                            role = "🟡 STANDBY"
+                        hostname = parts[1]
 
                         lines.append(f"{role} `{hostname}` ✓{lease_mark}")
                 except (ValueError, IndexError):
@@ -263,8 +269,19 @@ class StatusView(discord.ui.View):
         except Exception:
             pass
 
-        role = "PRIMARY" if self.bot.state.is_primary else "STANDBY"
-        color = discord.Color.green() if self.bot.state.is_primary else discord.Color.gold()
+        import os as _os
+        _configured_primary = _os.getenv("IS_PRIMARY", "true").lower() == "true"
+        _is_failover = self.bot.state.is_primary and not _configured_primary
+
+        if _is_failover:
+            role = "PRIMARY ⚠️ FAILOVER"
+            color = discord.Color.orange()
+        elif self.bot.state.is_primary:
+            role = "PRIMARY"
+            color = discord.Color.green()
+        else:
+            role = "STANDBY"
+            color = discord.Color.gold()
 
         embed = discord.Embed(
             title="🛰️ SPCBot System Status",
