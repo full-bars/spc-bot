@@ -154,10 +154,27 @@ class FailoverCog(commands.Cog):
             self._redis = self._build_redis()
         return self._redis
 
+    async def _cleanup_own_stale_entries(self) -> None:
+        """Remove nodes hash entries for this hostname from prior process instances."""
+        try:
+            client = await self._get_redis()
+            nodes: dict = await client.hgetall(NODES_KEY) or {}
+            my_hostname = socket.gethostname()
+            to_delete = [
+                field for field in nodes
+                if field != self._identity and field.split(":")[1:2] == [my_hostname]
+            ]
+            if to_delete:
+                await client.hdel(NODES_KEY, *to_delete)
+                logger.debug(f"[FAILOVER] Removed {len(to_delete)} stale self-entries from nodes hash")
+        except Exception as e:
+            logger.debug(f"[FAILOVER] Could not clean own stale entries: {e}")
+
     async def cog_load(self):
         _require_failover_token()
         self._cog_load_monotonic = time.monotonic()
         self._redis = self._build_redis()
+        await self._cleanup_own_stale_entries()
         self.sync_loop.start()
 
     async def cog_unload(self):
@@ -397,6 +414,7 @@ class FailoverCog(commands.Cog):
         self.bot.state.is_primary = True
         # Update identity so the next heartbeat HSET announces us as Primary ("P:").
         self._identity = _node_identity(True)
+        await self._cleanup_own_stale_entries()
 
         from utils.events_db import restore_from_sync, set_syncthing_folder_mode  # noqa: PLC0415
         restore_from_sync()
