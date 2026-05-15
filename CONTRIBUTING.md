@@ -164,7 +164,7 @@ scraping the SPC watch index HTML directly.
 
 ### IEMBot Real-Time Feed
 
-`IEMBotCog` polls `weather.im/iembot-json/room/spcchat` every 15 seconds. When a new SEL (watch) or SWOMCD (MD) product appears, the full text is fetched from `mesonet.agron.iastate.edu/api/1/nwstext/{product_id}` and cached via `state_store.set_product_cache` with a 10-minute TTL (written to both Upstash and SQLite). `fetch_watch_details` and `fetch_md_details` check the cache first, so embeds are populated within seconds of issuance — and the Upstash copy means a fresh primary after a failover already has the text. The last-seen seqnum is persisted via `state_store.set_state("iembot_last_seqnum", …)` through the same double-write path.
+`IEMBotCog` polls `weather.im/iembot-json/room/spcchat` every 15 seconds. When a new SEL (watch) or SWOMCD (MD) product appears, the full text is fetched from `mesonet.agron.iastate.edu/api/1/nwstext/{product_id}` and cached via `state_store.set_product_cache` with a 10-minute TTL (written to both Redis and SQLite). `fetch_watch_details` and `fetch_md_details` check the cache first, so embeds are populated within seconds of issuance — and the Redis copy means a fresh primary after a failover already has the text. The last-seen seqnum is persisted via `state_store.set_state("iembot_last_seqnum", …)` through the same double-write path.
 
 ### NWWS-OI (XMPP) Authority
 
@@ -193,7 +193,7 @@ changed (hash-based detection). Uses `MODELS_CHANNEL_ID`.
 2. **Follow-up**: Polls for new scans for the next 90m.
 3. **Rendering**: Uses the shared worker pool to generate animated GIFs.
 4. **Archival**: Peak 0-1km SRH is calculated and saved to `events.db` along with the GIF path.
-5. **Resumption**: Mission state is persisted to Upstash, allowing the bot to survive restarts or failovers during a recording window.
+5. **Resumption**: Mission state is persisted to Redis, allowing the bot to survive restarts or failovers during a recording window.
 
 ### Cache Management
 
@@ -211,7 +211,7 @@ The `/sounding` command geocodes the location, finds nearby RAOB stations that h
 
 ### CSU-MLP and NCAR WxNext2
 
-Both poll once daily around model update time. State is persisted via `state_store` (Upstash + SQLite) so restarts and failovers don't cause duplicate posts.
+Both poll once daily around model update time. State is persisted via `state_store` (Redis + SQLite) so restarts and failovers don't cause duplicate posts.
 
 ---
 
@@ -236,7 +236,7 @@ Tasks are registered with the watchdog in `main.py` after cogs load.
 
 ## Persistence (v5+)
 
-Bot state goes through `utils/state_store.py`, which keeps a short-lived in-process cache, writes first to local SQLite for durability, and uses Upstash Redis as the shared operational store for HA deployments. Upstash failures queue dirty writes for later reconciliation.
+Bot state goes through `utils/state_store.py`, which keeps a short-lived in-process cache, writes first to local SQLite for durability, and uses Redis as the shared operational store for HA deployments. Redis failures queue dirty writes for later reconciliation.
 
 ### Data flow
 
@@ -244,14 +244,14 @@ Bot state goes through `utils/state_store.py`, which keeps a short-lived in-proc
     cogs → state_store → in-process cache (60 s TTL)
                           │
                           ├─→ SQLite mirror (durable local write)
-                          └─→ Upstash Redis (shared HA state, best effort)
+                          └─→ Redis (shared HA state, best effort)
 ```
 
-- **Read**: cache hit → return. Miss → Upstash → populate cache. Upstash unavailable → fall back to SQLite.
-- **Write**: update cache immediately, write SQLite for local durability, then write Upstash best-effort. An Upstash failure enqueues the write on a dirty list; a background reconciler retries every 30 s until it lands.
-- **Startup resync**: on promotion (and optionally on boot) the node pushes anything SQLite has that Upstash is missing. Handles the "Upstash was down when we wrote, then we restarted" edge case.
+- **Read**: cache hit → return. Miss → Redis → populate cache. Redis unavailable → fall back to SQLite.
+- **Write**: update cache immediately, write SQLite for local durability, then write Redis best-effort. A Redis failure enqueues the write on a dirty list; a background reconciler retries every 30 s until it lands.
+- **Startup resync**: on promotion (and optionally on boot) the node pushes anything SQLite has that Redis is missing. Handles the "Redis was down when we wrote, then we restarted" edge case.
 
-### Upstash key schema
+### Redis key schema
 
 All keys are prefixed with `spcbot:` and are centralized in `utils/state_store.py` `_k_*` helpers.
 
@@ -270,11 +270,13 @@ All keys are prefixed with `spcbot:` and are centralized in `utils/state_store.p
 
 Same tables as historical `utils/db.py`: `image_hashes`, `posted_mds`, `posted_watches`, `bot_state`, `posted_urls`, `product_text_cache`. WAL mode, 5-second busy timeout. If the database fails an integrity check on startup it is renamed to `bot_state.db.corrupted` and recreated.
 
-### Free-tier Upstash budget
+### Redis connection
 
-Projected ~8.2 k commands/day across both nodes (primary heartbeat writes, standby heartbeat reads, periodic bulk refreshes, state mutations) against the 10 k/day free-tier ceiling. Hot reads are served from the in-process cache, not billed.
+Configure via `REDIS_URL` (e.g. `redis://localhost:6379/0`) or the individual `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` env vars. A single long-lived async client is shared across all state operations. On standby nodes, `ELECTION_REDIS_URL` points exclusively at the primary's Redis for leader-election traffic so that connection failures to the primary are the failover trigger — not a stale replica TTL.
 
-**Soft-quota guard**: `state_store` tracks the rolling daily Upstash command count. At **8 k/day** a warning is logged; at **10 k/day** the store automatically falls back to SQLite for all reads and writes for the remainder of the UTC day, preventing hard rate-limit errors.
+### Redis command volume
+
+Projected ~8 k commands/day across both nodes (primary heartbeat writes, standby heartbeat reads, periodic bulk refreshes, state mutations). Hot reads are served from the in-process cache and never hit Redis.
 
 ---
 
@@ -352,50 +354,54 @@ rustup component add rustfmt clippy
     - **PyO3 Extensions**: Move CPU-bound image hashing (change detection) to Rust.
     - **Binary Parsing**: Implement a high-speed Rust `nom` parser for NEXRAD/VWP products.
     - **Sidecar Service**: Offload heavy I/O (zipping/downloads) to a compiled Rust binary.
-- **Database Connection Pooling**: Improving SQLite/Upstash throughput.
+- **Database Connection Pooling**: Improving SQLite/Redis throughput.
 
 ---
 
 ## Migrating from an older bot_state.db (pre-v5)
 
-If you have an existing SQLite-only install, one-shot migrate it into Upstash before booting the v5 code:
+If you have an existing SQLite-only install, one-shot migrate it into Redis before booting the v5 code:
 
 ```bash
-# First, a dry-run to print counts without touching Upstash:
-python -m scripts.migrate_sqlite_to_upstash --dry-run
+# First, a dry-run to print counts without writing to Redis:
+python -m scripts.migrate_sqlite_to_redis --dry-run
 
 # Then the real run:
-python -m scripts.migrate_sqlite_to_upstash
+python -m scripts.migrate_sqlite_to_redis
 
-# Use --force to DEL existing Upstash keys before re-seeding (e.g. after a
+# Use --force to DEL existing Redis keys before re-seeding (e.g. after a
 # schema change):
-python -m scripts.migrate_sqlite_to_upstash --force
+python -m scripts.migrate_sqlite_to_redis --force
 ```
 
-The script is idempotent (Redis `SADD`/`HSET` won't duplicate on re-run). It requires `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` in `.env`.
+The script is idempotent (Redis `SADD`/`HSET` won't duplicate on re-run). It requires `REDIS_URL` (or `REDIS_HOST`/`REDIS_PORT`) in `.env`.
 
 ---
 
 ## Failover (v5+)
 
-Two-node primary/standby architecture using Upstash Redis for **both** leader election *and* shared state. As of v5 there is no HTTP state-sync between nodes — they both read/write the same Upstash keys directly.
+Two-node primary/standby architecture using a **self-hosted Redis 7+** instance on the primary node for leader election and shared state. Nodes communicate over **Tailscale** (or any private network with Redis port reachability). There is no HTTP state-sync between nodes.
 
 ### How it works
 
-- **Primary** holds an Upstash lease at `spcbot:primary_url` with `EX HEARTBEAT_TTL` (420 s) and refreshes it every `SYNC_INTERVAL` (30 s). The lease value is a per-process identity (`<role>:<hostname>:<random>`) so a node can recognize whether the lease is still its own.
-- **Standby** reads the lease every sync interval. If the key is **present**, the primary is alive — the standby does nothing. If the key is **missing** for `MAX_FAILURES` consecutive cycles (derived from the TTL — currently 7 failures ≈ 210 s, half the TTL), the standby promotes:
-  1. Invalidates its in-process cache so the first read on every key goes to Upstash.
-  2. Writes its own lease value.
-  3. Rehydrates `bot.state` mirrors from Upstash.
-  4. Calls `state_store.resync_to_upstash()` to push any SQLite-only writes that may have happened during an Upstash outage.
-  5. Loads every cog and syncs the slash-command tree.
+- **Primary** holds a Redis lease at `spcbot:primary_url` with `EX HEARTBEAT_TTL` (420 s) and refreshes it every `SYNC_INTERVAL` (30 s) via a Lua conditional `SET` that only writes if the caller still holds the key (prevents split-brain reclaim). The lease value is a per-process identity (`<role>:<hostname>:<uuid>`) so a node can recognize whether the lease is still its own.
+- **Standby** points `ELECTION_REDIS_URL` at the primary's Redis (via Tailscale). It reads the lease every sync interval. If the primary's Redis is **unreachable** or the lease is **missing** for `MAX_FAILURES` consecutive cycles (currently 7 ≈ 210 s), the standby promotes:
+  1. Updates its identity from `S:` to `P:` prefix and purges its old entry from the nodes hash.
+  2. Issues `REPLICAOF NO ONE` to its local Redis replica via a dedicated local client, detaching it so writes succeed.
+  3. Invalidates its in-process cache so the first read on every key goes to Redis.
+  4. Writes its own lease value.
+  5. Rehydrates `bot.state` mirrors from Redis.
+  6. Calls `state_store.resync_to_redis()` to push any SQLite-only writes queued during the outage.
+  7. Loads every cog and syncs the slash-command tree.
 - **Startup grace**: for the first 120 s after cog load the standby's failure counter does not advance — covers the common case of deploying the standby before the primary has finished its own restart.
 - **Self-demotion**: if the current holder sees a *different* node's identity in the lease, it demotes and unloads its cogs rather than fighting.
 - **Manual override**: `/failover` lists active nodes from `spcbot:nodes` and writes `spcbot:manual_primary` when an authorized operator designates a host. Clearing the override returns the pair to automatic election.
+- **Failover indicator**: `/status` displays an orange **PRIMARY ⚠️ FAILOVER** badge when a standby-configured node is acting as primary, so operators can immediately identify an unplanned promotion.
 
-### What this replaces (historical)
+### Measured failover timing
 
-Older versions (≤ v4) shipped state between the two nodes via an HTTP endpoint exposed through a Cloudflare tunnel (`cloudflared`) and used `/state` and `/sync` handlers plus hydration logic. All of that is gone in v5 — state is in Upstash; nodes talk to the shared store directly, not to each other.
+- **Primary crash → standby fully live**: ~210 s (7 × 30 s heartbeat cycles after clean lease release)
+- **Restore primary**: ~30 s (stop standby → standby releases lease → restart primary → claims lease → restart standby → boots as standby)
 
 ### Required `.env` variables
 
@@ -403,15 +409,18 @@ Older versions (≤ v4) shipped state between the two nodes via an HTTP endpoint
 |---|---|---|
 | `IS_PRIMARY` | `true` | `false` |
 | `FAILOVER_TOKEN` | shared secret | same shared secret |
-| `UPSTASH_REDIS_REST_URL` | your Upstash URL | same |
-| `UPSTASH_REDIS_REST_TOKEN` | your Upstash token | same |
+| `REDIS_URL` | `redis://localhost:6379/0` | `redis://localhost:6379/0` |
+| `ELECTION_REDIS_URL` | *(not set — defaults to `REDIS_URL`)* | `redis://<primary-tailscale-ip>:6379/0` |
 | `ADMIN_USER_ID` | Discord user allowed to use `/failover` | same |
 
-`FAILOVER_TOKEN` is validated at cog load; the cog refuses to start if it's empty or the literal `"changeme"`. This was added after a production incident where the default value meant anyone who discovered the (now-removed) tunnel URL could read full bot state.
+`FAILOVER_TOKEN` is validated at cog load; the cog refuses to start if it's empty or the literal `"changeme"`.
 
-### No `cloudflared` dependency
+### What this replaces (historical)
 
-`deploy.sh` and the Dockerfile used to install cloudflared for the tunnel. Neither does as of v5 — if you're upgrading from an older install, the binary can be removed (`sudo rm /usr/local/bin/cloudflared`) but leaving it installed is harmless.
+- **v4 and earlier**: state shipped via HTTP through a Cloudflare tunnel (`cloudflared`). Gone in v5.
+- **v5.0–v5.25**: used Upstash Redis REST API. Replaced in v5.26 with self-hosted Redis to eliminate external API quota constraints and reduce latency.
+
+If you're upgrading from an Upstash install, remove `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` from your `.env` and set `REDIS_URL` / `ELECTION_REDIS_URL` as above.
 
 ---
 

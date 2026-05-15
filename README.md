@@ -14,7 +14,7 @@ NWWS-OI fast path, IEMBot fallback, NWS API polling, SPC watch alerts with dedup
 
 **Scientific Tools:** Interactive RAOB/ACARS sounding plots (auto-posted near active watches and MDT/HIGH risk areas), VWP hodographs, searchable tornado forensics archive, NEXRAD Level 2 downloader, and IEM-based tornado analytics.
 
-**System:** Real-time `/status` dashboard, owner-only `/taskmgr` and `/logs` monitoring, dual-endpoint watchdog, leader-election failover with Upstash Redis, SQLite durability, optional Syncthing event archive replication, and a Rust hybrid core (Phases 1–8) that accelerates VAD hodograph math, VTEC parsing, XXH3 image hashing, NWWS product ID normalization, haversine distance queries, VAD storm-mode calculations (`shear_mag`, `sr_flow`, `clip_profile`), and batch spatial joins (`find_nearest_stations_batch`, `points_in_polygon_counts`). All Rust paths fall back to pure Python if the extension is unavailable.
+**System:** Real-time `/status` dashboard, owner-only `/taskmgr` and `/logs` monitoring, dual-endpoint watchdog, leader-election failover with self-hosted Redis (via Tailscale), SQLite durability, optional Syncthing event archive replication, and a Rust hybrid core (Phases 1–8) that accelerates VAD hodograph math, VTEC parsing, XXH3 image hashing, NWWS product ID normalization, haversine distance queries, VAD storm-mode calculations (`shear_mag`, `sr_flow`, `clip_profile`), and batch spatial joins (`find_nearest_stations_batch`, `points_in_polygon_counts`). All Rust paths fall back to pure Python if the extension is unavailable.
 
 ## Quick Start
 
@@ -23,7 +23,7 @@ NWWS-OI fast path, IEMBot fallback, NWS API polling, SPC watch alerts with dedup
 - Discord bot token ([Discord Developer Portal](https://discord.com/developers/applications))
 - Discord channel IDs for SPC/model posts
 - A non-default `FAILOVER_TOKEN` (required at startup)
-- (Optional) [Upstash Redis](https://upstash.com/) for high-availability failover and shared operational state
+- Local Redis 7+ for high-availability failover and shared operational state (single-node installs skip this)
 
 ### Docker (Recommended)
 ```bash
@@ -57,9 +57,11 @@ Creates systemd service and bash aliases: `spcon`, `spcoff`, `spcstatus`, `spclo
 ## Optional Features
 
 ### High Availability (Primary/Standby Failover)
-Run two nodes with automatic failover via Upstash Redis. No HTTP tunnel required. Requires:
-- Upstash Redis instance
-- `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `FAILOVER_TOKEN` in `.env` on both nodes
+Run two nodes with automatic failover. No HTTP tunnel required. Leader election is backed by a shared **local Redis 7+** instance on the primary node; nodes communicate over **Tailscale** (or any private network where Redis port 6379 is reachable). Requires:
+- Redis 7+ running on the primary node
+- Tailscale (or equivalent) so the standby can reach the primary's Redis
+- `REDIS_URL=redis://localhost:6379/0` on the primary; `REDIS_URL=redis://localhost:6379/0` on the standby (for local state) plus `ELECTION_REDIS_URL=redis://<primary-tailscale-ip>:6379/0` on the standby (for lease/election traffic)
+- `FAILOVER_TOKEN` (same value on both nodes)
 - `IS_PRIMARY=true` on primary, `IS_PRIMARY=false` on standby
 - `ADMIN_USER_ID` on both nodes if you want to manually designate the primary with `/failover`
 

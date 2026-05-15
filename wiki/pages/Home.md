@@ -31,8 +31,8 @@ Learn how to install SPCBot via Docker or systemd, configure your environment, a
 - **[Slash Command Reference](Slash-Command-Reference)**: Complete command inventory, including experimental analytics commands.
 
 ### Advanced Architecture
-- **[High Availability & Failover](High-Availability-&-Failover)**: Primary/Standby logic and Upstash leases.
-- **[State Persistence Model](State-Persistence-Model)**: Hybrid Upstash Redis + SQLite architecture.
+- **[High Availability & Failover](High-Availability-&-Failover)**: Primary/Standby logic and Redis leader election via Tailscale.
+- **[State Persistence Model](State-Persistence-Model)**: Hybrid Redis + SQLite architecture.
 
 ### Reference
 - **[Maintenance & Operations](Maintenance-&-Operations)**: Monitoring tools and admin commands.

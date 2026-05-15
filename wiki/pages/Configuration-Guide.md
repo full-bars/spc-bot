@@ -35,8 +35,11 @@ SPCBot is configured via a `.env` file in the project root. Below is a comprehen
 | Variable | Description | Default |
 |---|---|---|
 | `IS_PRIMARY` | Set initial role (`true`/`false`). | `true` |
-| `UPSTASH_REDIS_REST_URL` | Your Upstash Redis REST URL. | (empty) |
-| `UPSTASH_REDIS_REST_TOKEN` | Your Upstash Redis REST token. | (empty) |
+| `REDIS_URL` | Redis connection URL. Preferred over individual host/port vars. | `redis://localhost:6379/0` |
+| `REDIS_HOST` | Redis host (alternative to `REDIS_URL`). | `localhost` |
+| `REDIS_PORT` | Redis port (alternative to `REDIS_URL`). | `6379` |
+| `REDIS_DB` | Redis database number (alternative to `REDIS_URL`). | `0` |
+| `ELECTION_REDIS_URL` | **Standby nodes only.** Points the leader-election client at the primary node's Redis (e.g. via Tailscale). Connection failures here trigger promotion. Leave unset on the primary. | (empty — falls back to `REDIS_URL`) |
 | `ADMIN_USER_ID` | Discord user ID authorized to use `/failover`. | `0` |
 
 ## 💾 Persistence & Sync
@@ -67,5 +70,5 @@ SPCBot is configured via a `.env` file in the project root. Below is a comprehen
 |---|---|---|
 | Single node | `DISCORD_TOKEN`, `GUILD_ID`, `SPC_CHANNEL_ID`, `MODELS_CHANNEL_ID`, `FAILOVER_TOKEN` | NWWS credentials for lower-latency text products |
 | Single node with split channels | Single-node variables plus any channel override IDs | `HEALTH_CHANNEL_ID`, `WARNINGS_CHANNEL_ID`, `SOUNDING_CHANNEL_ID`, `DEV_CHANNEL_ID` |
-| High availability | Single-node variables plus Upstash credentials, `ADMIN_USER_ID`, and opposite `IS_PRIMARY` values on each node | Syncthing for `events.db` replication |
+| High availability | Single-node variables plus `REDIS_URL`, `FAILOVER_TOKEN`, `ADMIN_USER_ID`, and opposite `IS_PRIMARY` values on each node; standby also needs `ELECTION_REDIS_URL` pointing at the primary's Redis | Syncthing for `events.db` replication |
 | Tornado forensics archive | Single-node variables plus `RCLONE_REMOTE` and `RCLONE_DEST_DIR` | Syncthing if also running HA |

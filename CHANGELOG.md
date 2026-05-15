@@ -6,6 +6,23 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.27.0] — 2026-05-14
+
+### Fixed
+- **Standby promotion never triggered on primary crash.** After the Upstash → self-hosted Redis migration, the standby pointed its election client at its own local Redis replica. When the primary crashed, the replica kept stale lease data alive until the 420 s TTL expired instead of surfacing a `ConnectionError` — so the failure counter never ticked and promotion was blocked indefinitely. Fix: add `ELECTION_REDIS_URL` env var; standby nodes point this at the primary's Tailscale Redis address so connection failures are the immediate promotion trigger.
+- **`REPLICAOF NO ONE` silently failed on promotion.** `_promote()` issued the command via the election client, which points to the (now-dead) primary's Redis. Fix: use a dedicated `_build_local_redis()` client (always localhost) for this command so the standby's local replica detaches cleanly and write commands succeed immediately.
+- **Node identity never updated after promote/demote.** `self._identity` was set once at init with an `S:` prefix and never changed, so the nodes hash always advertised `STANDBY` for the promoted node regardless of actual role. Fix: update `self._identity` in `_promote()` and `_demote()` so the next heartbeat `HSET` reflects the correct role.
+- **Duplicate node entries after restarts.** Each process restart generated a new UUID, leaving the previous identity key in the nodes hash for up to 90 s. Fix: `_cleanup_own_stale_entries()` purges all prior same-hostname entries on `cog_load` and immediately after `_promote()` updates the identity.
+- **`/status` didn't distinguish failover-promoted nodes.** A promoted standby was styled identically to a normal primary. Fix: `/status` now shows an orange **PRIMARY ⚠️ FAILOVER** embed and the cluster section shows `🟠 PRIMARY ⚠️ FAILOVER` when `IS_PRIMARY=false` but the node is acting as primary.
+
+### Added
+- **`ELECTION_REDIS_URL` env var.** Standby nodes set this to the primary's Redis URL via Tailscale (e.g. `redis://<tailscale-ip>:6379/0`). The failover cog uses this URL exclusively for lease and election traffic; `REDIS_URL` (localhost) continues to serve application state reads from the local replica. Leave unset on the primary (defaults to `REDIS_URL`).
+
+### Documentation
+- Updated `README.md`, `CONTRIBUTING.md`, `PROJECT_STRUCTURE.md`, `.env.example`, and `deploy.sh` to reflect the self-hosted Redis architecture: removed all Upstash references, documented `ELECTION_REDIS_URL`, added `ELECTION_REDIS_URL` prompt to the standby setup flow in `deploy.sh`.
+- Updated all four affected wiki pages (High Availability & Failover, Configuration Guide, State Persistence Model, Home) to describe the Redis + Tailscale setup with the correct environment variable tables and measured failover timing.
+- Renamed `scripts/migrate_sqlite_to_upstash.py` → `scripts/migrate_sqlite_to_redis.py` and rewrote it against the current `state_store` API; the old script called the removed `_upstash_cmd` function and would have crashed on use.
+
 ## [5.26.1] — 2026-05-14
 
 ### Fixed

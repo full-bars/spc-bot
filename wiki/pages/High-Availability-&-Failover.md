@@ -4,10 +4,10 @@ SPCBot supports a robust Active/Standby failover pair to ensure near-100% uptime
 
 ## 🏗️ Architecture
 
-The failover system uses **Upstash Redis** as a distributed lock manager and shared operational state store. No direct network connection or HTTP tunnel is required between the two nodes.
+The failover system uses a **self-hosted Redis 7+** instance on the primary node as a distributed lock manager and shared operational state store. Nodes communicate over **Tailscale** (or any private network with Redis port reachability). No direct HTTP tunnel is required between nodes.
 
-- **Primary Node:** Holds the Upstash lease, runs all polling loops, and posts to Discord.
-- **Standby Node:** Heartbeats to Upstash. If the lease is available or expired, it promotes itself to Primary.
+- **Primary Node:** Holds the Redis lease, runs all polling loops, and posts to Discord.
+- **Standby Node:** Points `ELECTION_REDIS_URL` at the primary's Redis. If the primary's Redis becomes unreachable, or the lease is missing for enough consecutive heartbeat cycles, it promotes itself to Primary.
 
 ## 🧭 Deployment Decision Table
 
@@ -15,68 +15,87 @@ The failover system uses **Upstash Redis** as a distributed lock manager and sha
 |---|---|---|---|
 | Single node | Personal server, development, or low operational complexity. | Discord token and channel IDs. | Simple, but one host outage stops automation. |
 | Single node + NWWS | You want the low-latency text-product fast path without HA. | NWWS-OI credentials. | Better alert latency, still one host. |
-| Primary/Standby | Severe-weather operations where host uptime matters. | Upstash Redis and two bot hosts. | More moving parts, but automated promotion. |
-| Primary/Standby + Syncthing | You need the historical events archive available immediately after promotion. | Upstash Redis, Syncthing, shared folder config. | Best continuity, requires storage sync care. |
+| Primary/Standby | Severe-weather operations where host uptime matters. | Local Redis 7+, Tailscale, and two bot hosts. | More moving parts, but automated promotion. |
+| Primary/Standby + Syncthing | You need the historical events archive available immediately after promotion. | Local Redis, Tailscale, Syncthing, shared folder config. | Best continuity, requires storage sync care. |
 
 ## 🗳️ Leader Election Logic
 
-Every node runs a `sync_loop` that heartbeats to Upstash every 30 seconds:
-1. **Lease Acquisition:** Uses `SET NX EX` to atomically claim the primary lease at `spcbot:primary_url`.
-2. **Extension:** The current primary extends a 420-second lease as long as it remains healthy.
-3. **Standby Promotion:** A standby promotes after the lease is missing for `MAX_FAILURES` cycles, currently 7 cycles, or about 210 seconds after the key disappears.
-4. **Startup Grace:** Newly loaded failover cogs ignore missing-lease failures for 120 seconds to avoid startup flapping.
-5. **Manual Override:** `/failover` can write `spcbot:manual_primary` to designate a hostname until the override is cleared.
+Every node runs a `sync_loop` that heartbeats every 30 seconds:
+
+1. **Node Registration:** Writes `self._identity` (e.g. `P:3cape:ac8e06b3`) with a timestamp into `spcbot:nodes` hash so `/status` can list all live nodes.
+2. **Lease Acquisition:** Uses `SET NX EX` to atomically claim the primary lease at `spcbot:primary_url`.
+3. **Extension:** The current primary conditionally extends a 420-second lease via a Lua script that only writes if the caller still holds the key — prevents a demoted node from accidentally reclaiming after a split-brain.
+4. **Standby Promotion:** A standby promotes after the primary's Redis is unreachable or the lease is missing for `MAX_FAILURES` consecutive cycles (currently 7 × 30 s = **210 seconds**).
+5. **Startup Grace:** Newly loaded failover cogs ignore missing-lease failures for 120 seconds to avoid startup flapping.
+6. **Manual Override:** `/failover` can write `spcbot:manual_primary` to designate a hostname until the override is cleared.
+
+## ⏱️ Measured Failover Timing
+
+| Scenario | Time |
+|---|---|
+| Primary crash → standby fully live as primary | ~210 s (3m 30s) |
+| Restore primary (stop standby → restart primary → restart standby) | ~30 s |
 
 ## 💾 State Synchronization
 
 While the failover manages *who* posts, the state must remain consistent.
-- **Upstash Redis:** Serves as the operational "Source of Truth." All MD/Watch/Warning IDs are double-written to Upstash.
-- **SQLite Mirror:** A local `bot_state.db` provides a durable mirror and handles outage survival if Upstash is unreachable.
+
+- **Redis (primary node):** Serves as the operational source of truth. All MD/Watch/Warning IDs are double-written to Redis and SQLite.
+- **SQLite Mirror:** A local `bot_state.db` provides durable outage survival when Redis is temporarily unreachable.
+- **Dirty Write Reconciler:** If a Redis write fails, the key is queued and retried every 30 s until it lands.
 - **Syncthing:** Replicates the historical `events.db` archive cross-node, ensuring the Standby has the full record if it promotes.
-
-### Upstash Quota Exhaustion
-
-The bot enforces a daily command quota guard against the Upstash free-tier limit (10,000 commands/day):
-
-- **At 8,000 commands:** A one-time `WARNING` is logged (`Upstash daily quota warning: X/10000`). Upstash remains fully active.
-- **At 10,000 commands:** The bot raises `_UpstashUnavailable` and silently falls back to SQLite for all state operations — posting, deduplication, and HA heartbeats all continue via the local mirror. **The node does not crash or demote itself.**
-- **Reset:** The counter resets at UTC midnight. Upstash operations resume automatically on the next call after reset.
-
-Quota exhaustion is operationally transparent: from Discord's perspective the bot continues to post and deduplicate correctly. The only observable effect is that Upstash-sourced cross-node state (e.g., lease renewal) relies on the last synced SQLite snapshot until midnight.
 
 ## ⚙️ Environment Checklist
 
-Set these on both nodes:
+### Both nodes
 
 | Variable | Primary | Standby |
 |---|---|---|
 | `DISCORD_TOKEN` | Same bot token | Same bot token |
 | `GUILD_ID` | Same guild ID | Same guild ID |
 | `SPC_CHANNEL_ID` / `MODELS_CHANNEL_ID` | Same channel IDs | Same channel IDs |
-| `UPSTASH_REDIS_REST_URL` | Same Upstash URL | Same Upstash URL |
-| `UPSTASH_REDIS_REST_TOKEN` | Same Upstash token | Same Upstash token |
 | `FAILOVER_TOKEN` | Same shared secret | Same shared secret |
 | `ADMIN_USER_ID` | Same authorized operator | Same authorized operator |
 | `IS_PRIMARY` | `true` | `false` |
+| `REDIS_URL` | `redis://localhost:6379/0` | `redis://localhost:6379/0` |
+
+### Standby node only
+
+| Variable | Value |
+|---|---|
+| `ELECTION_REDIS_URL` | `redis://<primary-tailscale-ip>:6379/0` |
+
+> **Why two Redis URLs?** The standby's local Redis is a read-only replica of the primary's. `REDIS_URL` (localhost) is used for all application state reads — replicated data is available there. `ELECTION_REDIS_URL` (primary's Tailscale IP) is used exclusively for leader-election writes and lease checks. When the primary goes down, connection errors to `ELECTION_REDIS_URL` are what trigger the failure counter, not a stale replica TTL.
 
 ## 🎮 Manual Intervention
 
 Authorized operators can manage failover using:
 - `/failover`: Opens an interactive selector populated from the active node registry. Selecting a node designates that host as primary; clearing the override returns the pair to automatic election.
-- `/status`: Shows which node is currently primary, its hostname, and IP.
+- `/status`: Shows which node is currently primary, its hostname, and IP. Displays an orange **PRIMARY ⚠️ FAILOVER** badge when a standby-configured node is acting as primary.
 
 ## 🛡️ Standby Behavior
 
 To prevent Discord interaction hijacking and double-posting:
 - Standby nodes suppress all automated polling loops.
-- All cogs are set to "idle" state.
+- All posting cogs are unloaded.
 - `CommandNotFound` errors are swallowed to prevent the Standby from responding to commands intended for the Primary.
+
+## 🔧 Promotion Steps (What the Bot Does)
+
+When a standby promotes:
+1. Updates its node identity from `S:` to `P:` prefix and purges old entries from the nodes hash.
+2. Issues `REPLICAOF NO ONE` to its local Redis replica (via a dedicated localhost client) so writes succeed immediately.
+3. Invalidates the in-process cache.
+4. Writes its own leader lease.
+5. Rehydrates `bot.state` from Redis.
+6. Pushes any SQLite-queued dirty writes to Redis.
+7. Loads all posting cogs and syncs the Discord slash-command tree.
 
 ## ✅ Promotion Verification
 
 After a planned or automatic promotion:
 
-1. `/status` shows exactly one `PRIMARY`.
+1. `/status` shows exactly one `PRIMARY` (orange badge if it was a standby).
 2. The promoted node has loaded posting cogs and background loops.
 3. Syncthing folder mode is `send-only` on the primary and `receive-only` on standby when configured.
 4. New MD/watch/warning posts are deduplicated against already-posted state.

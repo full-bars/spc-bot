@@ -17,7 +17,7 @@ spc-bot/
 ├── scripts/
 │   ├── backfill_dat.py               # DAT enrichment utility for tornado events
 │   ├── benchmark_hashing.py          # Python/Rust image hashing benchmark
-│   ├── migrate_sqlite_to_upstash.py  # One-shot migration of local SQLite into Upstash
+│   ├── migrate_sqlite_to_redis.py    # One-shot migration of local SQLite into Redis
 │   ├── nwws_monitor.py               # Standalone NWWS-OI connection monitor
 │   └── precache_all_photos.py        # DAT photo cache utility
 ├── utils/
@@ -26,10 +26,10 @@ spc-bot/
 │   ├── cache.py             # Download orchestration; conditional-GET poll path (validators persist across restarts)
 │   ├── cache_utils.py       # TTL-based cache eviction with scheduled cleanup tasks (7-day default)
 │   ├── state.py             # BotState — HashStore + PostingLog + TimingTracker sub-stores
-│   ├── state_store.py       # Upstash Redis facade: read-through cache → Upstash → SQLite fallback;
-│   │                        # double-writes both backends, retries failed Upstash writes via a reconciler
+│   ├── state_store.py       # Redis facade: read-through cache → Redis → SQLite fallback;
+│   │                        # double-writes both backends, retries failed Redis writes via a reconciler
 │   ├── events_db.py         # Standalone SQLite archive for confirmed tornadoes and tornado forensics;
-│   │                        # separate from bot_state.db, never synced to Upstash
+│   │                        # separate from bot_state.db, never synced to Redis
 │   ├── spc_urls.py          # SPC outlook URL resolution
 │   ├── spc_outlook.py       # SPC Day 1 categorical polygon (MDT/HIGH) with geodesic buffer
 ├── backoff.py           # Exponential backoff tracker for task loops
@@ -56,7 +56,7 @@ spc-bot/
 │   ├── sounding_utils.py    # Location resolution, IEM fetch (all hours), ACARS fetch, plot generation; disk-caches plots with hash-based dedup
 │   ├── sounding_views.py    # Discord UI: CombinedSoundingView, IEMTimeSelectionView, ACARS views
 │   ├── hodograph.py         # VWP hodograph generation via /hodograph
-│   ├── failover.py          # Leader election via an Upstash lease (no HTTP tunnel — v5+)
+│   ├── failover.py          # Leader election via a self-hosted Redis lease (no HTTP tunnel — v5+)
 │   ├── wxsummary.py         # /wxsummary: Project WxEye live weather briefing embed
 │   ├── status.py            # Bot status and manual slash commands
 │   └── radar/
@@ -140,15 +140,15 @@ Large feature modules are split into focused, reusable components:
 
 ### State Management
 - **In-process cache**: Short TTL read-through cache for hot operational state
-- **Upstash Redis**: Shared operational state and leader-election lease for HA deployments
-- **SQLite (bot_state.db)**: Durable local mirror; writes land here before best-effort Upstash replication
+- **Redis (self-hosted)**: Shared operational state and leader-election lease for HA deployments
+- **SQLite (bot_state.db)**: Durable local mirror; writes land here before best-effort Redis replication
 - **Events DB (events.db)**: Standalone confirmed tornado archive and forensics record; synced cross-node via Syncthing (optional)
 
 ### High Availability
 See [High Availability & Failover](CONTRIBUTING.md#failover) in CONTRIBUTING.md for detailed setup. In brief:
-- Primary node holds Upstash lease, runs all loops
-- Standby heartbeats and promotes if lease expires
-- No HTTP tunnel required; all state in Upstash + SQLite
+- Primary node holds Redis lease, runs all loops
+- Standby points `ELECTION_REDIS_URL` at primary's Redis; promotes after 7 consecutive missed heartbeats (~210 s)
+- No HTTP tunnel required; all state in Redis + SQLite
 
 ### Scheduled Tasks
 - **auto_post_spc** (30s): SPC outlook polling

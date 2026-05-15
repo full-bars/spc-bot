@@ -137,6 +137,14 @@ if ! grep -q "^IS_PRIMARY=" "$ENV_FILE" 2>/dev/null; then
         read -rp  "  Your Discord User ID (for /failover): " _admin_id
         read -rp  "  Is this the Primary node? [Y/n] " _is_primary_input
         [[ "$_is_primary_input" =~ ^[Nn]$ ]] && _is_primary=false || _is_primary=true
+
+        _election_redis_url=""
+        if [[ "$_is_primary" == "false" ]]; then
+            echo ""
+            echo "  Standby nodes need to reach the Primary's Redis for leader election."
+            echo "  Enter the Primary node's Redis URL (e.g. via Tailscale)."
+            read -rp  "  Primary Redis URL (e.g. redis://100.x.x.x:6379/0): " _election_redis_url
+        fi
         echo ""
 
         cat >> "$ENV_FILE" << EOF
@@ -148,6 +156,12 @@ FAILOVER_TOKEN=${_failover_token}
 ADMIN_USER_ID=${_admin_id}
 IS_PRIMARY=${_is_primary}
 EOF
+        if [[ -n "$_election_redis_url" ]]; then
+            cat >> "$ENV_FILE" << EOF
+# Standby: election traffic points at the Primary's Redis (via Tailscale)
+ELECTION_REDIS_URL=${_election_redis_url}
+EOF
+        fi
         info "Failover configuration written to .env."
     else
         info "Skipping failover setup — bot will run as a single node."
