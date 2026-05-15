@@ -264,6 +264,11 @@ class FailoverCog(commands.Cog):
         await self.bot.wait_until_ready()
         try:
             await self._exec("HSET", NODES_KEY, self._identity, str(int(time.time())))
+
+            # Periodically clean up stale entries (every 5 sync cycles = ~2.5 min)
+            if int(time.time()) % (SYNC_INTERVAL * 5) < SYNC_INTERVAL:
+                await self._cleanup_stale_nodes()
+
             manual_primary = await self._exec("GET", MANUAL_KEY)
 
             if manual_primary:
@@ -324,6 +329,29 @@ class FailoverCog(commands.Cog):
         self._primary_failures += 1
         logger.warning(f"[FAILOVER] {reason} (failure {self._primary_failures}/{MAX_FAILURES})")
         return self._primary_failures
+
+    async def _cleanup_stale_nodes(self) -> None:
+        """Remove nodes that haven't heartbeated in over 90 seconds (3 sync cycles + grace)."""
+        try:
+            client = await self._get_redis()
+            nodes: dict = await client.hgetall(NODES_KEY) or {}
+            now = int(time.time())
+            stale_threshold = 90
+
+            stale_count = 0
+            for node_id, ts_str in nodes.items():
+                try:
+                    timestamp = int(float(ts_str))
+                    if now - timestamp > stale_threshold:
+                        await self._exec("HDEL", NODES_KEY, node_id)
+                        stale_count += 1
+                except (ValueError, TypeError):
+                    pass
+
+            if stale_count > 0:
+                logger.debug(f"[FAILOVER] Cleaned up {stale_count} stale node entries")
+        except Exception as e:
+            logger.debug(f"[FAILOVER] Cleanup failed: {e}")
 
     async def _standby_cycle(self) -> None:
         holder = await self._read_lease_holder()
