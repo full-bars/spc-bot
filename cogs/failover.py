@@ -54,6 +54,13 @@ logger = logging.getLogger("spc_bot")
 
 FAILOVER_TOKEN = os.getenv("FAILOVER_TOKEN", "")
 
+# On standby nodes, point this at the PRIMARY node's Redis (via Tailscale).
+# The failover cog uses this URL exclusively for lease/election traffic so that
+# connection failures to the primary's Redis are the promotion trigger — not the
+# stale TTL on a local replica, which would delay failover by up to HEARTBEAT_TTL.
+# If unset, falls back to state_store.REDIS_URL (correct for the primary node).
+ELECTION_REDIS_URL = os.getenv("ELECTION_REDIS_URL", "")
+
 HEARTBEAT_TTL  = 420  # seconds — lease expiry
 SYNC_INTERVAL  = 30   # seconds — heartbeat / check cadence
 
@@ -117,13 +124,28 @@ class FailoverCog(commands.Cog):
         self._redis: aioredis.Redis | None = None
 
     def _build_redis(self) -> aioredis.Redis:
-        redis_url = state_store.REDIS_URL
+        # Use ELECTION_REDIS_URL if set (standby nodes point this at the primary's
+        # Redis so connection errors are the promotion signal), else local Redis.
+        url = ELECTION_REDIS_URL or state_store.REDIS_URL
         pool = aioredis.ConnectionPool.from_url(
-            redis_url,
+            url,
             socket_timeout=5.0,
             socket_connect_timeout=5.0,
             decode_responses=True,
             max_connections=5,
+        )
+        return aioredis.Redis(connection_pool=pool)
+
+    def _build_local_redis(self) -> aioredis.Redis:
+        """Always connects to the local Redis instance.
+        Used for REPLICAOF NO ONE on promotion — the election client may be
+        pointing to the (now-dead) primary, so we need a separate local handle."""
+        pool = aioredis.ConnectionPool.from_url(
+            state_store.REDIS_URL,
+            socket_timeout=5.0,
+            socket_connect_timeout=5.0,
+            decode_responses=True,
+            max_connections=2,
         )
         return aioredis.Redis(connection_pool=pool)
 
@@ -379,13 +401,16 @@ class FailoverCog(commands.Cog):
         await set_syncthing_folder_mode("sendonly")
 
         # If our local Redis is a replica, detach it so writes succeed.
+        # Must use a local Redis client here — the election client may point to
+        # the (now-dead) primary node's Redis, which would be unreachable.
         try:
-            client = await self._get_redis()
-            info = await client.info("replication")
+            local = self._build_local_redis()
+            info = await local.info("replication")
             if info.get("role") == "slave":
                 logger.warning("[FAILOVER] Promoting Redis replica to standalone master (REPLICAOF NO ONE)")
-                await client.execute_command("REPLICAOF", "NO", "ONE")
+                await local.execute_command("REPLICAOF", "NO", "ONE")
                 await asyncio.sleep(0.5)
+            await local.aclose()
         except Exception as e:
             logger.warning(f"[FAILOVER] Could not promote Redis replica: {e}")
 
