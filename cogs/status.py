@@ -206,10 +206,10 @@ class StatusView(discord.ui.View):
     async def _get_cluster_status(self) -> str:
         """Fetch cluster status from Redis (Primary/Standby state)."""
         try:
-            from utils.state_store import get_redis
+            from utils.state_store import _get_redis_client
             import time
 
-            redis = await get_redis()
+            redis = _get_redis_client()
 
             # Get all registered nodes
             nodes_data = await redis.hgetall("spcbot:nodes")
