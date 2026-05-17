@@ -358,7 +358,12 @@ class StatusView(discord.ui.View):
         if gateway_val:
             embed.add_field(name="🌐 Discord Gateway", value=gateway_val, inline=True)
 
-        # Environment
+        # Environment — refresh outlook cache (30-min TTL makes this a no-op
+        # most of the time, but keeps auto-refresh accurate after new issuances)
+        try:
+            await get_high_risk_polygon()
+        except Exception as e:
+            logger.debug(f"Outlook peek failed: {e}")
         risk_label = get_current_risk_display()
         active_high_risk = peek_active_labels()
         env_val = (
