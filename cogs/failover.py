@@ -453,6 +453,17 @@ class FailoverCog(commands.Cog):
             await state_store.resync_to_redis()
         except Exception as e:
             logger.exception(f"[FAILOVER] Resync on promotion failed: {e}")
+            try:
+                from main import send_bot_alert  # noqa: PLC0415
+                await send_bot_alert(
+                    "Failover: promoted with stale Redis state",
+                    f"This node was promoted to Primary but `resync_to_redis()` failed: `{e}`.\n"
+                    "Dirty writes from standby period may not have been replayed. "
+                    "Monitor for duplicate posts or missing dedup entries.",
+                    critical=True,
+                )
+            except Exception as alert_err:
+                logger.warning(f"[FAILOVER] Could not send resync-failure alert: {alert_err}")
 
         for ext in ALL_EXTENSIONS:
             try:
@@ -630,6 +641,9 @@ class FailoverSelect(discord.ui.Select):
 
         if target == "CLEAR":
             await self.cog._exec("DEL", MANUAL_KEY)
+            logger.warning(
+                f"[FAILOVER] Manual override cleared by {interaction.user} ({interaction.user.id})"
+            )
             msg = "✅ Manual override cleared. Returning to automatic failover."
         else:
             # Store just the hostname so the override survives process restarts.
@@ -637,6 +651,10 @@ class FailoverSelect(discord.ui.Select):
             parts = target.split(":")
             hostname = parts[1] if len(parts) >= 2 else target
             await self.cog._exec("SET", MANUAL_KEY, hostname)
+            logger.warning(
+                f"[FAILOVER] Manual override set to '{hostname}' "
+                f"by {interaction.user} ({interaction.user.id})"
+            )
             msg = f"✅ Manual override set: `{hostname}` is now the designated Primary."
 
         await interaction.response.edit_message(content=msg, view=None)
