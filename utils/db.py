@@ -214,18 +214,16 @@ async def _create_tables(db: aiosqlite.Connection):
     """)
 
     # Migrations: add columns if they don't exist
-    try:
-        await db.execute("ALTER TABLE posted_warnings ADD COLUMN area TEXT")
-    except Exception:
-        pass  # already exists
-    try:
-        await db.execute("ALTER TABLE posted_warnings ADD COLUMN tornado_confidence TEXT")
-    except Exception:
-        pass  # already exists
-    try:
-        await db.execute("ALTER TABLE posted_warnings ADD COLUMN tornado_severity TEXT")
-    except Exception:
-        pass  # already exists
+    for col_def in (
+        "ALTER TABLE posted_warnings ADD COLUMN area TEXT",
+        "ALTER TABLE posted_warnings ADD COLUMN tornado_confidence TEXT",
+        "ALTER TABLE posted_warnings ADD COLUMN tornado_severity TEXT",
+    ):
+        try:
+            await db.execute(col_def)
+        except Exception as e:
+            if "duplicate column" not in str(e).lower() and "already exists" not in str(e).lower():
+                logger.error(f"[DB] Migration failed — {col_def!r}: {e}")
 
 
 async def close_db():
