@@ -6,6 +6,29 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.28.0] — 2026-05-18
+
+### Fixed
+- **Sounding dedup race in `post_soundings_for_watch`.** The inner `_check_avail` coroutine checked a pkey against `_posted_watch_soundings` but returned it unclaimed; keys were claimed after the gather completed. A concurrent `monitor_special_soundings` or `monitor_high_risk_soundings` task could claim the same pkey during the gather's yield window, resulting in duplicate sounding posts on high-risk days. Fixed by claiming the in-memory set synchronously inside `_check_avail` before returning. (#390)
+- **Incomplete warning rollback on Discord send failure.** On `channel.send()` raising `Forbidden` or `HTTPException`, `active_warnings[vtec_id]` was not rolled back alongside `posted_product_ids` and `posted_warnings`. The stale entry triggered a spurious expiry notification on the next 30 s poll cycle. (#389)
+- **`posted_product_ids` wiped entire dedup history at 1000 entries.** A blunt `.clear()` at 1000 entries discarded all dedup history, causing previously-posted warnings to be reposted during large multi-day outbreaks. Replaced the plain `set` with `deque(maxlen=1000)` for automatic FIFO eviction. (#389)
+- **Startup hydration crash on corrupted seqnum.** Bare `int()` casts on DB-sourced `iembot_last_seqnum` and `iembot_botstalk_last_seqnum` would raise `ValueError` on any malformed row, aborting the entire startup hydration sequence before the bot connected to Discord. Wrapped in `try/except ValueError` with fallback to 0. (#391)
+- **Watchdog module-level sets grew unbounded across cog reloads.** `_task_alerted`, `_task_seen_running`, and `_task_fail_counts` accumulated stale task names and were never pruned, causing missed alerts after cog name changes. Now pruned to the current live task set each watchdog tick. (#391)
+- **Failover promotion silent on `resync_to_redis()` failure.** If dirty-write resync failed during `_promote()`, the promoted primary silently ran with incomplete dedup state. Now fires a critical bot alert so the operator can monitor for duplicate posts. (#392)
+- **Corrupt VTEC entries silently dropped.** `get_all_posted_warnings()` discarded JSON-decode failures with no log output. Now logs at WARNING so Redis memory errors are visible. (#393)
+- **Resync loop abort gave no count of pending writes.** On `_RedisUnavailable` during `resync_to_redis()`, the loop broke without logging how many writes remained unsynced. Now logs the remaining count before breaking. (#393)
+- **DB migration swallowed all exceptions.** `ALTER TABLE ... ADD COLUMN` caught every exception including real failures. Now only silences "column already exists"; unexpected errors are logged at ERROR. (#393)
+
+### Fixed (Day 1 Outlook)
+- **Auto-refresh showed stale SPC Day 1 risk after new issuance.** The auto-refresh loop called `build_embeds()` which read `max_risk` from the module cache without triggering a fetch, leaving the displayed risk stale until something else refreshed the polygon. Added `get_high_risk_polygon()` call inside `build_embeds()` to match the `/status` slash command path. (#388)
+
+### Changed
+- **CI artifact version alignment.** `upload-artifact` and `download-artifact` in `docker-publish.yml` aligned to `@v8`. (#394)
+
+### Refactored
+- Removed `strict=True` from `zip()` in `cache.py` — lists are guaranteed same-length by construction. (#394)
+- Capped `_RETRY_CACHE` in `http.py` at 16 entries with LRU eviction. (#394)
+
 ## [5.27.0] — 2026-05-14
 
 ### Fixed
