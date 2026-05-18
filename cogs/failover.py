@@ -340,7 +340,9 @@ class FailoverCog(commands.Cog):
         if holder is not None:
             # We hold the lease — renew conditionally.
             renewed = await self._renew_lease()
-            if not renewed:
+            if renewed:
+                self.bot.state.lease_renewals += 1
+            else:
                 # Lost the lease between read and renew — re-check and demote.
                 new_holder = await self._read_lease_holder()
                 if new_holder and new_holder != self._identity:
@@ -421,6 +423,7 @@ class FailoverCog(commands.Cog):
     async def _do_promote(self) -> None:
         logger.warning("[FAILOVER] !!! PROMOTING TO PRIMARY !!!")
         self.bot.state.is_primary = True
+        self.bot.state.failover_count += 1
         # Update identity so the next heartbeat HSET announces us as Primary ("P:").
         self._identity = _node_identity(True)
         await self._cleanup_own_stale_entries()
@@ -474,12 +477,25 @@ class FailoverCog(commands.Cog):
             except Exception as alert_err:
                 logger.warning(f"[FAILOVER] Could not send resync-failure alert: {alert_err}")
 
+        # ── Extension Loading (Transactional) ───────────────────────────────
+        loaded_exts = []
         for ext in ALL_EXTENSIONS:
             try:
                 await self.bot.load_extension(ext)
+                loaded_exts.append(ext)
                 logger.info(f"[FAILOVER] Loaded {ext}")
             except Exception as e:
-                logger.exception(f"[FAILOVER] Failed to load {ext}: {e}")
+                logger.exception(f"[FAILOVER] Failed to load {ext}: {e} - Rolling back promotion.")
+                # Rollback: unload what we just loaded
+                for loaded in reversed(loaded_exts):
+                    try:
+                        await self.bot.unload_extension(loaded)
+                    except Exception as rollback_err:
+                        logger.error(f"[FAILOVER] Rollback failure on {loaded}: {rollback_err}")
+                
+                # Signal demotion and exit
+                await self._demote()
+                return
 
         nwws = self.bot.get_cog("NWWSCog")
         if nwws:
@@ -498,6 +514,9 @@ class FailoverCog(commands.Cog):
         st.posted_mds = await state_store.get_posted_mds()
         st.posted_watches = await state_store.get_posted_watches()
         st.posted_reports = await state_store.get_posted_reports()
+        st.posted_product_ids.extend(await state_store.get_posted_product_ids())
+        st.posted_soundings = await state_store.get_posted_soundings()
+        st.sounding_handled_watches = await state_store.get_sounding_handled_watches()
 
         last_seq = await state_store.get_state("iembot_last_seqnum")
         if isinstance(last_seq, str) and last_seq.isdigit():

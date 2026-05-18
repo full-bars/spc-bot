@@ -19,7 +19,7 @@ from utils.cache import (
 )
 from utils.change_detection import get_cache_path_for_url
 from utils.http import http_get_bytes, http_get_text, http_head_meta
-from utils.state_store import add_posted_md, get_state, prune_posted_mds, set_state
+from utils.state_store import get_state, set_state
 
 logger = logging.getLogger("spc_bot.mesoscale")
 
@@ -628,7 +628,7 @@ class MesoscaleCog(commands.Cog):
         try:
             msg = await channel.send(embeds=[img_embed, text_embed], files=files)
             self.bot.state.active_mds.add(md_num)
-            await add_posted_md(str(md_num))
+            await self.bot.state.add_posted_md(str(md_num))
             self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
             if not cache_path or not full_text:
                 t = asyncio.create_task(self._upgrade_md_message(md_num, msg, full_text))
@@ -762,9 +762,7 @@ class MesoscaleCog(commands.Cog):
                     # Track in active_mds after a successful post regardless of source —
                     # we genuinely just announced this MD and need to cancel it later.
                     self.bot.state.active_mds.add(md_num)
-                    self.bot.state.posted_mds.add(md_num)
-                    await add_posted_md(str(md_num))
-                    await prune_posted_mds()
+                    await self.bot.state.add_posted_md(str(md_num))
                     self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
                     logger.info(f"Posted MD #{md_num}")
                 except Exception as e:

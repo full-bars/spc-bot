@@ -5,6 +5,7 @@ and the watch-triggered sounding auto-post.
 """
 
 import asyncio
+from collections import deque
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -114,6 +115,13 @@ class TestPostSoundingsForWatch:
         bot = MagicMock()
         bot.state = MagicMock()
         bot.state.active_watches = {}
+        bot.state.posted_soundings = set()
+        bot.state.sounding_handled_watches = set()
+        bot.state.posted_product_ids = deque(maxlen=1000)
+        bot.state.add_posted_watch = AsyncMock()
+        bot.state.add_posted_sounding = AsyncMock()
+        bot.state.add_sounding_handled_watch = AsyncMock()
+        bot.state.add_posted_product_id = AsyncMock()
         # Use a real dict for cogs so .get() works normally
         bot.cogs = {}
         return bot
@@ -126,8 +134,8 @@ class TestPostSoundingsForWatch:
         bot = self._make_bot()
         cog = SoundingCog.__new__(SoundingCog)
         cog.bot = bot
-        cog._posted_watch_soundings = set()
-        cog._handled_watches = set()
+        cog.bot.state.posted_soundings = set()
+        cog.bot.state.sounding_handled_watches = set()
         cog._restore_attempted = True
 
         channel = AsyncMock()
@@ -144,8 +152,8 @@ class TestPostSoundingsForWatch:
         bot = self._make_bot()
         cog = SoundingCog.__new__(SoundingCog)
         cog.bot = bot
-        cog._posted_watch_soundings = set()
-        cog._handled_watches = set()
+        cog.bot.state.posted_soundings = set()
+        cog.bot.state.sounding_handled_watches = set()
         cog._restore_attempted = True
 
         channel = AsyncMock()
@@ -179,9 +187,7 @@ class TestPostSoundingsForWatch:
 
         with patch("cogs.watches.fetch_active_watches_nws", new=AsyncMock(return_value=nws_result)), \
              patch("cogs.watches.fetch_watch_details", new=AsyncMock(return_value=(None, None, None))), \
-             patch("cogs.watches.download_single_image", new=AsyncMock(return_value=(None, False, None))), \
-             patch("cogs.watches.add_posted_watch", new=AsyncMock()), \
-             patch("cogs.watches.prune_posted_watches", new=AsyncMock()):
+             patch("cogs.watches.download_single_image", new=AsyncMock(return_value=(None, False, None))):
 
             cog = WatchesCog(bot)
             cog.auto_post_watches.cancel()
@@ -211,10 +217,12 @@ class TestSoundingDedupAcrossWatches:
         from cogs.sounding import SoundingCog
         bot = MagicMock()
         bot.state = MagicMock()
+        bot.state.posted_soundings = set()
+        bot.state.sounding_handled_watches = set()
+        bot.state.add_posted_sounding = AsyncMock()
+        bot.state.add_sounding_handled_watch = AsyncMock()
         cog = SoundingCog.__new__(SoundingCog)
         cog.bot = bot
-        cog._posted_watch_soundings = set()
-        cog._handled_watches = set()
         cog._restore_attempted = True
         return cog
 
@@ -225,12 +233,12 @@ class TestSoundingDedupAcrossWatches:
 
         # Watch #0134 (TOR) processes KOAX first
         key_a = f"raob:KOAX:{time_key}"
-        assert key_a not in cog._posted_watch_soundings
-        cog._posted_watch_soundings.add(key_a)
+        assert key_a not in cog.bot.state.posted_soundings
+        cog.bot.state.posted_soundings.add(key_a)
 
         # Watch #0135 (SVR) in an overlapping region finds KOAX too
         key_b = f"raob:KOAX:{time_key}"
-        assert key_b in cog._posted_watch_soundings, (
+        assert key_b in cog.bot.state.posted_soundings, (
             "RAOB dedup key must NOT include watch_num — otherwise we re-post "
             "the same sounding once per active watch."
         )
@@ -241,10 +249,10 @@ class TestSoundingDedupAcrossWatches:
         time_key = "20260423_20z"
 
         key_a = f"acars:OMA:{time_key}"
-        cog._posted_watch_soundings.add(key_a)
+        cog.bot.state.posted_soundings.add(key_a)
 
         key_b = f"acars:OMA:{time_key}"
-        assert key_b in cog._posted_watch_soundings
+        assert key_b in cog.bot.state.posted_soundings
 
     @pytest.mark.asyncio
     async def test_cog_load_restores_todays_keys(self, monkeypatch):
