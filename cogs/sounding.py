@@ -698,14 +698,17 @@ class SoundingCog(commands.Cog):
             pkey = f"raob:{sid}:{tkey}"
             if pkey in self._posted_watch_soundings:
                 return None
+            # Claim synchronously before returning so a concurrent task that runs
+            # during the gather's yield points cannot grab the same key.
+            self._posted_watch_soundings.add(pkey)
             return station, sid, y, mo, d, h, tkey, pkey
 
         avail_results = await asyncio.gather(*[_check_avail(s) for s in verified[:3]])
         to_fetch = [r for r in avail_results if r]
 
-        # Claim post keys before launching parallel fetches to prevent double-posts.
+        # Persist keys already claimed in-memory by _check_avail.
         for *_, pkey in to_fetch:
-            await self._mark_sounding_posted(pkey)
+            await add_posted_sounding(pkey)
 
         # ── Phase 1: fetch all sounding data concurrently ─────────────────
         async def _fetch_raob(station, sid, y, mo, d, h, tkey, pkey):
