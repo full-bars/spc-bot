@@ -22,9 +22,10 @@ new code can take an explicit dependency on the component it needs
 rather than on the whole coordinator.
 """
 
+import json
 import logging
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set
 
 
@@ -70,6 +71,8 @@ class PostingLog:
         "active_warnings",
         "posted_reports",
         "posted_product_ids",
+        "posted_soundings",
+        "sounding_handled_watches",
     )
 
     def __init__(self):
@@ -85,6 +88,8 @@ class PostingLog:
         self.active_warnings: Dict[str, dict] = {}
         self.posted_reports: Set[str] = set()
         self.posted_product_ids: deque = deque(maxlen=1000)
+        self.posted_soundings: Set[str] = set()
+        self.sounding_handled_watches: Set[str] = set()
 
 
 class TimingTracker:
@@ -140,6 +145,11 @@ class BotState:
         self.iembot_botstalk_last_seqnum: int = 0
         self.bot_start_time: Optional[datetime] = None
 
+        # Failover & Sync Stats
+        self.failover_count: int = 0
+        self.lease_renewals: int = 0
+        self.sync_failures: int = 0
+
         # Latency tracking (seconds)
         self.iembot_latency: Optional[float] = None
         self.http_latency: Optional[float] = None
@@ -170,6 +180,67 @@ class BotState:
         else:
             self.http_latency = latency
 
+    # ── State Update Methods (Encapsulation) ───────────────────────────────
+
+    async def add_posted_md(self, md_number: str) -> None:
+        from utils import state_store
+        self.posted_mds.add(md_number)
+        await state_store.add_posted_md(md_number)
+
+    async def add_posted_watch(self, watch_number: str) -> None:
+        from utils import state_store
+        self.posted_watches.add(watch_number)
+        await state_store.add_posted_watch(watch_number)
+
+    async def add_posted_report(self, product_id: str) -> None:
+        from utils import state_store
+        self.posted_reports.add(product_id)
+        await state_store.add_posted_report(product_id)
+
+    async def add_posted_product_id(self, product_id: str) -> None:
+        from utils import state_store
+        # posted_product_ids is a deque(maxlen=1000)
+        if product_id not in self.posted_product_ids:
+            self.posted_product_ids.append(product_id)
+            await state_store.add_posted_product_id(product_id)
+
+    async def add_posted_warning(
+        self,
+        vtec_id: str,
+        message_id: int,
+        channel_id: int,
+        posted_at: float = 0.0,
+        area: str = "",
+        tornado_confidence: Optional[str] = None,
+        tornado_severity: Optional[str] = None,
+    ) -> None:
+        from utils import state_store
+        self.posted_warnings[vtec_id] = {
+            "message_id": message_id,
+            "channel_id": channel_id,
+            "area": area,
+        }
+        await state_store.add_posted_warning(
+            vtec_id, message_id, channel_id, posted_at, area, tornado_confidence, tornado_severity
+        )
+
+    async def add_posted_sounding(self, pkey: str) -> None:
+        from utils import state_store
+        self.posted_soundings.add(pkey)
+        await state_store.add_posted_sounding(pkey)
+
+    async def add_sounding_handled_watch(self, watch_number: str) -> None:
+        from utils import state_store
+        self.sounding_handled_watches.add(watch_number)
+        await state_store.add_sounding_handled_watch(watch_number)
+
+    async def add_csu_posted(self, day: str) -> None:
+        from utils import state_store
+        self.csu_posted.add(str(day))
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        value = json.dumps({"date": today, "days": sorted(list(self.csu_posted))})
+        await state_store.set_state("csu_mlp_posted", value)
+
     # ── Legacy attribute surface (delegated) ────────────────────────────────
     auto_cache = _delegate("hashes", "auto_cache")
     manual_cache = _delegate("hashes", "manual_cache")
@@ -184,6 +255,8 @@ class BotState:
     active_warnings = _delegate("posting", "active_warnings")
     posted_reports = _delegate("posting", "posted_reports")
     posted_product_ids = _delegate("posting", "posted_product_ids")
+    posted_soundings = _delegate("posting", "posted_soundings")
+    sounding_handled_watches = _delegate("posting", "sounding_handled_watches")
 
     last_post_times = _delegate("timing", "last_post_times")
     last_posted_urls = _delegate("timing", "last_posted_urls")
@@ -194,29 +267,30 @@ class BotState:
         endpoint). Shape is stable — the failover protocol depends on it."""
         return {
             "iembot_last_seqnum": self.iembot_last_seqnum,
-            "auto_cache": self.auto_cache,
-            "manual_cache": self.manual_cache,
+            "auto_cache": self.auto_cache.copy(),
+            "manual_cache": self.manual_cache.copy(),
             "posted_mds": list(self.posted_mds),
             "posted_watches": list(self.posted_watches),
-            "posted_warnings": self.posted_warnings,
+            "posted_warnings": self.posted_warnings.copy(),
             "posted_reports": list(self.posted_reports),
             "posted_product_ids": list(self.posted_product_ids),
+            "posted_soundings": list(self.posted_soundings),
+            "sounding_handled_watches": list(self.sounding_handled_watches),
             "csu_posted": list(self.csu_posted),
             "active_mds": list(self.active_mds),
             "active_warnings": list(self.active_warnings.keys()),
             "active_watches": {
-
                 k: {
                     "type": v.get("type"),
                     "expires": v["expires"].isoformat() if v.get("expires") else None,
                     "affected_zones": v.get("affected_zones", []),
                 }
-                for k, v in self.active_watches.items()
+                for k, v in self.active_watches.copy().items()
                 if isinstance(v, dict)
             },
-            "last_posted_urls": self.last_posted_urls,
+            "last_posted_urls": self.last_posted_urls.copy(),
             "last_post_times": {
                 k: v.isoformat() if v else None
-                for k, v in self.last_post_times.items()
+                for k, v in self.last_post_times.copy().items()
             },
         }

@@ -20,6 +20,9 @@ def _make_cog(posted_reports=None):
     cog.bot.wait_until_ready = AsyncMock()
     cog.bot.state.is_primary = True
     cog.bot.state.posted_reports = set(posted_reports or [])
+    cog.bot.state.add_posted_report = AsyncMock()
+    cog.bot.state.add_posted_survey = AsyncMock()
+    cog.bot.state.add_significant_event = AsyncMock()
     cog.posted_surveys = set()
     cog._surveys_loaded = True  # skip DB load in tests
     channel = AsyncMock()
@@ -218,14 +221,17 @@ async def test_handle_pns_posts_and_records():
     """Valid damage survey PNS is posted and added to posted_reports."""
     cog, channel = _make_cog()
 
-    with patch("cogs.reports.add_posted_report", AsyncMock()), \
-         patch("cogs.reports.prune_posted_reports", AsyncMock()), \
-         patch("cogs.reports.add_significant_event", AsyncMock()), \
+    async def _mock_add_report(pid):
+        cog.bot.state.posted_reports.add(pid)
+    cog.bot.state.add_posted_report = AsyncMock(side_effect=_mock_add_report)
+
+    with patch("cogs.reports.add_significant_event", AsyncMock()), \
          patch("utils.state_store.find_matching_tornado", AsyncMock(return_value=None)), \
          patch.object(cog, "_check_for_surveys", AsyncMock()):
         await cog._handle_pns("202604292200-KOUN-PNSOUN", SAMPLE_PNS)
 
     channel.send.assert_called_once()
+    cog.bot.state.add_posted_report.assert_called_with("202604292200-KOUN-PNSOUN")
     assert "202604292200-KOUN-PNSOUN" in cog.bot.state.posted_reports
 
 
@@ -249,9 +255,7 @@ Estimated Peak Wind: 65 mph
 SUMMARY: Three tornadoes confirmed near Example City OK.
 $$
 """
-    with patch("cogs.reports.add_posted_report", AsyncMock()), \
-         patch("cogs.reports.prune_posted_reports", AsyncMock()), \
-         patch("cogs.reports.add_significant_event", AsyncMock()), \
+    with patch("cogs.reports.add_significant_event", AsyncMock()), \
          patch("utils.state_store.find_matching_tornado", AsyncMock(return_value=None)), \
          patch.object(cog, "_check_for_surveys", AsyncMock()):
         await cog._handle_pns("202604292200-KOUN-PNSOUN", multi_pns)
@@ -267,9 +271,7 @@ async def test_handle_pns_parses_numerical_date_for_survey_check():
 
     mock_check = AsyncMock()
 
-    with patch("cogs.reports.add_posted_report", AsyncMock()), \
-         patch("cogs.reports.prune_posted_reports", AsyncMock()), \
-         patch("cogs.reports.add_significant_event", AsyncMock()), \
+    with patch("cogs.reports.add_significant_event", AsyncMock()), \
          patch("utils.state_store.find_matching_tornado", AsyncMock(return_value=None)), \
          patch.object(cog, "_check_for_surveys", mock_check):
         await cog._handle_pns("202604292200-KOUN-PNSOUN", SAMPLE_PNS)
@@ -300,14 +302,16 @@ async def test_check_for_surveys_posts_track_embed():
             {"id": "datglobalid", "options": {"{GUID-XYZ}": "OUN EF2 Chickasha"}}
         ]
     }
+    cog.bot.state.add_posted_survey = AsyncMock()
+    
     with patch("cogs.reports.http_get_bytes",
                AsyncMock(return_value=(json.dumps(meta).encode(), 200))), \
-         patch("cogs.reports.add_posted_survey", AsyncMock()), \
-         patch("cogs.reports.prune_posted_surveys", AsyncMock()), \
-         patch("utils.events_db.link_dat_guid_to_tornado", AsyncMock()):
-        await cog._check_for_surveys("2026-04-29")
+         patch("utils.events_db.link_dat_guid_to_tornado", AsyncMock(return_value=("E1", "L1", "M1", "C1"))):
+         await cog._check_for_surveys("2026-04-29")
 
-    channel.send.assert_called_once()
+         channel.send.assert_called_once()
+         cog.bot.state.add_posted_survey.assert_called_with("{GUID-XYZ}")
+
     embed: discord.Embed = channel.send.call_args.kwargs["embed"]
     assert "{GUID-XYZ}" in embed.image.url
 
@@ -363,6 +367,7 @@ async def test_check_for_surveys_falls_back_to_local_render():
             {"id": "datglobalid", "options": {"{GUID-LOCAL}": "OUN EF2 Test"}}
         ]
     }
+    cog.bot.state.add_posted_survey = AsyncMock()
     
     # IEM meta call succeeds (200), but IEM image call fails (404)
     with patch("cogs.reports.http_get_bytes", side_effect=[
@@ -373,13 +378,13 @@ async def test_check_for_surveys_falls_back_to_local_render():
     patch("utils.map_utils.render_tornado_track", MagicMock()), \
     patch("os.path.exists", return_value=True), \
     patch("discord.File", return_value=MagicMock(spec=discord.File, filename="track_{GUID-LOCAL}.png")), \
-    patch("cogs.reports.add_posted_survey", AsyncMock()), \
-    patch("cogs.reports.prune_posted_surveys", AsyncMock()), \
-    patch("utils.events_db.link_dat_guid_to_tornado", AsyncMock()):
+    patch("utils.events_db.link_dat_guid_to_tornado", AsyncMock(return_value=("E2", "L2", "M2", "C2"))):
 
         await cog._check_for_surveys("2026-04-29")
 
     channel.send.assert_called_once()
+    cog.bot.state.add_posted_survey.assert_called_with("{GUID-LOCAL}")
+
     kwargs = channel.send.call_args.kwargs
     embed = kwargs["embed"]
     assert "Local DAT Render" in embed.footer.text

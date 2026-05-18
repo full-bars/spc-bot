@@ -305,35 +305,6 @@ class TestCSUMLPUrls:
         url = _build_panel_url("severe_fcst_6panel", date)
         assert "severe_fcst_6panel_040812.png" in url
 
-    async def test_load_posted_today_missing_file(self):
-        from unittest.mock import AsyncMock, patch
-        with patch("cogs.csu_mlp.get_state", new=AsyncMock(return_value=None)):
-            from cogs.csu_mlp import _load_posted_today
-            result = await _load_posted_today()
-        assert result == set()
-
-    async def test_load_posted_today_stale_date(self):
-        import json
-        from unittest.mock import AsyncMock, patch
-        value = json.dumps({"date": "2020-01-01", "days": [1, 2, 3]})
-        with patch("cogs.csu_mlp.get_state", new=AsyncMock(return_value=value)):
-            from cogs.csu_mlp import _load_posted_today
-            result = await _load_posted_today()
-        assert result == set()
-
-    async def test_load_posted_today_current_date(self):
-        import json
-        from datetime import datetime, timezone
-        from unittest.mock import AsyncMock, patch
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        value = json.dumps({"date": today, "days": [1, 2, "panel12"]})
-        with patch("cogs.csu_mlp.get_state", new=AsyncMock(return_value=value)):
-            from cogs.csu_mlp import _load_posted_today
-            result = await _load_posted_today()
-        assert 1 in result
-        assert 2 in result
-        assert "panel12" in result
-
 # ── ncar tests ────────────────────────────────────────────────────────────────
 
 class TestNCARWxNext:

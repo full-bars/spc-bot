@@ -25,10 +25,6 @@ from utils.cache import (
 )
 from utils.change_detection import get_cache_path_for_url, is_placeholder_image
 from utils.http import http_get_bytes
-from utils.state_store import (
-    add_posted_watch,
-    prune_posted_watches,
-)
 
 logger = logging.getLogger("spc_bot")
 
@@ -374,9 +370,7 @@ class WatchesCog(commands.Cog):
             # populate it with real expiry/zone data on the next cycle.
             # Adding partial nws_info now causes false cancellations when
             # the NWS API hasn't indexed the watch yet.
-            self.bot.state.posted_watches.add(watch_num)
-            await add_posted_watch(str(watch_num))
-            await prune_posted_watches()
+            await self.bot.state.add_posted_watch(str(watch_num))
             self.bot.state.last_post_times["watch"] = now_utc
             logger.info(f"iembot-triggered: posted watch #{watch_num}")
             sounding_cog = self.bot.cogs.get("SoundingCog")
@@ -522,9 +516,7 @@ class WatchesCog(commands.Cog):
                 try:
                     files = _watch_files(watch_num, cache_path)
                     message = await channel.send(embed=embed, files=files)
-                    self.bot.state.posted_watches.add(watch_num)
-                    await add_posted_watch(str(watch_num))
-                    await prune_posted_watches()
+                    await self.bot.state.add_posted_watch(str(watch_num))
                     self.bot.state.last_post_times["watch"] = datetime.now(timezone.utc)
                     logger.info(f"Posted watch #{watch_num}")
                     sounding_cog = self.bot.cogs.get("SoundingCog")

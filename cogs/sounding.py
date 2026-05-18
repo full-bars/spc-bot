@@ -39,8 +39,6 @@ from config import CACHE_DIR, SOUNDING_CHANNEL_ID
 from utils.db import get_watch_centroid_cache, set_watch_centroid_cache
 from utils.spc_outlook import get_high_risk_polygon, is_inside_polygon
 from utils.state_store import (
-    add_posted_sounding,
-    add_sounding_handled_watch,
     clear_sounding_handled_watches,
     get_posted_soundings,
     get_sounding_handled_watches,
@@ -70,12 +68,6 @@ class SoundingCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # Keys are "raob:{sid}:{time_key}" or "acars:{airport}:{time_key}" —
-        # deliberately NOT scoped by watch_num. Two geographically-overlapping
-        # watches (e.g. a TOR and SVR covering the same area) would otherwise
-        # each trigger a post of the same station at the same valid time.
-        self._posted_watch_soundings: set = set()
-        self._handled_watches: set = set()
         # Memoized watch_num → (lat, lon). Centroid resolution is an async
         # fetch over NWS zone geometry; caching avoids N re-fetches when
         # building captions that consider every active watch.
@@ -135,13 +127,11 @@ class SoundingCog(commands.Cog):
 
     async def _mark_sounding_posted(self, pkey: str):
         """Mark a sounding as posted in memory and persistent store."""
-        self._posted_watch_soundings.add(pkey)
-        await add_posted_sounding(pkey)
+        await self.bot.state.add_posted_sounding(pkey)
 
     async def _mark_watch_handled(self, watch_num: str):
         """Mark a watch as having soundings handled in memory and persistent store."""
-        self._handled_watches.add(watch_num)
-        await add_sounding_handled_watch(watch_num)
+        await self.bot.state.add_sounding_handled_watch(watch_num)
 
     async def _resolve_watch_centroid(
         self, watch_num: str, info: dict
@@ -275,7 +265,7 @@ class SoundingCog(commands.Cog):
             for y, mo, d, h in avail:
                 tkey = f"{y}-{mo}-{d}_{h}z"
                 pkey = f"raob:{sid}:{tkey}"
-                if pkey not in self._posted_watch_soundings:
+                if pkey not in self.bot.state.posted_soundings:
                     await self._mark_sounding_posted(pkey)
                     to_post.append((station_info, sid, y, mo, d, h, tkey, pkey))
             return to_post
@@ -461,7 +451,7 @@ class SoundingCog(commands.Cog):
             for y, mo, d, h in avail:
                 tkey = f"{y}-{mo}-{d}_{h}z"
                 pkey = f"raob:{sid}:{tkey}"
-                if pkey not in self._posted_watch_soundings:
+                if pkey not in self.bot.state.posted_soundings:
                     await self._mark_sounding_posted(pkey)
                     new_times.append((station, sid, y, mo, d, h, tkey, pkey))
             return new_times
@@ -542,7 +532,7 @@ class SoundingCog(commands.Cog):
         acars_to_post = []
         for p in acars_in_poly:
             pkey = p.get("pkey")
-            if pkey and pkey not in self._posted_watch_soundings:
+            if pkey and pkey not in self.bot.state.posted_soundings:
                 await self._mark_sounding_posted(pkey)
                 acars_to_post.append(p)
 
@@ -655,7 +645,7 @@ class SoundingCog(commands.Cog):
         time (any hour, not locked to 00z/12z), posts up to 3 RAOB + 2 ACARS.
         """
         await self._ensure_restored()
-        if watch_num in self._handled_watches:
+        if watch_num in self.bot.state.sounding_handled_watches:
             return
 
         # Use SOUNDING_CHANNEL_ID if configured, fallback to passed channel
@@ -696,11 +686,11 @@ class SoundingCog(commands.Cog):
             y, mo, d, h = avail[0]
             tkey = f"{y}-{mo}-{d}_{h}z"
             pkey = f"raob:{sid}:{tkey}"
-            if pkey in self._posted_watch_soundings:
+            if pkey in self.bot.state.posted_soundings:
                 return None
             # Claim synchronously before returning so a concurrent task that runs
             # during the gather's yield points cannot grab the same key.
-            self._posted_watch_soundings.add(pkey)
+            self.bot.state.posted_soundings.add(pkey)
             return station, sid, y, mo, d, h, tkey, pkey
 
         avail_results = await asyncio.gather(*[_check_avail(s) for s in verified[:3]])
@@ -708,7 +698,7 @@ class SoundingCog(commands.Cog):
 
         # Persist keys already claimed in-memory by _check_avail.
         for *_, pkey in to_fetch:
-            await add_posted_sounding(pkey)
+            await self.bot.state.add_posted_sounding(pkey)
 
         # ── Phase 1: fetch all sounding data concurrently ─────────────────
         async def _fetch_raob(station, sid, y, mo, d, h, tkey, pkey):
@@ -763,7 +753,7 @@ class SoundingCog(commands.Cog):
         acars_eligible = []
         for profile in acars_profiles[:2]:
             pkey = profile.get("pkey")
-            if pkey and pkey not in self._posted_watch_soundings:
+            if pkey and pkey not in self.bot.state.posted_soundings:
                 await self._mark_sounding_posted(pkey)
                 acars_eligible.append(profile)
 
@@ -879,10 +869,11 @@ class SoundingCog(commands.Cog):
             eligible = []
             for station in verified[:3]:
                 station_id = station.get("icao") or station.get("wmo")
-                post_key = f"raob:{station_id}:{time_key}"
-                if post_key not in self._posted_watch_soundings:
-                    await self._mark_sounding_posted(post_key)
+                pkey = f"raob:{station_id}:{time_key}"
+                if pkey not in self.bot.state.posted_soundings:
+                    await self._mark_sounding_posted(pkey)
                     eligible.append((station, station_id))
+
 
             # ── Phase 1: fetch all RAOB data concurrently ─────────────────
             async def _fetch_std(station, sid):
@@ -941,7 +932,7 @@ class SoundingCog(commands.Cog):
             acars_eligible2 = []
             for profile in acars_profiles[:2]:
                 pkey = profile.get("pkey")
-                if pkey and pkey not in self._posted_watch_soundings:
+                if pkey and pkey not in self.bot.state.posted_soundings:
                     await self._mark_sounding_posted(pkey)
                     acars_eligible2.append(profile)
 

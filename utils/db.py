@@ -183,6 +183,11 @@ async def _create_tables(db: aiosqlite.Connection):
             watch_number TEXT PRIMARY KEY
         );
 
+        CREATE TABLE IF NOT EXISTS posted_product_ids (
+            product_id TEXT PRIMARY KEY,
+            posted_at  REAL NOT NULL DEFAULT 0
+        );
+
         CREATE TABLE IF NOT EXISTS bot_state (
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
@@ -478,6 +483,43 @@ async def prune_posted_reports(max_size: int = 500):
            )""",
         (max_size,),
         "prune_posted_reports",
+    )
+
+
+# ── Posted product IDs (cross-feed dedup) ───────────────────────────────────
+
+async def get_posted_product_ids() -> set:
+    """Get all posted product IDs (for cross-feed deduplication)."""
+    try:
+        async with get_read_db() as db:
+            async with db.execute("SELECT product_id FROM posted_product_ids") as cursor:
+                rows = await cursor.fetchall()
+                return {row["product_id"] for row in rows}
+    except Exception as e:
+        logger.warning(f"get_posted_product_ids failed: {e}")
+        return set()
+
+
+async def add_posted_product_id(product_id: str, posted_at: float = 0.0):
+    """Mark a product ID as posted."""
+    await _write(
+        "INSERT OR IGNORE INTO posted_product_ids (product_id, posted_at) VALUES (?, ?)",
+        (product_id, posted_at or time.time()),
+        f"add_posted_product_id({product_id})",
+    )
+
+
+async def prune_posted_product_ids(max_size: int = 1000):
+    """Keep only the most recent product IDs."""
+    await _write(
+        """DELETE FROM posted_product_ids
+           WHERE product_id NOT IN (
+               SELECT product_id FROM posted_product_ids
+               ORDER BY posted_at DESC
+               LIMIT ?
+           )""",
+        (max_size,),
+        "prune_posted_product_ids",
     )
 
 

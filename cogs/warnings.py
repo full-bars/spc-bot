@@ -54,11 +54,9 @@ from lib.vtec_parser import get_polygon_centroid, parse_vtec, parse_warning_poly
 from utils.backoff import TaskBackoff
 from utils.http import http_get_bytes, http_get_bytes_conditional
 from utils.state_store import (
-    add_posted_warning,
     add_significant_event,
     get_recent_significant_events,
     get_state,
-    prune_posted_warnings,
 )
 
 logger = logging.getLogger("spc_bot.warnings")
@@ -241,7 +239,7 @@ class WarningsCog(commands.Cog):
                 vtec_to_use = vtec or self.bot.state.active_warnings.get(vtec_id)
                 await self._handle_cancellation(vtec_id, reason=reason, vtec=vtec_to_use)
                 self.bot.state.active_warnings.pop(vtec_id, None)
-                self.bot.state.posted_product_ids.append(product_id)
+                await self.bot.state.add_posted_product_id(product_id)
             return
 
         # ── Pipeline fast-path for updates (CON, EXT, EXA) ─────────────────────
@@ -274,9 +272,11 @@ class WarningsCog(commands.Cog):
             # Claim the dedup key BEFORE any awaits so concurrent tasks
             # hitting the same path see the state immediately.
             # For updates, we don't overwrite the dict yet, but we mark the product.
-            self.bot.state.posted_product_ids.append(product_id)
+            await self.bot.state.add_posted_product_id(product_id)
             if not is_update:
-                self.bot.state.posted_warnings[vtec_id] = {}  # placeholder
+                # We still need a placeholder in memory to prevent concurrent races 
+                # before the message is actually sent.
+                self.bot.state.posted_warnings[vtec_id] = {} 
 
             self.bot.state.active_warnings[vtec_id] = vtec
 
@@ -331,11 +331,16 @@ class WarningsCog(commands.Cog):
                 area_m = re.search(r"for (.+?) till", concise_text)
                 area_desc = area_m.group(1) if area_m else "affected area"
 
-                self.bot.state.posted_warnings[vtec_id] = {
-                    "message_id": msg.id,
-                    "channel_id": msg.channel.id,
-                    "area": area_desc,
-                }
+                tornado_confidence, tornado_severity = get_tornado_attributes(event, raw_text)
+                await self.bot.state.add_posted_warning(
+                    vtec_id,
+                    msg.id,
+                    msg.channel.id,
+                    time.time(),
+                    area=area_desc,
+                    tornado_confidence=tornado_confidence,
+                    tornado_severity=tornado_severity,
+                )
             except discord.Forbidden as e:
                 await self._notify_channel_error(channel, ["send_messages (403 Forbidden)"])
                 try:
@@ -360,21 +365,6 @@ class WarningsCog(commands.Cog):
                     f"iembot send failed for {vtec_id}: {e}"
                 )
                 return
-
-            try:
-                tornado_confidence, tornado_severity = get_tornado_attributes(event, raw_text)
-                await add_posted_warning(
-                    vtec_id,
-                    msg.id,
-                    msg.channel.id,
-                    time.time(),
-                    area=area_desc,
-                    tornado_confidence=tornado_confidence,
-                    tornado_severity=tornado_severity,
-                )
-                await prune_posted_warnings()
-            except Exception as e:
-                logger.warning(f"Failed to persist {vtec_id}: {e}")
         finally:
             self._in_flight_vtecs.discard(vtec_id)
 
@@ -755,11 +745,10 @@ class WarningsCog(commands.Cog):
                                     logger.exception(f"Update send failed for {issuance_id}: {e}")
 
                                 # Update stored area so we don't spam updates for every poll
-                                self.bot.state.posted_warnings[issuance_id]["area"] = curr_area
                                 description = props.description or ""
                                 params = props.parameters.model_dump() if props.parameters else {}
                                 tornado_confidence, tornado_severity = get_tornado_attributes(event, description, params)
-                                await add_posted_warning(
+                                await self.bot.state.add_posted_warning(
                                     issuance_id,
                                     stored_info["message_id"],
                                     stored_info["channel_id"],
@@ -805,16 +794,11 @@ class WarningsCog(commands.Cog):
                     continue
 
                 self.bot.state.active_warnings[issuance_id] = vtec_dict
-                self.bot.state.posted_warnings[issuance_id] = {
-                    "message_id": msg.id,
-                    "channel_id": msg.channel.id,
-                    "area": area_desc,
-                }
                 try:
                     description = props.description or ""
                     params = props.parameters.model_dump() if props.parameters else {}
                     tornado_confidence, tornado_severity = get_tornado_attributes(event, description, params)
-                    await add_posted_warning(
+                    await self.bot.state.add_posted_warning(
                         issuance_id,
                         msg.id,
                         msg.channel.id,
@@ -823,7 +807,6 @@ class WarningsCog(commands.Cog):
                         tornado_confidence=tornado_confidence,
                         tornado_severity=tornado_severity,
                     )
-                    await prune_posted_warnings()
                 except Exception as e:
                     logger.warning(
                         f"Failed to persist {issuance_id}: {e}"

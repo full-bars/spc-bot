@@ -11,12 +11,8 @@ from discord.ext import commands, tasks
 from config import WARNINGS_CHANNEL_ID
 from utils.http import http_get_bytes
 from utils.state_store import (
-    add_posted_report,
-    add_posted_survey,
     add_significant_event,
     get_posted_surveys,
-    prune_posted_reports,
-    prune_posted_surveys,
 )
 
 logger = logging.getLogger("spc_bot")
@@ -199,9 +195,7 @@ class ReportsCog(commands.Cog):
             embed.set_footer(text=f"{office} LSR | {coords}")
 
             # --- Persist State Before Sending ---
-            self.bot.state.posted_reports.add(product_id)
-            await add_posted_report(product_id)
-            await prune_posted_reports()
+            await self.bot.state.add_posted_report(product_id)
 
             # Log significant events to DB
             event_upper = event_type.upper()
@@ -301,9 +295,7 @@ class ReportsCog(commands.Cog):
 
         await channel.send(embed=embed, view=view)
 
-        self.bot.state.posted_reports.add(product_id)
-        await add_posted_report(product_id)
-        await prune_posted_reports()
+        await self.bot.state.add_posted_report(product_id)
 
         # --- DB Logging & Matching ---
         # Try to find a date in the text to poll for Autoplot 253 tracks.
@@ -454,9 +446,7 @@ class ReportsCog(commands.Cog):
                 embed.set_footer(text=f"{source_text} | {guid}")
 
                 await channel.send(embed=embed, file=file_to_send)
-                self.posted_surveys.add(guid)
-                await add_posted_survey(guid)
-                await prune_posted_surveys()
+                await self.bot.state.add_posted_survey(guid)
                 logger.info(f"[REPORTS] Posted survey map for {guid} ({label}) via {source_text}")
 
                 # Link DAT guid to tornado and cache photos
@@ -540,8 +530,7 @@ class ReportsCog(commands.Cog):
                                 raw_text=props.get("remark"),
                             )
                             logger.debug(f"[REPORTS] Updated location for {match_id} → {location!r}")
-                            self.bot.state.posted_reports.add(pid)
-                            await add_posted_report(pid)
+                            await self.bot.state.add_posted_report(pid)
                             continue
 
                         await add_significant_event(
@@ -555,9 +544,7 @@ class ReportsCog(commands.Cog):
                             raw_text=props.get("remark"),
                         )
                         # Persist dedup
-                        self.bot.state.posted_reports.add(pid)
-                        await add_posted_report(pid)
-                        await prune_posted_reports()
+                        await self.bot.state.add_posted_report(pid)
 
         except Exception as e:
             logger.warning(f"[REPORTS] LSR poll failed: {e}")

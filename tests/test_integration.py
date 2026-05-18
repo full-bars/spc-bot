@@ -40,6 +40,8 @@ class TestWatchesCogIntegration:
         bot = make_mock_bot()
         bot.state.is_primary = True
         bot.get_channel = MagicMock(return_value=AsyncMock())
+        bot.state.add_posted_watch = AsyncMock()
+        bot.state.add_posted_product_id = AsyncMock()
 
         nws_result = {
             "0100": {
@@ -51,8 +53,7 @@ class TestWatchesCogIntegration:
 
         with patch("cogs.watches.fetch_active_watches_nws", new=AsyncMock(return_value=nws_result)), \
              patch("cogs.watches.fetch_watch_details", new=AsyncMock(return_value=(None, None, None))), \
-             patch("cogs.watches.download_single_image", new=AsyncMock(return_value=(None, False, None))), \
-             patch("cogs.watches.add_posted_watch", new=AsyncMock()):
+             patch("cogs.watches.download_single_image", new=AsyncMock(return_value=(None, False, None))):
 
             cog = WatchesCog(bot)
             cog.auto_post_watches.cancel()
