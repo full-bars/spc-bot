@@ -4,6 +4,7 @@ _tick poll path (disappeared detection, CON area updates, initial discovery)."""
 
 import asyncio
 import json
+from collections import deque
 from unittest.mock import AsyncMock, MagicMock
 
 import discord
@@ -189,7 +190,7 @@ def _make_cog(posted: dict | None = None) -> WarningsCog:
     cog.bot.state.is_primary = True
     cog.bot.state.posted_warnings = posted if posted is not None else {}
     cog.bot.state.active_warnings = {}
-    cog.bot.state.posted_product_ids = set()
+    cog.bot.state.posted_product_ids = deque(maxlen=1000)
     channel = MagicMock()
     channel.send = AsyncMock()
     cog.bot.get_channel = MagicMock(return_value=channel)
