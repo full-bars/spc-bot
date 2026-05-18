@@ -96,16 +96,22 @@ async def _hydrate_state():
     db_auto, db_manual, db_mds, db_watches, db_reports, csu_raw, d1_urls, d2_urls, d3_urls, last_seq, last_botstalk, db_warnings = results
 
     if isinstance(last_botstalk, str):
-        bot.state.iembot_botstalk_last_seqnum = int(last_botstalk)
-        logger.debug(f"[DB] Restored last botstalk seqnum {last_botstalk}")
+        try:
+            bot.state.iembot_botstalk_last_seqnum = int(last_botstalk)
+            logger.debug(f"[DB] Restored last botstalk seqnum {last_botstalk}")
+        except ValueError:
+            logger.warning(f"[DB] Invalid botstalk seqnum {last_botstalk!r}, resetting to 0")
 
     if isinstance(db_warnings, dict):
         bot.state.posted_warnings.update(db_warnings)
         logger.debug(f"[DB] Restored {len(db_warnings)} posted warnings into cache")
 
     if isinstance(last_seq, str):
-        bot.state.iembot_last_seqnum = int(last_seq)
-        logger.debug(f"[DB] Restored last seqnum {last_seq}")
+        try:
+            bot.state.iembot_last_seqnum = int(last_seq)
+            logger.debug(f"[DB] Restored last seqnum {last_seq}")
+        except ValueError:
+            logger.warning(f"[DB] Invalid iembot seqnum {last_seq!r}, resetting to 0")
 
     if isinstance(db_auto, dict):
         bot.state.auto_cache.update(db_auto)
@@ -441,6 +447,13 @@ async def watchdog_task():
                 task = getattr(cog, task_attr, None)
                 if task and isinstance(task, tasks.Loop):
                     current_managed_tasks.append((task, display_name))
+
+    # Prune stale task names from watchdog state (cog reloads can change task names)
+    current_names = {name for _, name in current_managed_tasks}
+    _task_alerted.intersection_update(current_names)
+    _task_seen_running.intersection_update(current_names)
+    for stale in set(_task_fail_counts) - current_names:
+        del _task_fail_counts[stale]
 
     for task, name in current_managed_tasks:
         if task.is_running():
