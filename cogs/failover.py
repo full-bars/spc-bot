@@ -118,6 +118,9 @@ class FailoverCog(commands.Cog):
         self._primary_failures = 0
         self._identity = _node_identity(bot.state.is_primary)
         self._cog_load_monotonic: float | None = None
+        # Serializes _promote/_demote so a manual override and a lease-expiry
+        # firing in the same sync_loop tick cannot race each other.
+        self._role_lock: asyncio.Lock = asyncio.Lock()
         # Dedicated Redis client for leader-election traffic — kept separate
         # from utils.state_store so lease operations stay independent of the
         # shared pool's health.
@@ -410,6 +413,12 @@ class FailoverCog(commands.Cog):
     # ── Promotion / demotion ──────────────────────────────────────────────
 
     async def _promote(self) -> None:
+        async with self._role_lock:
+            if self.bot.state.is_primary:
+                return  # already primary — idempotent
+            await self._do_promote()
+
+    async def _do_promote(self) -> None:
         logger.warning("[FAILOVER] !!! PROMOTING TO PRIMARY !!!")
         self.bot.state.is_primary = True
         # Update identity so the next heartbeat HSET announces us as Primary ("P:").
@@ -514,6 +523,12 @@ class FailoverCog(commands.Cog):
         logger.info("[FAILOVER] Rehydrated BotState from Redis")
 
     async def _demote(self) -> None:
+        async with self._role_lock:
+            if not self.bot.state.is_primary:
+                return  # already standby — idempotent
+            await self._do_demote()
+
+    async def _do_demote(self) -> None:
         logger.info("[FAILOVER] Demoting to STANDBY")
         self.bot.state.is_primary = False
         self._identity = _node_identity(False)
@@ -530,9 +545,22 @@ class FailoverCog(commands.Cog):
                 failed.append(ext)
         if failed:
             logger.error(
-                f"[FAILOVER] {len(failed)} cog(s) failed to unload — "
-                f"bot may still be posting as primary: {failed}"
+                f"[FAILOVER] {len(failed)} cog(s) failed to unload during demotion: {failed}. "
+                "A stuck cog could continue posting as primary — forcing process exit."
             )
+            try:
+                from main import send_bot_alert  # noqa: PLC0415
+                await send_bot_alert(
+                    "Failover: forced exit — cog unload failed during demotion",
+                    f"Could not unload {failed} during `_demote()`. "
+                    "Forcing `os._exit(1)` to prevent split-brain duplicate posts. "
+                    "systemd will restart the process in standby mode.",
+                    critical=True,
+                )
+            except Exception as alert_err:
+                logger.warning(f"[FAILOVER] Could not send demote-failure alert: {alert_err}")
+            import os as _os  # noqa: PLC0415
+            _os._exit(1)
         self._primary_failures = 0
 
     # ── Slash command ─────────────────────────────────────────────────────
