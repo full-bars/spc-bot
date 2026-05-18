@@ -84,7 +84,7 @@ class PostingLog:
         # Currently-active VTEC IDs mapping to their latest vtec metadata dict
         self.active_warnings: Dict[str, dict] = {}
         self.posted_reports: Set[str] = set()
-        self.posted_product_ids: Set[str] = set()
+        self.posted_product_ids: deque = deque(maxlen=1000)
 
 
 class TimingTracker:

@@ -241,7 +241,7 @@ class WarningsCog(commands.Cog):
                 vtec_to_use = vtec or self.bot.state.active_warnings.get(vtec_id)
                 await self._handle_cancellation(vtec_id, reason=reason, vtec=vtec_to_use)
                 self.bot.state.active_warnings.pop(vtec_id, None)
-                self.bot.state.posted_product_ids.add(product_id)
+                self.bot.state.posted_product_ids.append(product_id)
             return
 
         # ── Pipeline fast-path for updates (CON, EXT, EXA) ─────────────────────
@@ -274,7 +274,7 @@ class WarningsCog(commands.Cog):
             # Claim the dedup key BEFORE any awaits so concurrent tasks
             # hitting the same path see the state immediately.
             # For updates, we don't overwrite the dict yet, but we mark the product.
-            self.bot.state.posted_product_ids.add(product_id)
+            self.bot.state.posted_product_ids.append(product_id)
             if not is_update:
                 self.bot.state.posted_warnings[vtec_id] = {}  # placeholder
 
@@ -338,18 +338,24 @@ class WarningsCog(commands.Cog):
                 }
             except discord.Forbidden as e:
                 await self._notify_channel_error(channel, ["send_messages (403 Forbidden)"])
-                if product_id in self.bot.state.posted_product_ids:
-                    self.bot.state.posted_product_ids.discard(product_id)
+                try:
+                    self.bot.state.posted_product_ids.remove(product_id)
+                except ValueError:
+                    pass
                 if not is_update and vtec_id in self.bot.state.posted_warnings:
                     del self.bot.state.posted_warnings[vtec_id]
+                self.bot.state.active_warnings.pop(vtec_id, None)
                 logger.error(f"iembot send forbidden for {vtec_id} in channel {channel.id}: {e}")
                 return
             except discord.HTTPException as e:
                 # Roll back the dedup claim on a hard send failure
-                if product_id in self.bot.state.posted_product_ids:
-                    self.bot.state.posted_product_ids.discard(product_id)
+                try:
+                    self.bot.state.posted_product_ids.remove(product_id)
+                except ValueError:
+                    pass
                 if not is_update and vtec_id in self.bot.state.posted_warnings:
                     del self.bot.state.posted_warnings[vtec_id]
+                self.bot.state.active_warnings.pop(vtec_id, None)
                 logger.exception(
                     f"iembot send failed for {vtec_id}: {e}"
                 )
@@ -366,10 +372,6 @@ class WarningsCog(commands.Cog):
                     tornado_confidence=tornado_confidence,
                     tornado_severity=tornado_severity,
                 )
-                # Keep product IDs pruned to today's set (roughly)
-                if len(self.bot.state.posted_product_ids) > 1000:
-                    # Very crude pruning — ideally we'd use a TTL but this is in-memory
-                    self.bot.state.posted_product_ids.clear()
                 await prune_posted_warnings()
             except Exception as e:
                 logger.warning(f"Failed to persist {vtec_id}: {e}")
