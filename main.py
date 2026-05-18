@@ -450,9 +450,10 @@ async def watchdog_task():
 
     # Prune stale task names from watchdog state (cog reloads can change task names)
     current_names = {name for _, name in current_managed_tasks}
-    _task_alerted &= current_names
-    _task_seen_running &= current_names
-    _task_fail_counts = {k: v for k, v in _task_fail_counts.items() if k in current_names}
+    _task_alerted.intersection_update(current_names)
+    _task_seen_running.intersection_update(current_names)
+    for stale in set(_task_fail_counts) - current_names:
+        del _task_fail_counts[stale]
 
     for task, name in current_managed_tasks:
         if task.is_running():
