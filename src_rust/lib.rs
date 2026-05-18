@@ -281,14 +281,16 @@ fn init_radar_index(coords: &Bound<'_, PyDict>) -> PyResult<()> {
             location: [loc_tuple.0, loc_tuple.1],
         });
     }
-    let mut index = RADAR_INDEX.write().unwrap();
+    let mut index = RADAR_INDEX.write()
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("RADAR_INDEX lock poisoned: {e}")))?;
     *index = Some(RTree::bulk_load(points));
     Ok(())
 }
 
 #[pyfunction]
 fn find_nearest_radar(lat: f64, lon: f64) -> PyResult<Option<String>> {
-    let index_lock = RADAR_INDEX.read().unwrap();
+    let index_lock = RADAR_INDEX.read()
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("RADAR_INDEX lock poisoned: {e}")))?;
     if let Some(index) = index_lock.as_ref() {
         if let Some(nearest) = index.nearest_neighbor(&[lat, lon]) {
             return Ok(Some(nearest.id.clone()));
