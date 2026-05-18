@@ -871,9 +871,6 @@ async def resync_to_redis(force_full: bool = False) -> Dict[str, int]:
     return {"dirty": len(ids_to_delete)}
 
 
-# Backward-compat alias — callers in failover.py use this name.
-resync_to_upstash = resync_to_redis
-
 
 async def mirror_to_sqlite() -> None:
     """Pull authoritative state from Redis and update the local SQLite mirror.

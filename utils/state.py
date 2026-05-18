@@ -198,7 +198,7 @@ class BotState:
             "manual_cache": self.manual_cache,
             "posted_mds": list(self.posted_mds),
             "posted_watches": list(self.posted_watches),
-            "posted_warnings": self.posted_warnings,
+            "posted_warnings": dict(self.posted_warnings),
             "posted_reports": list(self.posted_reports),
             "posted_product_ids": list(self.posted_product_ids),
             "csu_posted": list(self.csu_posted),
