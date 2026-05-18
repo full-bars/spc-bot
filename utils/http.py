@@ -32,9 +32,13 @@ def _make_retry_decorator(attempts: int):
 # Pre-build for the default attempt counts used across this module.
 _RETRY_CACHE: dict = {n: _make_retry_decorator(n) for n in (1, 2, 3, 4)}
 
+_RETRY_CACHE_MAX = 16
+
 def _get_retry_decorator(attempts: int):
     """Return a cached retry decorator for *attempts*, building one if needed."""
     if attempts not in _RETRY_CACHE:
+        if len(_RETRY_CACHE) >= _RETRY_CACHE_MAX:
+            _RETRY_CACHE.pop(next(iter(_RETRY_CACHE)))
         _RETRY_CACHE[attempts] = _make_retry_decorator(attempts)
     return _RETRY_CACHE[attempts]
 
