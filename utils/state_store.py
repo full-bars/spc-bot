@@ -610,7 +610,8 @@ async def get_all_posted_warnings() -> Dict[str, dict]:
             for vtec_id, json_str in result.items():
                 try:
                     mapping[vtec_id] = json.loads(json_str)
-                except (json.JSONDecodeError, TypeError):
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(f"[STATE] Corrupt posted_warning entry dropped {vtec_id!r}: {e}")
                     continue
         _cache_set(cache_key, mapping)
         return dict(mapping)
@@ -856,6 +857,8 @@ async def resync_to_redis(force_full: bool = False) -> Dict[str, int]:
             await _replay(item["op"], tuple(item["args"]))
             ids_to_delete.append(item["id"])
         except _RedisUnavailable:
+            remaining = len(pending) - len(ids_to_delete)
+            logger.warning(f"[STATE] Resync paused — Redis unavailable with {remaining} write(s) still pending")
             break
         except Exception as e:
             logger.exception(f"[STATE] Resync dropped {item['op']}: {e}")
