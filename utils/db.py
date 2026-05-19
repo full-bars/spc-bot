@@ -32,7 +32,7 @@ DB_PATH = os.path.join(CACHE_DIR, "bot_state.db")
 _LOCK = asyncio.Lock()
 _db: Optional[aiosqlite.Connection] = None
 _read_pool: asyncio.Queue[aiosqlite.Connection] = asyncio.Queue()
-_READ_POOL_SIZE = 3
+_READ_POOL_SIZE = 10  # raised from 3 — multiple slash commands + watchdog reads
 _last_product_cache_prune: float = 0.0
 _PRODUCT_CACHE_PRUNE_INTERVAL = 3600.0  # 1 hour
 

@@ -115,8 +115,13 @@ async def ensure_session() -> aiohttp.ClientSession:
     async with _session_lock:
         if http_session is None or http_session.closed:
             connector = aiohttp.TCPConnector(
-                limit=20,
-                limit_per_host=10,
+                # Pool sizes raised from 20/10 to 100/25 so radar-frame
+                # bursts, concurrent slash commands, and outbreak-time
+                # warning images don't throttle on the connector before
+                # they even hit the server. 25 per host is well below
+                # what NWS API / IEM Autoplot will tolerate.
+                limit=100,
+                limit_per_host=25,
                 ttl_dns_cache=300,
                 keepalive_timeout=75,
             )

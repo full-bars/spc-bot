@@ -8,6 +8,7 @@ version numbers follow [SemVer](https://semver.org/).
 
 ### Performance
 - **O(1) `posted_product_ids` membership lookup.** `posted_product_ids` was a `deque(maxlen=1000)`, so the `in` check on the hot dedup path (NWWS + IEMBot triggers + NWS poll all hit it per product) was O(N) — measurable during severe weather outbreaks with thousands of products/sec. Replaced with `BoundedFIFOKeys`, a dict-backed FIFO (`dict` preserves insertion order in CPython 3.7+) that gives O(1) `in` / `append` / `remove` while keeping the same drop-in interface (`.append()`, `.remove()` with `ValueError`, `.extend()`, `in`, `list()`, `len()`). No call sites changed.
+- **Bumped connection pool limits.** `aiohttp.TCPConnector` `limit` 20→100 and `limit_per_host` 10→25 in `utils/http.py`; SQLite read pool `_READ_POOL_SIZE` 3→10 in `utils/db.py`. The old caps throttled the bot during outbreaks when radar-frame bursts, concurrent slash commands, and warning-image downloads stacked up against the connector before reaching the server. 25 per host is well below what NWS API / IEM Autoplot tolerate.
 
 ## [5.31.0] — 2026-05-19
 
