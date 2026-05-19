@@ -110,6 +110,24 @@ class TimingTracker:
         self.last_posted_urls: Dict[str, List[str]] = {}
 
 
+def _parse_vtec_end_ts(end: str) -> Optional[float]:
+    """Parse a VTEC end timestamp (``YYMMDDTHHMMZ``) to a Unix timestamp.
+
+    Returns ``None`` for null VTEC times (``000000T0000Z``) or malformed
+    input so callers can distinguish "no expiry data" from "expired"."""
+    if not end or len(end) < 11 or end.startswith("000000"):
+        return None
+    try:
+        year = 2000 + int(end[:2])
+        month = int(end[2:4])
+        day = int(end[4:6])
+        hour = int(end[7:9])
+        minute = int(end[9:11])
+        return datetime(year, month, day, hour, minute, tzinfo=timezone.utc).timestamp()
+    except (ValueError, IndexError):
+        return None
+
+
 def _delegate(store_attr: str, field: str) -> property:
     """Build a read/write property that forwards to a sub-store field.
 
@@ -280,6 +298,50 @@ class BotState:
             if k in surviving or not v
         }
         return before - len(self.posted_warnings)
+
+    def sweep_active(self, grace_minutes: int = 60, now: Optional[datetime] = None) -> tuple[int, int]:
+        """Drop entries from ``active_warnings`` and ``active_watches`` whose
+        VTEC ``end`` timestamp or watch ``expires`` field is past now+grace.
+
+        Safety net for the normal NWS expiry path — a single missed API poll
+        used to strand entries forever. The grace window prevents racing with
+        an in-flight cancellation handler.
+
+        Returns ``(warnings_removed, watches_removed)``.
+        """
+        now = now or datetime.now(timezone.utc)
+        cutoff = now.timestamp() - grace_minutes * 60
+
+        warnings_before = len(self.active_warnings)
+        kept_warnings = {}
+        for vtec_id, vtec in self.active_warnings.items():
+            end = vtec.get("end", "") if isinstance(vtec, dict) else ""
+            end_ts = _parse_vtec_end_ts(end)
+            # Keep entries we can't parse (null VTEC time, malformed) — only
+            # drop ones we have positive evidence are expired.
+            if end_ts is None or end_ts >= cutoff:
+                kept_warnings[vtec_id] = vtec
+        self.active_warnings = kept_warnings
+
+        watches_before = len(self.active_watches)
+        kept_watches = {}
+        for watch_num, info in self.active_watches.items():
+            expires = info.get("expires") if isinstance(info, dict) else None
+            if expires is None:
+                kept_watches[watch_num] = info
+                continue
+            if isinstance(expires, datetime):
+                if expires.timestamp() >= cutoff:
+                    kept_watches[watch_num] = info
+            else:
+                # Unrecognised type — keep, don't risk dropping a live watch
+                kept_watches[watch_num] = info
+        self.active_watches = kept_watches
+
+        return (
+            warnings_before - len(self.active_warnings),
+            watches_before - len(self.active_watches),
+        )
 
     async def remove_posted_warning(self, vtec_id: str) -> None:
         """Roll back a posted warning across memory + SQLite + Redis."""

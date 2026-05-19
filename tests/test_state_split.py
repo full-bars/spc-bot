@@ -212,6 +212,66 @@ def test_http_latency_percentiles_computes_p50_p95():
     assert 0.090 <= p95 <= 0.100
 
 
+def test_sweep_active_drops_expired_vtec_warnings():
+    """An active_warnings entry whose VTEC end timestamp is past now+grace
+    should be evicted."""
+    from datetime import datetime, timedelta, timezone
+    s = BotState()
+    now = datetime(2026, 5, 19, 12, 0, tzinfo=timezone.utc)
+
+    # End time = 3h before now → past 60min grace → drop
+    expired_end = (now - timedelta(hours=3)).strftime("%y%m%dT%H%MZ")
+    s.active_warnings["KOUN.TO.W.0099"] = {"end": expired_end}
+
+    # End time = 6h after now → keep
+    fresh_end = (now + timedelta(hours=6)).strftime("%y%m%dT%H%MZ")
+    s.active_warnings["KOUN.SV.W.0042"] = {"end": fresh_end}
+
+    warn_removed, watch_removed = s.sweep_active(grace_minutes=60, now=now)
+    assert warn_removed == 1
+    assert watch_removed == 0
+    assert "KOUN.SV.W.0042" in s.active_warnings
+    assert "KOUN.TO.W.0099" not in s.active_warnings
+
+
+def test_sweep_active_keeps_null_vtec_times():
+    """`000000T0000Z` means 'no expiry given' — never drop."""
+    s = BotState()
+    s.active_warnings["KOUN.SP.S.0001"] = {"end": "000000T0000Z"}
+    s.active_warnings["KOUN.SP.S.0002"] = {"end": ""}  # missing field
+    warn_removed, _ = s.sweep_active()
+    assert warn_removed == 0
+    assert len(s.active_warnings) == 2
+
+
+def test_sweep_active_drops_expired_watches():
+    from datetime import datetime, timedelta, timezone
+    s = BotState()
+    now = datetime(2026, 5, 19, 12, 0, tzinfo=timezone.utc)
+    s.active_watches["811"] = {"type": "TOR", "expires": now - timedelta(hours=2)}
+    s.active_watches["812"] = {"type": "TOR", "expires": now + timedelta(hours=3)}
+    s.active_watches["813"] = {"type": "SVR", "expires": None}  # never expires
+
+    _, watch_removed = s.sweep_active(grace_minutes=60, now=now)
+    assert watch_removed == 1
+    assert "811" not in s.active_watches
+    assert "812" in s.active_watches
+    assert "813" in s.active_watches
+
+
+def test_sweep_active_grace_window_prevents_racing_cancellation():
+    """An entry that just expired (within grace) must survive the sweep —
+    otherwise we'd race the cancellation-posting code path."""
+    from datetime import datetime, timedelta, timezone
+    s = BotState()
+    now = datetime(2026, 5, 19, 12, 0, tzinfo=timezone.utc)
+    just_expired = (now - timedelta(minutes=10)).strftime("%y%m%dT%H%MZ")
+    s.active_warnings["KOUN.TO.W.0050"] = {"end": just_expired}
+    warn_removed, _ = s.sweep_active(grace_minutes=60, now=now)
+    assert warn_removed == 0
+    assert "KOUN.TO.W.0050" in s.active_warnings
+
+
 def test_substores_are_independent():
     """Separate BotState instances must not share sub-store state."""
     a = BotState()
