@@ -201,7 +201,12 @@ async def http_get_bytes_conditional(
         ) as response:
             latency = time.perf_counter() - start
             if _latency_callback:
-                _latency_callback(latency)
+                try:
+                    _latency_callback(latency, host=urlparse(url).hostname)
+                except TypeError:
+                    # Legacy callback signature (latency-only) — preserve to
+                    # avoid breaking external consumers that haven't migrated.
+                    _latency_callback(latency)
 
             if response.status in (429, 503, 502, 504):
                 # Tenacity handles the backoff/retry; we just signal the failure

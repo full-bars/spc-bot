@@ -169,6 +169,49 @@ async def test_remove_posted_product_id_silent_when_absent():
     remove.assert_awaited_once_with("PROD-not-here")
 
 
+def test_update_http_latency_without_host_back_compatible():
+    """Pre-R3 callers passed only the latency value; that must still work."""
+    s = BotState()
+    s.update_http_latency(0.250)
+    assert s.http_latency == 0.250
+    assert s.http_latency_by_host == {}
+
+
+def test_update_http_latency_with_host_buckets_samples():
+    s = BotState()
+    s.update_http_latency(0.100, host="api.weather.gov")
+    s.update_http_latency(0.200, host="api.weather.gov")
+    s.update_http_latency(0.500, host="mesonet.agron.iastate.edu")
+    assert list(s.http_latency_by_host["api.weather.gov"]) == [0.100, 0.200]
+    assert list(s.http_latency_by_host["mesonet.agron.iastate.edu"]) == [0.500]
+
+
+def test_http_latency_per_host_rolling_window_caps_growth():
+    s = BotState()
+    for i in range(s.HTTP_LATENCY_WINDOW + 50):
+        s.update_http_latency(float(i) / 1000, host="api.weather.gov")
+    samples = s.http_latency_by_host["api.weather.gov"]
+    assert len(samples) == s.HTTP_LATENCY_WINDOW
+    # Oldest samples evicted — first kept should be sample #50
+    assert samples[0] == 50.0 / 1000
+
+
+def test_http_latency_percentiles_returns_none_for_unknown_host():
+    s = BotState()
+    assert s.http_latency_percentiles("nowhere.invalid") is None
+
+
+def test_http_latency_percentiles_computes_p50_p95():
+    s = BotState()
+    # 100 samples ranging 0.001..0.100s
+    for i in range(1, 101):
+        s.update_http_latency(i / 1000, host="api.weather.gov")
+    p50, p95 = s.http_latency_percentiles("api.weather.gov")
+    # P50 of 1..100 ≈ 50ms; P95 ≈ 95ms (nearest-rank)
+    assert 0.045 <= p50 <= 0.055
+    assert 0.090 <= p95 <= 0.100
+
+
 def test_substores_are_independent():
     """Separate BotState instances must not share sub-store state."""
     a = BotState()

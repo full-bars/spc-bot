@@ -169,16 +169,45 @@ class BotState:
         self.discord_gateway_ip: Optional[str] = None
         self.discord_gateway_location: Optional[str] = None
 
+        # Per-host rolling-window HTTP latency samples (seconds).
+        # Bounded so a long-lived process can't accumulate samples forever.
+        self.http_latency_by_host: Dict[str, deque[float]] = {}
+
         self.hashes = HashStore()
         self.posting = PostingLog()
         self.timing = TimingTracker()
 
-    def update_http_latency(self, latency: float) -> None:
-        """Update the rolling average of HTTP latency."""
+    HTTP_LATENCY_WINDOW = 100  # samples kept per host
+
+    def update_http_latency(self, latency: float, host: Optional[str] = None) -> None:
+        """Update the rolling average of HTTP latency.
+
+        When ``host`` is provided, also append the sample to the per-host
+        rolling window so ``/status`` can show P50/P95 broken out by
+        endpoint (NWS API vs IEM Autoplot vs Discord etc.)."""
         if self.http_latency is not None:
             self.http_latency = (self.http_latency * 0.9) + (latency * 0.1)
         else:
             self.http_latency = latency
+
+        if host:
+            samples = self.http_latency_by_host.get(host)
+            if samples is None:
+                samples = deque(maxlen=self.HTTP_LATENCY_WINDOW)
+                self.http_latency_by_host[host] = samples
+            samples.append(latency)
+
+    def http_latency_percentiles(self, host: str) -> Optional[tuple[float, float]]:
+        """Return (p50, p95) seconds for ``host``, or None if no samples."""
+        samples = self.http_latency_by_host.get(host)
+        if not samples:
+            return None
+        ordered = sorted(samples)
+        n = len(ordered)
+        p50 = ordered[n // 2]
+        # nearest-rank P95; for small n this is just the max.
+        p95 = ordered[min(n - 1, max(0, int(round(0.95 * n)) - 1))]
+        return (p50, p95)
 
     # ── State Update Methods (Encapsulation) ───────────────────────────────
 

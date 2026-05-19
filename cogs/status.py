@@ -347,6 +347,28 @@ class StatusView(discord.ui.View):
         )
         embed.add_field(name="📡 Connectivity", value=conn_val, inline=True)
 
+        # Per-host HTTP latency breakdown (P50 / P95)
+        by_host = self.bot.state.http_latency_by_host
+        if by_host:
+            # Sort hosts by sample count descending — busy endpoints first
+            ranked = sorted(by_host.items(), key=lambda kv: -len(kv[1]))[:5]
+            host_lines = []
+            for host, samples in ranked:
+                pct = self.bot.state.http_latency_percentiles(host)
+                if pct is None:
+                    continue
+                p50, p95 = pct
+                host_lines.append(
+                    f"`{host}` — p50 `{p50 * 1000:.0f}ms` p95 `{p95 * 1000:.0f}ms` "
+                    f"(n={len(samples)})"
+                )
+            if host_lines:
+                embed.add_field(
+                    name="🌐 HTTP Endpoints",
+                    value="\n".join(host_lines),
+                    inline=False,
+                )
+
         # Performance metrics
         nwws_tput = self.bot.state.nwws_throughput
         iem_lat = self.bot.state.iembot_latency
