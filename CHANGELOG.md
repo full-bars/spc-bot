@@ -6,6 +6,9 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Tests
+- **Failover fault-injection coverage for `_do_promote` cog-load rollback.** v5.29.0 (#412) added per-cog transactional rollback inside `_do_promote` — if `bot.load_extension(name)` raises on any cog in `ALL_EXTENSIONS`, the previously-loaded cogs are unloaded in reverse order and the bot demotes back to standby. That code path had no test coverage; a regression would only surface during a real failover-with-broken-cog combination at 3am. Added 4 fault-injection tests in `tests/test_failover_coverage.py::TestPromoteFaultInjection` covering: partial-load reverse-order rollback, rollback that continues past an `unload_extension` failure, full-success path (tree.sync called, no demote), and first-cog-fails (no unloads but still demotes).
+
 ## [5.30.0] — 2026-05-19
 
 ### Fixed
