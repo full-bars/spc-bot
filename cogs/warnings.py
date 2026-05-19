@@ -614,8 +614,10 @@ class WarningsCog(commands.Cog):
 
     @tasks.loop(hours=1)
     async def prune_posted_warnings_loop(self):
-        """Cap ``posted_warnings`` growth — warnings churn far faster than
-        watches and the in-memory dict was previously unbounded."""
+        """Cap ``posted_warnings`` growth and sweep stranded entries from
+        ``active_warnings`` / ``active_watches``. The active-dict sweep is
+        a safety net for the normal NWS expiry path — a single missed
+        API poll used to leave entries lingering forever."""
         if not self.bot.state.is_primary:
             return
         try:
@@ -627,6 +629,16 @@ class WarningsCog(commands.Cog):
                 )
         except Exception as e:
             logger.exception(f"prune_posted_warnings_loop failed: {e}")
+
+        try:
+            warn_swept, watch_swept = self.bot.state.sweep_active()
+            if warn_swept or watch_swept:
+                logger.info(
+                    f"Swept {warn_swept} expired active_warnings, "
+                    f"{watch_swept} expired active_watches"
+                )
+        except Exception as e:
+            logger.exception(f"sweep_active failed: {e}")
 
     @prune_posted_warnings_loop.before_loop
     async def _before_prune_posted_warnings(self):
