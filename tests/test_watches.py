@@ -206,6 +206,8 @@ def _make_watch_bot(posted_watches=None):
     bot.state.last_post_times = {}
     bot.cogs = {}
     bot.wait_until_ready = AsyncMock()
+    bot.state.add_posted_watch = AsyncMock()
+    bot.state.add_posted_product_id = AsyncMock()
     channel = AsyncMock()
     bot.get_channel.return_value = channel
     return bot, channel
@@ -236,15 +238,20 @@ async def test_post_watch_now_sends_and_marks_posted():
     cog._pending_tasks = set()
     cog.bot = bot
 
+    # Configure the mock state to actually add to the set when add_posted_watch is called
+    # to maintain the behavior of the existing test assertion.
+    async def _mock_add(wn):
+        bot.state.posted_watches.add(wn)
+    bot.state.add_posted_watch = AsyncMock(side_effect=_mock_add)
+
     nws_info = {"type": "SVR", "expires": None, "affected_zones": []}
 
     with patch("cogs.watches.fetch_watch_details", AsyncMock(return_value=("http://img.png", "summary", None))), \
-         patch("cogs.watches.download_single_image", AsyncMock(return_value=(None, False, None))), \
-         patch("cogs.watches.add_posted_watch", AsyncMock()), \
-         patch("cogs.watches.prune_posted_watches", AsyncMock()):
+         patch("cogs.watches.download_single_image", AsyncMock(return_value=(None, False, None))):
         await cog.post_watch_now("0102", nws_info)
 
     channel.send.assert_called_once()
+    bot.state.add_posted_watch.assert_called_with("0102")
     assert "0102" in bot.state.posted_watches
 
 
@@ -283,9 +290,7 @@ async def test_post_watch_now_dispatches_to_sounding_cog():
     cog.bot = bot
 
     with patch("cogs.watches.fetch_watch_details", AsyncMock(return_value=(None, None, None))), \
-         patch("cogs.watches.download_single_image", AsyncMock(return_value=(None, False, None))), \
-         patch("cogs.watches.add_posted_watch", AsyncMock()), \
-         patch("cogs.watches.prune_posted_watches", AsyncMock()):
+         patch("cogs.watches.download_single_image", AsyncMock(return_value=(None, False, None))):
         await cog.post_watch_now("0102", nws_info)
 
     # post_soundings_for_watch is called to build the coroutine arg for create_task

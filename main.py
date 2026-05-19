@@ -18,6 +18,7 @@ from utils.state_store import (
     check_integrity, close_db, get_db,
     get_all_hashes, get_posted_urls, get_posted_mds, get_posted_watches,
     get_posted_reports, get_all_posted_warnings,
+    get_posted_product_ids, get_posted_soundings, get_sounding_handled_watches,
     get_state,
 )
 from utils.cache import hydrate_validators_from_store
@@ -90,10 +91,25 @@ async def _hydrate_state():
         get_state("iembot_last_seqnum"),
         get_state("iembot_botstalk_last_seqnum"),
         get_all_posted_warnings(),
+        get_posted_product_ids(),
+        get_posted_soundings(),
+        get_sounding_handled_watches(),
         return_exceptions=True
     )
     
-    db_auto, db_manual, db_mds, db_watches, db_reports, csu_raw, d1_urls, d2_urls, d3_urls, last_seq, last_botstalk, db_warnings = results
+    db_auto, db_manual, db_mds, db_watches, db_reports, csu_raw, d1_urls, d2_urls, d3_urls, last_seq, last_botstalk, db_warnings, db_product_ids, db_soundings, db_handled_watches = results
+
+    if isinstance(db_product_ids, (set, list)):
+        bot.state.posted_product_ids.extend(db_product_ids)
+        logger.debug(f"[DB] Restored {len(db_product_ids)} posted product IDs")
+
+    if isinstance(db_soundings, (set, list)):
+        bot.state.posted_soundings.update(db_soundings)
+        logger.debug(f"[DB] Restored {len(db_soundings)} posted soundings")
+
+    if isinstance(db_handled_watches, (set, list)):
+        bot.state.sounding_handled_watches.update(db_handled_watches)
+        logger.debug(f"[DB] Restored {len(db_handled_watches)} sounding-handled watches")
 
     if isinstance(last_botstalk, str):
         try:

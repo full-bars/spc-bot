@@ -6,6 +6,19 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Failover & Sync Observability.** Added counters for failover transitions, lease renewals, and sync failures to `BotState`. These are now displayed in the `/status` command under the Cluster Status section to provide better visibility into the health of the high-availability mechanism.
+- **`posted_product_ids` Persistence.** The cross-feed deduplication state (`posted_product_ids`) is now persisted to Redis and SQLite. This ensures that failovers or restarts no longer reset the dedup history, preventing duplicate posts from concurrent NWWS and IEM feeds during transitions.
+
+### Fixed
+- **Unbounded Redis State Growth.** Fixed several state pruning functions (`prune_posted_warnings`, `prune_posted_mds`, etc.) to explicitly remove stale entries from Redis. Previously, these only cleaned up the local SQLite mirror, leading to indefinite memory and storage growth in the shared Redis instance.
+- **Failover Promotion Race & Partial Load.** Implemented transactional promotion in `FailoverCog`. If any extension fails to load during promotion to Primary, the bot now performs a full rollback (unloading successfully loaded cogs) and demotes itself back to Standby. This prevents the bot from entering a "partial Primary" state where only some alerting feeds are active.
+- **Concurrent Mutability in `to_dict()`.** Wrapped dictionary and set iterations in `BotState.to_dict()` with `.copy()` and `list()` to prevent `RuntimeError: dictionary changed size during iteration` when the state is serialized for metrics or failover sync while background tasks are updating it.
+- **`prune_posted_mds` Random Eviction.** Fixed a bug where MDs were being randomly evicted from Redis instead of the oldest ones. Eviction now uses the authoritative ordered list from SQLite.
+
+### Refactored
+- **State Encapsulation.** Refactored `BotState` from a passive data structure into an active state manager. Moved dual-write logic (memory + persistence) into `async` methods in `BotState` (e.g., `add_posted_warning()`). This ensures consistency and simplifies cog logic by removing the burden of manual persistence calls.
+
 ## [5.28.2] — 2026-05-19
 
 ### Changed

@@ -16,6 +16,7 @@ def _make_bot(posted_mds=None, active_mds=None, is_primary=True):
     bot.state.posted_mds = set(posted_mds or [])
     bot.state.active_mds = set(active_mds or [])
     bot.state.last_post_times = {}
+    bot.state.add_posted_md = AsyncMock()
     bot.wait_until_ready = AsyncMock()
     channel = AsyncMock()
     bot.get_channel.return_value = channel
@@ -190,6 +191,7 @@ def _make_bot_for_post(posted_mds=None, active_mds=None):
     bot.state.active_mds = set(active_mds or [])
     bot.state.auto_cache = {}
     bot.state.last_post_times = {}
+    bot.state.add_posted_md = AsyncMock()
     bot.cogs = {}
     bot.wait_until_ready = AsyncMock()
     channel = AsyncMock()
@@ -219,15 +221,20 @@ async def test_post_md_now_sends_and_marks_posted():
 
     # Use a dummy text to trigger upgrade task creation
     dummy_text = "SPC MD 0100"
+
+    # Configure mock state
+    async def _mock_add(md):
+        bot.state.posted_mds.add(md)
+    bot.state.add_posted_md = AsyncMock(side_effect=_mock_add)
     
     with patch("cogs.mesoscale.fetch_md_details", AsyncMock(return_value=("img", dummy_text, True, "/path"))), \
          patch("cogs.mesoscale.download_single_image", AsyncMock(return_value=(None, False, None))), \
          patch("cogs.mesoscale.extract_md_body", return_value="Discussion body"), \
-         patch("cogs.mesoscale.add_posted_md", AsyncMock()), \
          patch("cogs.mesoscale.clean_md_text_for_discord", return_value="Discussion body"):
         await cog.post_md_now("100")
 
     channel.send.assert_called_once()
+    bot.state.add_posted_md.assert_called_with("0100")
     assert "0100" in bot.state.posted_mds
     assert "0100" in bot.state.active_mds
 

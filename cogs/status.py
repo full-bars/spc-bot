@@ -251,7 +251,22 @@ class StatusView(discord.ui.View):
                 except (ValueError, IndexError):
                     lines.append(f"`{identity}` *(parse error)*")
 
-            return "\n".join(lines) if lines else "*(Unable to parse node data)*"
+            status_text = "\n".join(lines) if lines else "*(Unable to parse node data)*"
+            
+            # Add failover stats for the current node
+            st = self.bot.state
+            stats = []
+            if st.failover_count > 0:
+                stats.append(f"Failovers: `{st.failover_count}`")
+            if st.lease_renewals > 0:
+                stats.append(f"Renewals: `{st.lease_renewals}`")
+            if st.sync_failures > 0:
+                stats.append(f"Sync Errs: `{st.sync_failures}`")
+                
+            if stats:
+                status_text += "\n" + " | ".join(stats)
+                
+            return status_text
         except Exception as e:
             logger.debug(f"Could not fetch cluster status: {e}")
             return f"*(Redis unavailable)*"

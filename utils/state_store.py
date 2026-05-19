@@ -117,6 +117,10 @@ def _k_posted_reports() -> str:
     return f"{_PREFIX}:posted_reports"
 
 
+def _k_posted_product_ids() -> str:
+    return f"{_PREFIX}:posted_product_ids"
+
+
 def _k_posted_warnings() -> str:
     return f"{_PREFIX}:posted_warnings"
 
@@ -271,6 +275,9 @@ async def _replay(op: str, args: tuple) -> None:
     elif op == "add_posted_report":
         (product_id,) = args
         await _redis_cmd("SADD", _k_posted_reports(), product_id)
+    elif op == "add_posted_product_id":
+        (product_id,) = args
+        await _redis_cmd("SADD", _k_posted_product_ids(), product_id)
     elif op == "add_posted_warning":
         # Handle both old (5-element) and new (7-element) formats
         vtec_id = args[0]
@@ -451,8 +458,10 @@ async def prune_posted_mds(max_size: int = 200) -> None:
     try:
         members = await _redis_cmd("SMEMBERS", _k_posted_mds())
         if members and len(members) > max_size:
-            to_remove = list(members)[max_size:]
-            await _redis_cmd("SREM", _k_posted_mds(), *to_remove)
+            sqlite_members = await sqlite_backend.get_posted_mds()
+            to_remove = [m for m in members if m not in sqlite_members]
+            if to_remove:
+                await _redis_cmd("SREM", _k_posted_mds(), *to_remove)
     except _RedisUnavailable:
         pass
 
@@ -486,9 +495,18 @@ async def add_posted_watch(watch_number: str) -> None:
         await _enqueue_dirty("add_posted_watch", (watch_number,))
 
 
-async def prune_posted_watches(max_size: int = 200) -> None:
+async def prune_posted_watches(max_size: int = 100) -> None:
     await sqlite_backend.prune_posted_watches(max_size)
     _cache_invalidate("posted_watches")
+    try:
+        members = await _redis_cmd("SMEMBERS", _k_posted_watches())
+        if members and len(members) > max_size:
+            sqlite_members = await sqlite_backend.get_posted_watches()
+            to_remove = [m for m in members if m not in sqlite_members]
+            if to_remove:
+                await _redis_cmd("SREM", _k_posted_watches(), *to_remove)
+    except _RedisUnavailable:
+        pass
 
 
 # ── Posted surveys ───────────────────────────────────────────────────────────
@@ -523,6 +541,15 @@ async def add_posted_survey(dat_guid: str) -> None:
 async def prune_posted_surveys(max_size: int = 100) -> None:
     await sqlite_backend.prune_posted_surveys(max_size)
     _cache_invalidate("posted_surveys")
+    try:
+        members = await _redis_cmd("SMEMBERS", _k_posted_surveys())
+        if members and len(members) > max_size:
+            sqlite_members = await sqlite_backend.get_posted_surveys()
+            to_remove = [m for m in members if m not in sqlite_members]
+            if to_remove:
+                await _redis_cmd("SREM", _k_posted_surveys(), *to_remove)
+    except _RedisUnavailable:
+        pass
 
 
 # ── Posted reports (LSRs) ────────────────────────────────────────────────────
@@ -557,6 +584,62 @@ async def add_posted_report(product_id: str) -> None:
 async def prune_posted_reports(max_size: int = 500) -> None:
     await sqlite_backend.prune_posted_reports(max_size)
     _cache_invalidate("posted_reports")
+    try:
+        members = await _redis_cmd("SMEMBERS", _k_posted_reports())
+        if members and len(members) > max_size:
+            sqlite_members = await sqlite_backend.get_posted_reports()
+            to_remove = [m for m in members if m not in sqlite_members]
+            if to_remove:
+                await _redis_cmd("SREM", _k_posted_reports(), *to_remove)
+    except _RedisUnavailable:
+        pass
+
+
+# ── Posted product IDs (cross-feed dedup) ───────────────────────────────────
+
+async def get_posted_product_ids() -> Set[str]:
+    cache_key = "posted_product_ids"
+    hit, val = _cache_get(cache_key)
+    if hit:
+        return set(val)
+    try:
+        result = await _redis_cmd("SMEMBERS", _k_posted_product_ids())
+        members = set(result or [])
+        _cache_set(cache_key, members)
+        return set(members)
+    except _RedisUnavailable as e:
+        logger.debug(f"[STATE] get_posted_product_ids falling back to SQLite: {e}")
+        val = await sqlite_backend.get_posted_product_ids()
+        _cache_set(cache_key, val, ttl=CACHE_TTL_SECONDS / 2)
+        return val
+
+
+async def add_posted_product_id(product_id: str) -> None:
+    _cache_invalidate("posted_product_ids")
+    await sqlite_backend.add_posted_product_id(product_id)
+    try:
+        await _redis_cmd("SADD", _k_posted_product_ids(), product_id)
+    except _RedisUnavailable as e:
+        logger.warning(f"[STATE] add_posted_product_id({product_id}) queued: {e}")
+        await _enqueue_dirty("add_posted_product_id", (product_id,))
+
+
+async def prune_posted_product_ids(max_size: int = 1000) -> None:
+    await sqlite_backend.prune_posted_product_ids(max_size)
+    _cache_invalidate("posted_product_ids")
+    # Prune Redis set as well
+    try:
+        members = await _redis_cmd("SMEMBERS", _k_posted_product_ids())
+        if members and len(members) > max_size:
+            # This is a bit expensive for a set, but sets don't have natural ordering in Redis.
+            # SQLite handles the ordering. We just want to keep them roughly in sync.
+            # Better way: get authoritative list from SQLite after pruning.
+            sqlite_members = await sqlite_backend.get_posted_product_ids()
+            to_remove = [m for m in members if m not in sqlite_members]
+            if to_remove:
+                await _redis_cmd("SREM", _k_posted_product_ids(), *to_remove)
+    except _RedisUnavailable:
+        pass
 
 
 # ── Significant events — routed to events_db, not Redis ─────────────────────
@@ -655,6 +738,17 @@ async def add_posted_warning(
 async def prune_posted_warnings(max_size: int = 500) -> None:
     await sqlite_backend.prune_posted_warnings(max_size)
     _cache_invalidate("posted_warnings")
+    try:
+        # Prune Redis HSET to match SQLite
+        members = await _redis_cmd("HKEYS", _k_posted_warnings())
+        if members and len(members) > max_size:
+            sqlite_data = await sqlite_backend.get_all_posted_warnings()
+            sqlite_keys = set(sqlite_data.keys())
+            to_remove = [m for m in members if m not in sqlite_keys]
+            if to_remove:
+                await _redis_cmd("HDEL", _k_posted_warnings(), *to_remove)
+    except _RedisUnavailable:
+        pass
 
 
 # ── Soundings ─────────────────────────────────────────────────────────────────
@@ -892,6 +986,8 @@ async def mirror_to_sqlite() -> None:
             await sqlite_backend.add_posted_watch(w)
         for r in await get_posted_reports():
             await sqlite_backend.add_posted_report(r)
+        for p in await get_posted_product_ids():
+            await sqlite_backend.add_posted_product_id(p)
 
         # 3. State — paginate SCAN fully (C3 fix)
         state_keys = await _scan_all_keys(f"{_k_state('*')}")
@@ -918,7 +1014,7 @@ async def mirror_to_sqlite() -> None:
 async def _resync_full() -> Dict[str, int]:
     counts: Dict[str, int] = {
         "hashes": 0, "posted_mds": 0, "posted_watches": 0,
-        "posted_surveys": 0, "posted_reports": 0, "state": 0, "urls": 0,
+        "posted_surveys": 0, "posted_reports": 0, "posted_product_ids": 0, "state": 0, "urls": 0,
     }
     try:
         for cache_type in ("auto", "manual"):
@@ -950,6 +1046,11 @@ async def _resync_full() -> Dict[str, int]:
         if reports:
             await _redis_cmd("SADD", _k_posted_reports(), *reports)
             counts["posted_reports"] = len(reports)
+
+        product_ids = await sqlite_backend.get_posted_product_ids()
+        if product_ids:
+            await _redis_cmd("SADD", _k_posted_product_ids(), *product_ids)
+            counts["posted_product_ids"] = len(product_ids)
 
         states = await sqlite_backend.get_all_state()
         if states:

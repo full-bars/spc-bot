@@ -1,6 +1,5 @@
 # cogs/csu_mlp.py
 import asyncio
-import json
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -14,7 +13,7 @@ from utils.cache import (
     download_single_image,
 )
 from utils.http import ensure_session
-from utils.state_store import get_state, set_state
+from utils.state_store import set_state
 
 logger = logging.getLogger("spc_bot.csu_mlp")
 
@@ -123,29 +122,6 @@ async def _resolve_best_url(day: int, force_hour: str | None = None, allow_yeste
     logger.warning(f"Day {day}: no recent URL available")
     return None, ""
 
-
-
-async def _load_posted_today() -> set:
-    """Load posted days for today from DB. Returns empty set if stale or missing."""
-    try:
-        raw = await get_state("csu_mlp_posted")
-        if raw:
-            data = json.loads(raw)
-            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            if data.get("date") == today:
-                return set(data.get("days", []))
-    except Exception as e:
-        logger.warning(f"[CSU-MLP] Failed to load posted state: {e}")
-    return set()
-
-async def _save_posted_today(posted: set):
-    """Persist posted days for today to DB."""
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    value = json.dumps({"date": today, "days": sorted(posted, key=str)})
-    try:
-        await set_state("csu_mlp_posted", value)
-    except Exception as e:
-        logger.warning(f"[CSU-MLP] Failed to save posted state: {e}")
 
 # Per-day first-seen timestamps; purely diagnostic.
 _availability_log: dict[int, str] = {}
@@ -262,12 +238,6 @@ class CSUMLPCog(commands.Cog):
         if not self.bot.state.is_primary:
             return
 
-        # Hydrate from DB if memory is empty
-        if not self.bot.state.csu_posted:
-            db_posted = await _load_posted_today()
-            if db_posted:
-                self.bot.state.csu_posted.update(str(d) for d in db_posted)
-
         now_utc = datetime.now(timezone.utc)
         today_str = now_utc.strftime("%Y-%m-%d")
 
@@ -278,7 +248,8 @@ class CSUMLPCog(commands.Cog):
                 logger.info("Resetting daily posted state")
                 self.bot.state.csu_posted.clear()
                 _availability_log.clear()
-                await _save_posted_today(self.bot.state.csu_posted)
+                # Use BotState method or manual persistence for reset
+                await set_state("csu_mlp_posted", "") 
             self._last_reset_date = today_str
 
         # Only poll 16-23 UTC
@@ -345,8 +316,7 @@ class CSUMLPCog(commands.Cog):
                         else:
                             raise
 
-                self.bot.state.csu_posted.add(str(day))
-                await _save_posted_today(self.bot.state.csu_posted)
+                await self.bot.state.add_csu_posted(str(day))
                 self.bot.state.last_post_times[f"csu_day{day}"] = now_utc
                 logger.info(f"Auto-posted Day {day} ({label})")
 
@@ -391,8 +361,7 @@ class CSUMLPCog(commands.Cog):
                         else:
                             raise
 
-                self.bot.state.csu_posted.add(state_key)
-                await _save_posted_today(self.bot.state.csu_posted)
+                await self.bot.state.add_csu_posted(state_key)
                 self.bot.state.last_post_times[f"csu_{state_key}"] = now_utc
                 logger.info(f"Auto-posted {label_name} ({label})")
 

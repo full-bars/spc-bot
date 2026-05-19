@@ -53,7 +53,10 @@ def test_to_dict_output_shape_unchanged():
         "last_posted_urls",
         "last_post_times",
         "posted_product_ids",
-    }
+        "posted_soundings",
+        "sounding_handled_watches",
+        }
+
     assert set(d.keys()) == expected_keys
     assert d["iembot_last_seqnum"] == 7
     assert "0100" in d["posted_mds"]

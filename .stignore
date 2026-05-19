@@ -1,0 +1,12 @@
+// Sync Claude/Gemini context files, progress.md, and project Claude config
+!progress.md
+!CLAUDE.md
+!GEMINI.md
+!.claude
+!.claude/settings.json
+!.claude/settings.local.json
+!.claude/skills
+!.claude/skills/**
+!.claude/agent-memory
+!.claude/agent-memory/**
+*

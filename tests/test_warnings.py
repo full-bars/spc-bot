@@ -191,6 +191,9 @@ def _make_cog(posted: dict | None = None) -> WarningsCog:
     cog.bot.state.posted_warnings = posted if posted is not None else {}
     cog.bot.state.active_warnings = {}
     cog.bot.state.posted_product_ids = deque(maxlen=1000)
+    cog.bot.state.add_posted_warning = AsyncMock()
+    cog.bot.state.add_posted_product_id = AsyncMock()
+    cog.bot.state.add_posted_product_id = AsyncMock()
     channel = MagicMock()
     channel.send = AsyncMock()
     cog.bot.get_channel = MagicMock(return_value=channel)
@@ -205,11 +208,14 @@ async def test_post_warning_now_dedups_against_posted_set(monkeypatch):
     cog = _make_cog(posted={"KOUN.SV.W.0042": {"message_id": 1, "channel_id": 2}})
 
     # Patch the persistence helpers to no-ops so the test never touches
-    # the DB. add_posted_warning would also be skipped on the dedup
+    # the DB. bot.state.add_posted_warning would also be skipped on the dedup
     # path anyway — the assertion is that channel.send was never called.
+    async def _mock_add_product_id(pid):
+        cog.bot.state.posted_product_ids.append(pid)
+
+    cog.bot.state.add_posted_warning = AsyncMock()
+    cog.bot.state.add_posted_product_id = AsyncMock(side_effect=_mock_add_product_id)
     import cogs.warnings as warnings_mod
-    monkeypatch.setattr(warnings_mod, "add_posted_warning", AsyncMock())
-    monkeypatch.setattr(warnings_mod, "prune_posted_warnings", AsyncMock())
     monkeypatch.setattr(warnings_mod, "_download_warning_image", AsyncMock(return_value=None))
     monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
 
@@ -229,9 +235,9 @@ async def test_post_warning_now_posts_CON_updates(monkeypatch):
     mapping = {vtec_id: {"message_id": 123, "channel_id": 456, "area": "Noble"}}
     cog = _make_cog(posted=mapping)
 
+    cog.bot.state.add_posted_warning = AsyncMock()
+    cog.bot.state.add_posted_product_id = AsyncMock()
     import cogs.warnings as warnings_mod
-    monkeypatch.setattr(warnings_mod, "add_posted_warning", AsyncMock())
-    monkeypatch.setattr(warnings_mod, "prune_posted_warnings", AsyncMock())
     monkeypatch.setattr(warnings_mod, "_download_warning_image", AsyncMock(return_value=None))
 
     con_text = SAMPLE_RAW.replace(
@@ -281,9 +287,11 @@ async def test_post_warning_now_claims_key_before_send(monkeypatch):
     iembot path is still in-flight and double-post."""
     cog = _make_cog()
 
+    async def _mock_add_warning(vtec_id, msg_id, chan_id, *args, **kwargs):
+        cog.bot.state.posted_warnings[vtec_id] = {"message_id": msg_id, "channel_id": chan_id}
+
+    cog.bot.state.add_posted_warning = AsyncMock(side_effect=_mock_add_warning)
     import cogs.warnings as warnings_mod
-    monkeypatch.setattr(warnings_mod, "add_posted_warning", AsyncMock())
-    monkeypatch.setattr(warnings_mod, "prune_posted_warnings", AsyncMock())
     monkeypatch.setattr(warnings_mod, "_download_warning_image", AsyncMock(return_value=None))
     monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
 
@@ -313,9 +321,12 @@ async def test_post_warning_now_dedups_by_product_id(monkeypatch):
     deduplicated by product_id even if they are updates."""
     cog = _make_cog()
 
+    async def _mock_add_product_id(pid):
+        cog.bot.state.posted_product_ids.append(pid)
+
+    cog.bot.state.add_posted_warning = AsyncMock()
+    cog.bot.state.add_posted_product_id = AsyncMock(side_effect=_mock_add_product_id)
     import cogs.warnings as warnings_mod
-    monkeypatch.setattr(warnings_mod, "add_posted_warning", AsyncMock())
-    monkeypatch.setattr(warnings_mod, "prune_posted_warnings", AsyncMock())
     monkeypatch.setattr(warnings_mod, "_download_warning_image", AsyncMock(return_value=None))
 
     # First post (e.g. from IEMBot)
@@ -344,8 +355,10 @@ async def test_post_warning_now_race_dedup(monkeypatch):
     cog = _make_cog()
 
     import cogs.warnings as warnings_mod
-    monkeypatch.setattr(warnings_mod, "add_posted_warning", AsyncMock())
-    monkeypatch.setattr(warnings_mod, "prune_posted_warnings", AsyncMock())
+
+    async def _mock_add_product_id(pid):
+        cog.bot.state.posted_product_ids.append(pid)
+    cog.bot.state.add_posted_product_id.side_effect = _mock_add_product_id
 
     # Mock image download to be slow to create a race window
     async def _slow_download(*args, **kwargs):
@@ -517,6 +530,9 @@ def _make_tick_cog(active=None, posted=None):
     cog.bot.state.is_primary = True
     cog.bot.state.posted_warnings = posted or {}
     cog.bot.state.active_warnings = active or {}
+    cog.bot.state.add_posted_warning = AsyncMock()
+    cog.bot.state.add_posted_product_id = AsyncMock()
+    cog.bot.state.add_posted_product_id = AsyncMock()
     channel = MagicMock()
     channel.id = 12345
     channel.name = "test-channel"
@@ -547,11 +563,11 @@ async def test_tick_disappeared_warning_triggers_cancellation(monkeypatch):
 
     # API returns empty features — the warning has "disappeared"
     content = _nws_response([])
+    cog.bot.state.add_posted_warning = AsyncMock()
+    cog.bot.state.add_posted_product_id = AsyncMock()
     import cogs.warnings as warnings_mod
     monkeypatch.setattr(warnings_mod, "http_get_bytes_conditional",
                         AsyncMock(return_value=(content, 200, {})))
-    monkeypatch.setattr(warnings_mod, "add_posted_warning", AsyncMock())
-    monkeypatch.setattr(warnings_mod, "prune_posted_warnings", AsyncMock())
     monkeypatch.setattr(warnings_mod, "_download_warning_image", AsyncMock(return_value=None))
     monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
 
@@ -579,11 +595,11 @@ async def test_tick_initial_discovery_posts_active_warning_missed_at_startup(mon
     msg_mock.channel.id = 2
     channel.send.return_value = msg_mock
 
+    cog.bot.state.add_posted_warning = AsyncMock()
+    cog.bot.state.add_posted_product_id = AsyncMock()
     import cogs.warnings as warnings_mod
     monkeypatch.setattr(warnings_mod, "http_get_bytes_conditional",
                         AsyncMock(return_value=(content, 200, {})))
-    monkeypatch.setattr(warnings_mod, "add_posted_warning", AsyncMock())
-    monkeypatch.setattr(warnings_mod, "prune_posted_warnings", AsyncMock())
     monkeypatch.setattr(warnings_mod, "_download_warning_image", AsyncMock(return_value=None))
     monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
     monkeypatch.setattr(warnings_mod, "add_significant_event", AsyncMock(), raising=False)
@@ -614,11 +630,18 @@ async def test_tick_con_area_change_posts_partial_update(monkeypatch):
     msg_mock.channel.id = 2
     channel.send.return_value = msg_mock
 
+    async def _mock_add_warning(vtec_id, msg_id, chan_id, *args, **kwargs):
+        cog.bot.state.posted_warnings[vtec_id] = {
+            "message_id": msg_id,
+            "channel_id": chan_id,
+            "area": kwargs.get("area", "")
+        }
+
+    cog.bot.state.add_posted_warning = AsyncMock(side_effect=_mock_add_warning)
+    cog.bot.state.add_posted_product_id = AsyncMock()
     import cogs.warnings as warnings_mod
     monkeypatch.setattr(warnings_mod, "http_get_bytes_conditional",
                         AsyncMock(return_value=(content, 200, {})))
-    monkeypatch.setattr(warnings_mod, "add_posted_warning", AsyncMock())
-    monkeypatch.setattr(warnings_mod, "prune_posted_warnings", AsyncMock())
     monkeypatch.setattr(warnings_mod, "_download_warning_image", AsyncMock(return_value=None))
     monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
     monkeypatch.setattr(warnings_mod, "add_significant_event", AsyncMock(), raising=False)
