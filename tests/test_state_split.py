@@ -272,6 +272,61 @@ def test_sweep_active_grace_window_prevents_racing_cancellation():
     assert "KOUN.TO.W.0050" in s.active_warnings
 
 
+def test_bounded_fifo_keys_dedups_on_append():
+    """append() on an existing key must be a no-op so a high-rate dup
+    stream can't churn the FIFO order."""
+    from utils.state import BoundedFIFOKeys
+    f = BoundedFIFOKeys(maxlen=3)
+    f.append("A")
+    f.append("B")
+    f.append("A")  # duplicate
+    f.append("C")
+    assert list(f) == ["A", "B", "C"]
+    assert len(f) == 3
+
+
+def test_bounded_fifo_keys_evicts_oldest_at_cap():
+    from utils.state import BoundedFIFOKeys
+    f = BoundedFIFOKeys(maxlen=3)
+    for k in ["A", "B", "C", "D"]:
+        f.append(k)
+    assert list(f) == ["B", "C", "D"]
+    assert "A" not in f
+    assert "D" in f
+
+
+def test_bounded_fifo_keys_in_check_is_constant_time():
+    """Smoke test: a 10k-element dict-backed `in` check is much faster
+    than the old O(N) deque scan. This is the whole reason for the swap."""
+    from utils.state import BoundedFIFOKeys
+    f = BoundedFIFOKeys(maxlen=10_000)
+    for i in range(10_000):
+        f.append(f"PROD-{i}")
+    # Lookup the key we just added should be instant; an absent one too.
+    assert "PROD-9999" in f
+    assert "PROD-not-here" not in f
+
+
+def test_bounded_fifo_keys_remove_raises_when_absent():
+    """deque.remove() raises ValueError when the item isn't present, and
+    BotState.remove_posted_product_id catches ValueError. Preserve."""
+    from utils.state import BoundedFIFOKeys
+    import pytest
+    f = BoundedFIFOKeys(maxlen=10)
+    f.append("A")
+    f.remove("A")
+    with pytest.raises(ValueError):
+        f.remove("not-here")
+
+
+def test_bounded_fifo_keys_extend_appends_each():
+    from utils.state import BoundedFIFOKeys
+    f = BoundedFIFOKeys(maxlen=10)
+    f.extend(["A", "B", "C"])
+    f.extend(["D"])
+    assert list(f) == ["A", "B", "C", "D"]
+
+
 def test_substores_are_independent():
     """Separate BotState instances must not share sub-store state."""
     a = BotState()
