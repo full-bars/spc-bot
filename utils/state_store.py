@@ -278,6 +278,12 @@ async def _replay(op: str, args: tuple) -> None:
     elif op == "add_posted_product_id":
         (product_id,) = args
         await _redis_cmd("SADD", _k_posted_product_ids(), product_id)
+    elif op == "remove_posted_product_id":
+        (product_id,) = args
+        await _redis_cmd("SREM", _k_posted_product_ids(), product_id)
+    elif op == "remove_posted_warning":
+        (vtec_id,) = args
+        await _redis_cmd("HDEL", _k_posted_warnings(), vtec_id)
     elif op == "add_posted_warning":
         # Handle both old (5-element) and new (7-element) formats
         vtec_id = args[0]
@@ -624,6 +630,17 @@ async def add_posted_product_id(product_id: str) -> None:
         await _enqueue_dirty("add_posted_product_id", (product_id,))
 
 
+async def remove_posted_product_id(product_id: str) -> None:
+    """Roll back an `add_posted_product_id` write across SQLite + Redis."""
+    _cache_invalidate("posted_product_ids")
+    await sqlite_backend.remove_posted_product_id(product_id)
+    try:
+        await _redis_cmd("SREM", _k_posted_product_ids(), product_id)
+    except _RedisUnavailable as e:
+        logger.warning(f"[STATE] remove_posted_product_id({product_id}) queued: {e}")
+        await _enqueue_dirty("remove_posted_product_id", (product_id,))
+
+
 async def prune_posted_product_ids(max_size: int = 1000) -> None:
     await sqlite_backend.prune_posted_product_ids(max_size)
     _cache_invalidate("posted_product_ids")
@@ -733,6 +750,17 @@ async def add_posted_warning(
             "add_posted_warning",
             (vtec_id, message_id, channel_id, posted_at, area, tornado_confidence, tornado_severity),
         )
+
+
+async def remove_posted_warning(vtec_id: str) -> None:
+    """Roll back an `add_posted_warning` write across SQLite + Redis."""
+    _cache_invalidate("posted_warnings")
+    await sqlite_backend.remove_posted_warning(vtec_id)
+    try:
+        await _redis_cmd("HDEL", _k_posted_warnings(), vtec_id)
+    except _RedisUnavailable as e:
+        logger.warning(f"[STATE] remove_posted_warning({vtec_id}) queued: {e}")
+        await _enqueue_dirty("remove_posted_warning", (vtec_id,))
 
 
 async def prune_posted_warnings(max_size: int = 500) -> None:
