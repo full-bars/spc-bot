@@ -6,6 +6,9 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Performance
+- **O(1) `posted_product_ids` membership lookup.** `posted_product_ids` was a `deque(maxlen=1000)`, so the `in` check on the hot dedup path (NWWS + IEMBot triggers + NWS poll all hit it per product) was O(N) — measurable during severe weather outbreaks with thousands of products/sec. Replaced with `BoundedFIFOKeys`, a dict-backed FIFO (`dict` preserves insertion order in CPython 3.7+) that gives O(1) `in` / `append` / `remove` while keeping the same drop-in interface (`.append()`, `.remove()` with `ValueError`, `.extend()`, `in`, `list()`, `len()`). No call sites changed.
+
 ## [5.31.0] — 2026-05-19
 
 ### Added

@@ -46,6 +46,56 @@ class RecentLogHandler(logging.Handler):
         return list(self.buffer)
 
 
+class BoundedFIFOKeys:
+    """Insertion-ordered FIFO set with O(1) ``in``, ``append``, ``remove``.
+
+    Backed by ``dict`` (which preserves insertion order in CPython 3.7+).
+    Drop-in for a ``deque(maxlen=N)`` of strings on the hot dedup path,
+    where ``in`` was previously O(N) and dominated the cost during severe
+    weather outbreaks with thousands of products/sec.
+
+    Only the methods used by callers of ``posted_product_ids`` are
+    implemented; this is not a general container.
+    """
+
+    __slots__ = ("_d", "_maxlen")
+
+    def __init__(self, maxlen: int = 1000):
+        self._d: Dict[str, None] = {}
+        self._maxlen = maxlen
+
+    def append(self, key: str) -> None:
+        if key in self._d:
+            return
+        self._d[key] = None
+        while len(self._d) > self._maxlen:
+            # Evict oldest (dicts preserve insertion order; first key is oldest)
+            try:
+                oldest = next(iter(self._d))
+            except StopIteration:
+                break
+            del self._d[oldest]
+
+    def extend(self, keys) -> None:
+        for k in keys:
+            self.append(k)
+
+    def remove(self, key: str) -> None:
+        # Match deque.remove semantics: ValueError if absent
+        if key not in self._d:
+            raise ValueError(key)
+        del self._d[key]
+
+    def __contains__(self, key) -> bool:
+        return key in self._d
+
+    def __iter__(self):
+        return iter(self._d)
+
+    def __len__(self) -> int:
+        return len(self._d)
+
+
 class HashStore:
     """Image-hash caches and partial-update state."""
 
@@ -87,7 +137,7 @@ class PostingLog:
         # Currently-active VTEC IDs mapping to their latest vtec metadata dict
         self.active_warnings: Dict[str, dict] = {}
         self.posted_reports: Set[str] = set()
-        self.posted_product_ids: deque = deque(maxlen=1000)
+        self.posted_product_ids: BoundedFIFOKeys = BoundedFIFOKeys(maxlen=1000)
         self.posted_soundings: Set[str] = set()
         self.sounding_handled_watches: Set[str] = set()
 
