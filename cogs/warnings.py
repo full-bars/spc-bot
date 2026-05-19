@@ -418,7 +418,7 @@ class WarningsCog(commands.Cog):
                 source=office,
                 raw_text=raw_text
             )
-            logger.info(f"Logged confirmed tornado for {vtec_id} (match: {match_id is not None})")
+            logger.info(f"Logged confirmed tornado for {vtec_id} (match: {match is not None})")
 
             # 2. Trigger VAD Recorder mission
             try:
