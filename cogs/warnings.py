@@ -404,9 +404,9 @@ class WarningsCog(commands.Cog):
 
             office = vtec.get("office", "NWS")
             from utils.state_store import find_matching_tornado
-            match_id = await find_matching_tornado(office, time.time(), location, window_hours=1.0)
+            match = await find_matching_tornado(office, time.time(), location, window_hours=1.0)
 
-            event_id = match_id if match_id else f"NWS:WARN:{vtec_id}"
+            event_id = match[0] if match else f"NWS:WARN:{vtec_id}"
 
             await add_significant_event(
                 event_id=event_id,
