@@ -33,6 +33,15 @@ updates:
     labels:
       - dependencies
       - ci
+    ignore:
+      # upload-artifact and download-artifact were bumped to v7/v8 previously
+      # (PR #335) and had to be reverted twice (#396, #397) due to breakage
+      # in the Docker multi-platform digest workflow. Stay on @v4 until the
+      # root cause is diagnosed.
+      - dependency-name: "actions/upload-artifact"
+        versions: [">=5"]
+      - dependency-name: "actions/download-artifact"
+        versions: [">=5"]
 
   # Rust crate dependencies
   - package-ecosystem: cargo
