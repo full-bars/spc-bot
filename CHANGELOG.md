@@ -10,6 +10,12 @@ version numbers follow [SemVer](https://semver.org/).
 - **O(1) `posted_product_ids` membership lookup.** `posted_product_ids` was a `deque(maxlen=1000)`, so the `in` check on the hot dedup path (NWWS + IEMBot triggers + NWS poll all hit it per product) was O(N) — measurable during severe weather outbreaks with thousands of products/sec. Replaced with `BoundedFIFOKeys`, a dict-backed FIFO (`dict` preserves insertion order in CPython 3.7+) that gives O(1) `in` / `append` / `remove` while keeping the same drop-in interface (`.append()`, `.remove()` with `ValueError`, `.extend()`, `in`, `list()`, `len()`). No call sites changed.
 - **Bumped connection pool limits.** `aiohttp.TCPConnector` `limit` 20→100 and `limit_per_host` 10→25 in `utils/http.py`; SQLite read pool `_READ_POOL_SIZE` 3→10 in `utils/db.py`. The old caps throttled the bot during outbreaks when radar-frame bursts, concurrent slash commands, and warning-image downloads stacked up against the connector before reaching the server. 25 per host is well below what NWS API / IEM Autoplot tolerate.
 
+### Fixed
+- **`_periodic_cache_cleanup` task leaked on shutdown.** `on_ready` spawned it via bare `asyncio.create_task(...)` without saving the handle. `_shutdown()` never knew about it, so on a clean stop the task kept running until the event loop was torn down — systemd saw a stale process and waited out the kill timeout. Saved the handle as a module global `_cache_cleanup_task`; `_shutdown()` now cancels it alongside `watchdog_task`, `periodic_sync`, and `snapshot_events_task`.
+
+### Changed
+- **Watchdog probes now run on STANDBY too.** The probe block previously bailed out entirely on standby, meaning the replica's aiohttp session, TCP keepalives, and DNS cache went cold; the first request after a failover-promotion would have to redo all that work just when latency mattered most. Probes run on both roles; Discord-channel alerts (`session reset`, `probe degraded`) and the session-teardown action stay gated to Primary so the two nodes don't duplicate noise, and managed-task supervision still short-circuits on standby (those cogs aren't loaded there).
+
 ## [5.31.0] — 2026-05-19
 
 ### Added
