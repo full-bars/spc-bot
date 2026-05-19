@@ -6,6 +6,9 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Per-endpoint HTTP latency tracking.** `bot.state.http_latency` was a single rolling average across every HTTP call, which made "the bot feels slow" reports indistinguishable between NWS API delays, IEM Autoplot delays, and Discord delays. `utils/http.py` now extracts the hostname from each request URL and passes it through the latency callback; `BotState.update_http_latency()` keeps a per-host rolling window (`deque(maxlen=100)`). `BotState.http_latency_percentiles(host)` returns nearest-rank P50/P95 in seconds. `/status` surfaces the top 5 hosts by sample count under a new "🌐 HTTP Endpoints" field. The callback is back-compatible with the legacy `cb(latency)` signature via a `TypeError` fallback.
+
 ### Tests
 - **Failover fault-injection coverage for `_do_promote` cog-load rollback.** v5.29.0 (#412) added per-cog transactional rollback inside `_do_promote` — if `bot.load_extension(name)` raises on any cog in `ALL_EXTENSIONS`, the previously-loaded cogs are unloaded in reverse order and the bot demotes back to standby. That code path had no test coverage; a regression would only surface during a real failover-with-broken-cog combination at 3am. Added 4 fault-injection tests in `tests/test_failover_coverage.py::TestPromoteFaultInjection` covering: partial-load reverse-order rollback, rollback that continues past an `unload_extension` failure, full-success path (tree.sync called, no demote), and first-cog-fails (no unloads but still demotes).
 
