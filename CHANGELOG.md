@@ -6,6 +6,8 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.29.0] — 2026-05-19
+
 ### Added
 - **Failover & Sync Observability.** Added counters for failover transitions, lease renewals, and sync failures to `BotState`. These are now displayed in the `/status` command under the Cluster Status section to provide better visibility into the health of the high-availability mechanism.
 - **`posted_product_ids` Persistence.** The cross-feed deduplication state (`posted_product_ids`) is now persisted to Redis and SQLite. This ensures that failovers or restarts no longer reset the dedup history, preventing duplicate posts from concurrent NWWS and IEM feeds during transitions.
