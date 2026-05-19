@@ -6,6 +6,17 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.28.2] — 2026-05-19
+
+### Changed
+- **Upgraded redis client from 5.x to 7.x.** Asyncio support is now built-in; dropped the `[asyncio]` extra which was removed in redis 7.x. (#414)
+- **Bumped mypy to >=1.19.1.** Stricter type checking; CI scope (utils/ only) passes clean. (#414)
+- **Bumped fakeredis to >=2.35.1.** Test-only dependency, no runtime impact. (#414)
+- **Bumped ruff to >=0.15.13.** Patch bump, no linting changes. (#414)
+
+### Fixed
+- **Dependabot repeatedly reopening broken artifact action bumps.** `actions/upload-artifact` and `actions/download-artifact` were previously bumped to v7/v8 (PR #335) and had to be reverted twice (#396, #397) due to breakage in the Docker multi-platform digest workflow. Added ignore rules to `dependabot.yml` to suppress future PRs for these until the root cause is diagnosed. (#413)
+
 ## [5.28.1] — 2026-05-19
 
 ### Fixed
