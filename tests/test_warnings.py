@@ -182,6 +182,8 @@ def test_extract_narrative_falls_back_when_no_bulletin_header():
 def _make_cog(posted: dict | None = None) -> WarningsCog:
     """Build a WarningsCog with mocked bot/channel for unit testing the
     iembot path without touching Discord, the DB, or the network."""
+    from utils.state import PostedWarningClaim
+
     cog = WarningsCog.__new__(WarningsCog)
     cog._in_flight_vtecs = set()
     cog._perm_warned = set()
@@ -193,7 +195,14 @@ def _make_cog(posted: dict | None = None) -> WarningsCog:
     cog.bot.state.posted_product_ids = deque(maxlen=1000)
     cog.bot.state.add_posted_warning = AsyncMock()
     cog.bot.state.add_posted_product_id = AsyncMock()
-    cog.bot.state.add_posted_product_id = AsyncMock()
+    cog.bot.state.remove_posted_product_id = AsyncMock()
+    cog.bot.state.remove_posted_warning = AsyncMock()
+    # claim_posted_warning must return a real PostedWarningClaim so the
+    # placeholder/confirm/rollback semantics match production. The claim
+    # delegates to bot.state.add_posted_warning, which is mocked above.
+    cog.bot.state.claim_posted_warning = lambda vtec_id: PostedWarningClaim(
+        cog.bot.state, vtec_id
+    )
     channel = MagicMock()
     channel.send = AsyncMock()
     cog.bot.get_channel = MagicMock(return_value=channel)
@@ -518,6 +527,8 @@ def _nws_response(features: list) -> bytes:
 
 
 def _make_tick_cog(active=None, posted=None):
+    from utils.state import PostedWarningClaim
+
     cog = WarningsCog.__new__(WarningsCog)
     cog._in_flight_vtecs = set()
     cog._perm_warned = set()
@@ -530,9 +541,20 @@ def _make_tick_cog(active=None, posted=None):
     cog.bot.state.is_primary = True
     cog.bot.state.posted_warnings = posted or {}
     cog.bot.state.active_warnings = active or {}
-    cog.bot.state.add_posted_warning = AsyncMock()
+
+    async def _mock_add_warning(vtec_id, msg_id, chan_id, *args, **kwargs):
+        area = kwargs.get("area", args[1] if len(args) > 1 else "")
+        cog.bot.state.posted_warnings[vtec_id] = {
+            "message_id": msg_id, "channel_id": chan_id, "area": area,
+        }
+
+    cog.bot.state.add_posted_warning = AsyncMock(side_effect=_mock_add_warning)
     cog.bot.state.add_posted_product_id = AsyncMock()
-    cog.bot.state.add_posted_product_id = AsyncMock()
+    cog.bot.state.remove_posted_product_id = AsyncMock()
+    cog.bot.state.remove_posted_warning = AsyncMock()
+    cog.bot.state.claim_posted_warning = lambda vtec_id: PostedWarningClaim(
+        cog.bot.state, vtec_id
+    )
     channel = MagicMock()
     channel.id = 12345
     channel.name = "test-channel"

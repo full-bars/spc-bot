@@ -523,6 +523,16 @@ async def prune_posted_product_ids(max_size: int = 1000):
     )
 
 
+async def remove_posted_product_id(product_id: str):
+    """Drop a single product ID — used to roll back a claim when the
+    downstream post fails."""
+    await _write(
+        "DELETE FROM posted_product_ids WHERE product_id = ?",
+        (product_id,),
+        f"remove_posted_product_id({product_id})",
+    )
+
+
 # ── Posted warnings ───────────────────────────────────────────────────────────
 
 async def get_all_posted_warnings() -> dict:
@@ -588,6 +598,16 @@ async def add_posted_warning(
              tornado_severity=excluded.tornado_severity""",
         (vtec_id, message_id, channel_id, posted_at, area, tornado_confidence, tornado_severity),
         f"add_posted_warning({vtec_id})",
+    )
+
+
+async def remove_posted_warning(vtec_id: str):
+    """Drop a single posted-warning row — used to roll back a claim when
+    the Discord post fails."""
+    await _write(
+        "DELETE FROM posted_warnings WHERE vtec_id = ?",
+        (vtec_id,),
+        f"remove_posted_warning({vtec_id})",
     )
 
 

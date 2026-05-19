@@ -275,103 +275,87 @@ class WarningsCog(commands.Cog):
 
         self._in_flight_vtecs.add(vtec_id)
 
+        # Claim dedup keys BEFORE any awaits so concurrent tasks hitting
+        # the same path see the state immediately. For updates the
+        # posted_warnings entry already exists, so the claim no-ops on
+        # enter/exit — but claim.confirm() still updates persistence.
+        await self.bot.state.add_posted_product_id(product_id)
+
         try:
-            # Claim the dedup key BEFORE any awaits so concurrent tasks
-            # hitting the same path see the state immediately.
-            # For updates, we don't overwrite the dict yet, but we mark the product.
-            await self.bot.state.add_posted_product_id(product_id)
-            if not is_update:
-                # We still need a placeholder in memory to prevent concurrent races 
-                # before the message is actually sent.
-                self.bot.state.posted_warnings[vtec_id] = {} 
+            async with self.bot.state.claim_posted_warning(vtec_id) as claim:
+                self.bot.state.active_warnings[vtec_id] = vtec
 
-            self.bot.state.active_warnings[vtec_id] = vtec
+                # Log significant events (tornadoes, hail, wind) to DB
+                event_id = await self._check_and_log_significant_event(event, raw_text, vtec)
 
-            # Log significant events (tornadoes, hail, wind) to DB
-            event_id = await self._check_and_log_significant_event(event, raw_text, vtec)
+                emoji, display_event, color, footer_id = get_warning_style(event, raw_text, vtec=vtec)
 
-            emoji, display_event, color, footer_id = get_warning_style(event, raw_text, vtec=vtec)
+                prev_area = self.bot.state.posted_warnings.get(vtec_id, {}).get("area", "")
+                concise_text = build_concise_warning_text(
+                    display_event, vtec, raw_text=raw_text, is_update=is_update, prev_area=prev_area
+                )
 
-            prev_area = self.bot.state.posted_warnings.get(vtec_id, {}).get("area", "")
-            concise_text = build_concise_warning_text(
-                display_event, vtec, raw_text=raw_text, is_update=is_update, prev_area=prev_area
-            )
+                embed = discord.Embed(
+                    title=f"{emoji} {display_event}",
+                    description=concise_text,
+                    color=color,
+                    timestamp=datetime.now(timezone.utc),
+                )
+                footer_text = f"VTEC {vtec_id}"
+                if footer_id:
+                    footer_text += f" | {footer_id}"
+                embed.set_footer(text=footer_text)
 
-            embed = discord.Embed(
-                title=f"{emoji} {display_event}",
-                description=concise_text,
-                color=color,
-                timestamp=datetime.now(timezone.utc),
-            )
-            footer_text = f"VTEC {vtec_id}"
-            if footer_id:
-                footer_text += f" | {footer_id}"
-            embed.set_footer(text=footer_text)
+                # Add Environmental Button for Tornado Warnings
+                view = None
+                if event == "Tornado Warning" and event_id:
+                    view = EnvironmentalView(event_id)
 
-            # Add Environmental Button for Tornado Warnings
-            view = None
-            if event == "Tornado Warning" and event_id:
-                view = EnvironmentalView(event_id)
-
-            # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS)
-            files = []
-            has_etn = vtec.get("etn") and vtec["etn"] != "0"
-            logger.debug(f"[WARN_IMG_CHECK] {vtec['vtec_id']}: has_etn={has_etn} phenom={vtec.get('phenom')}")
-            if has_etn or vtec.get("phenom") == "SPS":
-                image_url = iem_autoplot_url(vtec)
-                logger.debug(f"[WARN_IMG_IEMBOT] {vtec['vtec_id']}: {image_url}")
-                filename = f"warning_{vtec_id.replace('.', '_')}.png"
-                f = await _download_warning_image(image_url, filename)
-                if f:
-                    files.append(f)
-                    embed.set_image(url=f"attachment://{filename}")
+                # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS)
+                files = []
+                has_etn = vtec.get("etn") and vtec["etn"] != "0"
+                logger.debug(f"[WARN_IMG_CHECK] {vtec['vtec_id']}: has_etn={has_etn} phenom={vtec.get('phenom')}")
+                if has_etn or vtec.get("phenom") == "SPS":
+                    image_url = iem_autoplot_url(vtec)
+                    logger.debug(f"[WARN_IMG_IEMBOT] {vtec['vtec_id']}: {image_url}")
+                    filename = f"warning_{vtec_id.replace('.', '_')}.png"
+                    f = await _download_warning_image(image_url, filename)
+                    if f:
+                        files.append(f)
+                        embed.set_image(url=f"attachment://{filename}")
+                    else:
+                        logger.warning(f"[WARN_IMG_FAIL] {vtec['vtec_id']}: image download returned None")
                 else:
-                    logger.warning(f"[WARN_IMG_FAIL] {vtec['vtec_id']}: image download returned None")
-            else:
-                logger.debug(f"[WARN_IMG_SKIP] {vtec['vtec_id']}: no ETN, not downloading image")
+                    logger.debug(f"[WARN_IMG_SKIP] {vtec['vtec_id']}: no ETN, not downloading image")
 
-            try:
-                msg = await channel.send(embed=embed, files=files, view=view)
-                logger.info(f"Posted (iembot) {event} {vtec_id} ({'Update' if is_update else 'Issuance'})")
-
-                # Simple area extraction for persistence
-                area_m = re.search(r"for (.+?) till", concise_text)
-                area_desc = area_m.group(1) if area_m else "affected area"
-
-                tornado_confidence, tornado_severity = get_tornado_attributes(event, raw_text)
-                await self.bot.state.add_posted_warning(
-                    vtec_id,
-                    msg.id,
-                    msg.channel.id,
-                    time.time(),
-                    area=area_desc,
-                    tornado_confidence=tornado_confidence,
-                    tornado_severity=tornado_severity,
-                )
-            except discord.Forbidden as e:
-                await self._notify_channel_error(channel, ["send_messages (403 Forbidden)"])
                 try:
-                    self.bot.state.posted_product_ids.remove(product_id)
-                except ValueError:
-                    pass
-                if not is_update and vtec_id in self.bot.state.posted_warnings:
-                    del self.bot.state.posted_warnings[vtec_id]
-                self.bot.state.active_warnings.pop(vtec_id, None)
-                logger.error(f"iembot send forbidden for {vtec_id} in channel {channel.id}: {e}")
-                return
-            except discord.HTTPException as e:
-                # Roll back the dedup claim on a hard send failure
-                try:
-                    self.bot.state.posted_product_ids.remove(product_id)
-                except ValueError:
-                    pass
-                if not is_update and vtec_id in self.bot.state.posted_warnings:
-                    del self.bot.state.posted_warnings[vtec_id]
-                self.bot.state.active_warnings.pop(vtec_id, None)
-                logger.exception(
-                    f"iembot send failed for {vtec_id}: {e}"
-                )
-                return
+                    msg = await channel.send(embed=embed, files=files, view=view)
+                    logger.info(f"Posted (iembot) {event} {vtec_id} ({'Update' if is_update else 'Issuance'})")
+
+                    # Simple area extraction for persistence
+                    area_m = re.search(r"for (.+?) till", concise_text)
+                    area_desc = area_m.group(1) if area_m else "affected area"
+
+                    tornado_confidence, tornado_severity = get_tornado_attributes(event, raw_text)
+                    await claim.confirm(
+                        msg.id,
+                        msg.channel.id,
+                        time.time(),
+                        area=area_desc,
+                        tornado_confidence=tornado_confidence,
+                        tornado_severity=tornado_severity,
+                    )
+                except discord.Forbidden as e:
+                    await self._notify_channel_error(channel, ["send_messages (403 Forbidden)"])
+                    await self.bot.state.remove_posted_product_id(product_id)
+                    self.bot.state.active_warnings.pop(vtec_id, None)
+                    logger.error(f"iembot send forbidden for {vtec_id} in channel {channel.id}: {e}")
+                    return  # claim auto-rolls back on context exit
+                except discord.HTTPException as e:
+                    await self.bot.state.remove_posted_product_id(product_id)
+                    self.bot.state.active_warnings.pop(vtec_id, None)
+                    logger.exception(f"iembot send failed for {vtec_id}: {e}")
+                    return  # claim auto-rolls back on context exit
         finally:
             self._in_flight_vtecs.discard(vtec_id)
 
@@ -804,40 +788,31 @@ class WarningsCog(commands.Cog):
                 if vtec_dict["action"] not in ("NEW", "CON", "EXT", "UPG"):
                     continue
 
-                # Claim the dedup key BEFORE any awaits
-                self.bot.state.posted_warnings[issuance_id] = {}  # placeholder
+                async with self.bot.state.claim_posted_warning(issuance_id) as claim:
+                    try:
+                        event_ch = await self._resolve_warning_channel(event, vtec_phenom=vtec_dict.get("phenom"))
+                        if event_ch is None:
+                            continue  # claim auto-rolls back
+                        msg, area_desc = await self._post_warning(feature, event_ch, vtec_dict, event)
+                    except discord.HTTPException as e:
+                        logger.exception(f"Send failed for {issuance_id}: {e}")
+                        continue  # claim auto-rolls back
 
-                try:
-                    event_ch = await self._resolve_warning_channel(event, vtec_phenom=vtec_dict.get("phenom"))
-                    if event_ch is None:
-                        self.bot.state.posted_warnings.pop(issuance_id, None)
-                        continue
-                    msg, area_desc = await self._post_warning(feature, event_ch, vtec_dict, event)
-                except discord.HTTPException as e:
-                    logger.exception(f"Send failed for {issuance_id}: {e}")
-                    # Roll back placeholder on failure
-                    if issuance_id in self.bot.state.posted_warnings and not self.bot.state.posted_warnings[issuance_id]:
-                        del self.bot.state.posted_warnings[issuance_id]
-                    continue
-
-                self.bot.state.active_warnings[issuance_id] = vtec_dict
-                try:
-                    description = props.description or ""
-                    params = props.parameters.model_dump() if props.parameters else {}
-                    tornado_confidence, tornado_severity = get_tornado_attributes(event, description, params)
-                    await self.bot.state.add_posted_warning(
-                        issuance_id,
-                        msg.id,
-                        msg.channel.id,
-                        time.time(),
-                        area=area_desc,
-                        tornado_confidence=tornado_confidence,
-                        tornado_severity=tornado_severity,
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to persist {issuance_id}: {e}"
-                    )
+                    self.bot.state.active_warnings[issuance_id] = vtec_dict
+                    try:
+                        description = props.description or ""
+                        params = props.parameters.model_dump() if props.parameters else {}
+                        tornado_confidence, tornado_severity = get_tornado_attributes(event, description, params)
+                        await claim.confirm(
+                            msg.id,
+                            msg.channel.id,
+                            time.time(),
+                            area=area_desc,
+                            tornado_confidence=tornado_confidence,
+                            tornado_severity=tornado_severity,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to persist {issuance_id}: {e}")
             finally:
                 self._in_flight_vtecs.discard(issuance_id)
 

@@ -252,6 +252,40 @@ class BotState:
         }
         return before - len(self.posted_warnings)
 
+    async def remove_posted_warning(self, vtec_id: str) -> None:
+        """Roll back a posted warning across memory + SQLite + Redis."""
+        from utils import state_store
+        self.posted_warnings.pop(vtec_id, None)
+        await state_store.remove_posted_warning(vtec_id)
+
+    async def remove_posted_product_id(self, product_id: str) -> None:
+        """Roll back a posted product ID across memory + SQLite + Redis.
+        Silently no-ops if the id is not currently in the in-memory deque."""
+        from utils import state_store
+        try:
+            self.posted_product_ids.remove(product_id)
+        except ValueError:
+            pass
+        await state_store.remove_posted_product_id(product_id)
+
+    def claim_posted_warning(self, vtec_id: str) -> "PostedWarningClaim":
+        """Open an async context that reserves ``vtec_id`` in
+        ``posted_warnings`` as a synchronous dedup signal.
+
+        Usage::
+
+            async with state.claim_posted_warning(vtec_id) as claim:
+                msg = await channel.send(...)
+                await claim.confirm(msg.id, msg.channel.id, ...)
+
+        If ``confirm`` is not called (caller aborts, exception leaks, or
+        an early ``continue`` skips it), the placeholder is rolled back on
+        exit. If the vtec_id was already claimed when the context opens —
+        e.g. a concurrent NWWS and IEM trigger racing for the same warning
+        — the new claim becomes a no-op and exiting will not touch the
+        other task's entry."""
+        return PostedWarningClaim(self, vtec_id)
+
     async def add_csu_posted(self, day: str) -> None:
         from utils import state_store
         self.csu_posted.add(str(day))
@@ -312,3 +346,78 @@ class BotState:
                 for k, v in self.last_post_times.copy().items()
             },
         }
+
+
+class PostedWarningClaim:
+    """Async context manager guarding a single ``posted_warnings`` entry.
+
+    On enter, an empty-dict placeholder is written to ``state.posted_warnings``
+    so concurrent tasks that check ``vtec_id in state.posted_warnings`` before
+    awaiting immediately see the reservation. The caller must then either:
+
+      * call ``await claim.confirm(message_id, channel_id, …)`` after the
+        Discord post succeeds — this persists the real entry across SQLite +
+        Redis via ``BotState.add_posted_warning`` and leaves the placeholder
+        promoted to a real row, or
+      * let the context exit without confirming (explicit ``claim.abort()``,
+        an early ``continue``, or a leaked exception) — the placeholder is
+        rolled back from memory on exit. SQLite + Redis are not touched
+        because the placeholder was never persisted.
+
+    If the vtec_id was already claimed when this context opens (concurrent
+    NWWS + IEM trigger racing on the same warning), the new claim becomes a
+    no-op: ``__aexit__`` will not clobber the other task's entry, and
+    ``confirm`` still persists the real row (last writer wins, matching
+    pre-refactor behavior).
+    """
+
+    __slots__ = ("_state", "_vtec_id", "_confirmed", "_already_claimed")
+
+    def __init__(self, state: "BotState", vtec_id: str):
+        self._state = state
+        self._vtec_id = vtec_id
+        self._confirmed = False
+        self._already_claimed = False
+
+    async def __aenter__(self) -> "PostedWarningClaim":
+        if self._vtec_id in self._state.posted_warnings:
+            self._already_claimed = True
+        else:
+            self._state.posted_warnings[self._vtec_id] = {}
+        return self
+
+    def abort(self) -> None:
+        """Mark the claim for rollback. The placeholder is dropped when
+        the context exits. A no-op after ``confirm`` has been called."""
+        self._confirmed = False
+
+    async def confirm(
+        self,
+        message_id: int,
+        channel_id: int,
+        posted_at: float = 0.0,
+        area: str = "",
+        tornado_confidence: Optional[str] = None,
+        tornado_severity: Optional[str] = None,
+    ) -> None:
+        """Persist the real entry across memory + SQLite + Redis. After
+        this call the claim will not roll back on context exit."""
+        await self._state.add_posted_warning(
+            self._vtec_id,
+            message_id,
+            channel_id,
+            posted_at,
+            area,
+            tornado_confidence,
+            tornado_severity,
+        )
+        self._confirmed = True
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        if self._confirmed or self._already_claimed:
+            return
+        # Only remove the entry if it's still the empty placeholder we
+        # inserted on enter. A confirm() that wrote a real dict and then
+        # raised — or an unrelated writer — must not be wiped.
+        if self._state.posted_warnings.get(self._vtec_id) == {}:
+            self._state.posted_warnings.pop(self._vtec_id, None)

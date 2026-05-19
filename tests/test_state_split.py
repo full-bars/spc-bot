@@ -95,6 +95,80 @@ async def test_prune_posted_warnings_preserves_placeholders():
     assert "OLD" not in s.posted_warnings
 
 
+async def test_claim_inserts_placeholder_on_enter():
+    s = BotState()
+    async with s.claim_posted_warning("KOUN.TO.W.0042"):
+        assert "KOUN.TO.W.0042" in s.posted_warnings
+        assert s.posted_warnings["KOUN.TO.W.0042"] == {}
+
+
+async def test_claim_rolls_back_when_not_confirmed():
+    s = BotState()
+    async with s.claim_posted_warning("KOUN.TO.W.0042"):
+        pass  # never confirmed
+    assert "KOUN.TO.W.0042" not in s.posted_warnings
+
+
+async def test_claim_rolls_back_on_exception():
+    s = BotState()
+    with patch("utils.state_store.add_posted_warning", new=AsyncMock()):
+        try:
+            async with s.claim_posted_warning("KOUN.TO.W.0042"):
+                raise RuntimeError("send failed")
+        except RuntimeError:
+            pass
+    assert "KOUN.TO.W.0042" not in s.posted_warnings
+
+
+async def test_claim_confirm_persists_and_survives_exit():
+    s = BotState()
+    with patch("utils.state_store.add_posted_warning", new=AsyncMock()) as persist:
+        async with s.claim_posted_warning("KOUN.TO.W.0042") as claim:
+            await claim.confirm(message_id=1, channel_id=2, area="Cleveland")
+        persist.assert_awaited_once()
+    assert s.posted_warnings["KOUN.TO.W.0042"]["message_id"] == 1
+    assert s.posted_warnings["KOUN.TO.W.0042"]["area"] == "Cleveland"
+
+
+async def test_claim_no_ops_when_vtec_already_claimed():
+    """Concurrent NWWS + IEM trigger on the same vtec: second claim sees
+    the first task's entry, leaves it alone on exit (no clobber)."""
+    s = BotState()
+    s.posted_warnings["KOUN.TO.W.0042"] = {"message_id": 999, "channel_id": 888}
+
+    async with s.claim_posted_warning("KOUN.TO.W.0042"):
+        pass  # never confirmed; should NOT roll back the existing entry
+
+    assert s.posted_warnings["KOUN.TO.W.0042"]["message_id"] == 999
+
+
+async def test_claim_abort_marks_for_rollback():
+    s = BotState()
+    async with s.claim_posted_warning("KOUN.TO.W.0042") as claim:
+        claim.abort()
+    assert "KOUN.TO.W.0042" not in s.posted_warnings
+
+
+async def test_remove_posted_warning_clears_memory_and_persistence():
+    s = BotState()
+    s.posted_warnings["KOUN.TO.W.0042"] = {"message_id": 1, "channel_id": 2}
+
+    with patch("utils.state_store.remove_posted_warning", new=AsyncMock()) as remove:
+        await s.remove_posted_warning("KOUN.TO.W.0042")
+
+    remove.assert_awaited_once_with("KOUN.TO.W.0042")
+    assert "KOUN.TO.W.0042" not in s.posted_warnings
+
+
+async def test_remove_posted_product_id_silent_when_absent():
+    """Rollback path must tolerate the deque already lacking the entry —
+    e.g. a maxlen=1000 eviction beat the rollback to it."""
+    s = BotState()
+    with patch("utils.state_store.remove_posted_product_id", new=AsyncMock()) as remove:
+        await s.remove_posted_product_id("PROD-not-here")
+    remove.assert_awaited_once_with("PROD-not-here")
+
+
 def test_substores_are_independent():
     """Separate BotState instances must not share sub-store state."""
     a = BotState()
