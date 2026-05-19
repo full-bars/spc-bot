@@ -252,6 +252,9 @@ _task_alerted = set()
 # startup "task is down" alert immediately followed by "recovered".
 _task_seen_running = set()
 _session_probe_failures = 0
+# Tracked so _shutdown() can cancel the cache-cleanup background task
+# spawned in on_ready — otherwise systemd hangs on stop until SIGKILL.
+_cache_cleanup_task: "asyncio.Task | None" = None
 
 
 async def send_bot_alert(
@@ -325,7 +328,10 @@ async def on_ready():
     if not hasattr(bot, "_cache_cleanup_scheduled"):
         bot._cache_cleanup_scheduled = True
         logger.debug("[CACHE] Scheduling daily cache cleanup task")
-        asyncio.create_task(_periodic_cache_cleanup())
+        global _cache_cleanup_task
+        _cache_cleanup_task = asyncio.create_task(
+            _periodic_cache_cleanup(), name="periodic_cache_cleanup"
+        )
 
 @tasks.loop(hours=24)
 async def periodic_sync():
@@ -378,14 +384,15 @@ async def watchdog_task():
     global _session_probe_failures
     await bot.wait_until_ready()
 
-    # If we are in STANDBY, do not monitor or restart tasks as they
-    # are suppressed by the failover mechanism.
-    if not bot.state.is_primary:
-        return
-
     # Probe two independent endpoints. We only count a failure if BOTH fail —
     # a single-endpoint outage (e.g. NWS maintenance) shouldn't trigger a
     # session teardown or operator alert.
+    #
+    # The probes themselves run on STANDBY too so the replica keeps its
+    # aiohttp session, TCP keepalives, and DNS cache warm — promotion
+    # should never be the first time a request goes out from this process.
+    # Discord-channel alerts and managed-task supervision below are still
+    # gated to PRIMARY to avoid duplicate noise from both nodes.
     _PROBE_PRIMARY = "https://api.weather.gov/"
     _PROBE_SECONDARY = "https://mesonet.agron.iastate.edu/"
 
@@ -404,6 +411,11 @@ async def watchdog_task():
     primary_ok = await _head_ok(_PROBE_PRIMARY)
     probe_healthy = primary_ok or await _head_ok(_PROBE_SECONDARY)
 
+    # Only the Primary surfaces alerts and recreates the shared session —
+    # we don't want both nodes posting "session reset" to Discord, and the
+    # session-teardown action is meaningless on standby (no traffic flowing).
+    primary_role = bot.state.is_primary
+
     if probe_healthy:
         if _session_probe_failures > 0:
             logger.info(f"Session probe recovered after {_session_probe_failures} failure(s)")
@@ -412,31 +424,32 @@ async def watchdog_task():
         _session_probe_failures += 1
         if _session_probe_failures >= 3:
             logger.warning(
-                f"Session probe failed {_session_probe_failures} consecutive times — "
-                "tearing down and recreating"
+                f"Session probe failed {_session_probe_failures} consecutive times"
+                + (" — tearing down and recreating" if primary_role else " (standby; not resetting session)")
             )
-            try:
-                ch = bot.get_channel(DEV_CHANNEL_ID) or await bot.fetch_channel(DEV_CHANNEL_ID)
-                await ch.send(embed=discord.Embed(
-                    title="⚠️ Watchdog: session reset",
-                    description=(
-                        f"Both `{_PROBE_PRIMARY}` and `{_PROBE_SECONDARY}` failed "
-                        f"{_session_probe_failures} consecutive cycles. "
-                        "Tearing down and recreating the aiohttp session."
-                    ),
-                    color=discord.Color.red(),
-                ))
-            except Exception as alert_err:
-                logger.warning(f"Could not send session-reset alert: {alert_err}")
-            await utils.http.close_session()
-            await utils.http.ensure_session()
+            if primary_role:
+                try:
+                    ch = bot.get_channel(DEV_CHANNEL_ID) or await bot.fetch_channel(DEV_CHANNEL_ID)
+                    await ch.send(embed=discord.Embed(
+                        title="⚠️ Watchdog: session reset",
+                        description=(
+                            f"Both `{_PROBE_PRIMARY}` and `{_PROBE_SECONDARY}` failed "
+                            f"{_session_probe_failures} consecutive cycles. "
+                            "Tearing down and recreating the aiohttp session."
+                        ),
+                        color=discord.Color.red(),
+                    ))
+                except Exception as alert_err:
+                    logger.warning(f"Could not send session-reset alert: {alert_err}")
+                await utils.http.close_session()
+                await utils.http.ensure_session()
             _session_probe_failures = 0
         else:
             logger.info(
                 f"Session probe failed ({_session_probe_failures}/3) — "
                 "waiting for next cycle"
             )
-            if _session_probe_failures == 2:
+            if _session_probe_failures == 2 and primary_role:
                 try:
                     ch = bot.get_channel(DEV_CHANNEL_ID) or await bot.fetch_channel(DEV_CHANNEL_ID)
                     await ch.send(embed=discord.Embed(
@@ -449,6 +462,11 @@ async def watchdog_task():
                     ))
                 except Exception as alert_err:
                     logger.warning(f"Could not send degradation alert: {alert_err}")
+
+    # Managed-task supervision below only runs on Primary — STANDBY has its
+    # alerting cogs unloaded, so there's nothing to supervise.
+    if not primary_role:
+        return
 
     # Grace period for startup race: tasks need a few ticks to schedule
     # their first iteration after wait_until_ready() unblocks.
@@ -577,6 +595,8 @@ async def _shutdown():
         periodic_sync.cancel()
     if snapshot_events_task.is_running():
         snapshot_events_task.cancel()
+    if _cache_cleanup_task is not None and not _cache_cleanup_task.done():
+        _cache_cleanup_task.cancel()
 
     # 2. Close DB, HTTP session, and plot worker pool
     try:
