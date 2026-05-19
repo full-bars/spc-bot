@@ -404,9 +404,9 @@ class WarningsCog(commands.Cog):
 
             office = vtec.get("office", "NWS")
             from utils.state_store import find_matching_tornado
-            match_id = await find_matching_tornado(office, time.time(), location, window_hours=1.0)
+            match = await find_matching_tornado(office, time.time(), location, window_hours=1.0)
 
-            event_id = match_id if match_id else f"NWS:WARN:{vtec_id}"
+            event_id = match[0] if match else f"NWS:WARN:{vtec_id}"
 
             await add_significant_event(
                 event_id=event_id,
@@ -418,7 +418,7 @@ class WarningsCog(commands.Cog):
                 source=office,
                 raw_text=raw_text
             )
-            logger.info(f"Logged confirmed tornado for {vtec_id} (match: {match_id is not None})")
+            logger.info(f"Logged confirmed tornado for {vtec_id} (match: {match is not None})")
 
             # 2. Trigger VAD Recorder mission
             try:
