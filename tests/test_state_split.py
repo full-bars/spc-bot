@@ -1,4 +1,6 @@
 # tests/test_state_split.py
+from unittest.mock import AsyncMock, patch
+
 from utils.state import BotState, PostingLog, TimingTracker, HashStore
 
 
@@ -61,6 +63,36 @@ def test_to_dict_output_shape_unchanged():
     assert d["iembot_last_seqnum"] == 7
     assert "0100" in d["posted_mds"]
     assert d["auto_cache"] == {"u": "h"}
+
+
+async def test_prune_posted_warnings_drops_evicted_entries():
+    s = BotState()
+    s.posted_warnings["A"] = {"message_id": 1, "channel_id": 1, "area": ""}
+    s.posted_warnings["B"] = {"message_id": 2, "channel_id": 1, "area": ""}
+    s.posted_warnings["C"] = {"message_id": 3, "channel_id": 1, "area": ""}
+
+    with patch("utils.state_store.prune_posted_warnings", new=AsyncMock()) as prune, \
+         patch("utils.state_store.get_all_posted_warnings", new=AsyncMock(return_value={"B": {}, "C": {}})):
+        removed = await s.prune_posted_warnings(max_size=2)
+
+    prune.assert_awaited_once_with(2)
+    assert removed == 1
+    assert set(s.posted_warnings.keys()) == {"B", "C"}
+
+
+async def test_prune_posted_warnings_preserves_placeholders():
+    """Unconfirmed placeholders (empty-dict values) must survive prune —
+    a concurrent post may be mid-flight before its row hits SQLite."""
+    s = BotState()
+    s.posted_warnings["OLD"] = {"message_id": 1, "channel_id": 1, "area": ""}
+    s.posted_warnings["INFLIGHT"] = {}  # placeholder mid-post
+
+    with patch("utils.state_store.prune_posted_warnings", new=AsyncMock()), \
+         patch("utils.state_store.get_all_posted_warnings", new=AsyncMock(return_value={})):
+        await s.prune_posted_warnings(max_size=10)
+
+    assert "INFLIGHT" in s.posted_warnings
+    assert "OLD" not in s.posted_warnings
 
 
 def test_substores_are_independent():

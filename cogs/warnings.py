@@ -63,7 +63,12 @@ logger = logging.getLogger("spc_bot.warnings")
 
 
 class WarningsCog(commands.Cog):
-    MANAGED_TASK_NAMES = [("auto_poll_warnings", "auto_poll_warnings")]
+    MANAGED_TASK_NAMES = [
+        ("auto_poll_warnings", "auto_poll_warnings"),
+        ("prune_posted_warnings_loop", "prune_posted_warnings_loop"),
+    ]
+
+    POSTED_WARNINGS_MAX = 500
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -81,9 +86,11 @@ class WarningsCog(commands.Cog):
         )
 
         self.auto_poll_warnings.start()
+        self.prune_posted_warnings_loop.start()
 
     def cog_unload(self):
         self.auto_poll_warnings.cancel()
+        self.prune_posted_warnings_loop.cancel()
 
     # ── Warning Channel Routing ─────────────────────────────────────────────
 
@@ -620,6 +627,26 @@ class WarningsCog(commands.Cog):
             logger.info(f"Posted cancellation for {vtec_id}")
         except Exception as e:
             logger.warning(f"Failed to post cancellation for {vtec_id}: {e}")
+
+    @tasks.loop(hours=1)
+    async def prune_posted_warnings_loop(self):
+        """Cap ``posted_warnings`` growth — warnings churn far faster than
+        watches and the in-memory dict was previously unbounded."""
+        if not self.bot.state.is_primary:
+            return
+        try:
+            removed = await self.bot.state.prune_posted_warnings(self.POSTED_WARNINGS_MAX)
+            if removed:
+                logger.info(
+                    f"Pruned {removed} posted_warnings entries "
+                    f"(cap={self.POSTED_WARNINGS_MAX})"
+                )
+        except Exception as e:
+            logger.exception(f"prune_posted_warnings_loop failed: {e}")
+
+    @prune_posted_warnings_loop.before_loop
+    async def _before_prune_posted_warnings(self):
+        await self.bot.wait_until_ready()
 
     @tasks.loop(seconds=30)
     async def auto_poll_warnings(self):
