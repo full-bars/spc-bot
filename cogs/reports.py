@@ -520,7 +520,7 @@ class ReportsCog(commands.Cog):
                         match_id = await find_matching_tornado(office, ts, location, window_hours=1.0)
                         if match_id:
                             await add_significant_event(
-                                event_id=match_id,
+                                event_id=match_id[0],
                                 event_type="Tornado",
                                 location=location,
                                 magnitude=magnitude,
