@@ -6,6 +6,9 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **`posted_warnings` in-memory dict was unbounded.** v5.29.0 plumbed `prune_posted_warnings` to wipe stale rows from Redis and SQLite, but nothing called it at runtime and the in-memory dict on `BotState` had no cap analog to `posted_product_ids`' `deque(maxlen=1000)`. During multi-day outbreaks the dict grew without bound. Added `BotState.prune_posted_warnings()` which prunes all three layers and preserves unconfirmed placeholders, plus an hourly `prune_posted_warnings_loop` task in `WarningsCog` (cap 500, primary-only).
+
 ## [5.29.0] — 2026-05-19
 
 ### Added

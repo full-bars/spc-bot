@@ -234,6 +234,24 @@ class BotState:
         self.sounding_handled_watches.add(watch_number)
         await state_store.add_sounding_handled_watch(watch_number)
 
+    async def prune_posted_warnings(self, max_size: int = 500) -> int:
+        """Trim posted_warnings to the most recent ``max_size`` entries across
+        SQLite, Redis, and the in-memory dict.
+
+        Returns the number of in-memory entries removed. Unconfirmed
+        placeholders (empty-dict values) are always preserved — a concurrent
+        post may be mid-flight and the persisted row has not been written yet.
+        """
+        from utils import state_store
+        await state_store.prune_posted_warnings(max_size)
+        surviving = await state_store.get_all_posted_warnings()
+        before = len(self.posted_warnings)
+        self.posted_warnings = {
+            k: v for k, v in self.posted_warnings.items()
+            if k in surviving or not v
+        }
+        return before - len(self.posted_warnings)
+
     async def add_csu_posted(self, day: str) -> None:
         from utils import state_store
         self.csu_posted.add(str(day))
