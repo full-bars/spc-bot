@@ -4,7 +4,7 @@
 line-length = 100
 
 # lib/vad_plotter is vendored third-party code. Not ours, not linted.
-extend-exclude = ["lib", "venv", ".venv", "docs"]
+extend-exclude = ["lib", "venv", ".venv", "docs", "*sync-conflict*"]
 
 [lint]
 # Per-iteration try/except in loops is deliberate error isolation

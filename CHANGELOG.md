@@ -6,6 +6,17 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.28.1] — 2026-05-19
+
+### Fixed
+- **`add_significant_event` received a tuple instead of `event_id` string.** Two call sites passed the raw `find_matching_tornado` return value (an `(event_id, vtec_id)` tuple) directly as `event_id`, causing SQLite to fail with `type 'tuple' is not supported` on every matched tornado warning and LSR. Significant events were still posted to Discord; only database logging was broken. (#410)
+- **`posted_warnings` not snapshotted in `to_dict`.** State serialization omitted `posted_warnings`, so any warnings posted since the last Redis sync were lost across restarts or failover. (#400)
+- **Dead `upstash` alias removed from state store.** Leftover `upstash` import alias was referenced nowhere and caused a lint warning. (#400)
+- **`_promote`/`_demote` not serialized under a lock.** Concurrent promotion and demotion calls could race on shared state. Both methods now acquire the failover lock before executing. (#398)
+- **Unhandled `SystemExit` on cog unload failure.** A failing cog unload previously swallowed the exit, leaving the process in a degraded state. Now calls `os._exit(1)` to force a clean restart. (#398)
+- **RwLock `.unwrap()` panics in Rust extension.** Several `RwLock` acquire sites used `.unwrap()`, which could panic on a poisoned lock and kill the process. Replaced with proper `PyErr` conversion so Python sees a recoverable exception. (#399)
+- **`upload-artifact` version mismatch in `tests.yml`.** CI used `upload-artifact@v4` in `tests.yml` while `docker-publish.yml` had been aligned to `@v8`; aligned to `@v4` across both files. (#397)
+
 ## [5.28.0] — 2026-05-18
 
 ### Fixed
