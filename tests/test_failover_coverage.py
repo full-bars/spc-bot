@@ -328,3 +328,146 @@ class TestLeaseSafety:
         # Should not raise; returns silently
         await cog._release_lease()
         mock_client.eval.assert_awaited_once()
+
+
+# ── Fault Injection: _do_promote cog-load rollback ────────────────────────────
+#
+# These tests prove that a partial cog-load failure inside _do_promote leaves
+# the bot in a clean state (demoted, with previously-loaded cogs unloaded in
+# reverse order). Without this coverage, the transactional rollback at
+# cogs/failover.py:480-498 has no test pinning its behaviour — exactly the
+# scenario that bit v5.28.0 before #412 added the rollback at all.
+
+def _stub_do_promote_prereqs(monkeypatch, cog):
+    """Mock out every side-effecting call _do_promote makes BEFORE the
+    cog-load loop, so the test isolates the rollback path."""
+    monkeypatch.setattr(cog, "_cleanup_own_stale_entries", AsyncMock())
+    monkeypatch.setattr(cog, "_build_local_redis",
+                        MagicMock(side_effect=Exception("skip redis flip")))
+    monkeypatch.setattr(cog, "_write_lease", AsyncMock())
+    monkeypatch.setattr(cog, "_rehydrate_bot_state", AsyncMock())
+
+    import utils.state_store as state_store
+    monkeypatch.setattr(state_store, "invalidate_all_caches", MagicMock())
+    monkeypatch.setattr(state_store, "mirror_to_sqlite", AsyncMock())
+    monkeypatch.setattr(state_store, "resync_to_redis", AsyncMock())
+
+    import utils.events_db as events_db
+    monkeypatch.setattr(events_db, "restore_from_sync", MagicMock())
+    monkeypatch.setattr(events_db, "set_syncthing_folder_mode", AsyncMock())
+
+    # Compress the 2s sleep _do_promote takes before rehydrate
+    import asyncio
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+
+
+class TestPromoteFaultInjection:
+
+    @pytest.mark.asyncio
+    async def test_partial_cog_load_failure_rolls_back_in_reverse(self, monkeypatch):
+        """If load_extension raises on the 4th cog, the 3 already-loaded
+        cogs must be unloaded in reverse order and the bot must demote."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+        _stub_do_promote_prereqs(monkeypatch, cog)
+
+        fake_exts = ["cog_a", "cog_b", "cog_c", "cog_boom", "cog_d"]
+        monkeypatch.setattr(failover_module, "ALL_EXTENSIONS", fake_exts)
+
+        # Succeed for the first 3, raise on cog_boom
+        async def _load(ext):
+            if ext == "cog_boom":
+                raise RuntimeError("simulated load failure")
+
+        bot.load_extension = AsyncMock(side_effect=_load)
+        bot.unload_extension = AsyncMock()
+        demote_mock = AsyncMock()
+        monkeypatch.setattr(cog, "_demote", demote_mock)
+
+        await cog._do_promote()
+
+        # Unloads happened in reverse order of successful loads
+        unload_calls = [c.args[0] for c in bot.unload_extension.await_args_list]
+        assert unload_calls == ["cog_c", "cog_b", "cog_a"], \
+            f"expected reverse-order unload, got {unload_calls}"
+        demote_mock.assert_awaited_once()
+        # tree.sync must NOT happen on a rolled-back promotion
+        bot.tree.sync.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_rollback_continues_when_unload_itself_fails(self, monkeypatch):
+        """If unload_extension raises during rollback, the loop must keep
+        going and still call _demote — a stuck unload cannot strand the bot
+        in a half-rolled-back state."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+        _stub_do_promote_prereqs(monkeypatch, cog)
+
+        fake_exts = ["cog_a", "cog_b", "cog_boom"]
+        monkeypatch.setattr(failover_module, "ALL_EXTENSIONS", fake_exts)
+
+        async def _load(ext):
+            if ext == "cog_boom":
+                raise RuntimeError("load failure triggering rollback")
+
+        bot.load_extension = AsyncMock(side_effect=_load)
+
+        # Unload of cog_b raises; cog_a's unload must still happen
+        async def _unload(ext):
+            if ext == "cog_b":
+                raise RuntimeError("unload also failed")
+
+        bot.unload_extension = AsyncMock(side_effect=_unload)
+        demote_mock = AsyncMock()
+        monkeypatch.setattr(cog, "_demote", demote_mock)
+
+        await cog._do_promote()
+
+        unload_calls = [c.args[0] for c in bot.unload_extension.await_args_list]
+        assert unload_calls == ["cog_b", "cog_a"], \
+            f"rollback must continue past unload failure; got {unload_calls}"
+        demote_mock.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_full_cog_load_success_syncs_tree_and_does_not_demote(self, monkeypatch):
+        """Happy path: every cog loads, slash commands sync, no demote."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+        _stub_do_promote_prereqs(monkeypatch, cog)
+
+        fake_exts = ["cog_a", "cog_b", "cog_c"]
+        monkeypatch.setattr(failover_module, "ALL_EXTENSIONS", fake_exts)
+
+        bot.load_extension = AsyncMock()
+        bot.unload_extension = AsyncMock()
+        bot.get_cog = MagicMock(return_value=None)  # no NWWSCog to trigger
+        demote_mock = AsyncMock()
+        monkeypatch.setattr(cog, "_demote", demote_mock)
+
+        await cog._do_promote()
+
+        assert bot.load_extension.await_count == 3
+        bot.unload_extension.assert_not_awaited()
+        demote_mock.assert_not_awaited()
+        bot.tree.sync.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_first_cog_failure_demotes_with_no_unloads(self, monkeypatch):
+        """If the very first cog fails, there's nothing to roll back — but
+        _demote still has to fire."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+        _stub_do_promote_prereqs(monkeypatch, cog)
+
+        fake_exts = ["cog_boom", "cog_b"]
+        monkeypatch.setattr(failover_module, "ALL_EXTENSIONS", fake_exts)
+
+        bot.load_extension = AsyncMock(side_effect=RuntimeError("first cog dies"))
+        bot.unload_extension = AsyncMock()
+        demote_mock = AsyncMock()
+        monkeypatch.setattr(cog, "_demote", demote_mock)
+
+        await cog._do_promote()
+
+        bot.unload_extension.assert_not_awaited()
+        demote_mock.assert_awaited_once()
