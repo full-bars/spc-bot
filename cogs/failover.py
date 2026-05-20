@@ -319,7 +319,10 @@ class FailoverCog(commands.Cog):
                 if self._is_our_node(manual_primary):
                     if not self.bot.state.is_primary:
                         logger.warning(f"[FAILOVER] Manual override: promoting '{self._identity}'")
-                        await self._promote()
+                        # force=True so the conditional SET NX in _do_promote
+                        # is bypassed — an operator's explicit override must
+                        # be able to take the lease from a currently-held node.
+                        await self._promote(force=True)
                 else:
                     if self.bot.state.is_primary:
                         logger.warning(f"[FAILOVER] Manual override: demoting to standby (target: '{manual_primary}')")
@@ -416,18 +419,52 @@ class FailoverCog(commands.Cog):
 
     # ── Promotion / demotion ──────────────────────────────────────────────
 
-    async def _promote(self) -> None:
+    async def _promote(self, force: bool = False) -> None:
         async with self._role_lock:
             if self.bot.state.is_primary:
                 return  # already primary — idempotent
-            await self._do_promote()
+            await self._do_promote(force=force)
 
-    async def _do_promote(self) -> None:
-        logger.warning("[FAILOVER] !!! PROMOTING TO PRIMARY !!!")
+    async def _do_promote(self, force: bool = False) -> None:
+        # ── Split-brain prevention ────────────────────────────────────────
+        # Claim the lease atomically BEFORE mutating any state. If two
+        # standbys race to promote after the lease expires, the SET NX loser
+        # aborts here — no `is_primary=True`, no cache invalidation, no cog
+        # load — and stays a clean standby. `force=True` (manual override)
+        # bypasses NX so an operator can forcibly take the lease from a
+        # currently-held primary.
+        promoting_identity = self._node_identity(True)
+        if force:
+            await self._exec(
+                "SET", LEASE_KEY, promoting_identity, "EX", str(HEARTBEAT_TTL)
+            )
+            logger.warning("[FAILOVER] !!! PROMOTING TO PRIMARY (forced) !!!")
+        else:
+            claim_result = await self._exec(
+                "SET", LEASE_KEY, promoting_identity, "NX", "EX", str(HEARTBEAT_TTL)
+            )
+            if claim_result != "OK":
+                # NX failed — either another node holds the lease, or Redis
+                # is unavailable. In both cases, the safe action is to
+                # remain a standby. Try to identify the holder for the log.
+                holder = await self._read_lease_holder()
+                if holder:
+                    logger.warning(
+                        f"[FAILOVER] Promotion aborted — lease held by {holder!r}. "
+                        f"Remaining standby."
+                    )
+                else:
+                    logger.warning(
+                        "[FAILOVER] Promotion aborted — could not claim lease "
+                        "(Redis unavailable or contended). Remaining standby."
+                    )
+                return
+            logger.warning("[FAILOVER] !!! PROMOTING TO PRIMARY !!!")
+
         self.bot.state.is_primary = True
         self.bot.state.failover_count += 1
         # Update identity so the next heartbeat HSET announces us as Primary ("P:").
-        self._identity = self._node_identity(True)
+        self._identity = promoting_identity
         await self._cleanup_own_stale_entries()
 
         from utils.events_db import restore_from_sync, set_syncthing_folder_mode  # noqa: PLC0415
@@ -449,7 +486,9 @@ class FailoverCog(commands.Cog):
             logger.warning(f"[FAILOVER] Could not promote Redis replica: {e}")
 
         state_store.invalidate_all_caches()
-        await self._write_lease()
+        # Lease was already claimed atomically at the top of this method —
+        # no second _write_lease() call needed (and writing it again here
+        # would overwrite our own value pointlessly).
 
         try:
             await state_store.mirror_to_sqlite()

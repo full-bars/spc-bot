@@ -348,6 +348,10 @@ def _stub_do_promote_prereqs(monkeypatch, cog):
     monkeypatch.setattr(cog, "_write_lease", AsyncMock())
     monkeypatch.setattr(cog, "_rehydrate_bot_state", AsyncMock())
 
+    # SET NX at the top of _do_promote returns "OK" so these tests exercise
+    # the cog-load path (without the stub the network call aborts promotion).
+    monkeypatch.setattr(cog, "_exec", _stub_exec({"SET": "OK"}))
+
     import utils.state_store as state_store
     monkeypatch.setattr(state_store, "invalidate_all_caches", MagicMock())
     monkeypatch.setattr(state_store, "mirror_to_sqlite", AsyncMock())
@@ -543,6 +547,9 @@ def _stub_for_full_promotion(monkeypatch, cog):
     monkeypatch.setattr(cog, "_build_local_redis",
                         MagicMock(side_effect=Exception("skip redis flip")))
     monkeypatch.setattr(cog, "_write_lease", AsyncMock())
+    # SET NX at top of _do_promote returns "OK" so these tests can exercise
+    # the post-claim side-effect paths.
+    monkeypatch.setattr(cog, "_exec", _stub_exec({"SET": "OK"}))
 
     import utils.events_db as events_db
     monkeypatch.setattr(events_db, "restore_from_sync", MagicMock())
@@ -665,3 +672,146 @@ class TestPromoteSideEffectFaultInjection:
         assert bot.state.is_primary is True
         assert bot.load_extension.await_count == 2
         bot.tree.sync.assert_awaited_once()
+
+
+# ── Split-brain prevention: atomic lease claim at _do_promote start ──────────
+#
+# These tests pin the contract that `_do_promote()` MUST claim the lease as
+# its first action (via `SET ... NX EX HEARTBEAT_TTL`) before mutating any
+# in-process state. If two standbys promote concurrently, the NX loser must
+# abort cleanly — no `is_primary=True`, no cache invalidation, no cog load.
+# The `force=True` path (manual override) bypasses NX so an operator can
+# forcibly take the lease from any currently-held node.
+
+class TestPromoteSplitBrainPrevention:
+
+    @pytest.mark.asyncio
+    async def test_nx_loser_aborts_promotion_cleanly(self, monkeypatch):
+        """If SET NX returns None (lease held), the cog must NOT mutate
+        is_primary, must NOT invalidate caches, must NOT load any cogs."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+        _stub_do_promote_prereqs(monkeypatch, cog)
+        # Override the prereq stub: SET returns None (NX failed),
+        # GET (subsequent holder lookup) returns the other node's identity.
+        monkeypatch.setattr(cog, "_exec", _stub_exec({
+            "SET": None,
+            "GET": "P:other-node:beef",
+        }))
+
+        import utils.state_store as state_store
+        invalidate = MagicMock()
+        monkeypatch.setattr(state_store, "invalidate_all_caches", invalidate)
+        monkeypatch.setattr(failover_module, "ALL_EXTENSIONS", ["cog_a"])
+        bot.load_extension = AsyncMock()
+
+        await cog._do_promote()
+
+        assert bot.state.is_primary is False, \
+            "NX loser must not flip is_primary"
+        invalidate.assert_not_called()
+        bot.load_extension.assert_not_awaited()
+        bot.tree.sync.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_nx_winner_completes_promotion(self, monkeypatch):
+        """If SET NX returns 'OK', the cog promotes normally."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+        _stub_do_promote_prereqs(monkeypatch, cog)  # already stubs SET → "OK"
+
+        monkeypatch.setattr(failover_module, "ALL_EXTENSIONS", ["cog_a", "cog_b"])
+        bot.load_extension = AsyncMock()
+
+        await cog._do_promote()
+
+        assert bot.state.is_primary is True
+        assert bot.load_extension.await_count == 2
+        bot.tree.sync.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_force_true_bypasses_nx_and_takes_lease(self, monkeypatch):
+        """With force=True the lease write is unconditional (no NX) — the
+        manual override path must be able to claim from a held primary."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+        _stub_do_promote_prereqs(monkeypatch, cog)
+
+        # Record every SET call so we can assert NX was NOT used.
+        set_calls = []
+
+        async def _record(*args):
+            if str(args[0]).upper() == "SET":
+                set_calls.append(tuple(str(a).upper() for a in args[1:]))
+                return "OK"
+            return None
+
+        monkeypatch.setattr(cog, "_exec", AsyncMock(side_effect=_record))
+        monkeypatch.setattr(failover_module, "ALL_EXTENSIONS", ["cog_a"])
+        bot.load_extension = AsyncMock()
+
+        await cog._do_promote(force=True)
+
+        assert bot.state.is_primary is True
+        # At least one SET on LEASE_KEY happened, and the first one (the claim)
+        # did NOT include NX as an argument.
+        lease_sets = [
+            args for args in set_calls
+            if any(a == failover_module.LEASE_KEY.upper() for a in args)
+        ]
+        assert lease_sets, "force=True must still write the lease"
+        assert "NX" not in lease_sets[0], \
+            f"force=True must NOT use NX; got {lease_sets[0]}"
+
+    @pytest.mark.asyncio
+    async def test_concurrent_promote_only_one_winner(self, monkeypatch):
+        """Two cogs sharing one shared 'redis' (a dict) — only one of them
+        must end up primary. This is the actual split-brain scenario the
+        SET NX prevents."""
+        bot_a = _make_bot(is_primary=False)
+        bot_b = _make_bot(is_primary=False)
+        cog_a = FailoverCog(bot_a)
+        cog_b = FailoverCog(bot_b)
+        # Give the cogs distinct identities — otherwise both look like the
+        # same node, NX wouldn't distinguish them anyway.
+        cog_a._process_uuid = "aaa"
+        cog_b._process_uuid = "bbb"
+        _stub_do_promote_prereqs(monkeypatch, cog_a)
+        _stub_do_promote_prereqs(monkeypatch, cog_b)
+
+        # Shared in-memory "redis" — only the first SET NX wins.
+        shared: dict[str, str] = {}
+
+        def _make_exec(cog):
+            async def _exec(*args):
+                cmd = str(args[0]).upper()
+                if cmd == "SET":
+                    key = str(args[1])
+                    val = str(args[2])
+                    use_nx = any(str(a).upper() == "NX" for a in args[3:])
+                    if use_nx and key in shared:
+                        return None
+                    shared[key] = val
+                    return "OK"
+                if cmd == "GET":
+                    return shared.get(str(args[1]))
+                return None
+            return AsyncMock(side_effect=_exec)
+
+        monkeypatch.setattr(cog_a, "_exec", _make_exec(cog_a))
+        monkeypatch.setattr(cog_b, "_exec", _make_exec(cog_b))
+
+        monkeypatch.setattr(failover_module, "ALL_EXTENSIONS", ["cog_x"])
+        bot_a.load_extension = AsyncMock()
+        bot_b.load_extension = AsyncMock()
+
+        # Race them. asyncio.gather schedules both before either runs to
+        # completion — the SET NX inside _do_promote is the contention point.
+        await asyncio.gather(cog_a._do_promote(), cog_b._do_promote())
+
+        winners = [b.state.is_primary for b in (bot_a, bot_b)]
+        assert winners.count(True) == 1, \
+            f"exactly one cog must win the lease; got is_primary={winners}"
+        # Only the winner should have loaded cogs.
+        assert (bot_a.load_extension.await_count == 1) ^ \
+               (bot_b.load_extension.await_count == 1)
