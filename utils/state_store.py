@@ -139,6 +139,13 @@ def _k_product_cache(product_id: str) -> str:
 
 # ── Redis client ─────────────────────────────────────────────────────────────
 
+# Max replay attempts before a dirty_write is moved to the dead-letter
+# table. Five gives transient bugs a few startups to clear themselves
+# while still preventing a permanently-malformed row from blocking the
+# queue forever.
+_MAX_REPLAY_RETRIES = 5
+
+
 class _RedisUnavailable(Exception):
     """Raised when Redis is unreachable. Callers fall back to SQLite."""
 
@@ -997,24 +1004,55 @@ async def resync_to_redis(force_full: bool = False) -> Dict[str, int]:
         logger.debug("[STATE] Startup resync: no dirty writes found")
         return {"dirty": 0}
 
-    ids_to_delete = []
+    ids_to_delete: list[int] = []
+    ids_to_bump: list[int] = []
+    ids_to_quarantine: list[int] = []
+    redis_down = False
     for item in pending:
+        if redis_down:
+            break
         try:
             await _replay(item["op"], tuple(item["args"]))
             ids_to_delete.append(item["id"])
         except _RedisUnavailable:
-            remaining = len(pending) - len(ids_to_delete)
+            remaining = len(pending) - len(ids_to_delete) - len(ids_to_bump) - len(ids_to_quarantine)
             logger.warning(f"[STATE] Resync paused — Redis unavailable with {remaining} write(s) still pending")
+            redis_down = True
             break
         except Exception as e:
-            logger.exception(f"[STATE] Resync dropped {item['op']}: {e}")
-            ids_to_delete.append(item["id"])
+            # Don't silently drop — bump retry, and after _MAX_REPLAY_RETRIES
+            # move the row to the dead-letter table for operator review.
+            retry_count = int(item.get("retry_count") or 0)
+            if retry_count + 1 >= _MAX_REPLAY_RETRIES:
+                ids_to_quarantine.append(item["id"])
+                logger.error(
+                    f"[STATE] Resync quarantining {item['op']} (id={item['id']}) "
+                    f"after {retry_count + 1} failed retries: {e}"
+                )
+            else:
+                ids_to_bump.append(item["id"])
+                logger.warning(
+                    f"[STATE] Resync retry {retry_count + 1}/{_MAX_REPLAY_RETRIES} "
+                    f"for {item['op']} (id={item['id']}): {e}"
+                )
 
     if ids_to_delete:
         await sqlite_backend.delete_dirty_writes_batch(ids_to_delete)
-        logger.info(f"[STATE] Startup resync: caught up {len(ids_to_delete)} writes")
+    if ids_to_bump:
+        await sqlite_backend.bump_dirty_retry(ids_to_bump)
+    if ids_to_quarantine:
+        await sqlite_backend.quarantine_dirty_writes(ids_to_quarantine)
+    if ids_to_delete or ids_to_bump or ids_to_quarantine:
+        logger.info(
+            f"[STATE] Startup resync: caught up {len(ids_to_delete)} writes, "
+            f"retrying {len(ids_to_bump)}, quarantined {len(ids_to_quarantine)}"
+        )
 
-    return {"dirty": len(ids_to_delete)}
+    return {
+        "dirty": len(ids_to_delete),
+        "retried": len(ids_to_bump),
+        "quarantined": len(ids_to_quarantine),
+    }
 
 
 
@@ -1031,15 +1069,13 @@ async def mirror_to_sqlite() -> None:
             if h:
                 await sqlite_backend.set_hashes_batch(h, ct)
 
-        # 2. Posted collections
-        for m in await get_posted_mds():
-            await sqlite_backend.add_posted_md(m)
-        for w in await get_posted_watches():
-            await sqlite_backend.add_posted_watch(w)
-        for r in await get_posted_reports():
-            await sqlite_backend.add_posted_report(r)
-        for p in await get_posted_product_ids():
-            await sqlite_backend.add_posted_product_id(p)
+        # 2. Posted collections — one transaction per kind, not one per row.
+        # With thousands of cached entries the old N+1 loop added seconds
+        # to promotion latency.
+        await sqlite_backend.add_posted_mds_batch(await get_posted_mds())
+        await sqlite_backend.add_posted_watches_batch(await get_posted_watches())
+        await sqlite_backend.add_posted_reports_batch(await get_posted_reports())
+        await sqlite_backend.add_posted_product_ids_batch(await get_posted_product_ids())
 
         # 3. State — paginate SCAN fully (C3 fix)
         state_keys = await _scan_all_keys(f"{_k_state('*')}")

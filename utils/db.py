@@ -216,6 +216,16 @@ async def _create_tables(db: aiosqlite.Connection):
             args    TEXT NOT NULL,
             created REAL NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS dirty_writes_dead (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            original_id   INTEGER NOT NULL,
+            op            TEXT NOT NULL,
+            args          TEXT NOT NULL,
+            created       REAL NOT NULL,
+            retry_count   INTEGER NOT NULL DEFAULT 0,
+            quarantined   REAL NOT NULL
+        );
     """)
 
     # Migrations: add columns if they don't exist
@@ -223,6 +233,7 @@ async def _create_tables(db: aiosqlite.Connection):
         "ALTER TABLE posted_warnings ADD COLUMN area TEXT",
         "ALTER TABLE posted_warnings ADD COLUMN tornado_confidence TEXT",
         "ALTER TABLE posted_warnings ADD COLUMN tornado_severity TEXT",
+        "ALTER TABLE dirty_writes ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0",
     ):
         try:
             await db.execute(col_def)
@@ -359,6 +370,18 @@ async def add_posted_md(md_number: str):
     )
 
 
+async def add_posted_mds_batch(items: Iterable[str]):
+    """Mark multiple MDs as posted in a single transaction."""
+    rows = [(m,) for m in items]
+    if not rows:
+        return
+    await _write_many(
+        "INSERT OR IGNORE INTO posted_mds (md_number) VALUES (?)",
+        rows,
+        "add_posted_mds_batch",
+    )
+
+
 async def prune_posted_mds(max_size: int = 200):
     """Keep only the most recent MD numbers."""
     await _write(
@@ -395,6 +418,18 @@ async def add_posted_watch(watch_number: str):
         "INSERT OR IGNORE INTO posted_watches (watch_number) VALUES (?)",
         (watch_number,),
         f"add_posted_watch({watch_number})",
+    )
+
+
+async def add_posted_watches_batch(items: Iterable[str]):
+    """Mark multiple watches as posted in a single transaction."""
+    rows = [(w,) for w in items]
+    if not rows:
+        return
+    await _write_many(
+        "INSERT OR IGNORE INTO posted_watches (watch_number) VALUES (?)",
+        rows,
+        "add_posted_watches_batch",
     )
 
 
@@ -472,6 +507,23 @@ async def add_posted_report(product_id: str, posted_at: float = 0.0):
     )
 
 
+async def add_posted_reports_batch(items: Iterable[str]):
+    """Mark multiple LSR product IDs as posted in a single transaction.
+
+    Uses a shared timestamp (now) for all rows — the mirror path doesn't
+    track per-row posted_at, and a single now() call is cheaper anyway.
+    """
+    now = time.time()
+    rows = [(p, now) for p in items]
+    if not rows:
+        return
+    await _write_many(
+        "INSERT OR IGNORE INTO posted_reports (product_id, posted_at) VALUES (?, ?)",
+        rows,
+        "add_posted_reports_batch",
+    )
+
+
 async def prune_posted_reports(max_size: int = 500):
     """Keep only the most recent LSR product IDs."""
     await _write(
@@ -506,6 +558,19 @@ async def add_posted_product_id(product_id: str, posted_at: float = 0.0):
         "INSERT OR IGNORE INTO posted_product_ids (product_id, posted_at) VALUES (?, ?)",
         (product_id, posted_at or time.time()),
         f"add_posted_product_id({product_id})",
+    )
+
+
+async def add_posted_product_ids_batch(items: Iterable[str]):
+    """Mark multiple product IDs as posted in a single transaction."""
+    now = time.time()
+    rows = [(p, now) for p in items]
+    if not rows:
+        return
+    await _write_many(
+        "INSERT OR IGNORE INTO posted_product_ids (product_id, posted_at) VALUES (?, ?)",
+        rows,
+        "add_posted_product_ids_batch",
     )
 
 
@@ -926,19 +991,92 @@ async def add_dirty_write(op: str, args: tuple):
 
 
 async def get_dirty_writes() -> list:
-    """Get all pending Upstash writes."""
+    """Get all pending Upstash writes (includes retry_count)."""
     try:
         async with get_read_db() as db:
             async with db.execute(
-                "SELECT id, op, args FROM dirty_writes ORDER BY created ASC"
+                "SELECT id, op, args, retry_count FROM dirty_writes ORDER BY created ASC"
             ) as cursor:
                 rows = await cursor.fetchall()
                 return [
-                    {"id": r["id"], "op": r["op"], "args": json.loads(r["args"])}
+                    {
+                        "id": r["id"],
+                        "op": r["op"],
+                        "args": json.loads(r["args"]),
+                        "retry_count": r["retry_count"] if "retry_count" in r.keys() else 0,
+                    }
                     for r in rows
                 ]
     except Exception as e:
         logger.warning(f"get_dirty_writes failed: {e}")
+        return []
+
+
+async def bump_dirty_retry(ids: list[int]):
+    """Increment retry_count on the given dirty_writes rows."""
+    if not ids:
+        return
+    await _write_many(
+        "UPDATE dirty_writes SET retry_count = retry_count + 1 WHERE id = ?",
+        [(i,) for i in ids],
+        "bump_dirty_retry",
+    )
+
+
+async def quarantine_dirty_writes(ids: list[int]):
+    """Move dirty_writes rows to the dead-letter table and delete them
+    from the active queue. Used after a row has failed replay enough
+    times that retrying further would just keep blocking the queue."""
+    if not ids:
+        return
+    global _write_failure_count
+    try:
+        db = await get_db()
+        placeholders = ",".join("?" for _ in ids)
+        async with _LOCK:
+            await db.execute(
+                f"""INSERT INTO dirty_writes_dead
+                    (original_id, op, args, created, retry_count, quarantined)
+                    SELECT id, op, args, created, retry_count, ?
+                    FROM dirty_writes WHERE id IN ({placeholders})""",
+                (time.time(), *ids),
+            )
+            await db.execute(
+                f"DELETE FROM dirty_writes WHERE id IN ({placeholders})",
+                tuple(ids),
+            )
+            await db.commit()
+        if _write_failure_count:
+            _write_failure_count = 0
+    except Exception as e:
+        _write_failure_count += 1
+        level = logger.error if _write_failure_count >= _WRITE_FAILURE_ALERT_THRESHOLD else logger.warning
+        level(f"quarantine_dirty_writes failed ({_write_failure_count} consecutive): {e}")
+
+
+async def get_quarantined_writes() -> list:
+    """Read the dead-letter table — for operator inspection / tests."""
+    try:
+        async with get_read_db() as db:
+            async with db.execute(
+                "SELECT id, original_id, op, args, created, retry_count, quarantined "
+                "FROM dirty_writes_dead ORDER BY quarantined ASC"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [
+                    {
+                        "id": r["id"],
+                        "original_id": r["original_id"],
+                        "op": r["op"],
+                        "args": json.loads(r["args"]),
+                        "created": r["created"],
+                        "retry_count": r["retry_count"],
+                        "quarantined": r["quarantined"],
+                    }
+                    for r in rows
+                ]
+    except Exception as e:
+        logger.warning(f"get_quarantined_writes failed: {e}")
         return []
 
 
