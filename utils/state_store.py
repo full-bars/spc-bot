@@ -254,8 +254,33 @@ def invalidate_all_caches() -> None:
 
 # ── Dirty queue (promotion/startup sync) ───────────────────────────────────
 
+# Rate-limited summary logging — during a Redis outage with high write volume,
+# every individual queue-on-fail warning produces dozens of log lines per
+# minute. Each failing write still increments a counter, but we emit at most
+# one WARNING summary every _DIRTY_LOG_INTERVAL seconds. The individual call
+# sites log at DEBUG so per-op detail is available when needed.
+_DIRTY_LOG_INTERVAL = 30.0
+_dirty_since_log: int = 0
+_dirty_last_log: float = 0.0
+
+
+def _note_dirty_enqueue(op: str) -> None:
+    """Bump the rate-limited counter and emit one summary WARNING per window."""
+    global _dirty_since_log, _dirty_last_log
+    _dirty_since_log += 1
+    now = time.monotonic()
+    if now - _dirty_last_log >= _DIRTY_LOG_INTERVAL:
+        logger.warning(
+            f"[STATE] Redis reconciler: {_dirty_since_log} write(s) queued "
+            f"in the last {_DIRTY_LOG_INTERVAL:.0f}s (latest op: {op})"
+        )
+        _dirty_since_log = 0
+        _dirty_last_log = now
+
+
 async def _enqueue_dirty(op: str, args: tuple) -> None:
     await sqlite_backend.add_dirty_write(op, args)
+    _note_dirty_enqueue(op)
 
 
 async def _replay(op: str, args: tuple) -> None:
@@ -383,7 +408,7 @@ async def set_hash(url: str, hash_val: str, cache_type: str = "auto") -> None:
     try:
         await _set_hash_in_redis(url, hash_val, cache_type)
     except _RedisUnavailable as e:
-        logger.warning(f"[STATE] set_hash queued for reconcile: {e}")
+        logger.debug(f"[STATE] set_hash queued for reconcile: {e}")
         await _enqueue_dirty("set_hash", (url, hash_val, cache_type))
 
 
@@ -423,7 +448,7 @@ async def set_hashes_batch(hashes: Dict[str, str], cache_type: str = "auto") -> 
             args.append(h)
         await _redis_cmd(*args)
     except _RedisUnavailable as e:
-        logger.warning(f"[STATE] set_hashes_batch ({len(hashes)}) queued: {e}")
+        logger.debug(f"[STATE] set_hashes_batch ({len(hashes)}) queued: {e}")
         for url, h in hashes.items():
             await _enqueue_dirty("set_hash", (url, h, cache_type))
 
@@ -453,7 +478,7 @@ async def add_posted_md(md_number: str) -> None:
     try:
         await _redis_cmd("SADD", _k_posted_mds(), md_number)
     except _RedisUnavailable as e:
-        logger.warning(f"[STATE] add_posted_md({md_number}) queued: {e}")
+        logger.debug(f"[STATE] add_posted_md({md_number}) queued: {e}")
         await _enqueue_dirty("add_posted_md", (md_number,))
 
 
@@ -497,7 +522,7 @@ async def add_posted_watch(watch_number: str) -> None:
     try:
         await _redis_cmd("SADD", _k_posted_watches(), watch_number)
     except _RedisUnavailable as e:
-        logger.warning(f"[STATE] add_posted_watch({watch_number}) queued: {e}")
+        logger.debug(f"[STATE] add_posted_watch({watch_number}) queued: {e}")
         await _enqueue_dirty("add_posted_watch", (watch_number,))
 
 
@@ -540,7 +565,7 @@ async def add_posted_survey(dat_guid: str) -> None:
     try:
         await _redis_cmd("SADD", _k_posted_surveys(), dat_guid)
     except _RedisUnavailable as e:
-        logger.warning(f"[STATE] add_posted_survey({dat_guid}) queued: {e}")
+        logger.debug(f"[STATE] add_posted_survey({dat_guid}) queued: {e}")
         await _enqueue_dirty("add_posted_survey", (dat_guid,))
 
 
@@ -583,7 +608,7 @@ async def add_posted_report(product_id: str) -> None:
     try:
         await _redis_cmd("SADD", _k_posted_reports(), product_id)
     except _RedisUnavailable as e:
-        logger.warning(f"[STATE] add_posted_report({product_id}) queued: {e}")
+        logger.debug(f"[STATE] add_posted_report({product_id}) queued: {e}")
         await _enqueue_dirty("add_posted_report", (product_id,))
 
 
@@ -626,7 +651,7 @@ async def add_posted_product_id(product_id: str) -> None:
     try:
         await _redis_cmd("SADD", _k_posted_product_ids(), product_id)
     except _RedisUnavailable as e:
-        logger.warning(f"[STATE] add_posted_product_id({product_id}) queued: {e}")
+        logger.debug(f"[STATE] add_posted_product_id({product_id}) queued: {e}")
         await _enqueue_dirty("add_posted_product_id", (product_id,))
 
 
@@ -637,7 +662,7 @@ async def remove_posted_product_id(product_id: str) -> None:
     try:
         await _redis_cmd("SREM", _k_posted_product_ids(), product_id)
     except _RedisUnavailable as e:
-        logger.warning(f"[STATE] remove_posted_product_id({product_id}) queued: {e}")
+        logger.debug(f"[STATE] remove_posted_product_id({product_id}) queued: {e}")
         await _enqueue_dirty("remove_posted_product_id", (product_id,))
 
 
@@ -745,7 +770,7 @@ async def add_posted_warning(
     try:
         await _redis_cmd("HSET", _k_posted_warnings(), vtec_id, json.dumps(data))
     except _RedisUnavailable as e:
-        logger.warning(f"[STATE] add_posted_warning({vtec_id}) queued: {e}")
+        logger.debug(f"[STATE] add_posted_warning({vtec_id}) queued: {e}")
         await _enqueue_dirty(
             "add_posted_warning",
             (vtec_id, message_id, channel_id, posted_at, area, tornado_confidence, tornado_severity),
@@ -759,7 +784,7 @@ async def remove_posted_warning(vtec_id: str) -> None:
     try:
         await _redis_cmd("HDEL", _k_posted_warnings(), vtec_id)
     except _RedisUnavailable as e:
-        logger.warning(f"[STATE] remove_posted_warning({vtec_id}) queued: {e}")
+        logger.debug(f"[STATE] remove_posted_warning({vtec_id}) queued: {e}")
         await _enqueue_dirty("remove_posted_warning", (vtec_id,))
 
 
@@ -800,7 +825,7 @@ async def add_posted_sounding(pkey: str) -> None:
     try:
         await _redis_cmd("SADD", "spcbot:posted_soundings", pkey)
     except _RedisUnavailable as e:
-        logger.warning(f"[STATE] add_posted_sounding queued: {e}")
+        logger.debug(f"[STATE] add_posted_sounding queued: {e}")
         await _enqueue_dirty("add_posted_sounding", (pkey,))
 
 
@@ -828,7 +853,7 @@ async def add_sounding_handled_watch(watch_number: str) -> None:
     try:
         await _redis_cmd("SADD", "spcbot:sounding_handled_watches", watch_number)
     except _RedisUnavailable as e:
-        logger.warning(f"[STATE] add_sounding_handled_watch queued: {e}")
+        logger.debug(f"[STATE] add_sounding_handled_watch queued: {e}")
         await _enqueue_dirty("add_sounding_handled_watch", (watch_number,))
 
 
@@ -865,7 +890,7 @@ async def set_state(key: str, value: str) -> None:
     try:
         await _redis_cmd("SET", _k_state(key), value)
     except _RedisUnavailable as e:
-        logger.warning(f"[STATE] set_state({key}) queued: {e}")
+        logger.debug(f"[STATE] set_state({key}) queued: {e}")
         await _enqueue_dirty("set_state", (key, value))
 
 
@@ -875,7 +900,7 @@ async def delete_state(key: str) -> None:
     try:
         await _redis_cmd("DEL", _k_state(key))
     except _RedisUnavailable as e:
-        logger.warning(f"[STATE] delete_state({key}) queued: {e}")
+        logger.debug(f"[STATE] delete_state({key}) queued: {e}")
         await _enqueue_dirty("delete_state", (key,))
 
 
@@ -908,7 +933,7 @@ async def set_posted_urls(day_key: str, urls: List[str]) -> None:
     try:
         await _redis_cmd("SET", _k_posted_urls(day_key), json.dumps(urls))
     except _RedisUnavailable as e:
-        logger.warning(f"[STATE] set_posted_urls({day_key}) queued: {e}")
+        logger.debug(f"[STATE] set_posted_urls({day_key}) queued: {e}")
         await _enqueue_dirty("set_posted_urls", (day_key, urls))
 
 
@@ -936,7 +961,7 @@ async def set_product_cache(product_id: str, text: str, ttl: int = 600) -> None:
     try:
         await _redis_cmd("SET", _k_product_cache(product_id), text, "EX", int(ttl))
     except _RedisUnavailable as e:
-        logger.warning(f"[STATE] set_product_cache({product_id}) queued: {e}")
+        logger.debug(f"[STATE] set_product_cache({product_id}) queued: {e}")
         await _enqueue_dirty("set_product_cache", (product_id, text, ttl))
 
 
