@@ -6,6 +6,9 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **Promotion rollback could deadlock on `_role_lock`.** If a cog failed to load during `_do_promote()`, the rollback path called `await self._demote()` — which tries to acquire `_role_lock`. The lock was already held by the enclosing `_promote()` and `asyncio.Lock` is not reentrant, so the task would hang indefinitely with `state.is_primary=True` and cogs unloaded, leaving the node stuck until process restart. Rollback now calls `_do_demote()` directly (the lock is already held by the caller). Added a regression test that exercises the real lock through the public `_promote()` entry point with `asyncio.wait_for(timeout=2.0)` — the previous tests only mocked `_demote` so they couldn't catch this.
+
 ## [5.32.2] — 2026-05-20
 
 ### Fixed
