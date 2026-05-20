@@ -60,6 +60,19 @@ def get_hodo_executor() -> concurrent.futures.ProcessPoolExecutor:
     return _HODO_EXECUTOR
 
 
+def prefork_sounding_executor() -> None:
+    """Pre-fork all sounding workers at bot startup. Call from main.py before bot.run()."""
+    global _SOUNDING_EXECUTOR
+    if _SOUNDING_EXECUTOR is None:
+        import logging as _logging
+        _logging.getLogger("spc_bot").info(f"Pre-forking Sounding Pool ({_MAX_SOUNDING_WORKERS} workers)")
+        _SOUNDING_EXECUTOR = concurrent.futures.ProcessPoolExecutor(
+            max_workers=_MAX_SOUNDING_WORKERS,
+            initializer=_worker_init,
+            max_tasks_per_child=5
+        )
+
+
 def get_sounding_executor() -> concurrent.futures.ProcessPoolExecutor:
     """Get or create the executor dedicated to heavy sounding plots."""
     global _SOUNDING_EXECUTOR
@@ -68,7 +81,8 @@ def get_sounding_executor() -> concurrent.futures.ProcessPoolExecutor:
         _logging.getLogger("spc_bot").info(f"Initializing Sounding Pool ({_MAX_SOUNDING_WORKERS} workers)")
         _SOUNDING_EXECUTOR = concurrent.futures.ProcessPoolExecutor(
             max_workers=_MAX_SOUNDING_WORKERS,
-            initializer=_worker_init
+            initializer=_worker_init,
+            max_tasks_per_child=5
         )
     return _SOUNDING_EXECUTOR
 
@@ -79,6 +93,14 @@ def get_sounding_semaphore() -> asyncio.Semaphore:
     if _sounding_semaphore is None:
         _sounding_semaphore = asyncio.Semaphore(_MAX_SOUNDING_WORKERS)
     return _sounding_semaphore
+
+
+def sounding_queue_depth() -> int:
+    """Return current number of tasks waiting for a sounding worker slot."""
+    sem = get_sounding_semaphore()
+    if hasattr(sem, '_waiters'):
+        return len(sem._waiters)
+    return 0
 
 
 def get_executor() -> concurrent.futures.ProcessPoolExecutor:

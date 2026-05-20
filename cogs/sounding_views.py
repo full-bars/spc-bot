@@ -115,12 +115,12 @@ async def post_sounding(
     # Generate plot (only if we didn't hit the image cache above)
     time_label = f"{used_month}-{used_day}-{used_year} {used_hour}z"
 
-    from utils.worker_pool import get_sounding_semaphore
+    from utils.worker_pool import get_sounding_semaphore, sounding_queue_depth
     sem = get_sounding_semaphore()
 
     if sem.locked():
         # Pool is full, show queued status
-        pos = len(sem._waiters) + 1 if hasattr(sem, '_waiters') else 1
+        pos = sounding_queue_depth() + 1
         logger.info(f"[SOUNDING] Queueing plot for {label} (Position: {pos})")
         queue_embed = discord.Embed(
             title="⌛ Plot Queued...",
@@ -473,11 +473,11 @@ class CombinedSoundingView(View):
                         ))
                         return
 
-                    from utils.worker_pool import get_sounding_semaphore
+                    from utils.worker_pool import get_sounding_semaphore, sounding_queue_depth
                     sem = get_sounding_semaphore()
 
                     if sem.locked():
-                        pos = len(sem._waiters) + 1 if hasattr(sem, '_waiters') else 1
+                        pos = sounding_queue_depth() + 1
                         queue_embed = discord.Embed(
                             title="⌛ Plot Queued...",
                             description=f"Sounding workers are currently busy. Your plot for **{p['airport']}** is at **position {pos}** in the queue. Please wait...",
@@ -617,11 +617,11 @@ async def _post_from_clean_data(
 ):
     """Generate and post a sounding plot from clean_data."""
     label = f"{station_name} ({station_id})"
-    from utils.worker_pool import get_sounding_semaphore
+    from utils.worker_pool import get_sounding_semaphore, sounding_queue_depth
     sem = get_sounding_semaphore()
 
     if sem.locked():
-        pos = len(sem._waiters) + 1 if hasattr(sem, '_waiters') else 1
+        pos = sounding_queue_depth() + 1
         logger.info(f"[SOUNDING] Queueing plot for {label} (Position: {pos})")
         queue_embed = discord.Embed(
             title="⌛ Plot Queued...",

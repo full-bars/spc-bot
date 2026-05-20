@@ -694,6 +694,8 @@ async def _periodic_cache_cleanup():
 
 # ── Entrypoint ───────────────────────────────────────────────────────────────
 async def main():
+    from utils.worker_pool import prefork_sounding_executor
+    prefork_sounding_executor()
     async with bot:
         # _setup_signal_handlers handles per-signal errors itself.
         _setup_signal_handlers(asyncio.get_running_loop())
