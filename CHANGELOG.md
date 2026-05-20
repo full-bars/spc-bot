@@ -6,6 +6,9 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Fault-injection coverage for `_do_promote` side-effects.** Four new tests in `TestPromoteSideEffectFaultInjection` pin the contract that failures in `mirror_to_sqlite()`, `_rehydrate_bot_state()`, and `resync_to_redis()` during promotion are non-fatal — the bot still loads all cogs, syncs the slash command tree, and ends up `is_primary=True`. The `resync_to_redis()` failure path additionally asserts a `critical=True` operator alert is dispatched (dirty writes from the standby period may have been lost). Worst-case test exercises all three failing simultaneously. Locks in current behavior so a future refactor can't accidentally make any of these failures strand a node mid-promotion.
+
 ## [5.33.0] — 2026-05-20
 
 ### Performance
