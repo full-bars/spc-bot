@@ -101,22 +101,16 @@ def _require_failover_token() -> str:
     return FAILOVER_TOKEN
 
 
-_PROCESS_UUID = uuid.uuid4().hex[:8]
-
-
-def _node_identity(is_primary: bool) -> str:
-    """Per-process lease value: role:hostname:uuid."""
-    role = "P" if is_primary else "S"
-    return f"{role}:{socket.gethostname()}:{_PROCESS_UUID}"
-
-
 class FailoverCog(commands.Cog):
     MANAGED_TASK_NAMES = [("sync_loop", "sync_loop")]
 
     def __init__(self, bot):
         self.bot = bot
         self._primary_failures = 0
-        self._identity = _node_identity(bot.state.is_primary)
+        # Fresh per-instance UUID so importlib.reload() during tests yields
+        # a new identity rather than reusing a stale module-level constant.
+        self._process_uuid = uuid.uuid4().hex[:8]
+        self._identity = self._node_identity(bot.state.is_primary)
         self._cog_load_monotonic: float | None = None
         # Serializes _promote/_demote so a manual override and a lease-expiry
         # firing in the same sync_loop tick cannot race each other.
@@ -125,6 +119,11 @@ class FailoverCog(commands.Cog):
         # from utils.state_store so lease operations stay independent of the
         # shared pool's health.
         self._redis: aioredis.Redis | None = None
+
+    def _node_identity(self, is_primary: bool) -> str:
+        """Per-instance lease value: role:hostname:uuid."""
+        role = "P" if is_primary else "S"
+        return f"{role}:{socket.gethostname()}:{self._process_uuid}"
 
     def _build_redis(self) -> aioredis.Redis:
         # Use ELECTION_REDIS_URL if set (standby nodes point this at the primary's
@@ -428,7 +427,7 @@ class FailoverCog(commands.Cog):
         self.bot.state.is_primary = True
         self.bot.state.failover_count += 1
         # Update identity so the next heartbeat HSET announces us as Primary ("P:").
-        self._identity = _node_identity(True)
+        self._identity = self._node_identity(True)
         await self._cleanup_own_stale_entries()
 
         from utils.events_db import restore_from_sync, set_syncthing_folder_mode  # noqa: PLC0415
@@ -556,7 +555,7 @@ class FailoverCog(commands.Cog):
     async def _do_demote(self) -> None:
         logger.info("[FAILOVER] Demoting to STANDBY")
         self.bot.state.is_primary = False
-        self._identity = _node_identity(False)
+        self._identity = self._node_identity(False)
         from utils.events_db import set_syncthing_folder_mode  # noqa: PLC0415
         await set_syncthing_folder_mode("receiveonly")
         failed = []

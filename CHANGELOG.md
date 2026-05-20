@@ -15,6 +15,9 @@ version numbers follow [SemVer](https://semver.org/).
 ### Changed
 - **Reduced state_store log volume during Redis outages.** Each of the 16 `add_*` / `set_*` paths previously logged at WARNING when Redis failed and the write was queued for the dirty-write reconciler. During a 60-second blip with severe weather firing, this could flood `spc_bot.log` with dozens of duplicate warnings. Per-write logs are now DEBUG; a single rate-limited summary WARNING fires at most once every 30 seconds (`[STATE] Redis reconciler: N write(s) queued in the last 30s`). The durability guarantee (SQLite mirror + dirty queue) is unchanged.
 
+### Changed
+- **Small cleanups across `utils/` and `cogs/failover.py`.** `utils/state_store.py:_redis_cmd()` no longer stringifies its arguments — redis-py handles ints/floats/bytes natively, so the coercion was lossy if non-text payloads were ever passed through. `utils/state.py:BoundedFIFOKeys.append()` replaces the eviction `while` loop with an `if` (only one entry can be added per call, so only one eviction is ever needed). `utils/state.py:BotState.to_dict()` now uses `.get("expires")` consistently in the watch-serialization branch instead of mixing subscript and `.get`. `cogs/failover.py:_PROCESS_UUID` is now a per-instance `self._process_uuid` reassigned in `FailoverCog.__init__`, and `_node_identity` became a method — so `importlib.reload(cogs.failover)` during tests yields a fresh identity instead of reusing a stale module-level constant. `.gitignore` now excludes `bot_state.db` so a transient 0-byte file at the repo root can't sneak into CI state.
+
 ## [5.32.2] — 2026-05-20
 
 ### Fixed

@@ -178,9 +178,8 @@ async def _redis_cmd(*args: Any) -> Any:
 
     client = _get_redis_client()
     cmd_name = str(args[0]).upper()
-    cmd_args = [str(a) for a in args[1:]]
     try:
-        return await client.execute_command(cmd_name, *cmd_args)
+        return await client.execute_command(cmd_name, *args[1:])
     except (
         redis_exc.ConnectionError,
         redis_exc.TimeoutError,
