@@ -67,35 +67,69 @@ class CircuitOpenError(Exception):
 
 
 class CircuitBreaker:
+    """Three-state breaker (CLOSED → OPEN → HALF_OPEN → CLOSED/OPEN).
+
+    States are tracked per-host alongside the failure counter so:
+      - "Circuit OPEN" only logs on the CLOSED→OPEN edge, not on every
+        subsequent failure of an already-open host (was: re-logged after
+        every half-open trial).
+      - Only one request slips through during HALF_OPEN — concurrent
+        callers see the host as still OPEN until the trial finishes
+        and decides CLOSED or back to OPEN.
+    """
+
+    _STATE_CLOSED = "closed"
+    _STATE_OPEN = "open"
+    _STATE_HALF_OPEN = "half_open"
+
     def __init__(self, failure_threshold: int = _CB_FAILURE_THRESHOLD, recovery_timeout: float = _CB_RECOVERY_TIMEOUT):
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
         self.failures: Dict[str, int] = {}
         self.last_failure_time: Dict[str, float] = {}
+        self._state: Dict[str, str] = {}
+
+    def _get_state(self, host: str) -> str:
+        return self._state.get(host, self._STATE_CLOSED)
 
     def record_success(self, host: str):
-        if host in self.failures:
-            logger.info(f"{host} recovered. Closing circuit.")
-            self.failures.pop(host, None)
-            self.last_failure_time.pop(host, None)
+        prev_state = self._get_state(host)
+        if prev_state != self._STATE_CLOSED:
+            logger.info(f"{host} recovered. Closing circuit (was {prev_state}).")
+        self.failures.pop(host, None)
+        self.last_failure_time.pop(host, None)
+        self._state.pop(host, None)
 
     def record_failure(self, host: str):
         self.failures[host] = self.failures.get(host, 0) + 1
         self.last_failure_time[host] = time.time()
-        if self.failures[host] == self.failure_threshold:
-            logger.warning(f"{host} reached {self.failure_threshold} failures. Circuit OPEN.")
+        prev_state = self._get_state(host)
+
+        if self.failures[host] >= self.failure_threshold:
+            if prev_state == self._STATE_CLOSED:
+                logger.warning(
+                    f"{host} reached {self.failure_threshold} failures. Circuit OPEN."
+                )
+            elif prev_state == self._STATE_HALF_OPEN:
+                # Trial request failed — back to OPEN without re-logging the
+                # original threshold warning (already noisy enough).
+                logger.info(f"{host} half-open trial failed. Circuit returning to OPEN.")
+            self._state[host] = self._STATE_OPEN
 
     def is_open(self, host: str) -> bool:
-        failures = self.failures.get(host, 0)
-        if failures >= self.failure_threshold:
-            # Check if recovery timeout has passed
-            if time.time() - self.last_failure_time.get(host, 0) > self.recovery_timeout:
-                logger.info(f"{host} recovery timeout elapsed. Half-open circuit.")
-                # Half-open: allow one request through to test
-                self.failures[host] = self.failure_threshold - 1
-                return False
+        state = self._get_state(host)
+        if state == self._STATE_CLOSED:
+            return False
+        if state == self._STATE_HALF_OPEN:
+            # Trial already in flight from another caller — keep the gate shut
+            # for everyone else until that request resolves.
             return True
-        return False
+        # OPEN: check if recovery timeout has elapsed.
+        if time.time() - self.last_failure_time.get(host, 0) > self.recovery_timeout:
+            logger.info(f"{host} recovery timeout elapsed. Half-open circuit.")
+            self._state[host] = self._STATE_HALF_OPEN
+            return False
+        return True
 
 # Global circuit breaker
 circuit_breaker = CircuitBreaker()

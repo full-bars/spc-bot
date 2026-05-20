@@ -307,8 +307,11 @@ class FailoverCog(commands.Cog):
         try:
             await self._exec("HSET", NODES_KEY, self._identity, str(int(time.time())))
 
-            # Periodically clean up stale entries (every 5 sync cycles = ~2.5 min)
-            if int(time.time()) % (SYNC_INTERVAL * 5) < SYNC_INTERVAL:
+            # Periodically clean up stale entries (every 5 sync cycles = ~2.5 min).
+            # Use the deterministic loop counter rather than wall-clock modulo —
+            # clock drift / NTP slews could otherwise fire this 0 or 2 times
+            # in a window.
+            if self.sync_loop.current_loop % 5 == 0:
                 await self._cleanup_stale_nodes()
 
             manual_primary = await self._exec("GET", MANUAL_KEY)

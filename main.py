@@ -78,6 +78,17 @@ async def _init_db():
 
 async def _hydrate_state():
     """Restore in-memory caches from DB."""
+    # Names align with the destructuring below — used to log any per-call
+    # exceptions that gather() suppressed via return_exceptions=True. Without
+    # this, a real DB read failure during boot looks identical to "table
+    # empty" and leads to duplicate posts after restart.
+    hydration_names = (
+        "auto_hashes", "manual_hashes", "posted_mds", "posted_watches",
+        "posted_reports", "csu_mlp_posted", "day1_urls", "day2_urls",
+        "day3_urls", "iembot_last_seqnum", "iembot_botstalk_last_seqnum",
+        "posted_warnings", "posted_product_ids", "posted_soundings",
+        "sounding_handled_watches",
+    )
     results = await asyncio.gather(
         get_all_hashes("auto"),
         get_all_hashes("manual"),
@@ -96,7 +107,19 @@ async def _hydrate_state():
         get_sounding_handled_watches(),
         return_exceptions=True
     )
-    
+
+    failures = [
+        (name, r) for name, r in zip(hydration_names, results, strict=True)
+        if isinstance(r, BaseException)
+    ]
+    if failures:
+        for name, exc in failures:
+            logger.warning(f"[DB] Hydration failed for {name}: {type(exc).__name__}: {exc}")
+        logger.warning(
+            f"[DB] {len(failures)}/{len(hydration_names)} hydration calls "
+            "raised — affected caches will start empty (risk of duplicate posts)"
+        )
+
     db_auto, db_manual, db_mds, db_watches, db_reports, csu_raw, d1_urls, d2_urls, d3_urls, last_seq, last_botstalk, db_warnings, db_product_ids, db_soundings, db_handled_watches = results
 
     if isinstance(db_product_ids, (set, list)):

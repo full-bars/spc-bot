@@ -186,6 +186,103 @@ async def test_conditional_get_200_returns_fresh_validators():
     }
 
 
+# ── CircuitBreaker state machine ────────────────────────────────────────────
+
+@pytest.fixture
+def _spc_caplog(caplog):
+    """The `spc_bot` logger has propagate=False, so pytest's default caplog
+    (attached to the root logger) sees nothing. Attach caplog's handler
+    directly to the named logger for the duration of the test."""
+    import logging
+    logger = logging.getLogger("spc_bot")
+    logger.addHandler(caplog.handler)
+    yield caplog
+    logger.removeHandler(caplog.handler)
+
+
+class TestCircuitBreakerStateMachine:
+    """Pins the three-state semantics added when the old `==` threshold log
+    was producing duplicate OPEN warnings on every half-open flap."""
+
+    def _make_breaker(self):
+        return http.CircuitBreaker(failure_threshold=3, recovery_timeout=0.05)
+
+    def test_closed_until_threshold(self):
+        cb = self._make_breaker()
+        for _ in range(2):
+            cb.record_failure("h")
+            assert not cb.is_open("h")
+        cb.record_failure("h")
+        assert cb.is_open("h")
+
+    def test_open_does_not_relog_on_further_failures(self, _spc_caplog):
+        caplog = _spc_caplog
+        cb = self._make_breaker()
+        import logging
+        # Disambiguate this test's host name so leftover records from any
+        # other test that happens to use "h" can't bleed into the count.
+        host = "test_open_does_not_relog.example"
+        with caplog.at_level(logging.WARNING, logger="spc_bot"):
+            for _ in range(3):
+                cb.record_failure(host)
+            warning_count_after_trip = sum(
+                1 for r in caplog.records
+                if "Circuit OPEN" in r.message and host in r.message
+            )
+            assert warning_count_after_trip == 1, "should log once on threshold edge"
+            # Further failures while already OPEN must NOT re-log the threshold.
+            for _ in range(10):
+                cb.record_failure(host)
+            assert sum(
+                1 for r in caplog.records
+                if "Circuit OPEN" in r.message and host in r.message
+            ) == warning_count_after_trip
+
+    def test_half_open_blocks_other_callers(self):
+        """The first caller after recovery_timeout transitions OPEN→HALF_OPEN
+        and returns False; concurrent callers must still see is_open=True
+        until the trial resolves."""
+        cb = self._make_breaker()
+        for _ in range(3):
+            cb.record_failure("h")
+        time.sleep(0.06)  # past recovery_timeout
+        assert cb.is_open("h") is False  # first caller — trial slot
+        # State must now be HALF_OPEN; subsequent callers see OPEN.
+        assert cb.is_open("h") is True
+        assert cb.is_open("h") is True
+
+    def test_half_open_trial_success_closes_circuit(self):
+        cb = self._make_breaker()
+        for _ in range(3):
+            cb.record_failure("h")
+        time.sleep(0.06)
+        cb.is_open("h")  # trip into HALF_OPEN
+        cb.record_success("h")
+        assert cb._get_state("h") == cb._STATE_CLOSED
+        assert "h" not in cb.failures
+
+    def test_half_open_trial_failure_returns_to_open_without_relog(self, _spc_caplog):
+        caplog = _spc_caplog
+        cb = self._make_breaker()
+        import logging
+        for _ in range(3):
+            cb.record_failure("h")
+        time.sleep(0.06)
+        cb.is_open("h")  # → HALF_OPEN
+        caplog.clear()  # discard records from setup so we test only the trial
+        with caplog.at_level(logging.WARNING, logger="spc_bot"):
+            cb.record_failure("h")  # trial failed
+        # Must NOT log a fresh "Circuit OPEN" warning — that was already
+        # surfaced on the CLOSED→OPEN edge.
+        assert not any("Circuit OPEN" in r.message for r in caplog.records)
+        assert cb._get_state("h") == cb._STATE_OPEN
+
+
+# Need `time` for the breaker tests' sleeps — import here to keep the
+# rest of the file untouched.
+import time  # noqa: E402
+
+
 async def test_conditional_get_no_validators_sends_no_headers():
     """If no etag/last_modified given, no conditional headers are sent."""
     seen_headers = {}
