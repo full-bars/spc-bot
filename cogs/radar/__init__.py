@@ -114,7 +114,8 @@ class RadarCog(commands.Cog):
                 description="Sites: **{}**\nSelect a time range:".format(", ".join(radar_sites)),
                 color=0x0000FF,
             )
-            await interaction.followup.send(embed=embed, view=view)
+            msg = await interaction.followup.send(embed=embed, view=view, wait=True)
+            view.messages_to_delete.append(msg)
             return
 
         # Both sites and time — go straight to download
