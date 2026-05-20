@@ -6,6 +6,12 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.32.2] — 2026-05-20
+
+### Fixed
+- **`/download` time-range selection message not deleted after upload.** When `/download` was invoked with site codes but no time preset (e.g. `/download sites:KDTX KCLE KBUF`), the followup embed showing `TimeRangeView` was sent without `wait=True`, discarding the returned message object. It was never appended to `messages_to_delete`, so it persisted in the channel even after all uploads completed successfully. (#433)
+- **Redis replication not configured on standby nodes by `deploy.sh`.** `deploy.sh` wrote `IS_PRIMARY=false` and `ELECTION_REDIS_URL` to `.env` but never touched Redis itself — replication had to be configured manually after every fresh provision, and runtime drift (e.g. an accidental `REPLICAOF NO ONE` during failover testing) went undetected on re-runs. Added `_configure_redis_replication()` which parses `ELECTION_REDIS_URL`, runs `redis-cli REPLICAOF` for immediate effect, persists the `replicaof` line to `redis.conf` so it survives Redis restarts, and verifies the link came up. Called on both new standby setup and the already-configured re-run path so `spcupdate` self-heals replication drift. (#432)
+
 ## [5.32.1] — 2026-05-19
 
 ### Fixed
