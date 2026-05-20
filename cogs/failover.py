@@ -493,8 +493,11 @@ class FailoverCog(commands.Cog):
                     except Exception as rollback_err:
                         logger.error(f"[FAILOVER] Rollback failure on {loaded}: {rollback_err}")
                 
-                # Signal demotion and exit
-                await self._demote()
+                # Signal demotion and exit. Call _do_demote() directly —
+                # _demote() would re-acquire _role_lock which is already held
+                # by the enclosing _promote(), and asyncio.Lock is not
+                # reentrant (would deadlock the task indefinitely).
+                await self._do_demote()
                 return
 
         nwws = self.bot.get_cog("NWWSCog")

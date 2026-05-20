@@ -8,6 +8,7 @@ These tests verify the core outcomes of the HA state machine:
   4. Lease safety: atomic Lua release/renewal paths.
 """
 
+import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock
 
@@ -381,8 +382,11 @@ class TestPromoteFaultInjection:
 
         bot.load_extension = AsyncMock(side_effect=_load)
         bot.unload_extension = AsyncMock()
+        # _do_promote calls _do_demote() directly (not _demote()) to avoid
+        # re-acquiring the non-reentrant _role_lock — see the deadlock
+        # regression test below.
         demote_mock = AsyncMock()
-        monkeypatch.setattr(cog, "_demote", demote_mock)
+        monkeypatch.setattr(cog, "_do_demote", demote_mock)
 
         await cog._do_promote()
 
@@ -419,7 +423,7 @@ class TestPromoteFaultInjection:
 
         bot.unload_extension = AsyncMock(side_effect=_unload)
         demote_mock = AsyncMock()
-        monkeypatch.setattr(cog, "_demote", demote_mock)
+        monkeypatch.setattr(cog, "_do_demote", demote_mock)
 
         await cog._do_promote()
 
@@ -442,7 +446,7 @@ class TestPromoteFaultInjection:
         bot.unload_extension = AsyncMock()
         bot.get_cog = MagicMock(return_value=None)  # no NWWSCog to trigger
         demote_mock = AsyncMock()
-        monkeypatch.setattr(cog, "_demote", demote_mock)
+        monkeypatch.setattr(cog, "_do_demote", demote_mock)
 
         await cog._do_promote()
 
@@ -465,9 +469,52 @@ class TestPromoteFaultInjection:
         bot.load_extension = AsyncMock(side_effect=RuntimeError("first cog dies"))
         bot.unload_extension = AsyncMock()
         demote_mock = AsyncMock()
-        monkeypatch.setattr(cog, "_demote", demote_mock)
+        monkeypatch.setattr(cog, "_do_demote", demote_mock)
 
         await cog._do_promote()
 
         bot.unload_extension.assert_not_awaited()
         demote_mock.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_promote_rollback_does_not_deadlock_on_role_lock(self, monkeypatch):
+        """Regression: _do_promote's cog-load rollback must NOT re-acquire
+        _role_lock, because the lock is already held by _promote() and
+        asyncio.Lock is not reentrant. Going through the public _promote()
+        entry point with a real lock would deadlock forever if rollback
+        called _demote() (which also acquires the lock).
+
+        We bound the test with wait_for; a timeout fails loudly rather than
+        hanging the test session."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+        _stub_do_promote_prereqs(monkeypatch, cog)
+
+        fake_exts = ["cog_a", "cog_boom"]
+        monkeypatch.setattr(failover_module, "ALL_EXTENSIONS", fake_exts)
+
+        async def _load(ext):
+            if ext == "cog_boom":
+                raise RuntimeError("trigger rollback")
+
+        bot.load_extension = AsyncMock(side_effect=_load)
+        bot.unload_extension = AsyncMock()
+        # Do NOT mock _do_demote here — we want the real demote path to run
+        # so it acquires/releases state appropriately. But stub the extension
+        # unload-loop side of _do_demote to keep the test isolated.
+        from discord.ext.commands import ExtensionNotLoaded
+        bot.unload_extension = AsyncMock(side_effect=ExtensionNotLoaded("noop"))
+
+        # Real lock semantics — must complete within 2 seconds.
+        try:
+            await asyncio.wait_for(cog._promote(), timeout=2.0)
+        except asyncio.TimeoutError:
+            pytest.fail(
+                "_promote() rollback deadlocked on _role_lock — the rollback "
+                "path must call _do_demote() directly (lock already held), "
+                "not _demote() which tries to re-acquire the same lock."
+            )
+
+        # After rollback the node should be back in standby state.
+        assert bot.state.is_primary is False, \
+            "rollback must leave the node demoted, not stuck as primary"
