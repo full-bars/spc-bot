@@ -68,13 +68,14 @@ class BoundedFIFOKeys:
         if key in self._d:
             return
         self._d[key] = None
-        while len(self._d) > self._maxlen:
-            # Evict oldest (dicts preserve insertion order; first key is oldest)
+        if len(self._d) > self._maxlen:
+            # Evict oldest (dicts preserve insertion order; first key is oldest).
+            # Only one entry can be added per call, so a single eviction suffices.
             try:
                 oldest = next(iter(self._d))
+                del self._d[oldest]
             except StopIteration:
-                break
-            del self._d[oldest]
+                pass
 
     def extend(self, keys) -> None:
         for k in keys:
@@ -475,7 +476,7 @@ class BotState:
             "active_watches": {
                 k: {
                     "type": v.get("type"),
-                    "expires": v["expires"].isoformat() if v.get("expires") else None,
+                    "expires": v.get("expires").isoformat() if v.get("expires") else None,
                     "affected_zones": v.get("affected_zones", []),
                 }
                 for k, v in self.active_watches.copy().items()

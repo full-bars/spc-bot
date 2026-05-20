@@ -9,6 +9,9 @@ version numbers follow [SemVer](https://semver.org/).
 ### Fixed
 - **Promotion rollback could deadlock on `_role_lock`.** If a cog failed to load during `_do_promote()`, the rollback path called `await self._demote()` — which tries to acquire `_role_lock`. The lock was already held by the enclosing `_promote()` and `asyncio.Lock` is not reentrant, so the task would hang indefinitely with `state.is_primary=True` and cogs unloaded, leaving the node stuck until process restart. Rollback now calls `_do_demote()` directly (the lock is already held by the caller). Added a regression test that exercises the real lock through the public `_promote()` entry point with `asyncio.wait_for(timeout=2.0)` — the previous tests only mocked `_demote` so they couldn't catch this.
 
+### Changed
+- **Small cleanups across `utils/` and `cogs/failover.py`.** `utils/state_store.py:_redis_cmd()` no longer stringifies its arguments — redis-py handles ints/floats/bytes natively, so the coercion was lossy if non-text payloads were ever passed through. `utils/state.py:BoundedFIFOKeys.append()` replaces the eviction `while` loop with an `if` (only one entry can be added per call, so only one eviction is ever needed). `utils/state.py:BotState.to_dict()` now uses `.get("expires")` consistently in the watch-serialization branch instead of mixing subscript and `.get`. `cogs/failover.py:_PROCESS_UUID` is now a per-instance `self._process_uuid` reassigned in `FailoverCog.__init__`, and `_node_identity` became a method — so `importlib.reload(cogs.failover)` during tests yields a fresh identity instead of reusing a stale module-level constant. `.gitignore` now excludes `bot_state.db` so a transient 0-byte file at the repo root can't sneak into CI state.
+
 ## [5.32.2] — 2026-05-20
 
 ### Fixed
