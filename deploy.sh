@@ -32,6 +32,73 @@ info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
+# ── Redis replication helper (standby nodes only) ─────────────────────────────
+# Configures this Redis instance as a replica of the primary and persists the
+# setting to redis.conf so it survives Redis restarts. Safe to call on re-runs;
+# exits early if replication is already correctly established.
+_configure_redis_replication() {
+    local primary_url="$1"
+    local primary_host primary_port
+
+    # Parse redis://host:port[/db]
+    primary_host=$(echo "$primary_url" | sed -E 's|redis://([^:/]+).*|\1|')
+    primary_port=$(echo "$primary_url" | sed -E 's|redis://[^:]+:([0-9]+).*|\1|')
+    primary_port=${primary_port:-6379}
+
+    if ! command -v redis-cli &>/dev/null; then
+        warn "redis-cli not found — skipping Redis replication setup."
+        warn "Manually run: redis-cli REPLICAOF ${primary_host} ${primary_port}"
+        return
+    fi
+
+    # Check if already correctly wired up
+    local cur_role cur_host cur_port
+    cur_role=$(redis-cli info replication 2>/dev/null | grep "^role:"        | cut -d: -f2 | tr -d '[:space:]\r')
+    cur_host=$(redis-cli info replication 2>/dev/null | grep "^master_host:" | cut -d: -f2 | tr -d '[:space:]\r')
+    cur_port=$(redis-cli info replication 2>/dev/null | grep "^master_port:" | cut -d: -f2 | tr -d '[:space:]\r')
+
+    if [[ "$cur_role" == "slave" && "$cur_host" == "$primary_host" && "$cur_port" == "$primary_port" ]]; then
+        local link_status
+        link_status=$(redis-cli info replication 2>/dev/null | grep "^master_link_status:" | cut -d: -f2 | tr -d '[:space:]\r')
+        info "Redis replication already active (${primary_host}:${primary_port}, link=${link_status})."
+        return
+    fi
+
+    info "Configuring Redis replication → ${primary_host}:${primary_port}..."
+    if ! redis-cli REPLICAOF "$primary_host" "$primary_port" 2>/dev/null | grep -q "OK"; then
+        warn "redis-cli REPLICAOF failed — is Redis running? May need: sudo systemctl start redis-server"
+        warn "Once Redis is up, run: redis-cli REPLICAOF ${primary_host} ${primary_port}"
+        return
+    fi
+    info "Redis replication established (runtime)."
+
+    # Persist to redis.conf so it survives Redis restarts
+    local redis_conf
+    redis_conf=$(redis-cli info server 2>/dev/null | grep "^config_file:" | cut -d: -f2- | tr -d '[:space:]\r')
+    if [[ -n "$redis_conf" && -f "$redis_conf" ]]; then
+        if sudo grep -qE "^(replicaof|slaveof) " "$redis_conf" 2>/dev/null; then
+            sudo sed -i "s|^replicaof .*|replicaof ${primary_host} ${primary_port}|; \
+                         s|^slaveof .*|replicaof ${primary_host} ${primary_port}|" "$redis_conf"
+        else
+            echo "replicaof ${primary_host} ${primary_port}" | sudo tee -a "$redis_conf" > /dev/null
+        fi
+        info "Redis replication persisted to ${redis_conf}."
+    else
+        warn "Could not locate redis.conf — replication is active but won't survive a Redis restart."
+        warn "Add this line to your redis.conf: replicaof ${primary_host} ${primary_port}"
+    fi
+
+    # Verify link came up
+    sleep 2
+    local link_status
+    link_status=$(redis-cli info replication 2>/dev/null | grep "^master_link_status:" | cut -d: -f2 | tr -d '[:space:]\r')
+    if [[ "$link_status" == "up" ]]; then
+        info "Redis replication verified: link is UP."
+    else
+        warn "Redis link status: '${link_status:-unknown}'. Check connectivity to ${primary_host}:${primary_port}."
+    fi
+}
+
 # ── Check Python version ──────────────────────────────────────────────────────
 info "Checking Python version..."
 PYTHON=$(command -v python3 || true)
@@ -163,11 +230,22 @@ ELECTION_REDIS_URL=${_election_redis_url}
 EOF
         fi
         info "Failover configuration written to .env."
+
+        # Configure Redis replication on standby nodes
+        if [[ "$_is_primary" == "false" && -n "$_election_redis_url" ]]; then
+            _configure_redis_replication "$_election_redis_url"
+        fi
     else
         info "Skipping failover setup — bot will run as a single node."
     fi
 else
     info "Failover already configured (IS_PRIMARY found). Skipping setup prompts."
+    # On re-runs (e.g. spcupdate), still verify Redis replication is live on standby nodes.
+    _existing_is_primary=$(grep "^IS_PRIMARY=" "$ENV_FILE" | cut -d= -f2 | tr -d '[:space:]')
+    _existing_election_url=$(grep "^ELECTION_REDIS_URL=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]')
+    if [[ "$_existing_is_primary" == "false" && -n "$_existing_election_url" ]]; then
+        _configure_redis_replication "$_existing_election_url"
+    fi
 fi
 
 # ── Optional: Syncthing setup ─────────────────────────────────────────────────
@@ -257,6 +335,14 @@ sudo systemctl daemon-reload
 sudo systemctl enable "$SERVICE_NAME"
 sudo systemctl restart "$SERVICE_NAME"
 info "Service installed and started as user '$SERVICE_USER'."
+
+# Verify the service actually came up
+sleep 3
+if systemctl is-active --quiet "$SERVICE_NAME"; then
+    info "Service is running."
+else
+    warn "Service failed to start. Check logs: journalctl -u ${SERVICE_NAME} -n 30"
+fi
 
 # ── Shell aliases ─────────────────────────────────────────────────────────────
 ALIASES_FILE="${USER_HOME}/.bashrc"
