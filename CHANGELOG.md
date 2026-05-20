@@ -6,6 +6,16 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.32.1] — 2026-05-19
+
+### Fixed
+- **VTEC regex now requires `/O.` operational-class prefix instead of pinning to `KWNS`.** The previous fix (#427) pinned the watch VTEC regex to `KWNS` (SPC's WFO identifier) to block test-watch ETN collisions, but the NWS Alerts API returns Watch County Notifications issued by local WFOs — none of which carry `KWNS`. This caused the API to return zero watches, falling through to the HTML scraper fallback. (#428)
+- **HTML fallback tornado classifier matched site nav on every SPC page.** `_TORNADO_WATCH_RE = re.compile(r"Tornado Watch")` matched the navigation menu link present on every SPC page, classifying all active Severe Thunderstorm Watches as Tornado Watches when the HTML fallback was active. Changed to `"Tornado Watch Number"` to match only the actual product title. (#428)
+- **Stale WFO WCN with ETN `0001` posted as active watch.** KILN (NWS Cincinnati) had an un-cancelled Watch County Notification continuation for SPC watch #0001 from January 2026 in the NWS Alerts API. The `/O.` filter let it through; the bot treated it as a currently-active watch and fetched `ww0001.html`. After parsing the NWS API, the bot now cross-validates ETNs against the SPC watch index page — only watches listed there are kept. If the SPC page is unreachable, all NWS API results are accepted (fail-open). (#429)
+- **`/failover` SELECT callback could hit 40060 "Interaction already acknowledged".** The callback did Redis work before calling `interaction.response.edit_message()`. Component interactions have a 3-second acknowledgment window; a slow Redis call (up to 5s socket timeout) would cause the `edit_message()` to fire after Discord auto-expired the token. Fixed by deferring immediately at callback entry and using `edit_original_response()`. (#430)
+- **Malformed heartbeat timestamps crashed `/failover` after `defer()`.** The `int(ts_str)` list comprehension in `failover_slash` raised `ValueError` on any non-integer entry in the nodes hash. The exception propagated after the interaction was already deferred, so discord.py's default error handler tried `response.send_message()` on a deferred interaction — surfacing as another 40060. Each entry is now parsed individually with try/except. (#430)
+- **No error handler for deferred `/failover` interactions.** Without `cog_app_command_error`, unhandled exceptions after `defer()` produced confusing 40060 log noise with no user-facing feedback. Added handler that uses `followup.send()` when the interaction is already done. (#430)
+
 ## [5.32.0] — 2026-05-19
 
 ### Performance
