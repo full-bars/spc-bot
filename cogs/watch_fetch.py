@@ -23,11 +23,11 @@ logger = logging.getLogger("spc_bot")
 # Hoisted patterns — VTEC is scanned in a loop over every active feature,
 # so caching the compiled form measurably helps on large NWS payloads.
 _VTEC_RE = re.compile(
-    r"/[^.]+\.[^.]+\.KWNS\.(SV|TO)\.A\.(\d{4})\.",
+    r"/O\.[^.]+\.[A-Z]{4}\.(SV|TO)\.A\.(\d{4})\.",
     re.IGNORECASE,
 )
 _WW_HREF_RE = re.compile(r'href="[^"]*ww(\d+)\.html"', re.IGNORECASE)
-_TORNADO_WATCH_RE = re.compile(r"Tornado Watch", re.IGNORECASE)
+_TORNADO_WATCH_RE = re.compile(r"Tornado Watch Number", re.IGNORECASE)
 
 # Module-level conditional-GET state for the NWS active-alerts feed.
 _nws_last_parsed: Optional[Dict[str, dict]] = None
