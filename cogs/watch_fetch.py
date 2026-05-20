@@ -89,6 +89,18 @@ async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
         logger.warning(f"NWS API JSON parse error: {e}")
         return None
 
+    # Fetch SPC watch index to build authoritative set of active watch numbers.
+    # The NWS API occasionally carries stale/bogus WCN continuations from local
+    # WFOs for watches that SPC issued months ago (e.g. KILN still sending CON
+    # for watch #0001 from January). The SPC index page is the ground truth.
+    spc_html = await http_get_text(SPC_WATCH_INDEX_URL)
+    valid_etns: set = set()
+    if spc_html:
+        for wm in _WW_HREF_RE.finditer(spc_html):
+            valid_etns.add(wm.group(1).zfill(4))
+    else:
+        logger.warning("Could not fetch SPC watch index for ETN validation — accepting all NWS API results")
+
     result = {}
     for feature in data.get("features", []):
         props = feature.get("properties", {})
@@ -99,6 +111,9 @@ async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
             if not m:
                 continue
             watch_num = m.group(2).zfill(4)
+            if valid_etns and watch_num not in valid_etns:
+                logger.debug(f"Skipping watch #{watch_num} — not listed on SPC watch index")
+                continue
             wtype = "TORNADO" if m.group(1).upper() == "TO" else "SVR"
             if watch_num in result:
                 break

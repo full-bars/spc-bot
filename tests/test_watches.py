@@ -28,6 +28,15 @@ class TestFetchActiveWatchesNWS:
             }
         }
 
+    @staticmethod
+    def _spc_html(*watch_nums):
+        """Build a minimal SPC watch index HTML listing the given watch numbers."""
+        links = "".join(
+            f'<a href="/products/watch/ww{n.zfill(4)}.html">Watch {n}</a>'
+            for n in watch_nums
+        )
+        return f"<html><body>{links}</body></html>"
+
     @pytest.mark.asyncio
     async def test_valid_tornado_watch(self):
         """Valid TO.A VTEC string is parsed as TORNADO watch."""
@@ -43,6 +52,10 @@ class TestFetchActiveWatchesNWS:
             "cogs.watch_fetch.http_get_bytes_conditional",
             new_callable=AsyncMock,
             return_value=(payload, 200, None),
+        ), patch(
+            "cogs.watch_fetch.http_get_text",
+            new_callable=AsyncMock,
+            return_value=self._spc_html("0042"),
         ):
             result = await fetch_active_watches_nws()
 
@@ -65,6 +78,10 @@ class TestFetchActiveWatchesNWS:
             "cogs.watch_fetch.http_get_bytes_conditional",
             new_callable=AsyncMock,
             return_value=(payload, 200, None),
+        ), patch(
+            "cogs.watch_fetch.http_get_text",
+            new_callable=AsyncMock,
+            return_value=self._spc_html("0101"),
         ):
             result = await fetch_active_watches_nws()
 
@@ -86,6 +103,10 @@ class TestFetchActiveWatchesNWS:
             "cogs.watch_fetch.http_get_bytes_conditional",
             new_callable=AsyncMock,
             return_value=(payload, 200, None),
+        ), patch(
+            "cogs.watch_fetch.http_get_text",
+            new_callable=AsyncMock,
+            return_value=self._spc_html("0007"),
         ):
             result = await fetch_active_watches_nws()
 
@@ -106,6 +127,10 @@ class TestFetchActiveWatchesNWS:
             "cogs.watch_fetch.http_get_bytes_conditional",
             new_callable=AsyncMock,
             return_value=(payload, 200, None),
+        ), patch(
+            "cogs.watch_fetch.http_get_text",
+            new_callable=AsyncMock,
+            return_value=self._spc_html("0042"),
         ):
             result = await fetch_active_watches_nws()
 
@@ -144,6 +169,10 @@ class TestFetchActiveWatchesNWS:
             "cogs.watch_fetch.http_get_bytes_conditional",
             new_callable=AsyncMock,
             return_value=(payload, 200, None),
+        ), patch(
+            "cogs.watch_fetch.http_get_text",
+            new_callable=AsyncMock,
+            return_value=self._spc_html("0055"),
         ):
             result = await fetch_active_watches_nws()
 
@@ -189,11 +218,45 @@ class TestFetchActiveWatchesNWS:
             "cogs.watch_fetch.http_get_bytes_conditional",
             new_callable=AsyncMock,
             return_value=(payload, 200, None),
+        ), patch(
+            "cogs.watch_fetch.http_get_text",
+            new_callable=AsyncMock,
+            return_value=self._spc_html(),
         ):
             result = await fetch_active_watches_nws()
 
         assert result == {}
         assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_stale_wfo_etns_filtered_by_spc_index(self):
+        """WFO WCN features with ETNs absent from the SPC index are dropped."""
+        from cogs.watches import fetch_active_watches_nws
+
+        # NWS API returns two features: one valid (0230), one stale WFO ETN (0001)
+        valid_feature = self._make_feature(
+            "/O.CON.KCLE.SV.A.0230.000000T0000Z-260520T0200Z/",
+            expires="2026-05-20T02:00:00+00:00",
+        )
+        stale_feature = self._make_feature(
+            "/O.CON.KILN.SV.A.0001.000000T0000Z-260520T0200Z/",
+            expires="2026-05-20T02:00:00+00:00",
+        )
+        payload = self._make_response([valid_feature, stale_feature])
+
+        with patch(
+            "cogs.watch_fetch.http_get_bytes_conditional",
+            new_callable=AsyncMock,
+            return_value=(payload, 200, None),
+        ), patch(
+            "cogs.watch_fetch.http_get_text",
+            new_callable=AsyncMock,
+            return_value=self._spc_html("0230"),  # only 0230 is on the SPC page
+        ):
+            result = await fetch_active_watches_nws()
+
+        assert "0230" in result
+        assert "0001" not in result
 
 
 # ── post_watch_now (iembot fast-path) ────────────────────────────────────────
