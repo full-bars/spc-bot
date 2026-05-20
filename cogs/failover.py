@@ -584,6 +584,23 @@ class FailoverCog(commands.Cog):
 
     # ── Slash command ─────────────────────────────────────────────────────
 
+    async def cog_app_command_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> None:
+        """Use followup.send() when the interaction was already deferred."""
+        logger.error(f"AppCommand error: Command 'failover' raised an exception: {error}")
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    f"❌ An error occurred: `{error}`", ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    f"❌ An error occurred: `{error}`", ephemeral=True
+                )
+        except Exception as reply_err:
+            logger.warning(f"[FAILOVER] Could not send error reply: {reply_err}")
+
     @app_commands.command(
         name="failover",
         description="Manually designate the Primary node (Admin only)"
@@ -610,10 +627,13 @@ class FailoverCog(commands.Cog):
             return
 
         now = int(time.time())
-        active_nodes = [
-            node_id for node_id, ts_str in nodes_raw.items()
-            if (now - int(ts_str)) < 300
-        ]
+        active_nodes = []
+        for node_id, ts_str in nodes_raw.items():
+            try:
+                if (now - int(ts_str)) < 300:
+                    active_nodes.append(node_id)
+            except (ValueError, TypeError):
+                pass
 
         if not active_nodes:
             await interaction.followup.send(
@@ -684,6 +704,10 @@ class FailoverSelect(discord.ui.Select):
         self.cog = cog
 
     async def callback(self, interaction: discord.Interaction):
+        # Defer immediately — Redis calls below can exceed the 3-second
+        # component-interaction window, causing 40060 on the final edit.
+        await interaction.response.defer(ephemeral=True)
+
         target = self.values[0]
 
         if target == "CLEAR":
@@ -702,9 +726,9 @@ class FailoverSelect(discord.ui.Select):
                 f"[FAILOVER] Manual override set to '{hostname}' "
                 f"by {interaction.user} ({interaction.user.id})"
             )
-            msg = f"✅ Manual override set: `{hostname}` is now the designated Primary."
+            msg = f"✅ Manual override set: `{hostname}` is now the designated Primary.\nPromotion will take effect within {SYNC_INTERVAL}s."
 
-        await interaction.response.edit_message(content=msg, view=None)
+        await interaction.edit_original_response(content=msg, view=None)
 
 
 async def setup(bot):
