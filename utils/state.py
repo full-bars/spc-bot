@@ -476,7 +476,7 @@ class BotState:
             "active_watches": {
                 k: {
                     "type": v.get("type"),
-                    "expires": v.get("expires").isoformat() if v.get("expires") else None,
+                    "expires": exp.isoformat() if (exp := v.get("expires")) else None,
                     "affected_zones": v.get("affected_zones", []),
                 }
                 for k, v in self.active_watches.copy().items()
