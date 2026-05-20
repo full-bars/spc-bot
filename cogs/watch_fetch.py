@@ -23,7 +23,7 @@ logger = logging.getLogger("spc_bot")
 # Hoisted patterns — VTEC is scanned in a loop over every active feature,
 # so caching the compiled form measurably helps on large NWS payloads.
 _VTEC_RE = re.compile(
-    r"/[^.]+\.[^.]+\.[^.]+\.(SV|TO)\.A\.(\d{4})\.",
+    r"/[^.]+\.[^.]+\.KWNS\.(SV|TO)\.A\.(\d{4})\.",
     re.IGNORECASE,
 )
 _WW_HREF_RE = re.compile(r'href="[^"]*ww(\d+)\.html"', re.IGNORECASE)
