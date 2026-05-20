@@ -518,3 +518,150 @@ class TestPromoteFaultInjection:
         # After rollback the node should be back in standby state.
         assert bot.state.is_primary is False, \
             "rollback must leave the node demoted, not stuck as primary"
+
+
+# ── Fault Injection: side-effects during _do_promote ──────────────────────────
+#
+# The promotion sequence runs four side-effects between writing the lease and
+# loading cogs:
+#   1. invalidate_all_caches()  (sync, in-process)
+#   2. mirror_to_sqlite()       (async, Redis → SQLite)
+#   3. _rehydrate_bot_state()   (async, Redis → BotState)
+#   4. resync_to_redis()        (async, SQLite dirty queue → Redis)
+#
+# Each is wrapped in a try/except inside _do_promote because none of them is
+# fatal — losing them at promotion only degrades the new primary's freshness,
+# it doesn't break correctness. These tests pin that contract: if any of (2)
+# (3) or (4) raises, the bot still finishes promotion with all cogs loaded
+# and `tree.sync()` called. Without these tests an over-zealous refactor
+# could accidentally make any of these failures fatal and strand a node
+# that should have been a healthy primary.
+
+def _stub_for_full_promotion(monkeypatch, cog):
+    """Mock prereqs so _do_promote runs end-to-end with a normal cog list."""
+    monkeypatch.setattr(cog, "_cleanup_own_stale_entries", AsyncMock())
+    monkeypatch.setattr(cog, "_build_local_redis",
+                        MagicMock(side_effect=Exception("skip redis flip")))
+    monkeypatch.setattr(cog, "_write_lease", AsyncMock())
+
+    import utils.events_db as events_db
+    monkeypatch.setattr(events_db, "restore_from_sync", MagicMock())
+    monkeypatch.setattr(events_db, "set_syncthing_folder_mode", AsyncMock())
+
+    import asyncio
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+
+    cog.bot.get_cog = MagicMock(return_value=None)
+
+
+class TestPromoteSideEffectFaultInjection:
+
+    @pytest.mark.asyncio
+    async def test_mirror_to_sqlite_failure_does_not_abort_promotion(self, monkeypatch):
+        """If mirror_to_sqlite() raises, the bot still loads cogs and syncs."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+        _stub_for_full_promotion(monkeypatch, cog)
+
+        import utils.state_store as state_store
+        monkeypatch.setattr(state_store, "invalidate_all_caches", MagicMock())
+        monkeypatch.setattr(state_store, "mirror_to_sqlite",
+                            AsyncMock(side_effect=RuntimeError("redis SCAN exploded")))
+        monkeypatch.setattr(state_store, "resync_to_redis", AsyncMock(return_value={"dirty": 0}))
+        monkeypatch.setattr(cog, "_rehydrate_bot_state", AsyncMock())
+
+        monkeypatch.setattr(failover_module, "ALL_EXTENSIONS", ["cog_a", "cog_b"])
+        bot.load_extension = AsyncMock()
+
+        await cog._do_promote()
+
+        assert bot.state.is_primary is True
+        assert bot.load_extension.await_count == 2
+        bot.tree.sync.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_rehydrate_failure_does_not_abort_promotion(self, monkeypatch):
+        """If _rehydrate_bot_state() raises, the bot still loads cogs and syncs.
+        BotState may be partially populated but the cogs come up — they'll fill
+        the gaps on their first poll cycle."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+        _stub_for_full_promotion(monkeypatch, cog)
+
+        import utils.state_store as state_store
+        monkeypatch.setattr(state_store, "invalidate_all_caches", MagicMock())
+        monkeypatch.setattr(state_store, "mirror_to_sqlite", AsyncMock())
+        monkeypatch.setattr(state_store, "resync_to_redis", AsyncMock(return_value={"dirty": 0}))
+        monkeypatch.setattr(cog, "_rehydrate_bot_state",
+                            AsyncMock(side_effect=RuntimeError("HGETALL failed")))
+
+        monkeypatch.setattr(failover_module, "ALL_EXTENSIONS", ["cog_a"])
+        bot.load_extension = AsyncMock()
+
+        await cog._do_promote()
+
+        assert bot.state.is_primary is True
+        bot.load_extension.assert_awaited_once()
+        bot.tree.sync.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_resync_failure_sends_critical_alert_but_continues(self, monkeypatch):
+        """If resync_to_redis() raises, an alert is sent (dirty writes from
+        the standby period may be lost) — but promotion still completes."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+        _stub_for_full_promotion(monkeypatch, cog)
+
+        import utils.state_store as state_store
+        monkeypatch.setattr(state_store, "invalidate_all_caches", MagicMock())
+        monkeypatch.setattr(state_store, "mirror_to_sqlite", AsyncMock())
+        monkeypatch.setattr(cog, "_rehydrate_bot_state", AsyncMock())
+        monkeypatch.setattr(state_store, "resync_to_redis",
+                            AsyncMock(side_effect=RuntimeError("replay died")))
+
+        # main.send_bot_alert is imported lazily inside _do_promote; patch the
+        # module-level symbol so the import inside the except sees our mock.
+        import main as main_module
+        send_alert = AsyncMock()
+        monkeypatch.setattr(main_module, "send_bot_alert", send_alert)
+
+        monkeypatch.setattr(failover_module, "ALL_EXTENSIONS", ["cog_a"])
+        bot.load_extension = AsyncMock()
+
+        await cog._do_promote()
+
+        assert bot.state.is_primary is True
+        bot.load_extension.assert_awaited_once()
+        bot.tree.sync.assert_awaited_once()
+        send_alert.assert_awaited_once()
+        # The alert must be flagged critical so operators see it red, not orange.
+        assert send_alert.await_args.kwargs.get("critical") is True
+
+    @pytest.mark.asyncio
+    async def test_all_three_side_effects_fail_promotion_still_completes(self, monkeypatch):
+        """Worst-case: every non-cog side-effect raises. Bot still reaches
+        a functional primary state — degraded freshness, but operational."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+        _stub_for_full_promotion(monkeypatch, cog)
+
+        import utils.state_store as state_store
+        monkeypatch.setattr(state_store, "invalidate_all_caches", MagicMock())
+        monkeypatch.setattr(state_store, "mirror_to_sqlite",
+                            AsyncMock(side_effect=RuntimeError("mirror down")))
+        monkeypatch.setattr(cog, "_rehydrate_bot_state",
+                            AsyncMock(side_effect=RuntimeError("rehydrate down")))
+        monkeypatch.setattr(state_store, "resync_to_redis",
+                            AsyncMock(side_effect=RuntimeError("resync down")))
+
+        import main as main_module
+        monkeypatch.setattr(main_module, "send_bot_alert", AsyncMock())
+
+        monkeypatch.setattr(failover_module, "ALL_EXTENSIONS", ["cog_a", "cog_b"])
+        bot.load_extension = AsyncMock()
+
+        await cog._do_promote()
+
+        assert bot.state.is_primary is True
+        assert bot.load_extension.await_count == 2
+        bot.tree.sync.assert_awaited_once()
