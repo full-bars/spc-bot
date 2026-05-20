@@ -191,13 +191,16 @@ async def test_conditional_get_200_returns_fresh_validators():
 @pytest.fixture
 def _spc_caplog(caplog):
     """The `spc_bot` logger has propagate=False, so pytest's default caplog
-    (attached to the root logger) sees nothing. Attach caplog's handler
-    directly to the named logger for the duration of the test."""
+    (attached to the root logger) sees nothing. Temporarily enable
+    propagation for the duration of the test so caplog's root handler picks
+    up records — safer than adding the handler manually, since `at_level`
+    on newer pytest also adds the handler and we'd get duplicate records."""
     import logging
     logger = logging.getLogger("spc_bot")
-    logger.addHandler(caplog.handler)
+    prior_propagate = logger.propagate
+    logger.propagate = True
     yield caplog
-    logger.removeHandler(caplog.handler)
+    logger.propagate = prior_propagate
 
 
 class TestCircuitBreakerStateMachine:
