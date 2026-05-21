@@ -1298,7 +1298,11 @@ fn parse_xmpp_message(msg: &XmppMessage) -> Option<NwwsMessage> {
     // Validate that this looks like a real NWWS product, not a status message
     // NWWS products have: office (4 chars), ttaaii (6+ alphanumeric), awipsid (no punctuation)
     // Filter out junk like "issued", "valid", etc.
-    if office.len() != 4 || !office.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()) {
+    if office.len() != 4
+        || !office
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+    {
         return None;
     }
     if ttaaii.len() < 4 || !ttaaii.chars().all(|c| c.is_ascii_alphanumeric()) {
