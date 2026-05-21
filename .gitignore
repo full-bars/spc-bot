@@ -15,3 +15,4 @@ CLAUDE.md
 progress.md
 target/
 bot_state.db
+dist/*.whl
