@@ -6,6 +6,11 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.34.2] — 2026-05-20
+
+### Fixed
+- **NWWS-OI stanza parser now reads structured payload attributes.** The Rust XMPP parser was whitespace-splitting the first line of the message body and treating `parts[0..3]` as office/ttaaii/awipsid. Most NWWS-OI messages have a blank or non-product body, so this produced garbled log lines like `[XMPP] Received: KNCF issued, valid` — fragments stitched together from unrelated MUC chatter. The previous fix (v5.34.1) papered over the symptom with strict WMO-header validation, which suppressed the noise but also silently dropped legitimate products. Rewrote `parse_xmpp_message` to read the `<x xmlns="nwws-oi">` payload's `cccc`/`ttaaii`/`awipsid`/`issue` attributes (the structured fields iembot actually sends) and pull product text from the payload body. Messages without an nwws-oi payload (status pings, chatter) are skipped silently. Log output now shows real product codes (`KSEW SRUS46 RRMSEW`, `PAJK SRAK57 RR3AJK`, etc.). (#446)
+
 ## [5.34.0] — 2026-05-20
 
 ### Performance
