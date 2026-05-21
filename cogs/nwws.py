@@ -152,6 +152,7 @@ class NWWSClient(ClientXMPP):
         # Register the MUC plugin and our custom payload
         self.register_plugin('xep_0045') # Multi-User Chat
         self.register_plugin('xep_0199') # XMPP Ping
+        self.register_plugin('xep_0203') # Delayed Delivery — needed to detect archived backlog
         register_stanza_plugin(Message, NWWSPayload)
 
         self.add_event_handler("session_start", self.session_start)
@@ -238,25 +239,18 @@ class NWWSClient(ClientXMPP):
             return
 
         # Check for archived message (XEP-0203 delay element).
-        # Real-time messages have delay stamps very close to now; archived messages are older.
+        # xep_0203 parses the stamp into a datetime; backlog messages are > 10s old.
         from datetime import datetime as dt_class
         from datetime import timezone as tz_class
         is_archived = False
         try:
-            delay_elem = msg.get('delay')
-            if delay_elem:
-                stamp = delay_elem.get('stamp')
-                if stamp and isinstance(stamp, str):
-                    # Parse the delay timestamp
-                    if stamp.endswith('Z'):
-                        delay_time = dt_class.fromisoformat(stamp.replace('Z', '+00:00'))
-                    else:
-                        delay_time = dt_class.fromisoformat(stamp)
-                    # Archived messages are more than 10 seconds old
-                    now = dt_class.now(tz_class.utc)
-                    is_archived = (now - delay_time).total_seconds() > 10
+            stamp = msg['delay']['stamp']
+            if isinstance(stamp, dt_class):
+                if stamp.tzinfo is None:
+                    stamp = stamp.replace(tzinfo=tz_class.utc)
+                now = dt_class.now(tz_class.utc)
+                is_archived = (now - stamp).total_seconds() > 10
         except (AttributeError, ValueError, TypeError):
-            # If delay parsing fails, treat as real-time
             is_archived = False
 
         # Track NWWS message throughput for real-time messages
@@ -389,8 +383,25 @@ class NWWSCog(commands.Cog):
                         return self._dict.get(key)
 
                 payload = RustPayload(msg_dict)
-                raw_text = msg_dict.get('text', '')
-                is_archived = msg_dict.get('is_archived', False)
+                raw_text = msg_dict.get('text') or msg_dict.get('raw_text', '')
+                if not raw_text or not msg_dict.get('awipsid'):
+                    continue
+                
+                # Check for archived message (XEP-0203 delay stamp)
+                is_archived = False
+                delay_stamp = msg_dict.get('delay_stamp')
+                if delay_stamp and isinstance(delay_stamp, str):
+                    from datetime import datetime as dt_class
+                    from datetime import timezone as tz_class
+                    try:
+                        if delay_stamp.endswith('Z'):
+                            delay_time = dt_class.fromisoformat(delay_stamp.replace('Z', '+00:00'))
+                        else:
+                            delay_time = dt_class.fromisoformat(delay_stamp)
+                        now = dt_class.now(tz_class.utc)
+                        is_archived = (now - delay_time).total_seconds() > 10
+                    except (ValueError, TypeError):
+                        is_archived = False
 
                 # Use current time; Rust already timestamped it
                 from datetime import datetime, timezone
