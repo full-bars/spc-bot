@@ -297,116 +297,9 @@ class NWWSClient(ClientXMPP):
         received_at = dt_class.now(tz_class.utc)
 
         # Route to processing
-        asyncio.create_task(self._process_nwws_message(payload, raw_text, received_at, is_archived))
-
-    async def _process_nwws_message(self, payload: NWWSPayload, raw_text: str, received_at, is_archived: bool = False):
-        """Parse raw text product and route to appropriate cogs."""
-        try:
-            afos_pil = payload['awipsid']
-            office = payload['cccc']
-            ttaaii = payload['ttaaii']
-
-            # Construct a product_id matching the iembot format where possible.
-            # Use the stable 'issue' timestamp from NWWS metadata so retransmits
-            # don't get a new ID based on the current bot clock.
-            issue_str = payload['issue'] or time.strftime("%Y%m%d%H%M", time.gmtime())
-            product_id = normalize_product_id(office, ttaaii, afos_pil, issue_str)
-
-            # Track NWWS wire latency: time from product issue to reception
-            # Skip latency tracking for archived messages (room history on reconnect)
-            if not is_archived:
-                issue_val = payload['issue'] or issue_str
-                try:
-                    from datetime import datetime as dt_class
-                    from datetime import timezone as tz_class
-                    start_time = self.bot.state.bot_start_time
-
-                    # Only track latency if we have a valid start time and 60s has passed
-                    if isinstance(start_time, dt_class):
-                        uptime_sec = (received_at - start_time).total_seconds()
-                        if uptime_sec > 60:
-                            if "T" in issue_val: # ISO8601 format: 2026-05-03T01:15:00Z
-                                issue_dt = dt_class.fromisoformat(issue_val.replace("Z", "+00:00"))
-                            elif len(issue_val) >= 14:
-                                issue_dt = dt_class.strptime(issue_val[:14], "%Y%m%d%H%M%S").replace(tzinfo=tz_class.utc)
-                            else:
-                                issue_dt = dt_class.strptime(issue_val[:12], "%Y%m%d%H%M").replace(tzinfo=tz_class.utc)
-
-                            # Measure latency from issue time to reception (actual wire latency)
-                            latency = max(0.0, (received_at - issue_dt).total_seconds())
-                            # Update rolling average with heavier weight on recent values
-                            if self.bot.state.nwws_latency is None:
-                                self.bot.state.nwws_latency = latency
-                            else:
-                                self.bot.state.nwws_latency = (self.bot.state.nwws_latency * 0.7) + (latency * 0.3)
-                except Exception as e:
-                    logger.debug(f"Latency calculation failed ({issue_val}): {e}")
-
-            # 2. Routing Logic
-
-            # WATCHES (SEL products)
-            if "SEL" in afos_pil:
-                result = parse_watch_number(raw_text)
-                if result:
-                    watch_num, wtype = result
-                    watches_cog = self.bot.get_cog("WatchesCog")
-                    if watches_cog:
-                        from cogs.iembot import _parse_watch_text
-                        text = _parse_watch_text(raw_text)
-                        if text:
-                            from utils.state_store import set_product_cache
-                            await set_product_cache(f"watch_{watch_num}", text, ttl=600)
-
-                        await watches_cog.post_watch_now(watch_num, {"type": wtype, "expires": None, "affected_zones": []})
-                        logger.info(f"Triggered Watch {watch_num} via XMPP")
-
-            # MDs (SWOMCD)
-            elif "SWOMCD" in afos_pil:
-                md_num = parse_md_number(raw_text)
-                if md_num:
-                    mesoscale_cog = self.bot.get_cog("MesoscaleCog")
-                    if mesoscale_cog:
-                        from utils.state_store import set_product_cache
-                        await set_product_cache(f"md_{md_num}", raw_text, ttl=600)
-                        await mesoscale_cog.post_md_now(md_num)
-                        logger.info(f"Triggered MD {md_num} via XMPP")
-
-            # WARNINGS (TOR, SVR, FFW, etc)
-            elif any(afos_pil.startswith(x) for x in ("TOR", "SVR", "FFW", "SVS", "FFS", "SPS")):
-                warnings_cog = self.bot.get_cog("WarningsCog")
-                if warnings_cog:
-                    # Clean the raw text for WarningsCog (strip the leading sequence number if present)
-                    # Heuristic: find the line starting with the WMO header (ttaaii)
-                    cleaned_text = raw_text
-                    lines = raw_text.splitlines()
-                    for i, line in enumerate(lines):
-                        if ttaaii in line:
-                            cleaned_text = "\n".join(lines[i:])
-                            break
-
-                    event_map = {
-                        "TOR": "Tornado Warning",
-                        "SVR": "Severe Thunderstorm Warning",
-                        "FFW": "Flash Flood Warning",
-                        "SVS": "Severe Weather Statement",
-                        "FFS": "Flash Flood Statement",
-                        "SPS": "Special Weather Statement"
-                    }
-                    pil_prefix = next((p for p in event_map if afos_pil.startswith(p)), None)
-                    if pil_prefix:
-                        await warnings_cog.post_warning_now(product_id, cleaned_text, event_map[pil_prefix])
-                        logger.info(f"Triggered {pil_prefix} Warning via XMPP")
-
-            # REPORTS (LSR, PNS)
-            elif any(afos_pil.startswith(x) for x in ("LSR", "PNS")):
-                reports_cog = self.bot.get_cog("ReportsCog")
-                if reports_cog:
-                    pil_prefix = "LSR" if afos_pil.startswith("LSR") else "PNS"
-                    await reports_cog.post_report_now(product_id, raw_text, pil_prefix)
-                    logger.info(f"Triggered {pil_prefix} via XMPP")
-
-        except Exception as e:
-            logger.exception(f"Error processing XMPP message: {e}")
+        nwws_cog = self.bot.get_cog("NWWSCog")
+        if nwws_cog:
+            asyncio.create_task(nwws_cog._process_nwws_message(payload, raw_text, received_at, is_archived))
 
 class NWWSCog(commands.Cog):
     MANAGED_TASK_NAMES = [("monitor_connection", "nwws_connection")]
@@ -516,6 +409,99 @@ class NWWSCog(commands.Cog):
             self._use_rust = False  # Fall back to slixmpp
             if not self.monitor_connection.is_running():
                 self.monitor_connection.start()
+
+    async def _process_nwws_message(self, payload, raw_text: str, received_at, is_archived: bool = False):
+        """Parse raw text product and route to appropriate cogs."""
+        try:
+            afos_pil = payload['awipsid']
+            office = payload['cccc']
+            ttaaii = payload['ttaaii']
+
+            issue_str = payload['issue'] or time.strftime("%Y%m%d%H%M", time.gmtime())
+            product_id = normalize_product_id(office, ttaaii, afos_pil, issue_str)
+
+            if not is_archived:
+                issue_val = payload['issue'] or issue_str
+                try:
+                    from datetime import datetime as dt_class
+                    from datetime import timezone as tz_class
+                    start_time = self.bot.state.bot_start_time
+
+                    if isinstance(start_time, dt_class):
+                        uptime_sec = (received_at - start_time).total_seconds()
+                        if uptime_sec > 60:
+                            if "T" in issue_val:
+                                issue_dt = dt_class.fromisoformat(issue_val.replace("Z", "+00:00"))
+                            elif len(issue_val) >= 14:
+                                issue_dt = dt_class.strptime(issue_val[:14], "%Y%m%d%H%M%S").replace(tzinfo=tz_class.utc)
+                            else:
+                                issue_dt = dt_class.strptime(issue_val[:12], "%Y%m%d%H%M").replace(tzinfo=tz_class.utc)
+
+                            latency = max(0.0, (received_at - issue_dt).total_seconds())
+                            if self.bot.state.nwws_latency is None:
+                                self.bot.state.nwws_latency = latency
+                            else:
+                                self.bot.state.nwws_latency = (self.bot.state.nwws_latency * 0.7) + (latency * 0.3)
+                except Exception as e:
+                    logger.debug(f"Latency calculation failed ({issue_val}): {e}")
+
+            if "SEL" in afos_pil:
+                result = parse_watch_number(raw_text)
+                if result:
+                    watch_num, wtype = result
+                    watches_cog = self.bot.get_cog("WatchesCog")
+                    if watches_cog:
+                        from cogs.iembot import _parse_watch_text
+                        text = _parse_watch_text(raw_text)
+                        if text:
+                            from utils.state_store import set_product_cache
+                            await set_product_cache(f"watch_{watch_num}", text, ttl=600)
+
+                        await watches_cog.post_watch_now(watch_num, {"type": wtype, "expires": None, "affected_zones": []})
+                        logger.info(f"Triggered Watch {watch_num} via XMPP")
+
+            elif "SWOMCD" in afos_pil:
+                md_num = parse_md_number(raw_text)
+                if md_num:
+                    mesoscale_cog = self.bot.get_cog("MesoscaleCog")
+                    if mesoscale_cog:
+                        from utils.state_store import set_product_cache
+                        await set_product_cache(f"md_{md_num}", raw_text, ttl=600)
+                        await mesoscale_cog.post_md_now(md_num)
+                        logger.info(f"Triggered MD {md_num} via XMPP")
+
+            elif any(afos_pil.startswith(x) for x in ("TOR", "SVR", "FFW", "SVS", "FFS", "SPS")):
+                warnings_cog = self.bot.get_cog("WarningsCog")
+                if warnings_cog:
+                    cleaned_text = raw_text
+                    lines = raw_text.splitlines()
+                    for i, line in enumerate(lines):
+                        if ttaaii in line:
+                            cleaned_text = "\n".join(lines[i:])
+                            break
+
+                    event_map = {
+                        "TOR": "Tornado Warning",
+                        "SVR": "Severe Thunderstorm Warning",
+                        "FFW": "Flash Flood Warning",
+                        "SVS": "Severe Weather Statement",
+                        "FFS": "Flash Flood Statement",
+                        "SPS": "Special Weather Statement"
+                    }
+                    pil_prefix = next((p for p in event_map if afos_pil.startswith(p)), None)
+                    if pil_prefix:
+                        await warnings_cog.post_warning_now(product_id, cleaned_text, event_map[pil_prefix])
+                        logger.info(f"Triggered {pil_prefix} Warning via XMPP")
+
+            elif any(afos_pil.startswith(x) for x in ("LSR", "PNS")):
+                reports_cog = self.bot.get_cog("ReportsCog")
+                if reports_cog:
+                    pil_prefix = "LSR" if afos_pil.startswith("LSR") else "PNS"
+                    await reports_cog.post_report_now(product_id, raw_text, pil_prefix)
+                    logger.info(f"Triggered {pil_prefix} via XMPP")
+
+        except Exception as e:
+            logger.exception(f"Error processing XMPP message: {e}")
 
     @_drain_rust_nwws.before_loop
     async def before_drain(self):
