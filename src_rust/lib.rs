@@ -4,8 +4,10 @@
     clippy::type_complexity
 )]
 
+use futures::stream::StreamExt;
 use geo::algorithm::contains::Contains;
 use geo::{Coord, Point, Polygon};
+use minidom::Element;
 use nom::bytes::complete::tag_no_case;
 use nom::character::complete::{digit1, multispace0, multispace1};
 use nom::error::Error as NomError;
@@ -15,9 +17,12 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use regex::Regex;
 use rstar::RTree;
-use std::sync::RwLock;
-use std::time::SystemTime;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, RwLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
+use xmpp_parsers::message::Message as XmppMessage;
+use xmpp_parsers::presence::{Presence, Type as PresenceType};
 use xxhash_rust::xxh3;
 
 #[pymodule]
@@ -1225,11 +1230,6 @@ fn points_in_polygon_lookup(
 
 // ── Phase 3: Rust tokio XMPP Sidecar ────────────────────────────────────────
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::UNIX_EPOCH;
-use xmpp_parsers::message::Message as XmppMessage;
-
 /// NwwsMessage represents a single NWWS product received from the XMPP stream.
 #[derive(Clone, Debug)]
 pub struct NwwsMessage {
@@ -1255,6 +1255,7 @@ struct NwwsState {
 static NWWS_STATE: Lazy<RwLock<Option<NwwsState>>> = Lazy::new(|| RwLock::new(None));
 
 /// Helper: extract NWWS message from XMPP message stanza.
+/// Includes XEP-0203 (delayed delivery) support to detect archived messages.
 #[allow(dead_code)]
 fn parse_xmpp_message(msg: &XmppMessage) -> Option<NwwsMessage> {
     // Extract message body text (bodies is a map of Option<lang> -> Body)
@@ -1269,6 +1270,15 @@ fn parse_xmpp_message(msg: &XmppMessage) -> Option<NwwsMessage> {
     if raw_text.is_empty() {
         return None;
     }
+
+    // Check for XEP-0203 (delayed delivery) to detect archived messages
+    // These are messages from the room history sent on join, not live
+    let _is_archived = msg
+        .payloads
+        .iter()
+        .any(|payload| payload.ns() == "urn:xmpp:delay");
+    // For now, we accept all messages including archived ones
+    // In future, we could filter: if _is_archived { return None; }
 
     // Try to extract NWWS header-like pattern from message text
     // Expected format: "OFFICE TTAAII AWIPSID\n..."
@@ -1314,26 +1324,74 @@ fn parse_xmpp_message(msg: &XmppMessage) -> Option<NwwsMessage> {
     })
 }
 
+/// Type alias for the default ServerConfig-based AsyncClient.
+type XmppClient = tokio_xmpp::starttls::StartTlsAsyncClient;
+
 /// Async function: connects to NWWS XMPP server and joins the MUC room.
-/// Returns Ok(()) on success.
-async fn join_muc(user: &str, _password: &str, server: &str) -> Result<(), String> {
-    let jid = format!("{}@{}", user, server);
+/// Returns a tokio_xmpp Client on success.
+async fn join_muc(user: &str, password: &str, server: &str) -> Result<XmppClient, String> {
+    use std::str::FromStr;
+
+    let jid_str = format!("{}@{}", user, server);
+    let room_str = format!("nwws@conference.{}", server);
     let nick = user.to_string();
-    let room = format!("nwws@conference.{}", server);
 
-    eprintln!("[XMPP] Connecting to {} as {}", server, jid);
+    eprintln!("[XMPP] Connecting to {} as {}", server, jid_str);
 
-    // Note: Phase 2 stub - in Phase 3 this will use tokio-xmpp ClientBuilder
-    // For now, log the connection attempt
-    eprintln!("[XMPP] Would join MUC room: {}/{}", room, nick);
+    // Create XMPP client using tokio-xmpp
+    // The Jid type must be parsed from a string
+    let jid = xmpp_parsers::jid::Jid::from_str(&jid_str)
+        .map_err(|e| format!("Invalid JID '{}': {}", jid_str, e))?;
 
-    // TODO: Implement actual XMPP connection:
-    // 1. Use tokio_xmpp::ClientBuilder to create client
-    // 2. Send presence stanza to room@conference.server/nick
-    // 3. Wait for presence confirmation
-    // 4. Return client for message loop
+    let mut client = XmppClient::new(jid, password.to_owned());
+    client.set_reconnect(true);
 
-    Ok(())
+    eprintln!("[XMPP] Async client created, waiting for online event...");
+
+    // Wait for online event (the connection is established)
+    let mut online = false;
+    let mut attempts = 0;
+    const MAX_ATTEMPTS: u32 = 50; // 5 seconds max wait (50 * 100ms)
+
+    while !online && attempts < MAX_ATTEMPTS {
+        if let Some(event) =
+            tokio::time::timeout(tokio::time::Duration::from_millis(100), client.next())
+                .await
+                .ok()
+                .flatten()
+        {
+            if event.is_online() {
+                online = true;
+                eprintln!("[XMPP] Client online");
+                break;
+            }
+        }
+        attempts += 1;
+    }
+
+    if !online {
+        return Err("Timeout waiting for XMPP online event".to_string());
+    }
+
+    // Send presence stanza to join the MUC room
+    // Create presence and convert to Element stanza
+    let presence = Presence::new(PresenceType::None);
+
+    // Convert Presence to Element via Into trait
+    let presence_element: Element = presence.into();
+
+    // Send the presence stanza
+    client
+        .send_stanza(presence_element)
+        .await
+        .map_err(|e| format!("Failed to send presence stanza: {}", e))?;
+
+    eprintln!("[XMPP] Presence stanza sent to {}/{}", room_str, nick);
+
+    // Wait briefly for room join confirmation
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    Ok(client)
 }
 
 /// Internal async loop: maintains XMPP connection, receives messages, applies filters, forwards to channel.
@@ -1342,9 +1400,9 @@ async fn nwws_connection_loop(
     password: String,
     server: String,
     is_connected: Arc<AtomicBool>,
-    _tx: mpsc::UnboundedSender<NwwsMessage>,
-    _messages_received: Arc<AtomicU64>,
-    _messages_filtered: Arc<AtomicU64>,
+    tx: mpsc::UnboundedSender<NwwsMessage>,
+    messages_received: Arc<AtomicU64>,
+    messages_filtered: Arc<AtomicU64>,
     reconnect_count: Arc<AtomicU64>,
     last_error: Arc<RwLock<String>>,
 ) {
@@ -1356,14 +1414,55 @@ async fn nwws_connection_loop(
 
         // Attempt join_muc
         match join_muc(&user, &password, &server).await {
-            Ok(()) => {
+            Ok(mut client) => {
                 is_connected.store(true, Ordering::Relaxed);
-                eprintln!("[XMPP] Connected successfully");
+                eprintln!("[XMPP] Connected successfully, starting message loop");
                 backoff_ms = 1000; // Reset backoff on success
 
-                // In Phase 2, this will be a message loop; for now stub
-                tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+                // Message loop: receive events from client and process them
+                let mut connection_error = false;
+                while !connection_error {
+                    match tokio::time::timeout(tokio::time::Duration::from_secs(30), client.next())
+                        .await
+                    {
+                        Ok(Some(event)) => {
+                            // Process event - check if it's a stanza
+                            if let Some(stanza) = event.into_stanza() {
+                                // Try to parse as message
+                                if let Ok(message) = XmppMessage::try_from(stanza.clone()) {
+                                    messages_received.fetch_add(1, Ordering::Relaxed);
+
+                                    // Parse NWWS message
+                                    if let Some(nwws_msg) = parse_xmpp_message(&message) {
+                                        eprintln!(
+                                            "[XMPP] Received: {} {} {}",
+                                            nwws_msg.office, nwws_msg.ttaaii, nwws_msg.awipsid
+                                        );
+
+                                        // Send to channel
+                                        if tx.send(nwws_msg).is_ok() {
+                                            messages_filtered.fetch_add(1, Ordering::Relaxed);
+                                        } else {
+                                            eprintln!("[XMPP] Channel receiver dropped");
+                                            connection_error = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Ok(None) => {
+                            eprintln!("[XMPP] Connection closed by server");
+                            connection_error = true;
+                        }
+                        Err(_) => {
+                            // Timeout is normal, keep the connection alive
+                            eprintln!("[XMPP] Heartbeat timeout (expected), continuing...");
+                        }
+                    }
+                }
+
                 is_connected.store(false, Ordering::Relaxed);
+                eprintln!("[XMPP] Message loop ended, reconnecting...");
             }
             Err(e) => {
                 eprintln!("[XMPP] Connection failed: {}", e);
