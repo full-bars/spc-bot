@@ -9,6 +9,9 @@ version numbers follow [SemVer](https://semver.org/).
 ### Fixed
 - **Improved observability for silent exception handlers.** Redis connection cleanup in `FailoverCog` now logs a warning (with traceback) if `aclose()` raises instead of silently discarding the error. Sounding source-metadata extraction in `sounding_views.py` now emits a debug-level log on failure instead of swallowing it.
 - **Rust NWWS-OI ingestion key mapping and delay parsing.** Fixed silent ingestion failures when `_USE_RUST_NWWS` is active. The Rust XMPP sidecar client now exposes Python-compatible key mappings (`cccc`, `text`, `delay_stamp`) in its output dictionary alongside Rust keys (`office`, `raw_text`). The Python cog uses the `delay_stamp` (parsed from `urn:xmpp:delay` stanzas in the Rust backend) to determine if a message is archived, correcting a mismatch that previously caused all incoming products to bypass delay checks or fail due to key errors.
+- **Slixmpp path now correctly detects archived/backlog messages.** `NWWSClient` was not registering the `xep_0203` (Delayed Delivery) plugin, so `msg['delay']['stamp']` always returned `None` and `is_archived` was always `False`. Backlog messages replayed on reconnect flooded through as live products. Fixed by registering `xep_0203` and switching the delay check to use the `datetime` object the plugin provides.
+- **Fixed double-counted `messages_received` stat in Rust NWWS sidecar.** The counter was incremented both in the connection loop (once per inbound XMPP stanza) and again in `nwws_try_recv` when Python drained the channel, reporting roughly twice the actual value. Removed the redundant increment from `nwws_try_recv`.
+- **Added early-exit guard in Rust NWWS drain loop.** `_drain_rust_nwws` now skips messages with an empty `awipsid` or empty text body before calling `_process_nwws_message`, matching the guard that already exists in the slixmpp path.
 
 ## [5.34.2] — 2026-05-20
 

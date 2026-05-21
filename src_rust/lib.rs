@@ -1574,7 +1574,6 @@ fn nwws_try_recv<'py>(py: Python<'py>) -> PyResult<Option<Bound<'py, PyDict>>> {
 
     match receiver.try_recv() {
         Ok(msg) => {
-            state.messages_received.fetch_add(1, Ordering::Relaxed);
             let dict = PyDict::new(py);
             dict.set_item("office", msg.office.clone())?;
             dict.set_item("cccc", msg.office)?;
