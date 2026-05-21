@@ -32,8 +32,12 @@ logger = logging.getLogger("spc_bot")
 try:
     import spc_rust_core
     _normalize_product_id_rust = spc_rust_core.normalize_product_id
+    _parse_md_number_rust = spc_rust_core.parse_md_number
+    _parse_watch_number_rust = spc_rust_core.parse_watch_number
 except (ImportError, AttributeError):
     _normalize_product_id_rust = None
+    _parse_md_number_rust = None
+    _parse_watch_number_rust = None
 
 
 def normalize_product_id_py(office: str, ttaaii: str, afos_pil: str, issue_str: str) -> str:
@@ -57,6 +61,46 @@ def normalize_product_id(office: str, ttaaii: str, afos_pil: str, issue_str: str
         except Exception:
             pass
     return normalize_product_id_py(office, ttaaii, afos_pil, issue_str)
+
+
+def parse_md_number_py(text: str) -> Optional[str]:
+    """Python fallback: extract Mesoscale Discussion number."""
+    m = re.search(r"Mesoscale Discussion\s+(\d+)", text, re.IGNORECASE)
+    if m:
+        return m.group(1).zfill(4)
+    return None
+
+
+def parse_md_number(text: str) -> Optional[str]:
+    """Extract Mesoscale Discussion number; try Rust first, fall back to Python."""
+    if _parse_md_number_rust:
+        try:
+            return _parse_md_number_rust(text)
+        except Exception:
+            pass
+    return parse_md_number_py(text)
+
+
+def parse_watch_number_py(text: str) -> Optional[tuple]:
+    """Python fallback: extract watch number and type (TORNADO or SVR)."""
+    m = re.search(r"(?:Tornado|Severe Thunderstorm)\s+Watch\s+Number\s+(\d+)", text, re.IGNORECASE)
+    if m:
+        watch_num = m.group(1).zfill(4)
+        wtype = "TORNADO" if "Tornado Watch" in text else "SVR"
+        return (watch_num, wtype)
+    return None
+
+
+def parse_watch_number(text: str) -> Optional[tuple]:
+    """Extract watch number and type; try Rust first, fall back to Python."""
+    if _parse_watch_number_rust:
+        try:
+            result = _parse_watch_number_rust(text)
+            if result:
+                return tuple(result)
+        except Exception:
+            pass
+    return parse_watch_number_py(text)
 
 # --- Secondary Firehose Logger ---
 # This logger writes EVERYTHING from NWWS to a separate file (capped at 10MB)
@@ -292,9 +336,9 @@ class NWWSClient(ClientXMPP):
 
             # WATCHES (SEL products)
             if "SEL" in afos_pil:
-                m = re.search(r"(?:Tornado|Severe Thunderstorm)\s+Watch\s+Number\s+(\d+)", raw_text, re.IGNORECASE)
-                if m:
-                    watch_num = m.group(1).zfill(4)
+                result = parse_watch_number(raw_text)
+                if result:
+                    watch_num, wtype = result
                     watches_cog = self.bot.get_cog("WatchesCog")
                     if watches_cog:
                         from cogs.iembot import _parse_watch_text
@@ -303,15 +347,13 @@ class NWWSClient(ClientXMPP):
                             from utils.state_store import set_product_cache
                             await set_product_cache(f"watch_{watch_num}", text, ttl=600)
 
-                        wtype = "TORNADO" if "Tornado Watch" in raw_text else "SVR"
                         await watches_cog.post_watch_now(watch_num, {"type": wtype, "expires": None, "affected_zones": []})
                         logger.info(f"Triggered Watch {watch_num} via XMPP")
 
             # MDs (SWOMCD)
             elif "SWOMCD" in afos_pil:
-                m = re.search(r"Mesoscale Discussion\s+(\d+)", raw_text, re.IGNORECASE)
-                if m:
-                    md_num = m.group(1).zfill(4)
+                md_num = parse_md_number(raw_text)
+                if md_num:
                     mesoscale_cog = self.bot.get_cog("MesoscaleCog")
                     if mesoscale_cog:
                         from utils.state_store import set_product_cache

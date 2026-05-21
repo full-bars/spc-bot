@@ -88,10 +88,12 @@ try:
     import spc_rust_core
     RUST_AVAILABLE = True
     _parse_vtec_rust = spc_rust_core.parse_vtec
-    logger.info("Spatial Engine initialized: using Rust hybrid core (extract_latlon_coords, parse_vtec)")
+    _parse_warning_polygon_rust = spc_rust_core.parse_warning_polygon
+    logger.info("Spatial Engine initialized: using Rust hybrid core (extract_latlon_coords, parse_vtec, parse_warning_polygon)")
 except (ImportError, AttributeError):
     RUST_AVAILABLE = False
     _parse_vtec_rust = None
+    _parse_warning_polygon_rust = None
     logger.debug("Rust core not available, using pure-python fallback for polygon parsing")
 
 
@@ -101,13 +103,23 @@ def parse_warning_polygon(
     """Parse the ``LAT...LON`` polygon block from a VTEC product."""
     if not text:
         return None
+
+    # Try Rust optimized parser first (full LAT...LON scan + parse + clip)
+    if _parse_warning_polygon_rust:
+        try:
+            result = _parse_warning_polygon_rust(text)
+            return result or None
+        except Exception as e:
+            logger.debug(f"Rust parse_warning_polygon failed: {e}. Falling back to Python.")
+
+    # Fallback to Python regex + extraction
     m = _LATLON_RE.search(text)
     if not m:
         return None
 
     raw_coords_str = m.group(1)
 
-    # Try Rust optimized parser first
+    # Try Rust extract_latlon_coords as secondary optimization
     if RUST_AVAILABLE:
         try:
             rust_coords = spc_rust_core.extract_latlon_coords(raw_coords_str)
@@ -116,7 +128,7 @@ def parse_warning_polygon(
         except Exception as e:
             logger.debug(f"Rust extract_latlon_coords failed: {e}. Falling back to Python.")
 
-    # Fallback to Python
+    # Fallback to pure Python
     nums = raw_coords_str.split()
     coords: List[Tuple[float, float]] = []
     for i in range(0, len(nums) - 1, 2):
