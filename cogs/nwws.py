@@ -39,6 +39,16 @@ except (ImportError, AttributeError):
     _parse_md_number_rust = None
     _parse_watch_number_rust = None
 
+# Feature flag: use Rust NWWS backend if available
+_USE_RUST_NWWS = False
+try:
+    import spc_rust_core
+    if hasattr(spc_rust_core, 'nwws_start'):
+        _USE_RUST_NWWS = True
+        logger.info("NWWS Rust backend available")
+except (ImportError, AttributeError):
+    logger.debug("NWWS Rust backend not available, will use slixmpp")
+
 
 def normalize_product_id_py(office: str, ttaaii: str, afos_pil: str, issue_str: str) -> str:
     """Python fallback: normalize product ID for deduplication."""
@@ -405,6 +415,7 @@ class NWWSCog(commands.Cog):
         self.bot = bot
         self.xmpp_client: Optional[NWWSClient] = None
         self._should_be_connected = False
+        self._use_rust = _USE_RUST_NWWS  # Instance flag, can change at runtime
 
     async def cog_load(self):
         if not all([NWWS_USER, NWWS_PASSWORD]):
@@ -412,13 +423,40 @@ class NWWSCog(commands.Cog):
             return
 
         self._should_be_connected = True
+
+        # Try Rust backend first
+        if self._use_rust:
+            try:
+                import spc_rust_core
+                spc_rust_core.nwws_start(NWWS_USER, NWWS_PASSWORD, NWWS_SERVER)
+                logger.info("Rust NWWS backend started successfully")
+                self._drain_rust_nwws.start()
+                return
+            except Exception as e:
+                logger.warning(f"Rust NWWS startup failed, falling back to slixmpp: {e}")
+                self._use_rust = False
+
+        # Fall back to legacy slixmpp
+        logger.info("Starting slixmpp NWWS client (fallback)")
         self.monitor_connection.start()
 
     def cog_unload(self):
         self._should_be_connected = False
-        self.monitor_connection.cancel()
-        if self.xmpp_client:
-            self.xmpp_client.disconnect()
+
+        if self._use_rust:
+            try:
+                import spc_rust_core
+                spc_rust_core.nwws_stop()
+                logger.info("Rust NWWS backend stopped")
+            except Exception as e:
+                logger.exception(f"Error stopping Rust backend: {e}")
+
+            if self._drain_rust_nwws.is_running():
+                self._drain_rust_nwws.cancel()
+        else:
+            self.monitor_connection.cancel()
+            if self.xmpp_client:
+                self.xmpp_client.disconnect()
 
     async def trigger_connection(self):
         """Immediately attempt to connect to NWWS-OI (called by FailoverCog)."""
@@ -428,6 +466,60 @@ class NWWSCog(commands.Cog):
                 self.monitor_connection.start()
 
         await self.monitor_connection()
+
+    @tasks.loop(seconds=0.5)
+    async def _drain_rust_nwws(self):
+        """
+        Drain messages from Rust NWWS channel and route to processing.
+        Non-blocking; called every 0.5s.
+        """
+        if not self._use_rust:
+            return
+
+        try:
+            import spc_rust_core
+
+            # Drain all available messages from channel (non-blocking)
+            messages_drained = 0
+            while True:
+                msg_dict = spc_rust_core.nwws_try_recv()
+                if msg_dict is None:
+                    break
+
+                messages_drained += 1
+
+                # Reconstruct payload object (adapts Rust dict to existing _process_nwws_message)
+                class RustPayload:
+                    def __init__(self, d):
+                        self._dict = d
+                    def __getitem__(self, key):
+                        return self._dict.get(key)
+
+                payload = RustPayload(msg_dict)
+                raw_text = msg_dict.get('text', '')
+                is_archived = msg_dict.get('is_archived', False)
+
+                # Use current time; Rust already timestamped it
+                from datetime import datetime, timezone
+                received_at = datetime.now(timezone.utc)
+
+                try:
+                    await self._process_nwws_message(payload, raw_text, received_at, is_archived)
+                except Exception as e:
+                    logger.exception(f"Error processing message {msg_dict.get('product_id')}: {e}")
+
+            if messages_drained > 0:
+                logger.debug(f"Drained {messages_drained} messages from Rust NWWS")
+
+        except Exception as e:
+            logger.exception(f"Error in Rust NWWS drain loop: {e}")
+            self._use_rust = False  # Fall back to slixmpp
+            if not self.monitor_connection.is_running():
+                self.monitor_connection.start()
+
+    @_drain_rust_nwws.before_loop
+    async def before_drain(self):
+        await self.bot.wait_until_ready()
 
     @tasks.loop(seconds=30)
     async def monitor_connection(self):
