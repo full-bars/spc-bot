@@ -6,8 +6,6 @@ import pytest
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from cogs.nwws import NWWSClient
-
 # Mock product text
 SAMPLE_TOR_TEXT = """WFUS54 KOUN 011234
 TOROUN
