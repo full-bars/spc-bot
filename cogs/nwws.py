@@ -40,12 +40,14 @@ except (ImportError, AttributeError):
     _parse_watch_number_rust = None
 
 # Feature flag: use Rust NWWS backend if available
+# NOTE: Rust backend disabled - connection loop failing silently, causing fallback to slixmpp
+# TODO: Debug why nwws_connection_loop crashes or times out during MUC join
 _USE_RUST_NWWS = False
 try:
     import spc_rust_core
     if hasattr(spc_rust_core, 'nwws_start'):
-        _USE_RUST_NWWS = True
-        logger.info("NWWS Rust backend available")
+        # _USE_RUST_NWWS = True  # DISABLED: unstable
+        logger.info("NWWS Rust backend available but disabled")
 except (ImportError, AttributeError):
     logger.debug("NWWS Rust backend not available, will use slixmpp")
 
