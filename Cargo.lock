@@ -67,12 +67,6 @@ dependencies = [
 
 [[package]]
 name = "base64"
-version = "0.21.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
-
-[[package]]
-name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
@@ -746,23 +740,12 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "jid"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4a52cacd869b804660986b10aa2076c3a4b6da644c7198f9fd0b613f4a7b249"
-dependencies = [
- "memchr",
- "minidom 0.15.2",
- "stringprep",
-]
-
-[[package]]
-name = "jid"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2cc0defda507f1e140ce2c1c670565c7c0b9bda8ae994a3c0478a53b5279b46b"
 dependencies = [
  "memchr",
- "minidom 0.16.0",
+ "minidom",
  "stringprep",
 ]
 
@@ -841,20 +824,11 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
 name = "minidom"
-version = "0.15.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f45614075738ce1b77a1768912a60c0227525971b03e09122a05b8a34a2a6278"
-dependencies = [
- "rxml 0.9.1",
-]
-
-[[package]]
-name = "minidom"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e394a0e3c7ccc2daea3dffabe82f09857b6b510cb25af87d54bf3e910ac1642d"
 dependencies = [
- "rxml 0.11.1",
+ "rxml",
 ]
 
 [[package]]
@@ -1193,15 +1167,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustc_version"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
-dependencies = [
- "semver",
-]
-
-[[package]]
 name = "rustls"
 version = "0.23.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1245,32 +1210,15 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
 name = "rxml"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a98f186c7a2f3abbffb802984b7f1dfd65dac8be1aafdaabbca4137f53f0dff7"
-dependencies = [
- "bytes",
- "rxml_validation 0.9.1",
- "smartstring",
-]
-
-[[package]]
-name = "rxml"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65bc94b580d0f5a6b7a2d604e597513d3c673154b52ddeccd1d5c32360d945ee"
 dependencies = [
  "bytes",
  "pin-project-lite",
- "rxml_validation 0.11.0",
+ "rxml_validation",
  "tokio",
 ]
-
-[[package]]
-name = "rxml_validation"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22a197350ece202f19a166d1ad6d9d6de145e1d2a8ef47db299abe164dbd7530"
 
 [[package]]
 name = "rxml_validation"
@@ -1293,7 +1241,7 @@ version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6777dddc8108d9f36afbb008bc15b18edab2d17a8664ef58380b9398460e4e30"
 dependencies = [
- "base64 0.22.1",
+ "base64",
  "getrandom 0.2.17",
  "hmac",
  "pbkdf2",
@@ -1306,12 +1254,6 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
-
-[[package]]
-name = "semver"
-version = "1.0.28"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
 
 [[package]]
 name = "serde"
@@ -1400,17 +1342,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
-name = "smartstring"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3fb72c633efbaa2dd666986505016c32c3044395ceaf881518399d2f4127ee29"
-dependencies = [
- "autocfg",
- "static_assertions",
- "version_check",
-]
-
-[[package]]
 name = "socket2"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1436,7 +1367,9 @@ dependencies = [
 name = "spc_rust_core"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "geo",
+ "minidom",
  "nom",
  "once_cell",
  "pyo3",
@@ -1445,7 +1378,7 @@ dependencies = [
  "serde",
  "tokio",
  "tokio-xmpp",
- "xmpp-parsers 0.20.0",
+ "xmpp-parsers",
  "xxhash-rust",
 ]
 
@@ -1622,16 +1555,16 @@ dependencies = [
  "hickory-resolver",
  "idna",
  "log",
- "minidom 0.16.0",
+ "minidom",
  "rand 0.8.6",
- "rxml 0.11.1",
+ "rxml",
  "sasl",
  "tokio",
  "tokio-rustls",
  "tokio-stream",
  "tokio-util",
  "webpki-roots 0.26.11",
- "xmpp-parsers 0.21.0",
+ "xmpp-parsers",
 ]
 
 [[package]]
@@ -1898,34 +1831,16 @@ checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
 name = "xmpp-parsers"
-version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0905d294e6e7f7668f4b3ca9c4a6343fd85355d21c44d2f1c8b1c027394048e"
-dependencies = [
- "base64 0.21.7",
- "blake2",
- "chrono",
- "digest",
- "jid 0.10.0",
- "minidom 0.15.2",
- "rustc_version",
- "sha1",
- "sha2",
- "sha3",
-]
-
-[[package]]
-name = "xmpp-parsers"
 version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab9890d7a3df540a6a8a7384fa3db58be3a4685799e0271756b26213d3f67903"
 dependencies = [
- "base64 0.22.1",
+ "base64",
  "blake2",
  "chrono",
  "digest",
- "jid 0.11.1",
- "minidom 0.16.0",
+ "jid",
+ "minidom",
  "sha1",
  "sha2",
  "sha3",
@@ -1938,10 +1853,10 @@ version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4c1e554e5e6689a0ec1b62a3b5ed450a1bb45118553a9665f4ee2277d135ba83"
 dependencies = [
- "base64 0.22.1",
- "jid 0.11.1",
- "minidom 0.16.0",
- "rxml 0.11.1",
+ "base64",
+ "jid",
+ "minidom",
+ "rxml",
  "xso_proc",
 ]
 
@@ -1953,7 +1868,7 @@ checksum = "ef695815a751e37fc0d78b4b1c1d8b669db7cf826f39d5a8c95df396a54f09d6"
 dependencies = [
  "proc-macro2",
  "quote",
- "rxml_validation 0.11.0",
+ "rxml_validation",
  "syn",
 ]
 
