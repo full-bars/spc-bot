@@ -6,6 +6,8 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.34.3] — 2026-05-21
+
 ### Fixed
 - **Improved observability for silent exception handlers.** Redis connection cleanup in `FailoverCog` now logs a warning (with traceback) if `aclose()` raises instead of silently discarding the error. Sounding source-metadata extraction in `sounding_views.py` now emits a debug-level log on failure instead of swallowing it.
 - **Rust NWWS-OI ingestion key mapping and delay parsing.** Fixed silent ingestion failures when `_USE_RUST_NWWS` is active. The Rust XMPP sidecar client now exposes Python-compatible key mappings (`cccc`, `text`, `delay_stamp`) in its output dictionary alongside Rust keys (`office`, `raw_text`). The Python cog uses the `delay_stamp` (parsed from `urn:xmpp:delay` stanzas in the Rust backend) to determine if a message is archived, correcting a mismatch that previously caused all incoming products to bypass delay checks or fail due to key errors.
