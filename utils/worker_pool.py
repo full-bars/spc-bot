@@ -98,7 +98,7 @@ def get_sounding_semaphore() -> asyncio.Semaphore:
 def sounding_queue_depth() -> int:
     """Return current number of tasks waiting for a sounding worker slot."""
     sem = get_sounding_semaphore()
-    if hasattr(sem, '_waiters'):
+    if hasattr(sem, '_waiters') and sem._waiters is not None:
         return len(sem._waiters)
     return 0
 

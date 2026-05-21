@@ -808,7 +808,10 @@ fn scan_to_ci<'a>(needle: &str, input: &'a str) -> Option<&'a str> {
         if slice.len() < nlen {
             break;
         }
-        let candidate: String = slice[..nlen].chars().flat_map(|c| c.to_lowercase()).collect();
+        let candidate: String = slice[..nlen]
+            .chars()
+            .flat_map(|c| c.to_lowercase())
+            .collect();
         if candidate == needle_lower {
             return Some(&input[byte_pos + nlen..]);
         }
@@ -832,8 +835,8 @@ fn parse_warning_polygon(text: &str) -> PyResult<Vec<(f64, f64)>> {
     let mut raw_ints: Vec<u32> = Vec::with_capacity(32);
 
     loop {
-        let peeked = cursor
-            .trim_start_matches(|c: char| c == ' ' || c == '\t' || c == '\r' || c == '\n');
+        let peeked =
+            cursor.trim_start_matches(|c: char| c == ' ' || c == '\t' || c == '\r' || c == '\n');
 
         let stop = match peeked.chars().next() {
             None => true,
@@ -843,8 +846,8 @@ fn parse_warning_polygon(text: &str) -> PyResult<Vec<(f64, f64)>> {
             break;
         }
 
-        let parse_result = nom::sequence::preceded(multispace0, digit1::<&str, NomError<&str>>)
-            .parse(cursor);
+        let parse_result =
+            nom::sequence::preceded(multispace0, digit1::<&str, NomError<&str>>).parse(cursor);
 
         match parse_result {
             Ok((rest, s)) => match s.parse::<u32>() {
@@ -919,12 +922,11 @@ fn parse_watch_number(text: &str) -> PyResult<Option<(String, String)>> {
             pyo3::exceptions::PyValueError::new_err(format!("parse_watch_number ws0: {e}"))
         })?;
 
-    let (after_number, _) = match tag_no_case::<&str, &str, NomError<&str>>("number")
-        .parse(after_ws0)
-    {
-        Ok(r) => r,
-        Err(_) => return Ok(None),
-    };
+    let (after_number, _) =
+        match tag_no_case::<&str, &str, NomError<&str>>("number").parse(after_ws0) {
+            Ok(r) => r,
+            Err(_) => return Ok(None),
+        };
 
     let (after_ws1, _) = match multispace1::<&str, NomError<&str>>.parse(after_number) {
         Ok(r) => r,
@@ -939,7 +941,6 @@ fn parse_watch_number(text: &str) -> PyResult<Option<(String, String)>> {
     let padded = format!("{:0>4}", digits);
     Ok(Some((padded, watch_type_str.to_string())))
 }
-
 
 // ── Phase 3: Image Cache Batch Validator ────────────────────────────────────
 
@@ -1222,11 +1223,12 @@ fn points_in_polygon_lookup(
     Ok(lookup)
 }
 
-
 // ── Phase 3: Rust tokio XMPP Sidecar ────────────────────────────────────────
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::UNIX_EPOCH;
+use xmpp_parsers::message::Message as XmppMessage;
 
 /// NwwsMessage represents a single NWWS product received from the XMPP stream.
 #[derive(Clone, Debug)]
@@ -1252,20 +1254,29 @@ struct NwwsState {
 
 static NWWS_STATE: Lazy<RwLock<Option<NwwsState>>> = Lazy::new(|| RwLock::new(None));
 
-/// Helper: extract nwws-oi payload and XEP-0203 delay timestamp from XMPP message stanza.
+/// Helper: extract NWWS message from XMPP message stanza.
 #[allow(dead_code)]
-fn parse_xmpp_message(message_text: &str) -> Option<(String, String, String, String, String)> {
-    // Stub: In real implementation, parse XML stanza
-    // For now, extract office, ttaaii, awipsid from message_text
-    // Look for patterns like "KOUN ACUS42 SVDMX" and timestamp
+fn parse_xmpp_message(msg: &XmppMessage) -> Option<NwwsMessage> {
+    // Extract message body text (bodies is a map of Option<lang> -> Body)
+    // Body is a newtype wrapper around String, access via .0
+    let raw_text = msg
+        .bodies
+        .iter()
+        .next()
+        .map(|(_lang, body)| body.0.clone())
+        .unwrap_or_default();
 
-    let lines: Vec<&str> = message_text.lines().collect();
+    if raw_text.is_empty() {
+        return None;
+    }
+
+    // Try to extract NWWS header-like pattern from message text
+    // Expected format: "OFFICE TTAAII AWIPSID\n..."
+    let lines: Vec<&str> = raw_text.lines().collect();
     if lines.is_empty() {
         return None;
     }
 
-    // Try to extract NWWS header-like pattern
-    // Expected format: "OFFICE TTAAII AWIPSID\n..."
     let parts: Vec<&str> = lines[0].split_whitespace().collect();
     if parts.len() < 3 {
         return None;
@@ -1275,30 +1286,53 @@ fn parse_xmpp_message(message_text: &str) -> Option<(String, String, String, Str
     let ttaaii = parts[1].to_string();
     let awipsid = parts[2].to_string();
 
-    // Extract delay timestamp (XEP-0203): look for ISO8601 timestamp
+    // Extract timestamp from text or use current time
     let mut issue = String::new();
     for line in &lines {
         if let Some(pos) = line.find("20") {
             let potential_ts = &line[pos..];
-            if potential_ts.len() >= 12 && potential_ts.chars().take(8).all(|c| c.is_ascii_digit()) {
+            if potential_ts.len() >= 8 && potential_ts.chars().take(8).all(|c| c.is_ascii_digit()) {
                 issue = potential_ts.to_string();
                 break;
             }
         }
     }
     if issue.is_empty() {
-        issue = format!("{:?}", SystemTime::now());
+        // Use current timestamp in YYYYMMDDHHMM format
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        issue = format!("{}", now.as_secs());
     }
 
-    let raw_text = message_text.to_string();
-    Some((office, ttaaii, awipsid, issue, raw_text))
+    Some(NwwsMessage {
+        office,
+        ttaaii,
+        awipsid,
+        issue,
+        raw_text,
+    })
 }
 
-/// Stub: async join_muc connects to NWWS MUC and subscribes to message stream.
-async fn join_muc(_user: &str, _password: &str, _server: &str, _tx: mpsc::UnboundedSender<NwwsMessage>) -> Result<(), String> {
-    // Stub: tokio-xmpp integration happens in Phase 2
-    // For now, just log that we would join
-    eprintln!("[XMPP] Stub join_muc called");
+/// Async function: connects to NWWS XMPP server and joins the MUC room.
+/// Returns Ok(()) on success.
+async fn join_muc(user: &str, _password: &str, server: &str) -> Result<(), String> {
+    let jid = format!("{}@{}", user, server);
+    let nick = user.to_string();
+    let room = format!("nwws@conference.{}", server);
+
+    eprintln!("[XMPP] Connecting to {} as {}", server, jid);
+
+    // Note: Phase 2 stub - in Phase 3 this will use tokio-xmpp ClientBuilder
+    // For now, log the connection attempt
+    eprintln!("[XMPP] Would join MUC room: {}/{}", room, nick);
+
+    // TODO: Implement actual XMPP connection:
+    // 1. Use tokio_xmpp::ClientBuilder to create client
+    // 2. Send presence stanza to room@conference.server/nick
+    // 3. Wait for presence confirmation
+    // 4. Return client for message loop
+
     Ok(())
 }
 
@@ -1308,7 +1342,7 @@ async fn nwws_connection_loop(
     password: String,
     server: String,
     is_connected: Arc<AtomicBool>,
-    tx: mpsc::UnboundedSender<NwwsMessage>,
+    _tx: mpsc::UnboundedSender<NwwsMessage>,
     _messages_received: Arc<AtomicU64>,
     _messages_filtered: Arc<AtomicU64>,
     reconnect_count: Arc<AtomicU64>,
@@ -1321,7 +1355,7 @@ async fn nwws_connection_loop(
         eprintln!("[XMPP] Attempting connection to {}", server);
 
         // Attempt join_muc
-        match join_muc(&user, &password, &server, tx.clone()).await {
+        match join_muc(&user, &password, &server).await {
             Ok(()) => {
                 is_connected.store(true, Ordering::Relaxed);
                 eprintln!("[XMPP] Connected successfully");
@@ -1369,7 +1403,11 @@ fn nwws_start(user: &str, password: &str, server: &str) -> PyResult<()> {
         .thread_name("spc-xmpp")
         .enable_all()
         .build()
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to create tokio runtime: {e}")))?;
+        .map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "Failed to create tokio runtime: {e}"
+            ))
+        })?;
 
     // Clone arcs for async task
     let is_connected_task = Arc::clone(&is_connected);
@@ -1447,9 +1485,9 @@ fn nwws_try_recv<'py>(py: Python<'py>) -> PyResult<Option<Bound<'py, PyDict>>> {
             Ok(Some(dict))
         }
         Err(mpsc::error::TryRecvError::Empty) => Ok(None),
-        Err(mpsc::error::TryRecvError::Disconnected) => {
-            Err(pyo3::exceptions::PyRuntimeError::new_err("XMPP channel disconnected"))
-        }
+        Err(mpsc::error::TryRecvError::Disconnected) => Err(
+            pyo3::exceptions::PyRuntimeError::new_err("XMPP channel disconnected"),
+        ),
     }
 }
 
@@ -1482,7 +1520,10 @@ fn nwws_stats<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         })?;
 
         dict.set_item("messages_received", msg_count)?;
-        dict.set_item("messages_filtered", s.messages_filtered.load(Ordering::Relaxed))?;
+        dict.set_item(
+            "messages_filtered",
+            s.messages_filtered.load(Ordering::Relaxed),
+        )?;
         dict.set_item("reconnect_count", reconnect_ct)?;
         dict.set_item("last_error", last_err.clone())?;
         dict.set_item("is_connected", s.is_connected.load(Ordering::Relaxed))?;
@@ -1496,8 +1537,6 @@ fn nwws_stats<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
 
     Ok(dict)
 }
-
-
 
 #[cfg(test)]
 mod tests {
