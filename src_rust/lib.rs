@@ -1373,8 +1373,15 @@ async fn join_muc(user: &str, password: &str, server: &str) -> Result<XmppClient
     }
 
     // Send presence stanza to join the MUC room
-    // Create presence and convert to Element stanza
-    let presence = Presence::new(PresenceType::None);
+    // Must address presence to room@conference.server/nick to properly join MUC
+    use xmpp_parsers::jid::FullJid;
+
+    let room_jid_str = format!("{}/{}", room_str, nick);
+    let room_jid = FullJid::from_str(&room_jid_str)
+        .map_err(|e| format!("Invalid room JID '{}': {}", room_jid_str, e))?;
+
+    let mut presence = Presence::new(PresenceType::None);
+    presence.to = Some(room_jid.into());
 
     // Convert Presence to Element via Into trait
     let presence_element: Element = presence.into();
