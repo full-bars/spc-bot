@@ -6,6 +6,21 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.34.0] — 2026-05-20
+
+### Performance
+- **Rust nom-based parsers for hot NWWS path.** Added three new Rust functions to `spc_rust_core`: `parse_warning_polygon()` (full LAT...LON scan, parse, and range-clipping in one pass), `parse_md_number()` (extract Mesoscale Discussion number), and `parse_watch_number()` (extract watch number + type). Each uses nom combinators for zero-copy forward scanning and case-insensitive tag matching. Python wrappers use try-Rust-first pattern with pure-Python fallbacks for backward compatibility. Eliminates redundant regex scans in the NWWS routing hot-path and pre-positions the codebase for B3 (tokio-based XMPP client). All 479 tests passing.
+
+### Added
+- **Sounding worker pre-fork at bot startup.** `prefork_sounding_executor()` is now called during bot initialization instead of lazily on first request, eliminating cold-start latency for the first sounding render. Added `max_tasks_per_child=5` to `ProcessPoolExecutor` (Python 3.11+) to cap cumulative memory bloat from SounderPy/MetPy processes — after 5 tasks each worker is recycled.
+- **Sounding queue depth monitoring.** Added `sounding_queue_depth()` helper to replace fragile CPython internals (`sem._waiters`) for compatibility with future Python versions.
+
+### Fixed
+- **Pre-push hook now works in worktree sessions.** Added venv detection with fallback to `/home/ubuntu/spc-bot/venv/bin/python` for agents running in parallel worktrees without an active venv. Updated both `.git/hooks/pre-push` and `install-hooks.sh` for consistency.
+
+### Removed
+- **Deleted broken `scripts/migrate_sqlite_to_upstash.py`.** The script called `_upstash_cmd()` which was removed in v5.26.0. The replacement `scripts/migrate_sqlite_to_redis.py` already exists and is the correct tool for the job.
+
 ## [5.33.1] — 2026-05-20
 
 ### Fixed
