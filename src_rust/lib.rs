@@ -840,8 +840,7 @@ fn parse_warning_polygon(text: &str) -> PyResult<Vec<(f64, f64)>> {
     let mut raw_ints: Vec<u32> = Vec::with_capacity(32);
 
     loop {
-        let peeked =
-            cursor.trim_start_matches(|c: char| c == ' ' || c == '\t' || c == '\r' || c == '\n');
+        let peeked = cursor.trim_start_matches([' ', '\t', '\r', '\n']);
 
         let stop = match peeked.chars().next() {
             None => true,
@@ -1395,6 +1394,7 @@ async fn join_muc(user: &str, password: &str, server: &str) -> Result<XmppClient
 }
 
 /// Internal async loop: maintains XMPP connection, receives messages, applies filters, forwards to channel.
+#[allow(clippy::too_many_arguments)]
 async fn nwws_connection_loop(
     user: String,
     password: String,
