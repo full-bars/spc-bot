@@ -6,6 +6,9 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **Improved observability for silent exception handlers.** Redis connection cleanup in `FailoverCog` now logs a warning (with traceback) if `aclose()` raises instead of silently discarding the error. Sounding source-metadata extraction in `sounding_views.py` now emits a debug-level log on failure instead of swallowing it.
+
 ## [5.34.2] — 2026-05-20
 
 ### Fixed
