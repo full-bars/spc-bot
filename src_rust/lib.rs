@@ -19,7 +19,6 @@ use regex::Regex;
 use rstar::RTree;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use xmpp_parsers::message::Message as XmppMessage;
 use xmpp_parsers::presence::{Presence, Type as PresenceType};
@@ -1254,86 +1253,48 @@ struct NwwsState {
 static NWWS_STATE: Lazy<RwLock<Option<NwwsState>>> = Lazy::new(|| RwLock::new(None));
 
 /// Helper: extract NWWS message from XMPP message stanza.
-/// Includes XEP-0203 (delayed delivery) support to detect archived messages.
-#[allow(dead_code)]
+///
+/// NWWS-OI products carry their metadata in an `<x xmlns="nwws-oi">` payload
+/// with `cccc` (office), `ttaaii` (WMO header), `awipsid` (AFOS PIL), and
+/// `issue` (timestamp) attributes. The product text is the body of that
+/// element (not the message body, which iembot leaves blank or summary-only).
+///
+/// Messages without an `nwws-oi` payload are MUC chatter / status pings and
+/// are skipped silently — they aren't products.
 fn parse_xmpp_message(msg: &XmppMessage) -> Option<NwwsMessage> {
-    // Extract message body text (bodies is a map of Option<lang> -> Body)
-    // Body is a newtype wrapper around String, access via .0
-    let raw_text = msg
-        .bodies
-        .iter()
-        .next()
-        .map(|(_lang, body)| body.0.clone())
-        .unwrap_or_default();
-
-    if raw_text.is_empty() {
-        return None;
-    }
-
-    // Check for XEP-0203 (delayed delivery) to detect archived messages
-    // These are messages from the room history sent on join, not live
-    let _is_archived = msg
+    // Locate the <x xmlns="nwws-oi"> payload. The namespace iembot uses is
+    // literally "nwws-oi" (no URI scheme).
+    let nwws_payload = msg
         .payloads
         .iter()
-        .any(|payload| payload.ns() == "urn:xmpp:delay");
-    // For now, we accept all messages including archived ones
-    // In future, we could filter: if _is_archived { return None; }
+        .find(|p| p.name() == "x" && p.ns() == "nwws-oi")?;
 
-    // Try to extract NWWS header-like pattern from message text
-    // Expected format: "OFFICE TTAAII AWIPSID\n..."
-    let lines: Vec<&str> = raw_text.lines().collect();
-    if lines.is_empty() {
-        return None;
-    }
+    let office = nwws_payload.attr("cccc")?.trim().to_string();
+    let ttaaii = nwws_payload.attr("ttaaii")?.trim().to_string();
+    let awipsid = nwws_payload
+        .attr("awipsid")
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let issue = nwws_payload.attr("issue").unwrap_or("").trim().to_string();
 
-    let parts: Vec<&str> = lines[0].split_whitespace().collect();
-    if parts.len() < 3 {
-        return None;
-    }
-
-    let office = parts[0].to_string();
-    let ttaaii = parts[1].to_string();
-    let awipsid = parts[2].to_string();
-
-    // Validate NWWS product format: office (4 uppercase), ttaaii (W+alphanumeric), awipsid (uppercase)
-    // Reject status messages like "KNCF issued valid"
-    if office.len() != 4 || !office.chars().all(|c| c.is_ascii_uppercase()) {
-        return None;
-    }
-    // WMO TTAAii headers must start with W (WOUS45, WOUX86, etc.)
-    if ttaaii.len() < 5
-        || !ttaaii.starts_with('W')
-        || !ttaaii.chars().all(|c| c.is_ascii_alphanumeric())
-    {
-        return None;
-    }
-    // AFOS PIL codes: TOR, SVR, RWR, RR3 etc. (2-6 uppercase + digits only, no words)
-    if awipsid.is_empty()
-        || awipsid.len() > 6
-        || !awipsid
-            .chars()
-            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
-    {
-        return None;
-    }
-
-    // Extract timestamp from text or use current time
-    let mut issue = String::new();
-    for line in &lines {
-        if let Some(pos) = line.find("20") {
-            let potential_ts = &line[pos..];
-            if potential_ts.len() >= 8 && potential_ts.chars().take(8).all(|c| c.is_ascii_digit()) {
-                issue = potential_ts.to_string();
-                break;
-            }
+    // Product text lives inside the <x> element body. Fall back to message
+    // body for older feeds that put it there.
+    let raw_text = {
+        let inner = nwws_payload.text();
+        if inner.trim().is_empty() {
+            msg.bodies
+                .iter()
+                .next()
+                .map(|(_lang, body)| body.0.clone())
+                .unwrap_or_default()
+        } else {
+            inner
         }
-    }
-    if issue.is_empty() {
-        // Use current timestamp in YYYYMMDDHHMM format
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default();
-        issue = format!("{}", now.as_secs());
+    };
+
+    if office.is_empty() || ttaaii.is_empty() {
+        return None;
     }
 
     Some(NwwsMessage {
