@@ -193,8 +193,8 @@ async def _send_sounding_embed(
                 source = clean_data["site_info"].get("source", "")
                 if source:
                     source_str = f" | Source: {source}"
-        except (KeyError, AttributeError, TypeError):
-            pass
+        except (KeyError, AttributeError, TypeError) as e:
+            logger.debug(f"Failed to extract sounding source metadata: {e}")
 
     caption = "**RAOB Sounding \u2014 {}**\nValid: {} | {} mode{}{}".format(
         label, time_label, mode_label, source_str, fallback_note

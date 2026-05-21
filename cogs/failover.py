@@ -187,7 +187,7 @@ class FailoverCog(commands.Cog):
             try:
                 await self._redis.aclose()
             except Exception:
-                pass
+                logger.warning("Failed to close Redis connection", exc_info=True)
             self._redis = None
 
     def _is_our_node(self, target: str) -> bool:
