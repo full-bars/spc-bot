@@ -1295,20 +1295,25 @@ fn parse_xmpp_message(msg: &XmppMessage) -> Option<NwwsMessage> {
     let ttaaii = parts[1].to_string();
     let awipsid = parts[2].to_string();
 
-    // Validate that this looks like a real NWWS product, not a status message
-    // NWWS products have: office (4 chars), ttaaii (6+ alphanumeric), awipsid (no punctuation)
-    // Filter out junk like "issued", "valid", etc.
-    if office.len() != 4
-        || !office
-            .chars()
-            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+    // Validate NWWS product format: office (4 uppercase), ttaaii (W+alphanumeric), awipsid (uppercase)
+    // Reject status messages like "KNCF issued valid"
+    if office.len() != 4 || !office.chars().all(|c| c.is_ascii_uppercase()) {
+        return None;
+    }
+    // WMO TTAAii headers must start with W (WOUS45, WOUX86, etc.)
+    if ttaaii.len() < 5
+        || !ttaaii.starts_with('W')
+        || !ttaaii.chars().all(|c| c.is_ascii_alphanumeric())
     {
         return None;
     }
-    if ttaaii.len() < 4 || !ttaaii.chars().all(|c| c.is_ascii_alphanumeric()) {
-        return None;
-    }
-    if awipsid.is_empty() || awipsid.len() > 10 || awipsid.chars().any(|c| c == ',' || c == '.') {
+    // AFOS PIL codes: TOR, SVR, RWR, RR3 etc. (2-6 uppercase + digits only, no words)
+    if awipsid.is_empty()
+        || awipsid.len() > 6
+        || !awipsid
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+    {
         return None;
     }
 
