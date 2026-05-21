@@ -1236,6 +1236,7 @@ pub struct NwwsMessage {
     pub awipsid: String,
     pub issue: String,
     pub raw_text: String,
+    pub delay_stamp: Option<String>,
 }
 
 /// NwwsState manages the tokio runtime, message channel, and connection status.
@@ -1297,12 +1298,21 @@ fn parse_xmpp_message(msg: &XmppMessage) -> Option<NwwsMessage> {
         return None;
     }
 
+    let delay_payload = msg
+        .payloads
+        .iter()
+        .find(|p| p.name() == "delay" && p.ns() == "urn:xmpp:delay");
+    let delay_stamp = delay_payload
+        .and_then(|p| p.attr("stamp"))
+        .map(|s| s.trim().to_string());
+
     Some(NwwsMessage {
         office,
         ttaaii,
         awipsid,
         issue,
         raw_text,
+        delay_stamp,
     })
 }
 
@@ -1566,11 +1576,14 @@ fn nwws_try_recv<'py>(py: Python<'py>) -> PyResult<Option<Bound<'py, PyDict>>> {
         Ok(msg) => {
             state.messages_received.fetch_add(1, Ordering::Relaxed);
             let dict = PyDict::new(py);
-            dict.set_item("office", msg.office)?;
+            dict.set_item("office", msg.office.clone())?;
+            dict.set_item("cccc", msg.office)?;
             dict.set_item("ttaaii", msg.ttaaii)?;
             dict.set_item("awipsid", msg.awipsid)?;
             dict.set_item("issue", msg.issue)?;
-            dict.set_item("raw_text", msg.raw_text)?;
+            dict.set_item("raw_text", msg.raw_text.clone())?;
+            dict.set_item("text", msg.raw_text)?;
+            dict.set_item("delay_stamp", msg.delay_stamp)?;
             Ok(Some(dict))
         }
         Err(mpsc::error::TryRecvError::Empty) => Ok(None),

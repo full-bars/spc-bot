@@ -389,8 +389,23 @@ class NWWSCog(commands.Cog):
                         return self._dict.get(key)
 
                 payload = RustPayload(msg_dict)
-                raw_text = msg_dict.get('text', '')
-                is_archived = msg_dict.get('is_archived', False)
+                raw_text = msg_dict.get('text') or msg_dict.get('raw_text', '')
+                
+                # Check for archived message (XEP-0203 delay stamp)
+                is_archived = False
+                delay_stamp = msg_dict.get('delay_stamp')
+                if delay_stamp and isinstance(delay_stamp, str):
+                    from datetime import datetime as dt_class
+                    from datetime import timezone as tz_class
+                    try:
+                        if delay_stamp.endswith('Z'):
+                            delay_time = dt_class.fromisoformat(delay_stamp.replace('Z', '+00:00'))
+                        else:
+                            delay_time = dt_class.fromisoformat(delay_stamp)
+                        now = dt_class.now(tz_class.utc)
+                        is_archived = (now - delay_time).total_seconds() > 10
+                    except (ValueError, TypeError):
+                        is_archived = False
 
                 # Use current time; Rust already timestamped it
                 from datetime import datetime, timezone
