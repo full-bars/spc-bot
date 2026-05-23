@@ -77,6 +77,7 @@ class WarningsCog(commands.Cog):
         self._cancelled_warnings: set[str] = set()
         self._in_flight_vtecs: set[str] = set()
         self._perm_warned: set[int] = set()
+        self._discover_sem = asyncio.Semaphore(5)
 
     async def cog_load(self):
         # posted_warnings already hydrated by _hydrate_state before cog load
@@ -792,23 +793,40 @@ class WarningsCog(commands.Cog):
             if issuance_id in self.bot.state.posted_warnings:
                 continue
 
+            # Allow NEW, CON, EXT, and UPG to trigger initial discovery posts.
+            # This ensures we catch warnings issued while the bot was down/starting.
+            if vtec_dict["action"] not in ("NEW", "CON", "EXT", "UPG"):
+                continue
+
             self._in_flight_vtecs.add(issuance_id)
+            asyncio.create_task(
+                self._discover_and_post_warning(issuance_id, feature, vtec_dict, event, props),
+                name=f"warn-discover-{issuance_id}",
+            )
 
+        await self._handle_disappeared_warnings(current_vtec_ids, current_vtec_data)
+        self._backoff.success()
+
+    async def _discover_and_post_warning(
+        self,
+        issuance_id: str,
+        feature,
+        vtec_dict: dict,
+        event: str,
+        props,
+    ) -> None:
+        """Post a newly-discovered warning, bounded by _discover_sem for burst control."""
+        async with self._discover_sem:
             try:
-                # Allow NEW, CON, EXT, and UPG to trigger initial discovery posts.
-                # This ensures we catch warnings issued while the bot was down/starting.
-                if vtec_dict["action"] not in ("NEW", "CON", "EXT", "UPG"):
-                    continue
-
                 async with self.bot.state.claim_posted_warning(issuance_id) as claim:
                     try:
                         event_ch = await self._resolve_warning_channel(event, vtec_phenom=vtec_dict.get("phenom"))
                         if event_ch is None:
-                            continue  # claim auto-rolls back
+                            return
                         msg, area_desc = await self._post_warning(feature, event_ch, vtec_dict, event)
                     except discord.HTTPException as e:
                         logger.exception(f"Send failed for {issuance_id}: {e}")
-                        continue  # claim auto-rolls back
+                        return
 
                     self.bot.state.active_warnings[issuance_id] = vtec_dict
                     try:
@@ -825,11 +843,10 @@ class WarningsCog(commands.Cog):
                         )
                     except Exception as e:
                         logger.warning(f"Failed to persist {issuance_id}: {e}")
+            except Exception as e:
+                logger.exception(f"Unhandled error discovering {issuance_id}: {e}")
             finally:
                 self._in_flight_vtecs.discard(issuance_id)
-
-        await self._handle_disappeared_warnings(current_vtec_ids, current_vtec_data)
-        self._backoff.success()
 
     async def _post_warning(
         self,
