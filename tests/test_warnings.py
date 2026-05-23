@@ -187,6 +187,7 @@ def _make_cog(posted: dict | None = None) -> WarningsCog:
     cog = WarningsCog.__new__(WarningsCog)
     cog._in_flight_vtecs = set()
     cog._perm_warned = set()
+    cog._discover_sem = asyncio.Semaphore(5)
     cog.bot = MagicMock()
     cog.bot.wait_until_ready = AsyncMock()
     cog.bot.state.is_primary = True
@@ -532,6 +533,7 @@ def _make_tick_cog(active=None, posted=None):
     cog = WarningsCog.__new__(WarningsCog)
     cog._in_flight_vtecs = set()
     cog._perm_warned = set()
+    cog._discover_sem = asyncio.Semaphore(5)
     from utils.backoff import TaskBackoff
     cog._backoff = TaskBackoff("auto_poll_warnings")
     cog._validators = {"etag": "", "last_modified": ""}
@@ -602,6 +604,7 @@ async def test_tick_disappeared_warning_triggers_cancellation(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.real_create_task
 async def test_tick_initial_discovery_posts_active_warning_missed_at_startup(monkeypatch):
     """A CON warning in the API but NOT in posted_warnings (bot was down at issuance)
     triggers an initial-discovery post."""
@@ -627,6 +630,10 @@ async def test_tick_initial_discovery_posts_active_warning_missed_at_startup(mon
     monkeypatch.setattr(warnings_mod, "add_significant_event", AsyncMock(), raising=False)
 
     await cog._tick()
+    # Discovery fires as a background task; drain all pending tasks before asserting.
+    pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
 
     channel.send.assert_called_once()
     assert vtec_id in cog.bot.state.posted_warnings

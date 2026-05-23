@@ -215,10 +215,12 @@ class FailoverCog(commands.Cog):
             logger.warning(f"[FAILOVER] Redis error: {e!r}")
             return None
 
-    async def _write_lease(self) -> None:
+    async def _write_lease(self) -> bool:
         """Unconditional lease write — used only on startup/promotion where
-        we are claiming the key for the first time."""
-        await self._exec("SET", LEASE_KEY, self._identity, "EX", str(HEARTBEAT_TTL))
+        we are claiming the key for the first time. Returns True if Redis
+        confirmed the write; False means Redis was unreachable."""
+        result = await self._exec("SET", LEASE_KEY, self._identity, "EX", str(HEARTBEAT_TTL))
+        return result is not None
 
     async def _renew_lease(self) -> bool:
         """Conditionally renew lease only if we still hold it (C6 fix).
@@ -266,7 +268,10 @@ class FailoverCog(commands.Cog):
         if manual:
             if self._is_our_node(manual):
                 logger.info(f"[FAILOVER] Startup: manual override names us as Primary")
-                await self._write_lease()
+                if not await self._write_lease():
+                    logger.warning("[FAILOVER] Startup (manual): Redis unreachable — cannot write lease; booting as STANDBY")
+                    self.bot.state.is_primary = False
+                    return False
                 self.bot.state.is_primary = True
                 try:
                     await state_store.resync_to_redis()
@@ -291,7 +296,13 @@ class FailoverCog(commands.Cog):
             return False
 
         logger.info(f"[FAILOVER] Startup: claiming lease as Primary ('{self._identity}')")
-        await self._write_lease()
+        if not await self._write_lease():
+            logger.warning(
+                "[FAILOVER] Startup: Redis unreachable — could not write lease; "
+                "booting as STANDBY to avoid split-brain"
+            )
+            self.bot.state.is_primary = False
+            return False
         try:
             await state_store.resync_to_redis()
         except Exception as e:

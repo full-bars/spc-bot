@@ -60,7 +60,7 @@ class BoundedFIFOKeys:
 
     __slots__ = ("_d", "_maxlen")
 
-    def __init__(self, maxlen: int = 1000):
+    def __init__(self, maxlen: int = 5000):
         self._d: Dict[str, None] = {}
         self._maxlen = maxlen
 
@@ -138,7 +138,7 @@ class PostingLog:
         # Currently-active VTEC IDs mapping to their latest vtec metadata dict
         self.active_warnings: Dict[str, dict] = {}
         self.posted_reports: Set[str] = set()
-        self.posted_product_ids: BoundedFIFOKeys = BoundedFIFOKeys(maxlen=1000)
+        self.posted_product_ids: BoundedFIFOKeys = BoundedFIFOKeys(maxlen=5000)
         self.posted_soundings: Set[str] = set()
         self.sounding_handled_watches: Set[str] = set()
 

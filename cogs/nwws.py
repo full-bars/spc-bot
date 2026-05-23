@@ -407,10 +407,10 @@ class NWWSCog(commands.Cog):
                 from datetime import datetime, timezone
                 received_at = datetime.now(timezone.utc)
 
-                try:
-                    await self._process_nwws_message(payload, raw_text, received_at, is_archived)
-                except Exception as e:
-                    logger.exception(f"Error processing message {msg_dict.get('product_id')}: {e}")
+                asyncio.create_task(
+                    self._process_nwws_message(payload, raw_text, received_at, is_archived),
+                    name=f"nwws-{msg_dict.get('product_id', 'unknown')}",
+                )
 
             if messages_drained > 0:
                 logger.debug(f"Drained {messages_drained} messages from Rust NWWS")
