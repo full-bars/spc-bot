@@ -957,7 +957,7 @@ fn area_with_state(area_desc: &str, ugc_codes: Vec<String>) -> PyResult<String> 
 
     // Parse county names — split on semicolons / newlines first.
     let semicolon_split: Vec<&str> = area_desc
-        .split(|c| c == ';' || c == '\n')
+        .split([';', '\n'])
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .collect();
@@ -1045,7 +1045,7 @@ fn area_with_state(area_desc: &str, ugc_codes: Vec<String>) -> PyResult<String> 
             if let Some(last) = parts.last_mut() {
                 // Append to the last [STATE] group, stripping the closing bracket.
                 let trimmed = last
-                    .trim_end_matches(|c| c == ']')
+                    .trim_end_matches(']')
                     .trim_end_matches(|c: char| !c.is_alphanumeric())
                     .to_string();
                 *last = format!("{}, {} [?]", trimmed, remainder.join(", "));
