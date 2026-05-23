@@ -323,7 +323,21 @@ class StatusView(discord.ui.View):
 
         nwws_status = "🔴 DISCONNECTED"
         nwws_cog = self.bot.get_cog("NWWSCog")
-        if nwws_cog and nwws_cog.xmpp_client:
+        nwws_queue_depth: int | None = None
+        if nwws_cog and getattr(nwws_cog, "_use_rust", False):
+            try:
+                import spc_rust_core
+                rust_stats = spc_rust_core.nwws_stats()
+                if rust_stats.get("is_connected"):
+                    nwws_status = "🟢 CONNECTED (Rust)"
+                else:
+                    nwws_status = "🟡 CONNECTING... (Rust)"
+                q = rust_stats.get("queue_depth", 0)
+                if q > 0:
+                    nwws_queue_depth = q
+            except Exception:
+                nwws_status = "🟡 CONNECTING... (Rust)"
+        elif nwws_cog and nwws_cog.xmpp_client:
             nwws_status = "🟢 CONNECTED" if nwws_cog.xmpp_client.is_connected else "🟡 CONNECTING..."
         elif nwws_cog:
             nwws_status = "🟡 CONNECTING..." if self.bot.state.is_primary else "⚪ STANDBY"
@@ -339,11 +353,17 @@ class StatusView(discord.ui.View):
         iembot_ping = self.bot.state.iembot_ping
         http_lat = self.bot.state.http_latency
         session_ok = _http.http_session is not None and not _http.http_session.closed
+        nwws_line = f"**NWWS-OI:** {nwws_status}"
+        if nwws_ping:
+            nwws_line += f" (`{nwws_ping:.0f}ms`)"
+        if nwws_queue_depth:
+            nwws_line += f" ⚠️ queue: {nwws_queue_depth}"
+        nwws_line += "\n"
         conn_val = (
             f"**Rust Core:** {rust_status}\n"
-            f"**NWWS-OI:** {nwws_status}" + (f" (`{nwws_ping:.0f}ms`)\n" if nwws_ping else "\n") +
-            f"**IEMBot:** {iembot_status}" + (f" (`{iembot_ping:.0f}ms`)\n" if iembot_ping else "\n") +
-            f"**HTTP:** {'🟢 OK' if session_ok else '🔴 CLOSED'}" + (f" (`{http_lat * 1000:.1f}ms`)" if http_lat else "")
+            + nwws_line
+            + f"**IEMBot:** {iembot_status}" + (f" (`{iembot_ping:.0f}ms`)\n" if iembot_ping else "\n")
+            + f"**HTTP:** {'🟢 OK' if session_ok else '🔴 CLOSED'}" + (f" (`{http_lat * 1000:.1f}ms`)" if http_lat else "")
         )
         embed.add_field(name="📡 Connectivity", value=conn_val, inline=True)
 

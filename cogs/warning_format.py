@@ -18,6 +18,13 @@ from utils.http import http_get_bytes
 
 logger = logging.getLogger("spc_bot.warnings")
 
+try:
+    import spc_rust_core as _rust
+    _RUST_AVAILABLE = True
+except ImportError:
+    _rust = None  # type: ignore[assignment]
+    _RUST_AVAILABLE = False
+
 _STATE_REGEX = re.compile(
     r"[\s,]+(?:[A-Z]{2}|ALABAMA|ALASKA|ARIZONA|ARKANSAS|CALIFORNIA|COLORADO|CONNECTICUT|DELAWARE|FLORIDA|GEORGIA|HAWAII|IDAHO|ILLINOIS|INDIANA|IOWA|KANSAS|KENTUCKY|LOUISIANA|MAINE|MARYLAND|MASSACHUSETTS|MICHIGAN|MINNESOTA|MISSISSIPPI|MISSOURI|MONTANA|NEBRASKA|NEVADA|NEW\s+HAMPSHIRE|NEW\s+JERSEY|NEW\s+MEXICO|NEW\s+YORK|NORTH\s+CAROLINA|NORTH\s+DAKOTA|OHIO|OKLAHOMA|OREGON|PENNSYLVANIA|RHODE\s+ISLAND|SOUTH\s+CAROLINA|SOUTH\s+DAKOTA|TENNESSEE|TEXAS|UTAH|VERMONT|VIRGINIA|WASHINGTON|WEST\s+VIRGINIA|WISCONSIN|WYOMING)$",
     re.IGNORECASE,
@@ -269,7 +276,7 @@ def _vtec_unix_ts(vtec: dict) -> int:
     return int(time.time())
 
 
-def _area_with_state(area_desc: str, ugc_codes: List[str], state_fallback: Optional[str] = None) -> str:
+def _area_with_state(area_desc: str, ugc_codes: List[str], state_fallback: Optional[str] = None) -> str:  # noqa: C901
     """Append [STATE] abbreviations to the area string, grouping counties by state.
 
     Uses the NWS API geocode.UGC list (e.g. ['MSC023', 'ARC001']) to determine
@@ -278,9 +285,15 @@ def _area_with_state(area_desc: str, ugc_codes: List[str], state_fallback: Optio
         'Ashley, Chicot [AR] and Washington [MS]'            (two states)
     County names come from area_desc (already comma/semicolon separated).
     The UGC ordering matches the area_desc ordering in NWS API responses.
-    
+
     If ugc_codes is empty, uses state_fallback (e.g. "OK") for all counties.
     """
+    if _RUST_AVAILABLE and ugc_codes and not state_fallback:
+        try:
+            return _rust.area_with_state(area_desc, list(ugc_codes))
+        except Exception:
+            pass
+
     if not ugc_codes:
         if state_fallback:
             return f"{area_desc} [{state_fallback.upper()}]"
@@ -652,6 +665,12 @@ def _extract_narrative(raw: str) -> Optional[str]:
     """
     if not raw:
         return None
+
+    if _RUST_AVAILABLE:
+        try:
+            return _rust.extract_narrative(raw)
+        except Exception:
+            pass
 
     text = raw
     # Drop the WMO header / AFOS header / VTEC line block at the top so
