@@ -43,6 +43,8 @@ fn spc_rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(compute_crit_angl, m)?)?;
     m.add_function(wrap_pyfunction!(parse_vtec, m)?)?;
     m.add_function(wrap_pyfunction!(parse_warning_polygon, m)?)?;
+    m.add_function(wrap_pyfunction!(extract_narrative, m)?)?;
+    m.add_function(wrap_pyfunction!(area_with_state, m)?)?;
     m.add_function(wrap_pyfunction!(parse_md_number, m)?)?;
     m.add_function(wrap_pyfunction!(parse_watch_number, m)?)?;
     m.add_function(wrap_pyfunction!(nwws_start, m)?)?;
@@ -878,6 +880,192 @@ fn parse_warning_polygon(text: &str) -> PyResult<Vec<(f64, f64)>> {
     Ok(coords)
 }
 
+// ── Text Processing ───────────────────────────────────────────────────────────
+
+static NARRATIVE_HEADER_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)^(?:BULLETIN.*|The National Weather Service\b.*)$").unwrap());
+
+/// Port of Python's `_extract_narrative`.
+///
+/// Strips WMO/AFOS transmission headers and known footer tags from a raw VTEC
+/// product, returning the human-readable warning body. Returns None for empty
+/// or all-whitespace input.
+#[pyfunction]
+fn extract_narrative(raw: &str) -> PyResult<Option<String>> {
+    if raw.trim().is_empty() {
+        return Ok(None);
+    }
+
+    // Find the narrative start (BULLETIN or NWS office line).
+    let text = if let Some(m) = NARRATIVE_HEADER_RE.find(raw) {
+        &raw[m.start()..]
+    } else {
+        raw
+    };
+
+    // Strip everything from the first footer tag onwards (case-insensitive plain scan).
+    let text_upper = text.to_uppercase();
+    let footers = ["LAT...LON", "ATTN...WFO", "TIME...MOT...LOC", "$$"];
+    let end = footers
+        .iter()
+        .filter_map(|f| text_upper.find(f))
+        .min()
+        .unwrap_or(text.len());
+
+    let result = text[..end].trim();
+    if result.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(result.to_string()))
+    }
+}
+
+// State-name / abbreviation suffix pattern — strips trailing ", OK" or " OKLAHOMA" etc.
+static AREA_STATE_SUFFIX_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?i)[\s,]+(?:AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|\
+MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|\
+ALABAMA|ALASKA|ARIZONA|ARKANSAS|CALIFORNIA|COLORADO|CONNECTICUT|DELAWARE|FLORIDA|GEORGIA|\
+HAWAII|IDAHO|ILLINOIS|INDIANA|IOWA|KANSAS|KENTUCKY|LOUISIANA|MAINE|MARYLAND|MASSACHUSETTS|\
+MICHIGAN|MINNESOTA|MISSISSIPPI|MISSOURI|MONTANA|NEBRASKA|NEVADA|NEW HAMPSHIRE|NEW JERSEY|\
+NEW MEXICO|NEW YORK|NORTH CAROLINA|NORTH DAKOTA|OHIO|OKLAHOMA|OREGON|PENNSYLVANIA|\
+RHODE ISLAND|SOUTH CAROLINA|SOUTH DAKOTA|TENNESSEE|TEXAS|UTAH|VERMONT|VIRGINIA|WASHINGTON|\
+WEST VIRGINIA|WISCONSIN|WYOMING)$",
+    )
+    .unwrap()
+});
+
+/// True if `s` looks like a bare 2-letter state abbreviation (possibly with
+/// surrounding whitespace/punctuation) — used to avoid splitting "Logan, OK"
+/// into two counties.
+fn is_state_abbrev(s: &str) -> bool {
+    let t = s.trim();
+    t.len() == 2 && t.chars().all(|c| c.is_ascii_uppercase())
+}
+
+/// Port of Python's `_area_with_state`.
+///
+/// Groups county names from `area_desc` by the state indicated in each UGC
+/// code (first 2 chars), cleaning trailing state suffixes and filtering
+/// geographic garbage. Returns a formatted string like:
+///   "Logan, Lincoln [OK]"  or  "Ashley, Chicot [AR] and Washington [MS]"
+#[pyfunction]
+fn area_with_state(area_desc: &str, ugc_codes: Vec<String>) -> PyResult<String> {
+    if ugc_codes.is_empty() {
+        return Ok(area_desc.to_string());
+    }
+
+    // Parse county names — split on semicolons / newlines first.
+    let semicolon_split: Vec<&str> = area_desc
+        .split(|c| c == ';' || c == '\n')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    let counties: Vec<String> = if semicolon_split.len() == 1 && area_desc.contains(',') {
+        // Single comma-separated list — split by comma, but don't split before a bare
+        // state abbreviation (mirrors the Python negative-lookahead).
+        let raw: Vec<&str> = area_desc.split(',').collect();
+        let mut merged: Vec<String> = Vec::with_capacity(raw.len());
+        for part in raw {
+            let stripped = part.trim();
+            if stripped.is_empty() {
+                continue;
+            }
+            if is_state_abbrev(stripped) && !merged.is_empty() {
+                // Merge back with previous county ("Logan, OK" stays together).
+                let last = merged.last_mut().unwrap();
+                last.push_str(", ");
+                last.push_str(stripped);
+            } else {
+                merged.push(stripped.to_string());
+            }
+        }
+        merged
+    } else {
+        semicolon_split.iter().map(|s| s.to_string()).collect()
+    };
+
+    if counties.is_empty() {
+        return Ok(area_desc.to_string());
+    }
+
+    // Group UGC codes by state (first 2 chars), preserving insertion order.
+    let mut state_order: Vec<String> = Vec::new();
+    let mut state_counts: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    for ugc in &ugc_codes {
+        if ugc.len() >= 2 {
+            let state = ugc[..2].to_uppercase();
+            let entry = state_counts.entry(state.clone()).or_insert(0);
+            if *entry == 0 {
+                state_order.push(state);
+            }
+            *entry += 1;
+        }
+    }
+
+    if state_order.is_empty() {
+        return Ok(area_desc.to_string());
+    }
+
+    // Build one formatted part per state group.
+    let mut parts: Vec<String> = Vec::new();
+    let mut idx: usize = 0;
+    for state in &state_order {
+        let count = *state_counts.get(state).unwrap_or(&0);
+        let group = &counties[idx..(idx + count).min(counties.len())];
+        if !group.is_empty() {
+            let cleaned: Vec<String> = group
+                .iter()
+                .map(|c| AREA_STATE_SUFFIX_RE.replace(c, "").trim().to_string())
+                .filter(|c| {
+                    // Only drop bare 2-char uppercase state abbreviations that got
+                    // split out of compound strings (e.g. ", OK" → "OK"). Do NOT
+                    // apply the full garbage filter here — that would incorrectly
+                    // drop county names like "Washington" or "Lincoln".
+                    c.len() > 2 || !c.chars().all(|ch| ch.is_ascii_uppercase())
+                })
+                .collect();
+            if !cleaned.is_empty() {
+                parts.push(format!("{} [{}]", cleaned.join(", "), state));
+            }
+        }
+        idx += count;
+    }
+
+    // Append any leftover counties to the last group (UGC/areaDesc length mismatch).
+    if idx < counties.len() {
+        let remainder: Vec<String> = counties[idx..]
+            .iter()
+            .map(|c| AREA_STATE_SUFFIX_RE.replace(c, "").trim().to_string())
+            .filter(|c| c.len() > 2 || !c.chars().all(|ch| ch.is_ascii_uppercase()))
+            .collect();
+        if !remainder.is_empty() {
+            if let Some(last) = parts.last_mut() {
+                // Append to the last [STATE] group, stripping the closing bracket.
+                let trimmed = last
+                    .trim_end_matches(|c| c == ']')
+                    .trim_end_matches(|c: char| !c.is_alphanumeric())
+                    .to_string();
+                *last = format!("{}, {} [?]", trimmed, remainder.join(", "));
+            } else {
+                return Ok(remainder.join(", "));
+            }
+        }
+    }
+
+    Ok(match parts.len() {
+        0 => area_desc.to_string(),
+        1 => parts.remove(0),
+        2 => format!("{} and {}", parts[0], parts[1]),
+        _ => {
+            let last = parts.pop().unwrap();
+            format!("{} and {}", parts.join(", "), last)
+        }
+    })
+}
+
 #[pyfunction]
 fn parse_md_number(text: &str) -> PyResult<Option<String>> {
     let after_tag = match scan_to_ci("mesoscale discussion", text) {
@@ -1247,6 +1435,7 @@ struct NwwsState {
     is_connected: Arc<AtomicBool>,
     messages_received: Arc<AtomicU64>,
     messages_filtered: Arc<AtomicU64>,
+    messages_drained: Arc<AtomicU64>,
     reconnect_count: Arc<AtomicU64>,
     last_error: Arc<RwLock<String>>,
 }
@@ -1493,6 +1682,7 @@ fn nwws_start(user: &str, password: &str, server: &str) -> PyResult<()> {
     let is_connected = Arc::new(AtomicBool::new(false));
     let messages_received = Arc::new(AtomicU64::new(0));
     let messages_filtered = Arc::new(AtomicU64::new(0));
+    let messages_drained = Arc::new(AtomicU64::new(0));
     let reconnect_count = Arc::new(AtomicU64::new(0));
     let last_error = Arc::new(RwLock::new(String::new()));
 
@@ -1541,6 +1731,7 @@ fn nwws_start(user: &str, password: &str, server: &str) -> PyResult<()> {
         is_connected,
         messages_received,
         messages_filtered,
+        messages_drained,
         reconnect_count,
         last_error,
     });
@@ -1574,6 +1765,7 @@ fn nwws_try_recv<'py>(py: Python<'py>) -> PyResult<Option<Bound<'py, PyDict>>> {
 
     match receiver.try_recv() {
         Ok(msg) => {
+            state.messages_drained.fetch_add(1, Ordering::Relaxed);
             let dict = PyDict::new(py);
             dict.set_item("office", msg.office.clone())?;
             dict.set_item("cccc", msg.office)?;
@@ -1614,13 +1806,16 @@ fn nwws_stats<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
 
     if let Some(s) = state.as_ref() {
-        let msg_count = s.messages_received.load(Ordering::Relaxed);
+        let msg_received = s.messages_received.load(Ordering::Relaxed);
+        let msg_drained = s.messages_drained.load(Ordering::Relaxed);
         let reconnect_ct = s.reconnect_count.load(Ordering::Relaxed);
         let last_err = s.last_error.read().map_err(|e| {
             pyo3::exceptions::PyRuntimeError::new_err(format!("last_error lock poisoned: {e}"))
         })?;
 
-        dict.set_item("messages_received", msg_count)?;
+        dict.set_item("messages_received", msg_received)?;
+        dict.set_item("messages_drained", msg_drained)?;
+        dict.set_item("queue_depth", msg_received.saturating_sub(msg_drained))?;
         dict.set_item(
             "messages_filtered",
             s.messages_filtered.load(Ordering::Relaxed),
@@ -1630,6 +1825,8 @@ fn nwws_stats<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         dict.set_item("is_connected", s.is_connected.load(Ordering::Relaxed))?;
     } else {
         dict.set_item("messages_received", 0)?;
+        dict.set_item("messages_drained", 0)?;
+        dict.set_item("queue_depth", 0u64)?;
         dict.set_item("messages_filtered", 0)?;
         dict.set_item("reconnect_count", 0)?;
         dict.set_item("last_error", "")?;

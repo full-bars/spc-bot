@@ -303,6 +303,9 @@ class NWWSCog(commands.Cog):
         self.xmpp_client: Optional[NWWSClient] = None
         self._should_be_connected = False
         self._use_rust = _USE_RUST_NWWS  # Instance flag, can change at runtime
+        # Self-healing: track reconnect_count to detect zombie reconnect loops.
+        self._reconnect_baseline: int = 0
+        self._reconnect_check_ts: float = 0.0
 
     async def cog_load(self):
         if not all([NWWS_USER, NWWS_PASSWORD]):
@@ -414,6 +417,36 @@ class NWWSCog(commands.Cog):
 
             if messages_drained > 0:
                 logger.debug(f"Drained {messages_drained} messages from Rust NWWS")
+
+            # ── Queue depth & self-healing ─────────────────────────────────
+            stats = spc_rust_core.nwws_stats()
+            queue_depth = stats.get("queue_depth", 0)
+            if queue_depth > 500:
+                logger.warning(
+                    f"[NWWS] Rust queue depth is {queue_depth} — Python processing "
+                    "may be falling behind the XMPP firehose"
+                )
+
+            # Check for zombie reconnect loop every 5 minutes.
+            now = time.monotonic()
+            if now - self._reconnect_check_ts >= 300:
+                reconnect_count = stats.get("reconnect_count", 0)
+                delta = reconnect_count - self._reconnect_baseline
+                if delta >= 5 and self._reconnect_check_ts > 0:
+                    logger.critical(
+                        f"[NWWS] Rust sidecar made {delta} reconnect attempts in 5 min "
+                        "(zombie reconnect loop detected) — tearing down and restarting"
+                    )
+                    try:
+                        spc_rust_core.nwws_stop()
+                        spc_rust_core.nwws_start(NWWS_USER, NWWS_PASSWORD, NWWS_SERVER)
+                        logger.info("[NWWS] Rust sidecar restarted after self-heal")
+                        self._reconnect_baseline = 0
+                    except Exception as heal_err:
+                        logger.exception(f"[NWWS] Self-heal restart failed: {heal_err}")
+                else:
+                    self._reconnect_baseline = reconnect_count
+                self._reconnect_check_ts = now
 
         except Exception as e:
             logger.exception(f"Error in Rust NWWS drain loop: {e}")
