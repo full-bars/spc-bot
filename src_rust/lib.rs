@@ -882,9 +882,8 @@ fn parse_warning_polygon(text: &str) -> PyResult<Vec<(f64, f64)>> {
 
 // ── Text Processing ───────────────────────────────────────────────────────────
 
-static NARRATIVE_HEADER_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?m)^(?:BULLETIN.*|The National Weather Service\b.*)$").unwrap()
-});
+static NARRATIVE_HEADER_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)^(?:BULLETIN.*|The National Weather Service\b.*)$").unwrap());
 
 /// Port of Python's `_extract_narrative`.
 ///
@@ -993,7 +992,8 @@ fn area_with_state(area_desc: &str, ugc_codes: Vec<String>) -> PyResult<String> 
 
     // Group UGC codes by state (first 2 chars), preserving insertion order.
     let mut state_order: Vec<String> = Vec::new();
-    let mut state_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut state_counts: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
     for ugc in &ugc_codes {
         if ugc.len() >= 2 {
             let state = ugc[..2].to_uppercase();
@@ -1044,7 +1044,10 @@ fn area_with_state(area_desc: &str, ugc_codes: Vec<String>) -> PyResult<String> 
         if !remainder.is_empty() {
             if let Some(last) = parts.last_mut() {
                 // Append to the last [STATE] group, stripping the closing bracket.
-                let trimmed = last.trim_end_matches(|c| c == ']').trim_end_matches(|c: char| !c.is_alphanumeric()).to_string();
+                let trimmed = last
+                    .trim_end_matches(|c| c == ']')
+                    .trim_end_matches(|c: char| !c.is_alphanumeric())
+                    .to_string();
                 *last = format!("{}, {} [?]", trimmed, remainder.join(", "));
             } else {
                 return Ok(remainder.join(", "));
