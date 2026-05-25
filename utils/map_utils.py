@@ -66,10 +66,10 @@ def render_tornado_track(paths: List[List[Tuple[float, float]]], output_path: st
 
     # Set extent with 30% margin
     margin = 0.3
-    ax.set_extent(
+    ax.set_extent(  # type: ignore[attr-defined]
         [
             min_lon - (lon_span * margin),
-            max_lon + (lon_span * margin),  # type: ignore[attr-defined]
+            max_lon + (lon_span * margin),
             min_lat - (lat_span * margin),
             max_lat + (lat_span * margin),
         ],
