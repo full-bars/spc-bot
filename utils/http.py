@@ -361,7 +361,7 @@ async def http_get_json(url: str, retries: int = 1, timeout: int = TIMEOUT_STAND
     async def _do_request():
         session = await ensure_session()
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as r:
-            if r.status in (429, 502, 503, 504):
+            if r.status in (429, 500, 502, 503, 504):
                 raise aiohttp.ClientResponseError(
                     r.request_info, r.history, status=r.status, message="Server returned retryable error"
                 )

@@ -33,6 +33,7 @@ _SYNC_PATH = os.path.join(_SYNC_DIR, "events.db")
 
 _db: Optional[aiosqlite.Connection] = None
 _db_dirty: bool = False
+_LOCK = asyncio.Lock()
 
 
 def _mark_dirty():
@@ -44,15 +45,18 @@ async def get_events_db() -> aiosqlite.Connection:
     global _db
     if _db is not None:
         return _db
-    os.makedirs(os.path.dirname(_EVENTS_DB_PATH), exist_ok=True)
-    conn = await aiosqlite.connect(_EVENTS_DB_PATH)
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA journal_mode=WAL")
-    await conn.execute("PRAGMA busy_timeout=5000")
-    await _create_tables(conn)
-    await conn.commit()
-    _db = conn
-    logger.info(f"Connected to {_EVENTS_DB_PATH}")
+    async with _LOCK:
+        if _db is not None:
+            return _db
+        os.makedirs(os.path.dirname(_EVENTS_DB_PATH), exist_ok=True)
+        conn = await aiosqlite.connect(_EVENTS_DB_PATH)
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA journal_mode=WAL")
+        await conn.execute("PRAGMA busy_timeout=5000")
+        await _create_tables(conn)
+        await conn.commit()
+        _db = conn
+        logger.info(f"Connected to {_EVENTS_DB_PATH}")
     return _db
 
 
