@@ -89,7 +89,12 @@ async def _create_tables(db: aiosqlite.Connection) -> None:
     """)
 
     # Migrations
-    for col, ctype in [("dat_guid", "TEXT"), ("lead_time", "REAL"), ("gif_path", "TEXT"), ("srh_0_1", "REAL")]:
+    for col, ctype in [
+        ("dat_guid", "TEXT"),
+        ("lead_time", "REAL"),
+        ("gif_path", "TEXT"),
+        ("srh_0_1", "REAL"),
+    ]:
         try:
             await db.execute(f"ALTER TABLE significant_events ADD COLUMN {col} {ctype}")
         except Exception:
@@ -97,6 +102,7 @@ async def _create_tables(db: aiosqlite.Connection) -> None:
 
 
 # ── Writes ───────────────────────────────────────────────────────────────────
+
 
 async def add_significant_event(
     event_id: str,
@@ -128,8 +134,21 @@ async def add_significant_event(
                  lead_time = CASE WHEN excluded.lead_time IS NOT NULL THEN excluded.lead_time ELSE significant_events.lead_time END,
                  gif_path  = CASE WHEN excluded.gif_path IS NOT NULL THEN excluded.gif_path ELSE significant_events.gif_path END,
                  srh_0_1   = CASE WHEN excluded.srh_0_1 IS NOT NULL THEN excluded.srh_0_1 ELSE significant_events.srh_0_1 END""",
-            (event_id, event_type, location, magnitude, vtec_id, coords,
-             timestamp or time.time(), source, raw_text, dat_guid, lead_time, None, None),
+            (
+                event_id,
+                event_type,
+                location,
+                magnitude,
+                vtec_id,
+                coords,
+                timestamp or time.time(),
+                source,
+                raw_text,
+                dat_guid,
+                lead_time,
+                None,
+                None,
+            ),
         )
         await db.commit()
         _mark_dirty()
@@ -152,7 +171,9 @@ async def update_event_environment(event_id: str, gif_path: str, srh_0_1: float)
         logger.warning(f"update_event_environment({event_id}) failed: {e}")
 
 
-async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> Optional[Tuple[str, Optional[str], Optional[str], Optional[str]]]:
+async def link_dat_guid_to_tornado(
+    date_str: str, guid: str, label: str
+) -> Optional[Tuple[str, Optional[str], Optional[str], Optional[str]]]:
     """Attempt to link a DAT guid to a tornado based on the label.
 
     Returns (event_id, location, magnitude, coords) if matched, or None if no match.
@@ -168,7 +189,7 @@ async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> Opti
             """SELECT event_id, location, magnitude, coords FROM significant_events
                WHERE event_type = 'Tornado'
                  AND timestamp >= ? AND timestamp < ?""",
-            (start_ts - 43200, end_ts + 43200) # Give 12h buffer
+            (start_ts - 43200, end_ts + 43200),  # Give 12h buffer
         ) as cur:
             rows = await cur.fetchall()
 
@@ -186,8 +207,7 @@ async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> Opti
 
         if best_id and best_row:
             await db.execute(
-                "UPDATE significant_events SET dat_guid = ? WHERE event_id = ?",
-                (guid, best_id)
+                "UPDATE significant_events SET dat_guid = ? WHERE event_id = ?", (guid, best_id)
             )
             await db.commit()
             _mark_dirty()
@@ -201,10 +221,11 @@ async def link_dat_guid_to_tornado(date_str: str, guid: str, label: str) -> Opti
 
 async def backfill_dat_guids(days: int = 30):
     """
-    Search for all tornado tracks updated in the last N days from DAT ArcGIS API 
+    Search for all tornado tracks updated in the last N days from DAT ArcGIS API
     and attempt to link them to events in our database using geography.
     """
     from utils.geo import haversine
+
     db = await get_events_db()
 
     # 1. Fetch recently updated tracks from DAT
@@ -235,7 +256,14 @@ async def backfill_dat_guids(days: int = 30):
         parsed_events = []
         for e in our_events:
             try:
-                parts = e["coords"].replace("N", "").replace("S", "").replace("W", "").replace("E", "").split()
+                parts = (
+                    e["coords"]
+                    .replace("N", "")
+                    .replace("S", "")
+                    .replace("W", "")
+                    .replace("E", "")
+                    .split()
+                )
                 e_lat = float(parts[0])
                 e_lon = -float(parts[1]) if "W" in e["coords"] else float(parts[1])
                 parsed_events.append({"event_id": e["event_id"], "lat": e_lat, "lon": e_lon})
@@ -265,8 +293,7 @@ async def backfill_dat_guids(days: int = 30):
 
             if best_id:
                 await db.execute(
-                    "UPDATE significant_events SET dat_guid = ? WHERE event_id = ?",
-                    (guid, best_id)
+                    "UPDATE significant_events SET dat_guid = ? WHERE event_id = ?", (guid, best_id)
                 )
                 linked_count += 1
 
@@ -315,7 +342,7 @@ async def fetch_dat_photos(
     # Query DAT Layer 0 for damage points in the area
     # Use a 0.3 degree buffer (~21 miles) around the tornado location
     buffer = 0.3
-    bbox = f"{lon-buffer},{lat-buffer},{lon+buffer},{lat+buffer}"
+    bbox = f"{lon - buffer},{lat - buffer},{lon + buffer},{lat + buffer}"
 
     query_url = (
         "https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/0/query"
@@ -483,6 +510,7 @@ async def cleanup_old_photos(days: int = 30) -> int:
 
 # ── Reads ────────────────────────────────────────────────────────────────────
 
+
 async def get_recent_significant_events(
     event_type: Optional[str] = None,
     since_hours: int = 24,
@@ -549,8 +577,7 @@ async def prune_old_significant_events(days: int = 365) -> int:
     try:
         cutoff = time.time() - (days * 86400)
         async with db.execute(
-            "DELETE FROM significant_events WHERE timestamp < ?",
-            (cutoff,)
+            "DELETE FROM significant_events WHERE timestamp < ?", (cutoff,)
         ) as cur:
             count = cur.rowcount
         await db.commit()
@@ -606,9 +633,9 @@ def restore_from_sync() -> None:
     try:
         os.makedirs(os.path.dirname(_EVENTS_DB_PATH), exist_ok=True)
         # Ensure we don't copy over a corrupted or partial sync file
-        if os.path.getsize(_SYNC_PATH) < 4096: # Minimal SQLite file size
-             logger.warning("Sync snapshot too small, skipping restore")
-             return
+        if os.path.getsize(_SYNC_PATH) < 4096:  # Minimal SQLite file size
+            logger.warning("Sync snapshot too small, skipping restore")
+            return
 
         shutil.copy2(_SYNC_PATH, _EVENTS_DB_PATH)
         logger.info("Restored events.db from sync snapshot")
@@ -617,6 +644,7 @@ def restore_from_sync() -> None:
 
 
 # ── Syncthing folder-mode flipping ───────────────────────────────────────────
+
 
 async def set_syncthing_folder_mode(mode: str) -> None:
     """Flip the Syncthing folder to 'sendonly' on promotion or 'receiveonly' on demotion."""
@@ -629,7 +657,9 @@ async def set_syncthing_folder_mode(mode: str) -> None:
     try:
         session = await ensure_session()
         async with session.get(
-            f"{url_base}/rest/config/folders/{folder_id}", headers=headers, timeout=aiohttp.ClientTimeout(total=5)
+            f"{url_base}/rest/config/folders/{folder_id}",
+            headers=headers,
+            timeout=aiohttp.ClientTimeout(total=5),
         ) as resp:
             if resp.status != 200:
                 logger.warning(f"Syncthing folder fetch failed: {resp.status}")

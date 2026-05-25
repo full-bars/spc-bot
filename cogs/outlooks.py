@@ -39,8 +39,8 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
             logger.info(f"Day {day}: Fallback URLs unchanged from last post — skipping")
             return
 
-        updated_count, total_count, downloaded_data = (
-            await check_partial_updates_parallel(urls, state.auto_cache)
+        updated_count, total_count, downloaded_data = await check_partial_updates_parallel(
+            urls, state.auto_cache
         )
 
         if updated_count == 0:
@@ -79,7 +79,7 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
                     f"Entering aggressive check mode."
                 )
                 if day == 1:
-                    return # Start waiting cycle for Day 1
+                    return  # Start waiting cycle for Day 1
 
             # Now we know it's in the state
             elapsed = (
@@ -87,12 +87,14 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
             ).total_seconds() / 60
 
             if day == 1 and updated_count > 0:
-                if elapsed > 5: # If 5 mins have passed, post what we have
+                if elapsed > 5:  # If 5 mins have passed, post what we have
                     logger.info(f"[Day 1] Posting partial update after {elapsed:.1f} min.")
                     state.partial_update_state.pop(day_key, None)
                     # Proceed to post...
                 else:
-                    logger.info(f"[Day 1] Waiting for more images ({updated_count}/{total_count}, {elapsed:.1f} min elapsed)")
+                    logger.info(
+                        f"[Day 1] Waiting for more images ({updated_count}/{total_count}, {elapsed:.1f} min elapsed)"
+                    )
                     return
             else:
                 if elapsed > 20:
@@ -114,9 +116,7 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
                 elapsed = (
                     datetime.now(timezone.utc) - state.partial_update_state[day_key]["start_time"]
                 ).total_seconds() / 60
-                logger.info(
-                    f"[Day {day}] All images ready after {elapsed:.1f} min. Posting."
-                )
+                logger.info(f"[Day {day}] All images ready after {elapsed:.1f} min. Posting.")
                 state.partial_update_state.pop(day_key, None)
 
         files = await save_downloaded_images(
@@ -213,8 +213,8 @@ class OutlooksCog(commands.Cog):
             logger.warning("SPC channel not found for auto_post_spc48")
             return
         urls = SPC_URLS["48"]
-        updated_count, total_count, downloaded_data = (
-            await check_partial_updates_parallel(urls, self.bot.state.auto_cache)
+        updated_count, total_count, downloaded_data = await check_partial_updates_parallel(
+            urls, self.bot.state.auto_cache
         )
         if updated_count > 0:
             files = await save_downloaded_images(
@@ -276,8 +276,7 @@ class OutlooksCog(commands.Cog):
             exc = None
         if exc:
             logger.error(
-                f"[TASK] aggressive_check_spc stopped: "
-                f"{type(exc).__name__}: {exc}",
+                f"[TASK] aggressive_check_spc stopped: {type(exc).__name__}: {exc}",
                 exc_info=exc,
             )
 

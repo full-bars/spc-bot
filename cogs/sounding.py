@@ -133,9 +133,7 @@ class SoundingCog(commands.Cog):
         """Mark a watch as having soundings handled in memory and persistent store."""
         await self.bot.state.add_sounding_handled_watch(watch_num)
 
-    async def _resolve_watch_centroid(
-        self, watch_num: str, info: dict
-    ) -> Optional[tuple]:
+    async def _resolve_watch_centroid(self, watch_num: str, info: dict) -> Optional[tuple]:
         """Memoized centroid lookup for a watch. Returns (lat, lon) or None.
 
         Check order: in-memory dict → DB cache (12h TTL) → NWS zone HTTP calls.
@@ -270,9 +268,9 @@ class SoundingCog(commands.Cog):
                     to_post.append((station_info, sid, y, mo, d, h, tkey, pkey))
             return to_post
 
-        check_results = await asyncio.gather(*[
-            _check_target(sid, info) for sid, info in station_targets.items()
-        ])
+        check_results = await asyncio.gather(
+            *[_check_target(sid, info) for sid, info in station_targets.items()]
+        )
 
         # Flatten and filter
         all_to_post = []
@@ -288,14 +286,19 @@ class SoundingCog(commands.Cog):
         # 3. Process new soundings (Fetch -> Plot -> Send)
         # To avoid flooding, we process them in small batches if there are many
         for i in range(0, len(all_to_post), 3):
-            batch = all_to_post[i:i+3]
+            batch = all_to_post[i : i + 3]
 
             # Fetch
             async def _fetch_mon(station, sid, y, mo, d, h, tkey, pkey):
                 data = await fetch_sounding(
-                    sid, y, mo, d, h,
+                    sid,
+                    y,
+                    mo,
+                    d,
+                    h,
                     station_name=station["name"],
-                    lat=station["lat"], lon=station["lon"],
+                    lat=station["lat"],
+                    lon=station["lon"],
                 )
                 return station, sid, y, mo, d, h, data
 
@@ -312,10 +315,9 @@ class SoundingCog(commands.Cog):
             if not plot_jobs:
                 continue
 
-            plot_results = await asyncio.gather(*[
-                generate_plot(data, opath)
-                for *_, data, opath in plot_jobs
-            ])
+            plot_results = await asyncio.gather(
+                *[generate_plot(data, opath) for *_, data, opath in plot_jobs]
+            )
 
             # Send
             for (station, sid, y, mo, d, h, data, opath), success in zip(plot_jobs, plot_results):
@@ -341,8 +343,6 @@ class SoundingCog(commands.Cog):
                     self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
                 except Exception as e:
                     logger.exception(f"Failed to post {sid}: {e}")
-
-
 
     @tasks.loop(minutes=15)
     async def monitor_high_risk_soundings(self):
@@ -411,19 +411,18 @@ class SoundingCog(commands.Cog):
             if not sid:
                 continue
             if is_inside_polygon(row["lat"], row["lon"], polygon):
-                in_area.append({
-                    "icao": icao,
-                    "wmo": wmo,
-                    "name": _clean(row.get("NAME")),
-                    "lat": row["lat"],
-                    "lon": row["lon"],
-                })
+                in_area.append(
+                    {
+                        "icao": icao,
+                        "wmo": wmo,
+                        "name": _clean(row.get("NAME")),
+                        "lat": row["lat"],
+                        "lon": row["lon"],
+                    }
+                )
 
         if not in_area:
-            logger.debug(
-                f"No RAOB stations inside Day 1 "
-                f"{sorted(labels)} polygon"
-            )
+            logger.debug(f"No RAOB stations inside Day 1 {sorted(labels)} polygon")
             return
 
         labels_str = "/".join(sorted(labels))
@@ -432,17 +431,12 @@ class SoundingCog(commands.Cog):
         #  {"HIGH"}       → "High-Risk"
         #  {"MDT","HIGH"} → "High-Risk"  (HIGH dominates; covers both)
         caption_prefix = "High-Risk" if "HIGH" in labels else "MDT-Risk"
-        logger.info(
-            f"{labels_str} active — "
-            f"{len(in_area)} RAOB stations inside polygon"
-        )
+        logger.info(f"{labels_str} active — {len(in_area)} RAOB stations inside polygon")
 
         # ── RAOB sweep ────────────────────────────────────────────────────
         async def _check_station(station):
             sid = station.get("icao") or station.get("wmo")
-            avail = await get_available_sounding_times_iem(
-                sid, hours_back=18, skip_cache=True
-            )
+            avail = await get_available_sounding_times_iem(sid, hours_back=18, skip_cache=True)
             if not avail:
                 return []
             # Claim atomically (no await between check and add) to prevent a
@@ -462,20 +456,22 @@ class SoundingCog(commands.Cog):
             to_post.extend(batch)
 
         if to_post:
-            logger.info(
-                f"Found {len(to_post)} new RAOB sounding(s) "
-                f"inside {labels_str} polygon"
-            )
+            logger.info(f"Found {len(to_post)} new RAOB sounding(s) inside {labels_str} polygon")
 
             # Process in batches of 3 to keep memory and Discord rate-limit happy
             for i in range(0, len(to_post), 3):
-                batch = to_post[i:i+3]
+                batch = to_post[i : i + 3]
 
                 async def _fetch(station, sid, y, mo, d, h, tkey, pkey):
                     data = await fetch_sounding(
-                        sid, y, mo, d, h,
+                        sid,
+                        y,
+                        mo,
+                        d,
+                        h,
                         station_name=station["name"],
-                        lat=station["lat"], lon=station["lon"],
+                        lat=station["lat"],
+                        lon=station["lon"],
                     )
                     return station, sid, y, mo, d, h, data
 
@@ -485,18 +481,15 @@ class SoundingCog(commands.Cog):
                 for station, sid, y, mo, d, h, data in fetched:
                     if not data:
                         continue
-                    opath = os.path.join(
-                        CACHE_DIR, f"sounding_{sid}_{y}{mo}{d}_{h}z"
-                    )
+                    opath = os.path.join(CACHE_DIR, f"sounding_{sid}_{y}{mo}{d}_{h}z")
                     plot_jobs.append((station, sid, y, mo, d, h, data, opath))
 
                 if not plot_jobs:
                     continue
 
-                plot_results = await asyncio.gather(*[
-                    generate_plot(data, opath)
-                    for *_, data, opath in plot_jobs
-                ])
+                plot_results = await asyncio.gather(
+                    *[generate_plot(data, opath) for *_, data, opath in plot_jobs]
+                )
 
                 for (station, sid, y, mo, d, h, data, opath), success in zip(
                     plot_jobs, plot_results
@@ -513,9 +506,7 @@ class SoundingCog(commands.Cog):
                         caption += f"\n{qwarn}"
                     try:
                         await channel.send(caption, files=[discord.File(png_path)])
-                        logger.info(
-                            f"Posted {sid} {h}z ({labels_str})"
-                        )
+                        logger.info(f"Posted {sid} {h}z ({labels_str})")
                         self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
                     except Exception as e:
                         logger.exception(f"Failed to post {sid}: {e}")
@@ -538,19 +529,17 @@ class SoundingCog(commands.Cog):
 
         if acars_to_post:
             logger.info(
-                f"Found {len(acars_to_post)} new ACARS profile(s) "
-                f"inside {labels_str} polygon"
+                f"Found {len(acars_to_post)} new ACARS profile(s) inside {labels_str} polygon"
             )
 
             async def _fetch_acars(p):
                 data = await fetch_acars_sounding(
-                    p["profile_id"], p["year"], p["month"],
-                    p["day"], p["acars_hour"]
+                    p["profile_id"], p["year"], p["month"], p["day"], p["acars_hour"]
                 )
                 return p, data
 
             for i in range(0, len(acars_to_post), 3):
-                batch = acars_to_post[i:i+3]
+                batch = acars_to_post[i : i + 3]
                 fetched = await asyncio.gather(*[_fetch_acars(p) for p in batch])
 
                 acars_plot_jobs = []
@@ -559,17 +548,16 @@ class SoundingCog(commands.Cog):
                         continue
                     opath = os.path.join(
                         CACHE_DIR,
-                        f"acars_{p['airport']}_{p['year']}{p['month']}{p['day']}_{p['acars_hour']}z"
+                        f"acars_{p['airport']}_{p['year']}{p['month']}{p['day']}_{p['acars_hour']}z",
                     )
                     acars_plot_jobs.append((p, data, opath))
 
                 if not acars_plot_jobs:
                     continue
 
-                acars_results = await asyncio.gather(*[
-                    generate_plot(data, opath)
-                    for _, data, opath in acars_plot_jobs
-                ])
+                acars_results = await asyncio.gather(
+                    *[generate_plot(data, opath) for _, data, opath in acars_plot_jobs]
+                )
 
                 for (p, data, opath), success in zip(acars_plot_jobs, acars_results):
                     png_path = opath + ".png"
@@ -581,16 +569,10 @@ class SoundingCog(commands.Cog):
                     )
                     try:
                         await channel.send(caption, files=[discord.File(png_path)])
-                        logger.info(
-                            f"Posted ACARS {p['airport']} ({labels_str})"
-                        )
+                        logger.info(f"Posted ACARS {p['airport']} ({labels_str})")
                         self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
                     except Exception as e:
-                        logger.exception(
-                            f"Failed to post ACARS {p['airport']}: {e}"
-                        )
-
-
+                        logger.exception(f"Failed to post ACARS {p['airport']}: {e}")
 
     @monitor_high_risk_soundings.after_loop
     async def after_high_risk_loop(self):
@@ -603,8 +585,7 @@ class SoundingCog(commands.Cog):
             exc = None
         if exc:
             logger.error(
-                f"[TASK] monitor_high_risk_soundings stopped: "
-                f"{type(exc).__name__}: {exc}",
+                f"[TASK] monitor_high_risk_soundings stopped: {type(exc).__name__}: {exc}",
                 exc_info=exc,
             )
 
@@ -638,7 +619,6 @@ class SoundingCog(commands.Cog):
             await get_available_sounding_times_iem(station_id, hours_back=24, skip_cache=False)
 
     async def post_soundings_for_watch(self, watch_num: str, nws_info: dict, channel):
-
         """
         Triggered immediately when a new watch is posted.
         Finds nearest RAOB stations using the most recent IEM-available sounding
@@ -704,9 +684,14 @@ class SoundingCog(commands.Cog):
         async def _fetch_raob(station, sid, y, mo, d, h, tkey, pkey):
             logger.info(f"Fetching {sid} {h}z near {watch_label} #{watch_num}")
             data = await fetch_sounding(
-                sid, y, mo, d, h,
+                sid,
+                y,
+                mo,
+                d,
+                h,
                 station_name=station["name"],
-                lat=station["lat"], lon=station["lon"],
+                lat=station["lat"],
+                lon=station["lon"],
             )
             if not data:
                 logger.warning(f"No data for {sid} at {tkey}")
@@ -722,19 +707,16 @@ class SoundingCog(commands.Cog):
             opath = os.path.join(CACHE_DIR, f"sounding_{sid}_{y}{mo}{d}_{h}z")
             plot_jobs.append((station, sid, y, mo, d, h, data, opath))
 
-        plot_results = await asyncio.gather(*[
-            generate_plot(data, opath)
-            for *_, data, opath in plot_jobs
-        ])
+        plot_results = await asyncio.gather(
+            *[generate_plot(data, opath) for *_, data, opath in plot_jobs]
+        )
 
         for (station, sid, y, mo, d, h, data, opath), success in zip(plot_jobs, plot_results):
             png_path = opath + ".png"
             if not success or not os.path.exists(png_path):
                 continue
             applicable = await self._watches_near(station["lat"], station["lon"])
-            watches_frag = self._format_watches_caption(
-                applicable, watch_num, watch_label
-            )
+            watches_frag = self._format_watches_caption(applicable, watch_num, watch_label)
             caption = (
                 f"**Auto Sounding — {station['name']} ({sid})**\n"
                 f"Valid: {mo}-{d}-{y} {h}z | {watches_frag}"
@@ -772,26 +754,21 @@ class SoundingCog(commands.Cog):
                 continue
             opath = os.path.join(
                 CACHE_DIR,
-                f"acars_{p['airport']}_{p['year']}{p['month']}{p['day']}_{p['acars_hour']}z"
+                f"acars_{p['airport']}_{p['year']}{p['month']}{p['day']}_{p['acars_hour']}z",
             )
             acars_plot_jobs.append((p, data, opath))
 
-        acars_plot_results = await asyncio.gather(*[
-            generate_plot(data, opath) for _, data, opath in acars_plot_jobs
-        ])
+        acars_plot_results = await asyncio.gather(
+            *[generate_plot(data, opath) for _, data, opath in acars_plot_jobs]
+        )
 
         for (p, data, opath), success in zip(acars_plot_jobs, acars_plot_results):
             png_path = opath + ".png"
             if not success or not os.path.exists(png_path):
                 continue
             applicable = await self._watches_near(p["lat"], p["lon"])
-            watches_frag = self._format_watches_caption(
-                applicable, watch_num, watch_label
-            )
-            caption = (
-                f"**Auto ACARS — {p['airport']}**\n"
-                f"Valid: {p['time_label']} | {watches_frag}"
-            )
+            watches_frag = self._format_watches_caption(applicable, watch_num, watch_label)
+            caption = f"**Auto ACARS — {p['airport']}**\nValid: {p['time_label']} | {watches_frag}"
             try:
                 # ACARS must post to the observed-soundings channel, same as
                 # the RAOB posts above. Prior versions used the passed-in
@@ -802,8 +779,6 @@ class SoundingCog(commands.Cog):
                 self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
             except Exception as e:
                 logger.exception(f"Failed to post ACARS: {e}")
-
-
 
     @tasks.loop(minutes=30)
     async def auto_sounding_watches(self):
@@ -874,13 +849,9 @@ class SoundingCog(commands.Cog):
                     await self._mark_sounding_posted(pkey)
                     eligible.append((station, station_id))
 
-
             # ── Phase 1: fetch all RAOB data concurrently ─────────────────
             async def _fetch_std(station, sid):
-                logger.info(
-                    f"Fetching {sid} {sounding_time}z"
-                    f" near {watch_label} #{watch_num}"
-                )
+                logger.info(f"Fetching {sid} {sounding_time}z near {watch_label} #{watch_num}")
                 data = await fetch_sounding(sid, year, month, day, sounding_time)
                 if not data:
                     logger.warning(f"No data for {sid} at {time_key}")
@@ -890,29 +861,26 @@ class SoundingCog(commands.Cog):
 
             # ── Phase 2: generate all plots concurrently ───────────────────
             import config as _cfg
+
             plot_jobs = []
             for station, sid, data in fetch_results:
                 if not data:
                     continue
                 opath = os.path.join(
-                    _cfg.CACHE_DIR,
-                    f"sounding_{sid}_{year}{month}{day}_{sounding_time}z"
+                    _cfg.CACHE_DIR, f"sounding_{sid}_{year}{month}{day}_{sounding_time}z"
                 )
                 plot_jobs.append((station, sid, data, opath))
 
-            plot_results = await asyncio.gather(*[
-                generate_plot(data, opath)
-                for *_, data, opath in plot_jobs
-            ])
+            plot_results = await asyncio.gather(
+                *[generate_plot(data, opath) for *_, data, opath in plot_jobs]
+            )
 
             for (station, sid, data, opath), success in zip(plot_jobs, plot_results):
                 png_path = opath + ".png"
                 if not success or not os.path.exists(png_path):
                     continue
                 applicable = await self._watches_near(station["lat"], station["lon"])
-                watches_frag = self._format_watches_caption(
-                    applicable, watch_num, watch_label
-                )
+                watches_frag = self._format_watches_caption(applicable, watch_num, watch_label)
                 caption = (
                     f"**Auto Sounding — {station['name']} ({sid})**\n"
                     f"Valid: {month}-{day}-{year} {sounding_time}z | {watches_frag}"
@@ -927,7 +895,7 @@ class SoundingCog(commands.Cog):
                 except Exception as e:
                     logger.exception(f"Failed to post: {e}")
 
-        # ── ACARS auto-posting ────────────────────────────────────────────
+            # ── ACARS auto-posting ────────────────────────────────────────────
             acars_profiles = await get_acars_profiles_near(lat, lon, max_dist_km=300, hours_back=1)
             acars_eligible2 = []
             for profile in acars_profiles[:2]:
@@ -937,10 +905,7 @@ class SoundingCog(commands.Cog):
                     acars_eligible2.append(profile)
 
             async def _fetch_acars2(p):
-                logger.info(
-                    f"Fetching ACARS {p['airport']}"
-                    f" near {watch_label} #{watch_num}"
-                )
+                logger.info(f"Fetching ACARS {p['airport']} near {watch_label} #{watch_num}")
                 data = await fetch_acars_sounding(
                     p["profile_id"], p["year"], p["month"], p["day"], p["acars_hour"]
                 )
@@ -954,22 +919,20 @@ class SoundingCog(commands.Cog):
                     continue
                 opath = os.path.join(
                     _cfg.CACHE_DIR,
-                    f"acars_{p['airport']}_{p['year']}{p['month']}{p['day']}_{p['acars_hour']}z"
+                    f"acars_{p['airport']}_{p['year']}{p['month']}{p['day']}_{p['acars_hour']}z",
                 )
                 acars_plot_jobs2.append((p, data, opath))
 
-            acars_plot_results2 = await asyncio.gather(*[
-                generate_plot(data, opath) for _, data, opath in acars_plot_jobs2
-            ])
+            acars_plot_results2 = await asyncio.gather(
+                *[generate_plot(data, opath) for _, data, opath in acars_plot_jobs2]
+            )
 
             for (p, data, opath), success in zip(acars_plot_jobs2, acars_plot_results2):
                 png_path = opath + ".png"
                 if not success or not os.path.exists(png_path):
                     continue
                 applicable = await self._watches_near(p["lat"], p["lon"])
-                watches_frag = self._format_watches_caption(
-                    applicable, watch_num, watch_label
-                )
+                watches_frag = self._format_watches_caption(applicable, watch_num, watch_label)
                 caption = (
                     f"**Auto ACARS \u2014 {p['airport']}**\n"
                     f"Valid: {p['time_label']} | {watches_frag}"
@@ -980,8 +943,6 @@ class SoundingCog(commands.Cog):
                     self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
                 except Exception as e:
                     logger.exception(f"Failed to post ACARS: {e}")
-
-
 
     @discord.app_commands.command(
         name="sounding",
@@ -1090,8 +1051,12 @@ class SoundingCog(commands.Cog):
         if len(nearest) == 1 and not acars_profiles and time_args:
             year, month, day, hour = time_args
             await post_sounding(
-                interaction, nearest[0],
-                year, month, day, hour,
+                interaction,
+                nearest[0],
+                year,
+                month,
+                day,
+                hour,
                 dark_mode,
             )
             return
@@ -1136,7 +1101,6 @@ class SoundingCog(commands.Cog):
             description="\n".join(description_lines),
         )
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-
 
 
 async def setup(bot: commands.Bot):

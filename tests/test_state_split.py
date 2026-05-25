@@ -57,7 +57,7 @@ def test_to_dict_output_shape_unchanged():
         "posted_product_ids",
         "posted_soundings",
         "sounding_handled_watches",
-        }
+    }
 
     assert set(d.keys()) == expected_keys
     assert d["iembot_last_seqnum"] == 7
@@ -71,8 +71,9 @@ async def test_prune_posted_warnings_drops_evicted_entries():
     s.posted_warnings["B"] = {"message_id": 2, "channel_id": 1, "area": ""}
     s.posted_warnings["C"] = {"message_id": 3, "channel_id": 1, "area": ""}
 
-    with patch("utils.state_store.prune_posted_warnings", new=AsyncMock()) as prune, \
-         patch("utils.state_store.get_all_posted_warnings", new=AsyncMock(return_value={"B": {}, "C": {}})):
+    with patch("utils.state_store.prune_posted_warnings", new=AsyncMock()) as prune, patch(
+        "utils.state_store.get_all_posted_warnings", new=AsyncMock(return_value={"B": {}, "C": {}})
+    ):
         removed = await s.prune_posted_warnings(max_size=2)
 
     prune.assert_awaited_once_with(2)
@@ -87,8 +88,9 @@ async def test_prune_posted_warnings_preserves_placeholders():
     s.posted_warnings["OLD"] = {"message_id": 1, "channel_id": 1, "area": ""}
     s.posted_warnings["INFLIGHT"] = {}  # placeholder mid-post
 
-    with patch("utils.state_store.prune_posted_warnings", new=AsyncMock()), \
-         patch("utils.state_store.get_all_posted_warnings", new=AsyncMock(return_value={})):
+    with patch("utils.state_store.prune_posted_warnings", new=AsyncMock()), patch(
+        "utils.state_store.get_all_posted_warnings", new=AsyncMock(return_value={})
+    ):
         await s.prune_posted_warnings(max_size=10)
 
     assert "INFLIGHT" in s.posted_warnings
@@ -216,6 +218,7 @@ def test_sweep_active_drops_expired_vtec_warnings():
     """An active_warnings entry whose VTEC end timestamp is past now+grace
     should be evicted."""
     from datetime import datetime, timedelta, timezone
+
     s = BotState()
     now = datetime(2026, 5, 19, 12, 0, tzinfo=timezone.utc)
 
@@ -246,6 +249,7 @@ def test_sweep_active_keeps_null_vtec_times():
 
 def test_sweep_active_drops_expired_watches():
     from datetime import datetime, timedelta, timezone
+
     s = BotState()
     now = datetime(2026, 5, 19, 12, 0, tzinfo=timezone.utc)
     s.active_watches["811"] = {"type": "TOR", "expires": now - timedelta(hours=2)}
@@ -263,6 +267,7 @@ def test_sweep_active_grace_window_prevents_racing_cancellation():
     """An entry that just expired (within grace) must survive the sweep —
     otherwise we'd race the cancellation-posting code path."""
     from datetime import datetime, timedelta, timezone
+
     s = BotState()
     now = datetime(2026, 5, 19, 12, 0, tzinfo=timezone.utc)
     just_expired = (now - timedelta(minutes=10)).strftime("%y%m%dT%H%MZ")
@@ -276,6 +281,7 @@ def test_bounded_fifo_keys_dedups_on_append():
     """append() on an existing key must be a no-op so a high-rate dup
     stream can't churn the FIFO order."""
     from utils.state import BoundedFIFOKeys
+
     f = BoundedFIFOKeys(maxlen=3)
     f.append("A")
     f.append("B")
@@ -287,6 +293,7 @@ def test_bounded_fifo_keys_dedups_on_append():
 
 def test_bounded_fifo_keys_evicts_oldest_at_cap():
     from utils.state import BoundedFIFOKeys
+
     f = BoundedFIFOKeys(maxlen=3)
     for k in ["A", "B", "C", "D"]:
         f.append(k)
@@ -299,6 +306,7 @@ def test_bounded_fifo_keys_in_check_is_constant_time():
     """Smoke test: a 10k-element dict-backed `in` check is much faster
     than the old O(N) deque scan. This is the whole reason for the swap."""
     from utils.state import BoundedFIFOKeys
+
     f = BoundedFIFOKeys(maxlen=10_000)
     for i in range(10_000):
         f.append(f"PROD-{i}")
@@ -312,6 +320,7 @@ def test_bounded_fifo_keys_remove_raises_when_absent():
     BotState.remove_posted_product_id catches ValueError. Preserve."""
     from utils.state import BoundedFIFOKeys
     import pytest
+
     f = BoundedFIFOKeys(maxlen=10)
     f.append("A")
     f.remove("A")
@@ -321,6 +330,7 @@ def test_bounded_fifo_keys_remove_raises_when_absent():
 
 def test_bounded_fifo_keys_extend_appends_each():
     from utils.state import BoundedFIFOKeys
+
     f = BoundedFIFOKeys(maxlen=10)
     f.extend(["A", "B", "C"])
     f.extend(["D"])

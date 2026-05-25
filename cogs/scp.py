@@ -30,13 +30,8 @@ class SCPCog(commands.Cog):
         """Compute the next 6am or 6pm Pacific post time."""
         now = datetime.now(PACIFIC)
         post_hours = [6, 18]
-        future_times = [
-            now.replace(hour=h, minute=0, second=0, microsecond=0)
-            for h in post_hours
-        ]
-        future_times = [
-            t if t > now else t + timedelta(days=1) for t in future_times
-        ]
+        future_times = [now.replace(hour=h, minute=0, second=0, microsecond=0) for h in post_hours]
+        future_times = [t if t > now else t + timedelta(days=1) for t in future_times]
         return min(future_times)
 
     @tasks.loop(minutes=1)
@@ -51,9 +46,7 @@ class SCPCog(commands.Cog):
 
         if self._next_post_time is None:
             self._next_post_time = self._compute_next_post_time()
-            logger.info(
-                f"[SCP_DAILY] Next SCP post scheduled for {self._next_post_time}"
-            )
+            logger.info(f"[SCP_DAILY] Next SCP post scheduled for {self._next_post_time}")
 
         now = datetime.now(PACIFIC)
         if now < self._next_post_time:
@@ -87,9 +80,7 @@ class SCPCog(commands.Cog):
             logger.exception(f"[SCP_DAILY] Unexpected error: {e}")
 
         self._next_post_time = self._compute_next_post_time()
-        logger.info(
-            f"[SCP_DAILY] Next SCP post scheduled for {self._next_post_time}"
-        )
+        logger.info(f"[SCP_DAILY] Next SCP post scheduled for {self._next_post_time}")
 
     @auto_post_scp.after_loop
     async def after_scp_loop(self):

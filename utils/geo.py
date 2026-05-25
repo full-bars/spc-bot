@@ -6,6 +6,7 @@ from typing import Optional
 # Rust core fallback
 try:
     import spc_rust_core
+
     _haversine_rust = spc_rust_core.haversine
     _haversine_batch_rust = spc_rust_core.haversine_batch
     _find_nearest_stations_rust = spc_rust_core.find_nearest_stations_batch
@@ -26,9 +27,7 @@ def haversine_py(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     dlon = math.radians(lon2 - lon1)
     a = (
         math.sin(dlat / 2) ** 2
-        + math.cos(math.radians(lat1))
-        * math.cos(math.radians(lat2))
-        * math.sin(dlon / 2) ** 2
+        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
     )
     return R * 2 * math.asin(math.sqrt(a))
 

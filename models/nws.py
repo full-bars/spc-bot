@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
+
 class NWSAlertGeocode(BaseModel):
     UGC: Optional[List[str]] = None
     SAME: Optional[List[str]] = None
@@ -19,6 +20,7 @@ class NWSAlertParameters(BaseModel):
     flashFloodDetection: Optional[List[str]] = None
     windDetection: Optional[List[str]] = None
     hailDetection: Optional[List[str]] = None
+
 
 class NWSAlertProperties(BaseModel):
     id: str
@@ -42,10 +44,12 @@ class NWSAlertProperties(BaseModel):
     urgency: str
     senderName: str
 
+
 class NWSAlertFeature(BaseModel):
     id: str
     type: str = "Feature"
     properties: NWSAlertProperties
+
 
 class NWSAlertResponse(BaseModel):
     type: str = "FeatureCollection"

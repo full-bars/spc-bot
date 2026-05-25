@@ -82,29 +82,18 @@ async def download_file(
                 timeout=30,
             )
             download_time = time.time() - start_time
-            speed = (
-                (file_size / download_time / 1024 / 1024) * 8
-                if download_time > 0
-                else 0
-            )
+            speed = (file_size / download_time / 1024 / 1024) * 8 if download_time > 0 else 0
             logger.debug(
-                f"[RADAR] Downloaded {filename} in {download_time:.1f}s "
-                f"at {speed:.1f} Mbps"
+                f"[RADAR] Downloaded {filename} in {download_time:.1f}s at {speed:.1f} Mbps"
             )
             return output_path, download_time, speed
         except asyncio.TimeoutError:
-            logger.warning(
-                f"[RADAR] Timeout on attempt {attempt + 1}/3 "
-                f"for {filename} (30s)"
-            )
+            logger.warning(f"[RADAR] Timeout on attempt {attempt + 1}/3 for {filename} (30s)")
             if output_path.exists():
                 output_path.unlink()
             last_err = RuntimeError(f"Download timed out: {filename}")
         except Exception as e:
-            logger.warning(
-                f"[RADAR] Error on attempt {attempt + 1}/3 "
-                f"for {filename}: {e}"
-            )
+            logger.warning(f"[RADAR] Error on attempt {attempt + 1}/3 for {filename}: {e}")
             if output_path.exists():
                 output_path.unlink()
             last_err = e
@@ -113,9 +102,7 @@ async def download_file(
     raise last_err
 
 
-async def cleanup_old_files(
-    directory: Union[str, Path], age_threshold: int
-) -> None:
+async def cleanup_old_files(directory: Union[str, Path], age_threshold: int) -> None:
     now = time.time()
     path = Path(directory)
     if not path.exists():
@@ -128,9 +115,7 @@ async def cleanup_old_files(
                     os.unlink(entry.path)
                     logger.debug(f"[RADAR] Deleted old file: {entry.path}")
                 except Exception as e:
-                    logger.exception(
-                        f"[RADAR] Failed to delete old file {entry.path}: {e}"
-                    )
+                    logger.exception(f"[RADAR] Failed to delete old file {entry.path}: {e}")
 
 
 async def split_and_zip_files(
@@ -153,22 +138,13 @@ async def split_and_zip_files(
         site_zip_paths = []
         for file_path, file_info in site_files:
             file_size = os.path.getsize(file_path)
-            if (
-                chunk_size + file_size > split_size
-                and current_zip_files
-            ):
-                zip_path = (
-                    Path(output_dir) / f"{site}_part{zip_counter}.zip"
-                )
-                with zipfile.ZipFile(
-                    zip_path, "w", zipfile.ZIP_DEFLATED
-                ) as zipf:
+            if chunk_size + file_size > split_size and current_zip_files:
+                zip_path = Path(output_dir) / f"{site}_part{zip_counter}.zip"
+                with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
                     for fp, fi in current_zip_files:
                         zipf.write(
                             fp,
-                            os.path.join(
-                                site, os.path.basename(fp)
-                            ),
+                            os.path.join(site, os.path.basename(fp)),
                         )
                 site_zip_paths.append(zip_path)
                 current_zip_files = []
@@ -177,12 +153,8 @@ async def split_and_zip_files(
             current_zip_files.append((file_path, file_info))
             chunk_size += file_size
         if current_zip_files:
-            zip_path = (
-                Path(output_dir) / f"{site}_part{zip_counter}.zip"
-            )
-            with zipfile.ZipFile(
-                zip_path, "w", zipfile.ZIP_DEFLATED
-            ) as zipf:
+            zip_path = Path(output_dir) / f"{site}_part{zip_counter}.zip"
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
                 for fp, fi in current_zip_files:
                     zipf.write(
                         fp,
@@ -219,9 +191,7 @@ async def split_and_zip_files(
         raise RuntimeError(f"Failed to create ZIP file: {e}") from e
 
 
-async def send_error(
-    interaction: discord.Interaction, title: str, description: str
-) -> None:
+async def send_error(interaction: discord.Interaction, title: str, description: str) -> None:
     """Send a clean error embed to the user."""
     embed = discord.Embed(
         title=f"❌ {title}",
@@ -259,14 +229,10 @@ async def run_download(
         return
 
     if dates_to_query is None:
-        dates_to_query = [
-            start_dt.replace(hour=0, minute=0, second=0, microsecond=0)
-        ]
+        dates_to_query = [start_dt.replace(hour=0, minute=0, second=0, microsecond=0)]
         if end_dt and end_dt.date() > start_dt.date():
             dates_to_query.append(
-                (start_dt + timedelta(days=1)).replace(
-                    hour=0, minute=0, second=0, microsecond=0
-                )
+                (start_dt + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
             )
 
     all_files = []
@@ -278,9 +244,7 @@ async def run_download(
         await send_error(interaction, "S3 Unreachable", str(e))
         return
     except Exception as e:
-        await send_error(
-            interaction, "S3 Error", f"Could not list files from S3: {e}"
-        )
+        await send_error(interaction, "S3 Error", f"Could not list files from S3: {e}")
         return
 
     if not all_files:
@@ -294,15 +258,11 @@ async def run_download(
         return
 
     if max_files:
-        filtered_files = sorted(
-            all_files, key=lambda x: x["FileTimestamp"], reverse=True
-        )[:max_files]
-    else:
-        filtered_files = [
-            f
-            for f in all_files
-            if start_dt <= f["FileTimestamp"] <= end_dt
+        filtered_files = sorted(all_files, key=lambda x: x["FileTimestamp"], reverse=True)[
+            :max_files
         ]
+    else:
+        filtered_files = [f for f in all_files if start_dt <= f["FileTimestamp"] <= end_dt]
 
     if not filtered_files:
         if start_dt and start_dt > now:
@@ -315,8 +275,7 @@ async def run_download(
             )
         else:
             range_str = (
-                f"`{start_dt.strftime('%H:%MZ')}` to "
-                f"`{end_dt.strftime('%H:%MZ')}`"
+                f"`{start_dt.strftime('%H:%MZ')}` to `{end_dt.strftime('%H:%MZ')}`"
                 if start_dt and end_dt
                 else ""
             )
@@ -328,9 +287,7 @@ async def run_download(
             )
         return
 
-    await download_and_zip(
-        interaction, filtered_files, radar_sites, messages_to_delete
-    )
+    await download_and_zip(interaction, filtered_files, radar_sites, messages_to_delete)
 
 
 async def download_and_zip(
@@ -363,10 +320,7 @@ async def download_and_zip(
     for f in filtered_files:
         stats_by_site[f["RadarSite"]]["files"].append(f)
 
-    logger.info(
-        f"[RADAR] Starting download of {total_files} files "
-        f"for {radar_sites}"
-    )
+    logger.info(f"[RADAR] Starting download of {total_files} files for {radar_sites}")
 
     embed = discord.Embed(
         title="Download Progress",
@@ -388,9 +342,7 @@ async def download_and_zip(
                 return
             elapsed_time = current_time - start_time
             instantaneous_speed = (
-                (total_downloaded_size / elapsed_time / 1024 / 1024) * 8
-                if elapsed_time > 0
-                else 0
+                (total_downloaded_size / elapsed_time / 1024 / 1024) * 8 if elapsed_time > 0 else 0
             )
             progress = (files_completed / total_files) * 100
             progress_bar = get_progress_bar(progress)
@@ -416,8 +368,7 @@ async def download_and_zip(
                             break
                     if matched_file:
                         percentage = (
-                            progress_data[fname]["bytes_transferred"]
-                            / matched_file["Size"]
+                            progress_data[fname]["bytes_transferred"] / matched_file["Size"]
                         ) * 100
                         if 0 < percentage < 100:
                             file_bar = get_progress_bar(percentage)
@@ -433,9 +384,7 @@ async def download_and_zip(
                 discord.errors.NotFound,
                 discord.errors.HTTPException,
             ) as e:
-                logger.exception(
-                    f"[RADAR] Failed to edit progress message: {e}"
-                )
+                logger.exception(f"[RADAR] Failed to edit progress message: {e}")
             last_update_time = current_time
 
         async def download_with_progress(
@@ -465,30 +414,20 @@ async def download_and_zip(
                 baseline_speed = sum(avg_speed_history[:3]) / 3
                 recent_speed = sum(avg_speed_history[-3:]) / 3
                 if recent_speed < baseline_speed * 0.7:
-                    current_batch_size = max(
-                        BATCH_SIZE_THRESHOLD, current_batch_size // 2
-                    )
+                    current_batch_size = max(BATCH_SIZE_THRESHOLD, current_batch_size // 2)
                     logger.info(
-                        f"[RADAR] Speed drop detected, reducing batch "
-                        f"size to {current_batch_size}"
+                        f"[RADAR] Speed drop detected, reducing batch size to {current_batch_size}"
                     )
                 if len(avg_speed_history) > 10:
                     avg_speed_history.pop(0)
             batch = files_remaining[:batch_size]
             files_remaining = files_remaining[batch_size:]
-            tasks_list = [
-                download_with_progress(fi, i + 1)
-                for i, fi in enumerate(batch)
-            ]
-            results = await asyncio.gather(
-                *tasks_list, return_exceptions=True
-            )
+            tasks_list = [download_with_progress(fi, i + 1) for i, fi in enumerate(batch)]
+            results = await asyncio.gather(*tasks_list, return_exceptions=True)
             failed = []
             for result in results:
                 if isinstance(result, Exception):
-                    logger.error(
-                        f"[RADAR] File failed all retries: {result}"
-                    )
+                    logger.error(f"[RADAR] File failed all retries: {result}")
                     failed.append(str(result))
                 else:
                     file_paths.append(result)
@@ -514,8 +453,7 @@ async def download_and_zip(
                         f"{len(file_paths)} successful"
                     )
                     embed.description += (
-                        f"\n⚠️ {fail_count} file(s) failed to download "
-                        f"and will be skipped."
+                        f"\n⚠️ {fail_count} file(s) failed to download and will be skipped."
                     )
                     try:
                         await message.edit(embed=embed)
@@ -524,9 +462,7 @@ async def download_and_zip(
 
         if not file_paths:
             embed.title = "Download Failed"
-            embed.description = (
-                "No files were downloaded successfully. Please try again."
-            )
+            embed.description = "No files were downloaded successfully. Please try again."
             embed.color = discord.Color.red()
             await message.edit(embed=embed)
             return
@@ -535,9 +471,7 @@ async def download_and_zip(
 
         elapsed_time = time.time() - start_time
         instantaneous_speed = (
-            (total_downloaded_size / elapsed_time / 1024 / 1024) * 8
-            if elapsed_time > 0
-            else 0
+            (total_downloaded_size / elapsed_time / 1024 / 1024) * 8 if elapsed_time > 0 else 0
         )
         progress_bar = get_progress_bar(100)
         embed.title = "Download Complete"
@@ -575,11 +509,7 @@ async def download_and_zip(
                 upload_failed = False
                 for i, zip_path in enumerate(zip_paths, 1):
                     zip_size = os.path.getsize(zip_path)
-                    part_label = (
-                        f" - Part {i} of {len(zip_paths)}"
-                        if len(zip_paths) > 1
-                        else ""
-                    )
+                    part_label = f" - Part {i} of {len(zip_paths)}" if len(zip_paths) > 1 else ""
                     embed.title = "Uploading"
                     embed.description = (
                         f"Uploading {zip_path.name} "
@@ -590,9 +520,7 @@ async def download_and_zip(
                     embed.color = discord.Color.purple()
                     await message.edit(embed=embed)
                     try:
-                        await channel.send(
-                            file=discord.File(zip_path)
-                        )
+                        await channel.send(file=discord.File(zip_path))
                         embed.title = "Upload Complete"
                         embed.description = (
                             f"Successfully uploaded {zip_path.name} "
@@ -608,13 +536,8 @@ async def download_and_zip(
                             f"({format_file_size(zip_size)}){part_label}"
                         )
                     except discord.errors.HTTPException as e:
-                        if (
-                            e.status == 413
-                            and attempt_size > MIN_FILE_SIZE
-                        ):
-                            next_size = size_ladder[
-                                size_ladder.index(attempt_size) + 1
-                            ]
+                        if e.status == 413 and attempt_size > MIN_FILE_SIZE:
+                            next_size = size_ladder[size_ladder.index(attempt_size) + 1]
                             embed.title = "Upload Failed — Retrying"
                             embed.description = (
                                 f"File too large at "
@@ -629,15 +552,11 @@ async def download_and_zip(
                         else:
                             embed.title = "Upload Failed"
                             embed.description = (
-                                f"Failed to upload {zip_path.name}: "
-                                f"{e}\n{progress_bar}"
+                                f"Failed to upload {zip_path.name}: {e}\n{progress_bar}"
                             )
                             embed.color = discord.Color.red()
                             await message.edit(embed=embed)
-                            logger.exception(
-                                f"[RADAR] Upload failed for "
-                                f"{zip_path.name}: {e}"
-                            )
+                            logger.exception(f"[RADAR] Upload failed for {zip_path.name}: {e}")
                             return
                 if not upload_failed:
                     all_uploaded = True
@@ -684,24 +603,17 @@ async def download_and_zip(
                 try:
                     os.remove(file_path)
                 except Exception as e:
-                    logger.exception(
-                        f"[RADAR] Failed to delete temp file "
-                        f"{file_path}: {e}"
-                    )
+                    logger.exception(f"[RADAR] Failed to delete temp file {file_path}: {e}")
         for zip_path in Path(output_dir).glob("*.zip"):
             try:
                 zip_path.unlink()
             except Exception as e:
-                logger.exception(
-                    f"[RADAR] Failed to delete zip {zip_path}: {e}"
-                )
+                logger.exception(f"[RADAR] Failed to delete zip {zip_path}: {e}")
         if os.path.exists(output_dir):
             try:
                 shutil.rmtree(output_dir)
             except Exception as e:
-                logger.exception(
-                    f"[RADAR] Failed to delete output dir: {e}"
-                )
+                logger.exception(f"[RADAR] Failed to delete output dir: {e}")
         with progress_lock:
             progress_data.clear()
         for msg in messages_to_delete:

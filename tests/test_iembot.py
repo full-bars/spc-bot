@@ -112,6 +112,7 @@ def test_parse_md_text_returns_none_for_empty():
 
 # ── _fetch_product_text ───────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_fetch_product_text_returns_text_on_200():
     with patch("cogs.iembot.http_get_bytes", AsyncMock(return_value=(b"product text", 200))):
@@ -142,6 +143,7 @@ async def test_fetch_product_text_returns_none_on_no_content():
 
 # ── poll_iembot_feed: seqnum persistence ─────────────────────────────────────
 
+
 def _make_bot(seqnum=0, is_primary=True):
     bot = MagicMock()
     bot.state.is_primary = is_primary
@@ -156,9 +158,9 @@ async def test_seqnum_loaded_from_state_store_on_first_call():
     bot = _make_bot(seqnum=0)
     feed_data = json.dumps({"messages": []}).encode()
 
-    with patch("cogs.iembot.get_state", AsyncMock(return_value="12345")), \
-         patch("cogs.iembot.http_get_bytes", AsyncMock(return_value=(feed_data, 200))), \
-         patch("cogs.iembot.set_state", AsyncMock()):
+    with patch("cogs.iembot.get_state", AsyncMock(return_value="12345")), patch(
+        "cogs.iembot.http_get_bytes", AsyncMock(return_value=(feed_data, 200))
+    ), patch("cogs.iembot.set_state", AsyncMock()):
         cog = IEMBotCog(bot)
         await cog.poll_iembot_feed()
 
@@ -170,9 +172,9 @@ async def test_seqnum_loaded_only_once():
     bot = _make_bot(seqnum=0)
     feed_data = json.dumps({"messages": []}).encode()
 
-    with patch("cogs.iembot.get_state", AsyncMock(return_value="100")) as mock_get, \
-         patch("cogs.iembot.http_get_bytes", AsyncMock(return_value=(feed_data, 200))), \
-         patch("cogs.iembot.set_state", AsyncMock()):
+    with patch("cogs.iembot.get_state", AsyncMock(return_value="100")) as mock_get, patch(
+        "cogs.iembot.http_get_bytes", AsyncMock(return_value=(feed_data, 200))
+    ), patch("cogs.iembot.set_state", AsyncMock()):
         cog = IEMBotCog(bot)
         await cog.poll_iembot_feed()
         await cog.poll_iembot_feed()
@@ -189,9 +191,9 @@ async def test_seqnum_persisted_after_new_messages():
     ]
     feed_data = json.dumps({"messages": messages}).encode()
 
-    with patch("cogs.iembot.get_state", AsyncMock(return_value=None)), \
-         patch("cogs.iembot.http_get_bytes", AsyncMock(return_value=(feed_data, 200))), \
-         patch("cogs.iembot.set_state", AsyncMock()) as mock_set:
+    with patch("cogs.iembot.get_state", AsyncMock(return_value=None)), patch(
+        "cogs.iembot.http_get_bytes", AsyncMock(return_value=(feed_data, 200))
+    ), patch("cogs.iembot.set_state", AsyncMock()) as mock_set:
         cog = IEMBotCog(bot)
         await cog.poll_iembot_feed()
 
@@ -204,9 +206,9 @@ async def test_seqnum_not_updated_when_no_new_messages():
     bot = _make_bot(seqnum=200)
     feed_data = json.dumps({"messages": []}).encode()
 
-    with patch("cogs.iembot.get_state", AsyncMock(return_value=None)), \
-         patch("cogs.iembot.http_get_bytes", AsyncMock(return_value=(feed_data, 200))), \
-         patch("cogs.iembot.set_state", AsyncMock()) as mock_set:
+    with patch("cogs.iembot.get_state", AsyncMock(return_value=None)), patch(
+        "cogs.iembot.http_get_bytes", AsyncMock(return_value=(feed_data, 200))
+    ), patch("cogs.iembot.set_state", AsyncMock()) as mock_set:
         cog = IEMBotCog(bot)
         await cog.poll_iembot_feed()
 
@@ -216,15 +218,16 @@ async def test_seqnum_not_updated_when_no_new_messages():
 
 # ── poll_iembot_feed: message filtering ──────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_sel_product_dispatches_handle_watch():
     bot = _make_bot(seqnum=0)
     messages = [{"seqnum": 1, "product_id": "202604281200-KWNS-WWUS20-SEL5"}]
     feed_data = json.dumps({"messages": messages}).encode()
 
-    with patch("cogs.iembot.get_state", AsyncMock(return_value=None)), \
-         patch("cogs.iembot.http_get_bytes", AsyncMock(return_value=(feed_data, 200))), \
-         patch("cogs.iembot.set_state", AsyncMock()):
+    with patch("cogs.iembot.get_state", AsyncMock(return_value=None)), patch(
+        "cogs.iembot.http_get_bytes", AsyncMock(return_value=(feed_data, 200))
+    ), patch("cogs.iembot.set_state", AsyncMock()):
         cog = IEMBotCog(bot)
         cog._handle_watch = AsyncMock()
         with patch("cogs.iembot.asyncio.create_task") as mock_task:
@@ -239,9 +242,9 @@ async def test_swomcd_product_dispatches_handle_md():
     messages = [{"seqnum": 1, "product_id": "202604281200-KWNS-ACUS11-SWOMCD"}]
     feed_data = json.dumps({"messages": messages}).encode()
 
-    with patch("cogs.iembot.get_state", AsyncMock(return_value=None)), \
-         patch("cogs.iembot.http_get_bytes", AsyncMock(return_value=(feed_data, 200))), \
-         patch("cogs.iembot.set_state", AsyncMock()):
+    with patch("cogs.iembot.get_state", AsyncMock(return_value=None)), patch(
+        "cogs.iembot.http_get_bytes", AsyncMock(return_value=(feed_data, 200))
+    ), patch("cogs.iembot.set_state", AsyncMock()):
         cog = IEMBotCog(bot)
         with patch("cogs.iembot.asyncio.create_task") as mock_task:
             await cog.poll_iembot_feed()
@@ -254,9 +257,9 @@ async def test_unknown_product_dispatches_nothing():
     messages = [{"seqnum": 1, "product_id": "202604281200-KWNS-NWUS53-LSRICT"}]
     feed_data = json.dumps({"messages": messages}).encode()
 
-    with patch("cogs.iembot.get_state", AsyncMock(return_value=None)), \
-         patch("cogs.iembot.http_get_bytes", AsyncMock(return_value=(feed_data, 200))), \
-         patch("cogs.iembot.set_state", AsyncMock()):
+    with patch("cogs.iembot.get_state", AsyncMock(return_value=None)), patch(
+        "cogs.iembot.http_get_bytes", AsyncMock(return_value=(feed_data, 200))
+    ), patch("cogs.iembot.set_state", AsyncMock()):
         cog = IEMBotCog(bot)
         with patch("cogs.iembot.asyncio.create_task") as mock_task:
             await cog.poll_iembot_feed()
@@ -273,9 +276,9 @@ async def test_old_seqnum_messages_skipped():
     ]
     feed_data = json.dumps({"messages": messages}).encode()
 
-    with patch("cogs.iembot.get_state", AsyncMock(return_value=None)), \
-         patch("cogs.iembot.http_get_bytes", AsyncMock(return_value=(feed_data, 200))), \
-         patch("cogs.iembot.set_state", AsyncMock()):
+    with patch("cogs.iembot.get_state", AsyncMock(return_value=None)), patch(
+        "cogs.iembot.http_get_bytes", AsyncMock(return_value=(feed_data, 200))
+    ), patch("cogs.iembot.set_state", AsyncMock()):
         cog = IEMBotCog(bot)
         with patch("cogs.iembot.asyncio.create_task") as mock_task:
             await cog.poll_iembot_feed()
@@ -296,13 +299,15 @@ async def test_standby_skips_poll():
 async def test_http_failure_does_not_raise():
     bot = _make_bot(seqnum=0)
 
-    with patch("cogs.iembot.get_state", AsyncMock(return_value=None)), \
-         patch("cogs.iembot.http_get_bytes", AsyncMock(return_value=(None, 503))):
+    with patch("cogs.iembot.get_state", AsyncMock(return_value=None)), patch(
+        "cogs.iembot.http_get_bytes", AsyncMock(return_value=(None, 503))
+    ):
         cog = IEMBotCog(bot)
         await cog.poll_iembot_feed()  # should not raise
 
 
 # ── _handle_watch / _handle_md ────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_handle_watch_caches_text_and_signals_cog():
@@ -312,9 +317,9 @@ async def test_handle_watch_caches_text_and_signals_cog():
     bot.cogs = {"WatchesCog": watches_cog}
 
     raw = "Tornado Watch Number 0042\nWatch for portions of KANSAS\n"
-    with patch("cogs.iembot._fetch_product_text", AsyncMock(return_value=raw)), \
-         patch("cogs.iembot.set_product_cache", AsyncMock()), \
-         patch("cogs.iembot.asyncio.create_task") as mock_task:
+    with patch("cogs.iembot._fetch_product_text", AsyncMock(return_value=raw)), patch(
+        "cogs.iembot.set_product_cache", AsyncMock()
+    ), patch("cogs.iembot.asyncio.create_task") as mock_task:
         cog = IEMBotCog(bot)
         await cog._handle_watch("202604281200-KWNS-WWUS20-SEL5")
         assert mock_task.called
@@ -323,8 +328,9 @@ async def test_handle_watch_caches_text_and_signals_cog():
 @pytest.mark.asyncio
 async def test_handle_watch_does_nothing_if_no_text():
     bot = _make_bot()
-    with patch("cogs.iembot._fetch_product_text", AsyncMock(return_value=None)), \
-         patch("cogs.iembot.asyncio.create_task") as mock_task:
+    with patch("cogs.iembot._fetch_product_text", AsyncMock(return_value=None)), patch(
+        "cogs.iembot.asyncio.create_task"
+    ) as mock_task:
         cog = IEMBotCog(bot)
         await cog._handle_watch("202604281200-KWNS-WWUS20-SEL5")
         mock_task.assert_not_called()
@@ -338,9 +344,9 @@ async def test_handle_md_caches_text_and_signals_cog():
     bot.cogs = {"MesoscaleCog": mesoscale_cog}
 
     raw = "Mesoscale Discussion 0590\nConcerning tornado activity.\n"
-    with patch("cogs.iembot._fetch_product_text", AsyncMock(return_value=raw)), \
-         patch("cogs.iembot.set_product_cache", AsyncMock()), \
-         patch("cogs.iembot.asyncio.create_task") as mock_task:
+    with patch("cogs.iembot._fetch_product_text", AsyncMock(return_value=raw)), patch(
+        "cogs.iembot.set_product_cache", AsyncMock()
+    ), patch("cogs.iembot.asyncio.create_task") as mock_task:
         cog = IEMBotCog(bot)
         await cog._handle_md("202604281200-KWNS-ACUS11-SWOMCD")
         assert mock_task.called
@@ -349,8 +355,9 @@ async def test_handle_md_caches_text_and_signals_cog():
 @pytest.mark.asyncio
 async def test_handle_md_does_nothing_if_no_text():
     bot = _make_bot()
-    with patch("cogs.iembot._fetch_product_text", AsyncMock(return_value=None)), \
-         patch("cogs.iembot.asyncio.create_task") as mock_task:
+    with patch("cogs.iembot._fetch_product_text", AsyncMock(return_value=None)), patch(
+        "cogs.iembot.asyncio.create_task"
+    ) as mock_task:
         cog = IEMBotCog(bot)
         await cog._handle_md("202604281200-KWNS-ACUS11-SWOMCD")
         mock_task.assert_not_called()

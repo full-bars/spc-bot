@@ -15,10 +15,18 @@ from config import CACHE_DIR, CONFIG, DEV_CHANNEL_ID, HEALTH_CHANNEL_ID, TOKEN, 
 import utils.http
 from utils.http import CircuitOpenError
 from utils.state_store import (
-    check_integrity, close_db, get_db,
-    get_all_hashes, get_posted_urls, get_posted_mds, get_posted_watches,
-    get_posted_reports, get_all_posted_warnings,
-    get_posted_product_ids, get_posted_soundings, get_sounding_handled_watches,
+    check_integrity,
+    close_db,
+    get_db,
+    get_all_hashes,
+    get_posted_urls,
+    get_posted_mds,
+    get_posted_watches,
+    get_posted_reports,
+    get_all_posted_warnings,
+    get_posted_product_ids,
+    get_posted_soundings,
+    get_sounding_handled_watches,
     get_state,
 )
 from utils.cache import hydrate_validators_from_store
@@ -44,9 +52,7 @@ if not logger.handlers:
     try:
         from logging.handlers import RotatingFileHandler
 
-        fh = RotatingFileHandler(
-            CONFIG["log_file"], maxBytes=5 * 1024 * 1024, backupCount=3
-        )
+        fh = RotatingFileHandler(CONFIG["log_file"], maxBytes=5 * 1024 * 1024, backupCount=3)
         fh.setFormatter(formatter)
         logger.addHandler(fh)
     except Exception as e:
@@ -64,6 +70,7 @@ utils.http.set_latency_callback(bot.state.update_http_latency)
 
 IS_PRIMARY = os.getenv("IS_PRIMARY", "true").lower() == "true"
 bot.state.is_primary = IS_PRIMARY
+
 
 async def _init_db():
     """Initialize database and check integrity."""
@@ -83,10 +90,20 @@ async def _hydrate_state():
     # this, a real DB read failure during boot looks identical to "table
     # empty" and leads to duplicate posts after restart.
     hydration_names = (
-        "auto_hashes", "manual_hashes", "posted_mds", "posted_watches",
-        "posted_reports", "csu_mlp_posted", "day1_urls", "day2_urls",
-        "day3_urls", "iembot_last_seqnum", "iembot_botstalk_last_seqnum",
-        "posted_warnings", "posted_product_ids", "posted_soundings",
+        "auto_hashes",
+        "manual_hashes",
+        "posted_mds",
+        "posted_watches",
+        "posted_reports",
+        "csu_mlp_posted",
+        "day1_urls",
+        "day2_urls",
+        "day3_urls",
+        "iembot_last_seqnum",
+        "iembot_botstalk_last_seqnum",
+        "posted_warnings",
+        "posted_product_ids",
+        "posted_soundings",
         "sounding_handled_watches",
     )
     results = await asyncio.gather(
@@ -105,11 +122,12 @@ async def _hydrate_state():
         get_posted_product_ids(),
         get_posted_soundings(),
         get_sounding_handled_watches(),
-        return_exceptions=True
+        return_exceptions=True,
     )
 
     failures = [
-        (name, r) for name, r in zip(hydration_names, results, strict=True)
+        (name, r)
+        for name, r in zip(hydration_names, results, strict=True)
         if isinstance(r, BaseException)
     ]
     if failures:
@@ -120,7 +138,23 @@ async def _hydrate_state():
             "raised — affected caches will start empty (risk of duplicate posts)"
         )
 
-    db_auto, db_manual, db_mds, db_watches, db_reports, csu_raw, d1_urls, d2_urls, d3_urls, last_seq, last_botstalk, db_warnings, db_product_ids, db_soundings, db_handled_watches = results
+    (
+        db_auto,
+        db_manual,
+        db_mds,
+        db_watches,
+        db_reports,
+        csu_raw,
+        d1_urls,
+        d2_urls,
+        d3_urls,
+        last_seq,
+        last_botstalk,
+        db_warnings,
+        db_product_ids,
+        db_soundings,
+        db_handled_watches,
+    ) = results
 
     if isinstance(db_product_ids, (set, list)):
         bot.state.posted_product_ids.extend(db_product_ids)
@@ -209,11 +243,12 @@ async def _hydrate_state():
 async def _run_startup_cleanup():
     """Clean up old cached files on startup."""
     from utils.cache_utils import cleanup_old_cache_files
+
     deleted, freed = await cleanup_old_cache_files()
     if deleted > 0:
         logger.info(
             f"[STARTUP] Cache cleanup complete: {deleted} file(s) deleted, "
-            f"{freed / (1024*1024):.1f} MB freed"
+            f"{freed / (1024 * 1024):.1f} MB freed"
         )
 
 
@@ -239,6 +274,7 @@ async def _init_rust_engine():
     try:
         import spc_rust_core
         from lib.vad_plotter.radar_coords import RADAR_COORDS
+
         spc_rust_core.init_radar_index(RADAR_COORDS)
         logger.info("Spatial Index initialized: using Rust hybrid core (R-Tree)")
     except ImportError:
@@ -253,7 +289,7 @@ async def setup_hook():
     await _init_rust_engine()
     await _hydrate_state()
     await _run_startup_cleanup()
-    
+
     should_run_primary = await _check_failover()
 
     if should_run_primary:
@@ -263,6 +299,7 @@ async def setup_hook():
         logger.info("Running as STANDBY — cogs suppressed until promoted")
 
     watchdog_task.start()
+
 
 bot.setup_hook = setup_hook
 
@@ -280,9 +317,7 @@ _session_probe_failures = 0
 _cache_cleanup_task: "asyncio.Task | None" = None
 
 
-async def send_bot_alert(
-    title: str, description: str, critical: bool = False
-):
+async def send_bot_alert(title: str, description: str, critical: bool = False):
     """Post a health alert embed to the health/SPC channel."""
     try:
         channel = bot.get_channel(HEALTH_CHANNEL_ID)
@@ -290,15 +325,11 @@ async def send_bot_alert(
             try:
                 channel = await bot.fetch_channel(HEALTH_CHANNEL_ID)
             except discord.HTTPException as e:
-                logger.error(
-                    f"[ALERT] Could not fetch health channel to send alert '{title}': {e}"
-                )
+                logger.error(f"[ALERT] Could not fetch health channel to send alert '{title}': {e}")
                 return
 
         if not channel:
-            logger.error(
-                f"[ALERT] Health channel not found after fetch for alert: {title}"
-            )
+            logger.error(f"[ALERT] Health channel not found after fetch for alert: {title}")
             return
         color = discord.Color.red() if critical else discord.Color.orange()
         embed = discord.Embed(
@@ -331,6 +362,7 @@ async def on_ready():
             # _promote() handles this for Standby→Primary transitions; this covers
             # nodes that start directly as Primary (IS_PRIMARY=true).
             from utils.events_db import set_syncthing_folder_mode  # noqa: PLC0415
+
             await set_syncthing_folder_mode("sendonly")
             try:
                 synced = await bot.tree.sync()
@@ -356,6 +388,7 @@ async def on_ready():
             _periodic_cache_cleanup(), name="periodic_cache_cleanup"
         )
 
+
 @tasks.loop(hours=24)
 async def periodic_sync():
     await bot.wait_until_ready()
@@ -375,8 +408,11 @@ async def on_command_error(ctx, error):
     logger.error(f"Command error: {error}")
     raise error
 
+
 @bot.tree.error
-async def on_app_command_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
+async def on_app_command_error(
+    interaction: discord.Interaction, error: discord.app_commands.AppCommandError
+):
     # Standby nodes have no cogs loaded, so they receive CommandNotFound for
     # every slash command dispatched to them by Discord. Responding here would
     # pre-acknowledge the interaction and cause the primary's defer() to fail
@@ -385,7 +421,7 @@ async def on_app_command_error(interaction: discord.Interaction, error: discord.
         logger.debug(f"AppCommand not found (standby or unknown): {error}")
         return
 
-    original = getattr(error, 'original', error)
+    original = getattr(error, "original", error)
     if isinstance(original, CircuitOpenError):
         msg = f"⚠️ The upstream API ({str(original).split('for')[-1].strip()}) is currently degraded or offline. Please try again later."
     else:
@@ -398,7 +434,9 @@ async def on_app_command_error(interaction: discord.Interaction, error: discord.
         else:
             await interaction.response.send_message(msg, ephemeral=True)
     except discord.HTTPException as e:
-        logger.debug(f"AppCommand error reply failed (interaction expired or already acknowledged): {e}")
+        logger.debug(
+            f"AppCommand error reply failed (interaction expired or already acknowledged): {e}"
+        )
 
 
 # ── Watchdog ─────────────────────────────────────────────────────────────────
@@ -448,20 +486,26 @@ async def watchdog_task():
         if _session_probe_failures >= 3:
             logger.warning(
                 f"Session probe failed {_session_probe_failures} consecutive times"
-                + (" — tearing down and recreating" if primary_role else " (standby; not resetting session)")
+                + (
+                    " — tearing down and recreating"
+                    if primary_role
+                    else " (standby; not resetting session)"
+                )
             )
             if primary_role:
                 try:
                     ch = bot.get_channel(DEV_CHANNEL_ID) or await bot.fetch_channel(DEV_CHANNEL_ID)
-                    await ch.send(embed=discord.Embed(
-                        title="⚠️ Watchdog: session reset",
-                        description=(
-                            f"Both `{_PROBE_PRIMARY}` and `{_PROBE_SECONDARY}` failed "
-                            f"{_session_probe_failures} consecutive cycles. "
-                            "Tearing down and recreating the aiohttp session."
-                        ),
-                        color=discord.Color.red(),
-                    ))
+                    await ch.send(
+                        embed=discord.Embed(
+                            title="⚠️ Watchdog: session reset",
+                            description=(
+                                f"Both `{_PROBE_PRIMARY}` and `{_PROBE_SECONDARY}` failed "
+                                f"{_session_probe_failures} consecutive cycles. "
+                                "Tearing down and recreating the aiohttp session."
+                            ),
+                            color=discord.Color.red(),
+                        )
+                    )
                 except Exception as alert_err:
                     logger.warning(f"Could not send session-reset alert: {alert_err}")
                 await utils.http.close_session()
@@ -469,20 +513,21 @@ async def watchdog_task():
             _session_probe_failures = 0
         else:
             logger.info(
-                f"Session probe failed ({_session_probe_failures}/3) — "
-                "waiting for next cycle"
+                f"Session probe failed ({_session_probe_failures}/3) — waiting for next cycle"
             )
             if _session_probe_failures == 2 and primary_role:
                 try:
                     ch = bot.get_channel(DEV_CHANNEL_ID) or await bot.fetch_channel(DEV_CHANNEL_ID)
-                    await ch.send(embed=discord.Embed(
-                        title="⚠️ Watchdog: probe degraded (2/3)",
-                        description=(
-                            f"Both `{_PROBE_PRIMARY}` and `{_PROBE_SECONDARY}` unreachable "
-                            "for 2 consecutive cycles. Session reset on next failure."
-                        ),
-                        color=discord.Color.orange(),
-                    ))
+                    await ch.send(
+                        embed=discord.Embed(
+                            title="⚠️ Watchdog: probe degraded (2/3)",
+                            description=(
+                                f"Both `{_PROBE_PRIMARY}` and `{_PROBE_SECONDARY}` unreachable "
+                                "for 2 consecutive cycles. Session reset on next failure."
+                            ),
+                            color=discord.Color.orange(),
+                        )
+                    )
                 except Exception as alert_err:
                     logger.warning(f"Could not send degradation alert: {alert_err}")
 
@@ -527,7 +572,7 @@ async def watchdog_task():
 
         _task_fail_counts[name] = _task_fail_counts.get(name, 0) + 1
         fail_count = _task_fail_counts[name]
-        
+
         # Try to extract the error that stopped the task
         error_detail = ""
         inner_task = task.get_task()
@@ -551,13 +596,11 @@ async def watchdog_task():
                 except Exception as e:
                     logger.debug(f"Error while awaiting cancelled task: {e}")
             task.start()
-            
+
             log_fn = logger.info if name in _task_seen_running else logger.debug
             log_fn(f"Attempted to {'re' if name in _task_seen_running else ''}start '{name}'")
         except Exception as e:
-            logger.exception(
-                f"Failed to restart '{name}': {e}"
-            )
+            logger.exception(f"Failed to restart '{name}': {e}")
 
         # Alerts — only for tasks we've seen running before to avoid startup noise
         if name in _task_seen_running:
@@ -577,8 +620,7 @@ async def watchdog_task():
                         "[SPC directly](https://www.spc.noaa.gov) "
                         "if severe weather is ongoing.**"
                         if critical
-                        else "Outlook posts may be delayed until the "
-                        "task recovers."
+                        else "Outlook posts may be delayed until the task recovers."
                     ),
                     critical=critical,
                 )
@@ -590,6 +632,7 @@ async def snapshot_events_task():
     if not bot.state.is_primary:
         return
     from utils.events_db import snapshot_for_sync  # noqa: PLC0415
+
     await snapshot_for_sync()
 
 
@@ -624,13 +667,17 @@ async def _shutdown():
     # 2. Close DB, HTTP session, and plot worker pool
     try:
         from utils.worker_pool import shutdown_executor
+
         shutdown_executor()
     except Exception:
         pass
     try:
         from utils.events_db import close_events_db  # noqa: PLC0415
+
         await asyncio.wait_for(
-            asyncio.gather(utils.http.close_session(), close_db(), close_events_db(), return_exceptions=True),
+            asyncio.gather(
+                utils.http.close_session(), close_db(), close_events_db(), return_exceptions=True
+            ),
             timeout=3.0,
         )
     except asyncio.TimeoutError:
@@ -644,6 +691,7 @@ async def _shutdown():
     #    dangling in the event loop, which blocks asyncio.run() cleanup for
     #    the full systemd TimeoutStopSec (90 s) before SIGKILL.
     await bot.close()
+
 
 def _setup_signal_handlers(loop: asyncio.AbstractEventLoop):
     """Register signal handlers using the running event loop."""
@@ -684,7 +732,9 @@ async def _periodic_cache_cleanup():
             # Run cleanup
             deleted, freed = await cleanup_old_cache_files()
             if deleted > 0:
-                logger.info(f"[CACHE] Daily cleanup: {deleted} file(s), {freed / (1024*1024):.1f} MB freed")
+                logger.info(
+                    f"[CACHE] Daily cleanup: {deleted} file(s), {freed / (1024 * 1024):.1f} MB freed"
+                )
         except asyncio.CancelledError:
             break
         except Exception as e:
@@ -695,6 +745,7 @@ async def _periodic_cache_cleanup():
 # ── Entrypoint ───────────────────────────────────────────────────────────────
 async def main():
     from utils.worker_pool import prefork_sounding_executor
+
     prefork_sounding_executor()
     async with bot:
         # _setup_signal_handlers handles per-signal errors itself.

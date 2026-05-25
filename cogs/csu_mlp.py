@@ -20,11 +20,13 @@ logger = logging.getLogger("spc_bot.csu_mlp")
 BASE = "https://schumacher.atmos.colostate.edu/weather/csu_mlp/archive"
 VERSION = "2021"
 
+
 # Days 1-3 use all-hazard slug; 4-8 use aggregate slug
 def _product_slug(day: int) -> str:
     if day <= 3:
         return f"severe_ml_day{day}_all_gefso"
     return f"severe_ml_day{day}_gefso"
+
 
 def _build_url(day: int, init_date: datetime, init_hour: str) -> str:
     date_str = init_date.strftime("%Y%m%d")
@@ -82,7 +84,9 @@ async def _url_is_image(url: str) -> bool:
         return False
 
 
-async def _resolve_best_url(day: int, force_hour: str | None = None, allow_yesterday: bool = False) -> tuple[str | None, str]:
+async def _resolve_best_url(
+    day: int, force_hour: str | None = None, allow_yesterday: bool = False
+) -> tuple[str | None, str]:
     """
     Try latest runs first.
     Days 1-3 have 12z and 00z. Days 4-8 only 00z.
@@ -135,9 +139,7 @@ class CSUMLPCog(commands.Cog):
         # Pre-set to today if we're already past the reset hour so a restart
         # after 15 UTC doesn't trigger a second reset on the same day.
         now_utc = datetime.now(timezone.utc)
-        self._last_reset_date: str = (
-            now_utc.strftime("%Y-%m-%d") if now_utc.hour >= 15 else ""
-        )
+        self._last_reset_date: str = now_utc.strftime("%Y-%m-%d") if now_utc.hour >= 15 else ""
         self.csu_mlp_daily_poll.start()
 
     def cog_unload(self):
@@ -145,14 +147,10 @@ class CSUMLPCog(commands.Cog):
 
     # ── Shared fetch+send helper ──────────────────────────────────────────
 
-
     async def _fetch_and_send(self, source, day: int):
         url, label = await _resolve_best_url(day, allow_yesterday=True)
         if not url:
-            msg = (
-                f"CSU-MLP Day {day} isn't available yet. "
-                f"Try again after ~11am MT."
-            )
+            msg = f"CSU-MLP Day {day} isn't available yet. Try again after ~11am MT."
             if hasattr(source, "followup"):
                 await source.followup.send(msg)
             else:
@@ -174,9 +172,7 @@ class CSUMLPCog(commands.Cog):
         title = f"**CSU-MLP {day_range}Day {day} Severe Weather Forecast** (init: {label})"
         try:
             if hasattr(source, "followup"):
-                await source.followup.send(
-                    title, files=[discord.File(cache_path)]
-                )
+                await source.followup.send(title, files=[discord.File(cache_path)])
             else:
                 await source.send(title, files=[discord.File(cache_path)])
         except discord.HTTPException as e:
@@ -186,46 +182,56 @@ class CSUMLPCog(commands.Cog):
 
     @discord.app_commands.command(name="csu", description="CSU-MLP severe weather ML forecast")
     @discord.app_commands.describe(product="Which CSU-MLP product to display")
-    @discord.app_commands.choices(product=[
-        Choice(name="Day 1", value="1"),
-        Choice(name="Day 2", value="2"),
-        Choice(name="Day 3", value="3"),
-        Choice(name="Day 4 (Medium Range)", value="4"),
-        Choice(name="Day 5 (Medium Range)", value="5"),
-        Choice(name="Day 6 (Medium Range)", value="6"),
-        Choice(name="Day 7 (Medium Range)", value="7"),
-        Choice(name="Day 8 (Medium Range)", value="8"),
-        Choice(name="6-Panel Days 1-2", value="panel12"),
-        Choice(name="6-Panel Days 3-8", value="panel38"),
-    ])
+    @discord.app_commands.choices(
+        product=[
+            Choice(name="Day 1", value="1"),
+            Choice(name="Day 2", value="2"),
+            Choice(name="Day 3", value="3"),
+            Choice(name="Day 4 (Medium Range)", value="4"),
+            Choice(name="Day 5 (Medium Range)", value="5"),
+            Choice(name="Day 6 (Medium Range)", value="6"),
+            Choice(name="Day 7 (Medium Range)", value="7"),
+            Choice(name="Day 8 (Medium Range)", value="8"),
+            Choice(name="6-Panel Days 1-2", value="panel12"),
+            Choice(name="6-Panel Days 3-8", value="panel38"),
+        ]
+    )
     async def csu(self, interaction: discord.Interaction, product: Choice[str]):
         await interaction.response.defer()
         val = product.value
         if val == "panel12":
             url, label = await _resolve_panel_url("hazards_fcst_6panel", allow_yesterday=True)
             if not url:
-                await interaction.followup.send("CSU-MLP Days 1-2 6-panel isn't available yet. Try after ~11am MT.")
+                await interaction.followup.send(
+                    "CSU-MLP Days 1-2 6-panel isn't available yet. Try after ~11am MT."
+                )
                 return
-            cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE, self.bot.state.manual_cache)
+            cache_path, _, _ = await download_single_image(
+                url, MANUAL_CACHE_FILE, self.bot.state.manual_cache
+            )
             if not cache_path:
                 await interaction.followup.send("Failed to download CSU-MLP Days 1-2 6-panel.")
                 return
             await interaction.followup.send(
                 f"**CSU-MLP Days 1-2 Hazard 6-Panel** (init: {label})",
-                files=[discord.File(cache_path)]
+                files=[discord.File(cache_path)],
             )
         elif val == "panel38":
             url, label = await _resolve_panel_url("severe_fcst_6panel", allow_yesterday=True)
             if not url:
-                await interaction.followup.send("CSU-MLP Days 3-8 6-panel isn't available yet. Try after ~11am MT.")
+                await interaction.followup.send(
+                    "CSU-MLP Days 3-8 6-panel isn't available yet. Try after ~11am MT."
+                )
                 return
-            cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE, self.bot.state.manual_cache)
+            cache_path, _, _ = await download_single_image(
+                url, MANUAL_CACHE_FILE, self.bot.state.manual_cache
+            )
             if not cache_path:
                 await interaction.followup.send("Failed to download CSU-MLP Days 3-8 6-panel.")
                 return
             await interaction.followup.send(
                 f"**CSU-MLP Days 3-8 Severe 6-Panel** (init: {label})",
-                files=[discord.File(cache_path)]
+                files=[discord.File(cache_path)],
             )
         else:
             await self._fetch_and_send(interaction, int(val))
@@ -249,7 +255,7 @@ class CSUMLPCog(commands.Cog):
                 self.bot.state.csu_posted.clear()
                 _availability_log.clear()
                 # Use BotState method or manual persistence for reset
-                await set_state("csu_mlp_posted", "") 
+                await set_state("csu_mlp_posted", "")
             self._last_reset_date = today_str
 
         # Only poll 16-23 UTC
@@ -287,8 +293,7 @@ class CSUMLPCog(commands.Cog):
                 first_seen = now_utc.strftime("%Y-%m-%d %H:%MZ")
                 _availability_log[day] = first_seen
                 logger.info(
-                    f"\U0001f4ca TIMING LOG — "
-                    f"Day {day} first available at {first_seen} ({label})"
+                    f"\U0001f4ca TIMING LOG — Day {day} first available at {first_seen} ({label})"
                 )
 
             cache_path, _, _ = await download_single_image(
@@ -308,10 +313,12 @@ class CSUMLPCog(commands.Cog):
                             f" (init: {label})",
                             files=[discord.File(cache_path)],
                         )
-                        break # Success
+                        break  # Success
                     except (discord.DiscordServerError, discord.HTTPException) as e:
                         if attempt < 2:
-                            logger.warning(f"Retrying Day {day} (attempt {attempt+2}) after error: {e}")
+                            logger.warning(
+                                f"Retrying Day {day} (attempt {attempt + 2}) after error: {e}"
+                            )
                             await asyncio.sleep(2 * (attempt + 1))
                         else:
                             raise
@@ -323,9 +330,7 @@ class CSUMLPCog(commands.Cog):
                 # Small pause to avoid hammering Discord API/local networking stack
                 await asyncio.sleep(1.0)
             except Exception as e:
-                logger.exception(
-                    f"Failed to post Day {day}: {e}"
-                )
+                logger.exception(f"Failed to post Day {day}: {e}")
 
         # Auto-post 6-panel products
         for product, label_name, state_key in [
@@ -340,8 +345,12 @@ class CSUMLPCog(commands.Cog):
             if state_key not in _availability_log:
                 first_seen = now_utc.strftime("%Y-%m-%d %H:%MZ")
                 _availability_log[state_key] = first_seen
-                logger.info(f"📊 TIMING LOG — {label_name} first available at {first_seen} ({label})")
-            cache_path, _, _ = await download_single_image(url, MANUAL_CACHE_FILE, self.bot.state.manual_cache)
+                logger.info(
+                    f"📊 TIMING LOG — {label_name} first available at {first_seen} ({label})"
+                )
+            cache_path, _, _ = await download_single_image(
+                url, MANUAL_CACHE_FILE, self.bot.state.manual_cache
+            )
             if not cache_path:
                 logger.warning(f"Download failed for {label_name}")
                 continue
@@ -351,12 +360,14 @@ class CSUMLPCog(commands.Cog):
                     try:
                         await channel.send(
                             f"**CSU-MLP {label_name}** (init: {label})",
-                            files=[discord.File(cache_path)]
+                            files=[discord.File(cache_path)],
                         )
-                        break # Success
+                        break  # Success
                     except (discord.DiscordServerError, discord.HTTPException) as e:
                         if attempt < 2:
-                            logger.warning(f"Retrying {label_name} (attempt {attempt+2}) after error: {e}")
+                            logger.warning(
+                                f"Retrying {label_name} (attempt {attempt + 2}) after error: {e}"
+                            )
                             await asyncio.sleep(2 * (attempt + 1))
                         else:
                             raise
@@ -381,8 +392,7 @@ class CSUMLPCog(commands.Cog):
             exc = None
         if exc:
             logger.error(
-                f"[TASK] csu_mlp_daily_poll stopped: "
-                f"{type(exc).__name__}: {exc}",
+                f"[TASK] csu_mlp_daily_poll stopped: {type(exc).__name__}: {exc}",
                 exc_info=exc,
             )
 

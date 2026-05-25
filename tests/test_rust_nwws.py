@@ -3,7 +3,6 @@
 from cogs.nwws import normalize_product_id, normalize_product_id_py
 
 
-
 class TestNormalizeProductId:
     """Test NWWS product_id normalization."""
 
@@ -34,8 +33,9 @@ class TestNormalizeProductId:
         for office, ttaaii, afos_pil, issue_str in test_cases:
             rust_result = normalize_product_id(office, ttaaii, afos_pil, issue_str)
             python_result = normalize_product_id_py(office, ttaaii, afos_pil, issue_str)
-            assert rust_result == python_result, \
+            assert rust_result == python_result, (
                 f"Mismatch for {office}/{ttaaii}/{afos_pil}: {rust_result} != {python_result}"
+            )
 
     def test_various_offices(self):
         """Should handle various office codes."""
@@ -115,5 +115,3 @@ class TestRustNwwsIngestion:
         assert payload["issue"] == "2026-05-03T06:50:00Z"
         assert raw_text == "This is raw text product"
         assert is_archived is True  # since delay_stamp is older than 10 seconds
-
-

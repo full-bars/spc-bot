@@ -13,6 +13,7 @@ logger = logging.getLogger("spc_bot")
 # Cache to store (etag, last_modified, urls) per day to avoid redundant parsing
 _OUTLOOK_CACHE: Dict[int, Tuple[Optional[str], Optional[str], List[str]]] = {}
 
+
 async def get_spc_urls(day: int) -> List[str]:
     """
     Scrape the SPC outlook HTML page to resolve the current issuance-time PNG URLs
@@ -37,9 +38,7 @@ async def get_spc_urls(day: int) -> List[str]:
             return cached_urls
 
         if not content or status != 200:
-            logger.warning(
-                f"[DYN_URL] Failed to fetch day{day} page (status={status})"
-            )
+            logger.warning(f"[DYN_URL] Failed to fetch day{day} page (status={status})")
             return fallback
 
         html = content.decode("utf-8", errors="ignore")
@@ -47,9 +46,7 @@ async def get_spc_urls(day: int) -> List[str]:
 
         if day in (1, 2):
             otlk_match = re.search(r"show_tab\('(otlk_\d+)'\)", html)
-            hazard_tabs = re.findall(
-                r"show_tab\('(probotlk_\d+_(?:torn|wind|hail))'\)", html
-            )
+            hazard_tabs = re.findall(r"show_tab\('(probotlk_\d+_(?:torn|wind|hail))'\)", html)
 
             if not otlk_match:
                 snippet = html[:500].replace("\n", " ").strip()
@@ -70,14 +67,16 @@ async def get_spc_urls(day: int) -> List[str]:
                         seen.add(tab)
                         urls.append(f"{base}day{day}{tab}.png")
             else:
-                logger.warning(
-                    f"[DYN_URL] No hazard tabs found for day{day}, using fallback"
-                )
+                logger.warning(f"[DYN_URL] No hazard tabs found for day{day}, using fallback")
                 return fallback
 
             logger.debug(f"[DYN_URL] Resolved day{day} URLs: {urls}")
             if new_headers:
-                _OUTLOOK_CACHE[day] = (new_headers.get("etag"), new_headers.get("last_modified"), urls)
+                _OUTLOOK_CACHE[day] = (
+                    new_headers.get("etag"),
+                    new_headers.get("last_modified"),
+                    urls,
+                )
             return urls
 
         elif day == 3:
@@ -85,9 +84,7 @@ async def get_spc_urls(day: int) -> List[str]:
             prob_match = re.search(r"show_tab\('(prob_\d+)'\)", html)
 
             if not otlk_match or not prob_match:
-                logger.warning(
-                    "[DYN_URL] Could not find tabs for day3, using fallback"
-                )
+                logger.warning("[DYN_URL] Could not find tabs for day3, using fallback")
                 return fallback
 
             urls = [
@@ -96,12 +93,14 @@ async def get_spc_urls(day: int) -> List[str]:
             ]
             logger.debug(f"[DYN_URL] Resolved day3 URLs: {urls}")
             if new_headers:
-                _OUTLOOK_CACHE[day] = (new_headers.get("etag"), new_headers.get("last_modified"), urls)
+                _OUTLOOK_CACHE[day] = (
+                    new_headers.get("etag"),
+                    new_headers.get("last_modified"),
+                    urls,
+                )
             return urls
 
     except Exception as e:
-        logger.warning(
-            f"[DYN_URL] Exception resolving day{day} URLs: {e}, using fallback"
-        )
+        logger.warning(f"[DYN_URL] Exception resolving day{day} URLs: {e}, using fallback")
 
     return fallback

@@ -23,13 +23,16 @@ def _make_cog():
 
 # ── /topstats URL construction ────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_topstats_warnings_by_state_url():
     """/topstats with source=109 and by=state produces a valid Autoplot #109 URL."""
     cog = _make_cog()
     interaction = _make_interaction()
 
-    await cog.top_stats.callback(cog, interaction, by="state", year=2025, source="109", phenomenon="TO")
+    await cog.top_stats.callback(
+        cog, interaction, by="state", year=2025, source="109", phenomenon="TO"
+    )
 
     interaction.followup.send.assert_called_once()
     embed = interaction.followup.send.call_args.kwargs["embed"]
@@ -48,7 +51,9 @@ async def test_topstats_severe_tstorm_warnings_url():
     cog = _make_cog()
     interaction = _make_interaction()
 
-    await cog.top_stats.callback(cog, interaction, by="state", year=2025, source="109", phenomenon="SV")
+    await cog.top_stats.callback(
+        cog, interaction, by="state", year=2025, source="109", phenomenon="SV"
+    )
 
     embed = interaction.followup.send.call_args.kwargs["embed"]
     assert "phenomenav1:SV" in embed.image.url
@@ -61,7 +66,9 @@ async def test_topstats_reports_by_wfo_url():
     cog = _make_cog()
     interaction = _make_interaction()
 
-    await cog.top_stats.callback(cog, interaction, by="wfo", year=2024, source="163", phenomenon="TO")
+    await cog.top_stats.callback(
+        cog, interaction, by="wfo", year=2024, source="163", phenomenon="TO"
+    )
 
     embed = interaction.followup.send.call_args.kwargs["embed"]
     assert "163" in embed.image.url
@@ -76,13 +83,16 @@ async def test_topstats_defaults_to_current_year(monkeypatch):
     interaction = _make_interaction()
 
     current_year = datetime.now(timezone.utc).year
-    await cog.top_stats.callback(cog, interaction, by="state", year=None, source="109", phenomenon="TO")
+    await cog.top_stats.callback(
+        cog, interaction, by="state", year=None, source="109", phenomenon="TO"
+    )
 
     embed = interaction.followup.send.call_args.kwargs["embed"]
     assert str(current_year) in embed.image.url
 
 
 # ── /dayssince ────────────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_dayssince_url_contains_to_phenomenon():
@@ -98,6 +108,7 @@ async def test_dayssince_url_contains_to_phenomenon():
 
 
 # ── /dailyrecap ───────────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_dailyrecap_explicit_date_in_url():
@@ -118,7 +129,7 @@ async def test_dailyrecap_defaults_to_yesterday():
     cog = _make_cog()
     interaction = _make_interaction()
 
-    yesterday = (datetime.now(timezone.utc).date() - timedelta(days=1))
+    yesterday = datetime.now(timezone.utc).date() - timedelta(days=1)
     await cog.daily_recap.callback(cog, interaction, date=None)
 
     embed = interaction.followup.send.call_args.kwargs["embed"]
@@ -126,6 +137,7 @@ async def test_dailyrecap_defaults_to_yesterday():
 
 
 # ── /tornadoheatmap ───────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_tornado_heatmap_url_contains_days():
@@ -141,6 +153,7 @@ async def test_tornado_heatmap_url_contains_days():
 
 
 # ── /verify (IEM Cow) ─────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_verify_posts_embed_on_success():

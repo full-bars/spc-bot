@@ -28,18 +28,18 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
     try:
         await asyncio.wait_for(
             vad_plotter(
-                site,           # radar_id
-                'right-mover',  # storm_motion
-                None,           # sfc_wind
-                None,           # time
-                output_path,    # fname
-                None,           # local_path
-                None,           # cache_path
-                False,          # web
-                False,          # fixed
-                executor=get_hodo_executor()
+                site,  # radar_id
+                "right-mover",  # storm_motion
+                None,  # sfc_wind
+                None,  # time
+                output_path,  # fname
+                None,  # local_path
+                None,  # cache_path
+                False,  # web
+                False,  # fixed
+                executor=get_hodo_executor(),
             ),
-            timeout=60
+            timeout=60,
         )
     except asyncio.TimeoutError:
         logger.warning(f"[HODO] vad_plotter timed out for {site}")
@@ -70,7 +70,9 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
                 ephemeral=True,
             )
         except discord.NotFound:
-            logger.debug(f"[HODO] Could not send file-not-found message for {site}: Interaction expired")
+            logger.debug(
+                f"[HODO] Could not send file-not-found message for {site}: Interaction expired"
+            )
         return
 
     logger.info(f"[HODO] Hodograph generated at {output_path}")
@@ -108,6 +110,7 @@ class RadarSuggestionView(discord.ui.View):
                 logger.debug(f"[HODO] Suggestion callback failed for {site}: Interaction expired")
             except Exception as e:
                 logger.exception(f"[HODO] Error in suggestion callback for {site}: {e}")
+
         return callback
 
 

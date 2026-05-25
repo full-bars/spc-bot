@@ -24,9 +24,7 @@ class ZRangeModal(Modal, title="Z-to-Z Time Range"):
         required=True,
     )
 
-    def __init__(
-        self, radar_sites, date, messages_to_delete, original_user=None
-    ):
+    def __init__(self, radar_sites, date, messages_to_delete, original_user=None):
         super().__init__()
         self.radar_sites = radar_sites
         self.date = date
@@ -43,9 +41,7 @@ class ZRangeModal(Modal, title="Z-to-Z Time Range"):
             else:
                 start_str = parts[0]
                 end_str = "-".join(parts[1:])
-            start_dt, end_dt, dates_to_query = resolve_z_range(
-                start_str, end_str, self.date
-            )
+            start_dt, end_dt, dates_to_query = resolve_z_range(start_str, end_str, self.date)
             logger.info(f"[RADAR] Z-range: {start_dt} to {end_dt}")
             await run_download(
                 interaction,
@@ -66,9 +62,7 @@ class ZRangeModal(Modal, title="Z-to-Z Time Range"):
                 ),
             )
         except Exception as e:
-            await send_error(
-                interaction, "Error", f"Something went wrong: {e}"
-            )
+            await send_error(interaction, "Error", f"Something went wrong: {e}")
 
 
 class StartPlusDurationModal(Modal, title="Start Time + Duration"):
@@ -83,9 +77,7 @@ class StartPlusDurationModal(Modal, title="Start Time + Duration"):
         required=True,
     )
 
-    def __init__(
-        self, radar_sites, date, messages_to_delete, original_user=None
-    ):
+    def __init__(self, radar_sites, date, messages_to_delete, original_user=None):
         super().__init__()
         self.radar_sites = radar_sites
         self.date = date
@@ -108,9 +100,7 @@ class StartPlusDurationModal(Modal, title="Start Time + Duration"):
             dates_to_query = [self.date]
             if end_dt.date() > self.date.date():
                 dates_to_query.append(self.date + timedelta(days=1))
-            logger.info(
-                f"[RADAR] Start+duration: {start_dt} + {hours}h = {end_dt}"
-            )
+            logger.info(f"[RADAR] Start+duration: {start_dt} + {hours}h = {end_dt}")
             await run_download(
                 interaction,
                 self.radar_sites,
@@ -127,9 +117,7 @@ class StartPlusDurationModal(Modal, title="Start Time + Duration"):
                 "Duration should be a number like `6` or `2.5`.",
             )
         except Exception as e:
-            await send_error(
-                interaction, "Error", f"Something went wrong: {e}"
-            )
+            await send_error(interaction, "Error", f"Something went wrong: {e}")
 
 
 class ExplicitRangeModal(Modal, title="Explicit Date/Time Range"):
@@ -144,9 +132,7 @@ class ExplicitRangeModal(Modal, title="Explicit Date/Time Range"):
         required=True,
     )
 
-    def __init__(
-        self, radar_sites, date, messages_to_delete, original_user=None
-    ):
+    def __init__(self, radar_sites, date, messages_to_delete, original_user=None):
         super().__init__()
         self.radar_sites = radar_sites
         self.date = date
@@ -191,16 +177,12 @@ class ExplicitRangeModal(Modal, title="Explicit Date/Time Range"):
                 end_dt += timedelta(days=1)
 
             dates_to_query = []
-            d = start_dt.replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
+            d = start_dt.replace(hour=0, minute=0, second=0, microsecond=0)
             while d.date() <= end_dt.date():
                 dates_to_query.append(d)
                 d += timedelta(days=1)
 
-            logger.info(
-                f"[RADAR] Explicit range: {start_dt} to {end_dt}"
-            )
+            logger.info(f"[RADAR] Explicit range: {start_dt} to {end_dt}")
             await run_download(
                 interaction,
                 self.radar_sites,
@@ -217,9 +199,7 @@ class ExplicitRangeModal(Modal, title="Explicit Date/Time Range"):
                 f"- `22:00Z` for time only (uses selected date)",
             )
         except Exception as e:
-            await send_error(
-                interaction, "Error", f"Something went wrong: {e}"
-            )
+            await send_error(interaction, "Error", f"Something went wrong: {e}")
 
 
 class NumFilesModal(Modal, title="Number of Recent Files"):
@@ -229,9 +209,7 @@ class NumFilesModal(Modal, title="Number of Recent Files"):
         required=True,
     )
 
-    def __init__(
-        self, radar_sites, date, messages_to_delete, original_user=None
-    ):
+    def __init__(self, radar_sites, date, messages_to_delete, original_user=None):
         super().__init__()
         self.radar_sites = radar_sites
         self.date = date
@@ -266,9 +244,7 @@ class NumFilesModal(Modal, title="Number of Recent Files"):
                 "Enter a whole number between 1 and 200.",
             )
         except Exception as e:
-            await send_error(
-                interaction, "Error", f"Something went wrong: {e}"
-            )
+            await send_error(interaction, "Error", f"Something went wrong: {e}")
 
 
 class DateModal(Modal, title="Enter Custom Date"):
@@ -278,9 +254,7 @@ class DateModal(Modal, title="Enter Custom Date"):
         required=True,
     )
 
-    def __init__(
-        self, radar_sites, messages_to_delete, original_user=None
-    ):
+    def __init__(self, radar_sites, messages_to_delete, original_user=None):
         super().__init__()
         self.radar_sites = radar_sites
         self.messages_to_delete = messages_to_delete
@@ -288,9 +262,7 @@ class DateModal(Modal, title="Enter Custom Date"):
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
-            date = datetime.strptime(
-                self.date_input.value, "%Y-%m-%d"
-            ).replace(tzinfo=timezone.utc)
+            date = datetime.strptime(self.date_input.value, "%Y-%m-%d").replace(tzinfo=timezone.utc)
             view = TimeRangeView(
                 self.radar_sites,
                 date,
@@ -299,15 +271,10 @@ class DateModal(Modal, title="Enter Custom Date"):
             )
             embed = discord.Embed(
                 title=f"Selected: {', '.join(self.radar_sites)}",
-                description=(
-                    f"Date: {date.strftime('%Y-%m-%d')}\n"
-                    f"Choose a time range option:"
-                ),
+                description=(f"Date: {date.strftime('%Y-%m-%d')}\nChoose a time range option:"),
                 color=discord.Color.blue(),
             )
-            await interaction.response.send_message(
-                embed=embed, view=view
-            )
+            await interaction.response.send_message(embed=embed, view=view)
             msg = await interaction.original_response()
             self.messages_to_delete.append(msg)
         except ValueError:
@@ -328,9 +295,7 @@ class MultiRadarModal(Modal, title="Select Multiple Sites"):
         required=True,
     )
 
-    def __init__(
-        self, available_sites, messages_to_delete, original_user=None
-    ):
+    def __init__(self, available_sites, messages_to_delete, original_user=None):
         super().__init__()
         self.available_sites = available_sites
         self.messages_to_delete = messages_to_delete
@@ -338,16 +303,8 @@ class MultiRadarModal(Modal, title="Select Multiple Sites"):
 
     async def on_submit(self, interaction: discord.Interaction):
         entered_sites = self.radar_input.value.upper().split()
-        valid_sites = [
-            site
-            for site in entered_sites
-            if site in self.available_sites
-        ]
-        invalid_sites = [
-            site
-            for site in entered_sites
-            if site not in self.available_sites
-        ]
+        valid_sites = [site for site in entered_sites if site in self.available_sites]
+        invalid_sites = [site for site in entered_sites if site not in self.available_sites]
         if not valid_sites:
             await interaction.response.send_message(
                 embed=discord.Embed(
@@ -368,10 +325,7 @@ class MultiRadarModal(Modal, title="Select Multiple Sites"):
         )
         description = "Select a date for the data:"
         if invalid_sites:
-            description += (
-                f"\n\n⚠️ Skipped unknown sites: "
-                f"`{'`, `'.join(invalid_sites)}`"
-            )
+            description += f"\n\n⚠️ Skipped unknown sites: `{'`, `'.join(invalid_sites)}`"
         embed = discord.Embed(
             title=f"Selected: {', '.join(valid_sites)}",
             description=description,
@@ -389,27 +343,20 @@ class SearchModal(Modal, title="Search Radar Sites"):
         required=True,
     )
 
-    def __init__(
-        self, radar_sites, messages_to_delete, original_user=None
-    ):
+    def __init__(self, radar_sites, messages_to_delete, original_user=None):
         super().__init__()
         self.original_user = original_user
         self.radar_sites = radar_sites
         self.messages_to_delete = messages_to_delete
 
     async def on_submit(self, interaction: discord.Interaction):
-        if (
-            self.original_user
-            and interaction.user != self.original_user
-        ):
+        if self.original_user and interaction.user != self.original_user:
             await interaction.response.send_message(
                 "This interaction is not yours.", ephemeral=True
             )
             return
         search_term = self.search_input.value.upper()
-        filtered_sites = [
-            site for site in self.radar_sites if search_term in site
-        ]
+        filtered_sites = [site for site in self.radar_sites if search_term in site]
         if not filtered_sites:
             await interaction.response.send_message(
                 embed=discord.Embed(
@@ -434,16 +381,11 @@ class SearchModal(Modal, title="Search Radar Sites"):
                 description="Select a date for the data:",
                 color=discord.Color.blue(),
             )
-            await interaction.response.send_message(
-                embed=embed, view=view
-            )
+            await interaction.response.send_message(embed=embed, view=view)
             msg = await interaction.original_response()
             self.messages_to_delete.append(msg)
             return
-        options = [
-            SelectOption(label=site, value=site)
-            for site in filtered_sites[:25]
-        ]
+        options = [SelectOption(label=site, value=site) for site in filtered_sites[:25]]
         select = RadarSiteSelect(
             placeholder=f"Select a radar site ({len(options)} matches)...",
             options=options,
@@ -469,22 +411,17 @@ class SearchModal(Modal, title="Search Radar Sites"):
 
 
 class TimeRangeView(View):
-    def __init__(
-        self, radar_sites, date=None, messages_to_delete=None, original_user=None
-    ):
+    def __init__(self, radar_sites, date=None, messages_to_delete=None, original_user=None):
         super().__init__(timeout=300)
         self.original_user = original_user
         self.radar_sites = radar_sites
-        self.date = date or datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        self.date = date or datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
         self.messages_to_delete = messages_to_delete or []
 
-    async def interaction_check(
-        self, interaction: discord.Interaction
-    ) -> bool:
-        if (
-            self.original_user
-            and interaction.user != self.original_user
-        ):
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if self.original_user and interaction.user != self.original_user:
             await interaction.response.send_message(
                 "This interaction is not yours.", ephemeral=True
             )
@@ -492,9 +429,7 @@ class TimeRangeView(View):
         return True
 
     @discord.ui.button(label="Last 1h", style=ButtonStyle.green, row=0)
-    async def last_1h(
-        self, interaction: discord.Interaction, button: Button
-    ):
+    async def last_1h(self, interaction: discord.Interaction, button: Button):
         await interaction.response.defer()
         now = datetime.now(timezone.utc)
         await run_download(
@@ -507,9 +442,7 @@ class TimeRangeView(View):
         )
 
     @discord.ui.button(label="Last 2h", style=ButtonStyle.green, row=0)
-    async def last_2h(
-        self, interaction: discord.Interaction, button: Button
-    ):
+    async def last_2h(self, interaction: discord.Interaction, button: Button):
         await interaction.response.defer()
         now = datetime.now(timezone.utc)
         await run_download(
@@ -522,9 +455,7 @@ class TimeRangeView(View):
         )
 
     @discord.ui.button(label="Last 3h", style=ButtonStyle.green, row=0)
-    async def last_3h(
-        self, interaction: discord.Interaction, button: Button
-    ):
+    async def last_3h(self, interaction: discord.Interaction, button: Button):
         await interaction.response.defer()
         now = datetime.now(timezone.utc)
         await run_download(
@@ -537,9 +468,7 @@ class TimeRangeView(View):
         )
 
     @discord.ui.button(label="Last 4h", style=ButtonStyle.green, row=0)
-    async def last_4h(
-        self, interaction: discord.Interaction, button: Button
-    ):
+    async def last_4h(self, interaction: discord.Interaction, button: Button):
         await interaction.response.defer()
         now = datetime.now(timezone.utc)
         await run_download(
@@ -551,12 +480,8 @@ class TimeRangeView(View):
             dates_to_query=self._dates_for_hours(4),
         )
 
-    @discord.ui.button(
-        label="Z-to-Z Range", style=ButtonStyle.blurple, row=1
-    )
-    async def z_range(
-        self, interaction: discord.Interaction, button: Button
-    ):
+    @discord.ui.button(label="Z-to-Z Range", style=ButtonStyle.blurple, row=1)
+    async def z_range(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_modal(
             ZRangeModal(
                 self.radar_sites,
@@ -566,12 +491,8 @@ class TimeRangeView(View):
             )
         )
 
-    @discord.ui.button(
-        label="Start + Duration", style=ButtonStyle.blurple, row=1
-    )
-    async def start_duration(
-        self, interaction: discord.Interaction, button: Button
-    ):
+    @discord.ui.button(label="Start + Duration", style=ButtonStyle.blurple, row=1)
+    async def start_duration(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_modal(
             StartPlusDurationModal(
                 self.radar_sites,
@@ -581,12 +502,8 @@ class TimeRangeView(View):
             )
         )
 
-    @discord.ui.button(
-        label="Explicit Range", style=ButtonStyle.blurple, row=1
-    )
-    async def explicit_range(
-        self, interaction: discord.Interaction, button: Button
-    ):
+    @discord.ui.button(label="Explicit Range", style=ButtonStyle.blurple, row=1)
+    async def explicit_range(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_modal(
             ExplicitRangeModal(
                 self.radar_sites,
@@ -596,12 +513,8 @@ class TimeRangeView(View):
             )
         )
 
-    @discord.ui.button(
-        label="N Most Recent", style=ButtonStyle.grey, row=1
-    )
-    async def n_most_recent(
-        self, interaction: discord.Interaction, button: Button
-    ):
+    @discord.ui.button(label="N Most Recent", style=ButtonStyle.grey, row=1)
+    async def n_most_recent(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_modal(
             NumFilesModal(
                 self.radar_sites,
@@ -621,21 +534,14 @@ class TimeRangeView(View):
 
 
 class DateSelectionView(View):
-    def __init__(
-        self, radar_sites, messages_to_delete, original_user=None
-    ):
+    def __init__(self, radar_sites, messages_to_delete, original_user=None):
         super().__init__(timeout=300)
         self.original_user = original_user
         self.radar_sites = radar_sites
         self.messages_to_delete = messages_to_delete
 
-    async def interaction_check(
-        self, interaction: discord.Interaction
-    ) -> bool:
-        if (
-            self.original_user
-            and interaction.user != self.original_user
-        ):
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if self.original_user and interaction.user != self.original_user:
             await interaction.response.send_message(
                 "This interaction is not yours.", ephemeral=True
             )
@@ -643,12 +549,8 @@ class DateSelectionView(View):
         return True
 
     @discord.ui.button(label="Today", style=ButtonStyle.green)
-    async def today(
-        self, interaction: discord.Interaction, button: Button
-    ):
-        date = datetime.now(timezone.utc).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+    async def today(self, interaction: discord.Interaction, button: Button):
+        date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         view = TimeRangeView(
             self.radar_sites,
             date,
@@ -657,10 +559,7 @@ class DateSelectionView(View):
         )
         embed = discord.Embed(
             title=f"Selected: {', '.join(self.radar_sites)}",
-            description=(
-                f"Date: {date.strftime('%Y-%m-%d')}\n"
-                f"Choose a time range option:"
-            ),
+            description=(f"Date: {date.strftime('%Y-%m-%d')}\nChoose a time range option:"),
             color=discord.Color.blue(),
         )
         await interaction.response.send_message(embed=embed, view=view)
@@ -668,9 +567,7 @@ class DateSelectionView(View):
         self.messages_to_delete.append(msg)
 
     @discord.ui.button(label="Yesterday", style=ButtonStyle.green)
-    async def yesterday(
-        self, interaction: discord.Interaction, button: Button
-    ):
+    async def yesterday(self, interaction: discord.Interaction, button: Button):
         date = (datetime.now(timezone.utc) - timedelta(days=1)).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
@@ -682,10 +579,7 @@ class DateSelectionView(View):
         )
         embed = discord.Embed(
             title=f"Selected: {', '.join(self.radar_sites)}",
-            description=(
-                f"Date: {date.strftime('%Y-%m-%d')}\n"
-                f"Choose a time range option:"
-            ),
+            description=(f"Date: {date.strftime('%Y-%m-%d')}\nChoose a time range option:"),
             color=discord.Color.blue(),
         )
         await interaction.response.send_message(embed=embed, view=view)
@@ -693,9 +587,7 @@ class DateSelectionView(View):
         self.messages_to_delete.append(msg)
 
     @discord.ui.button(label="Custom Date", style=ButtonStyle.grey)
-    async def custom_date(
-        self, interaction: discord.Interaction, button: Button
-    ):
+    async def custom_date(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_modal(
             DateModal(
                 self.radar_sites,
@@ -735,9 +627,7 @@ class RadarSiteSelect(Select):
 
 
 class RadarSiteView(View):
-    def __init__(
-        self, radar_sites, messages_to_delete, original_user
-    ):
+    def __init__(self, radar_sites, messages_to_delete, original_user):
         super().__init__(timeout=300)
         self.original_user = original_user
         self.radar_sites = radar_sites
@@ -749,12 +639,9 @@ class RadarSiteView(View):
     def _rebuild_items(self):
         self.clear_items()
         start_idx = self.current_page * self.page_size
-        end_idx = min(
-            start_idx + self.page_size, len(self.radar_sites)
-        )
+        end_idx = min(start_idx + self.page_size, len(self.radar_sites))
         options = [
-            SelectOption(label=site, value=site)
-            for site in self.radar_sites[start_idx:end_idx]
+            SelectOption(label=site, value=site) for site in self.radar_sites[start_idx:end_idx]
         ]
         self.add_item(
             RadarSiteSelect(
@@ -764,14 +651,10 @@ class RadarSiteView(View):
                 original_user=self.original_user,
             )
         )
-        search_btn = Button(
-            label="Search Radar Sites", style=ButtonStyle.grey
-        )
+        search_btn = Button(label="Search Radar Sites", style=ButtonStyle.grey)
         search_btn.callback = self._search_callback
         self.add_item(search_btn)
-        multi_btn = Button(
-            label="Select Multiple Sites", style=ButtonStyle.grey
-        )
+        multi_btn = Button(label="Select Multiple Sites", style=ButtonStyle.grey)
         multi_btn.callback = self._multi_callback
         self.add_item(multi_btn)
         if self.current_page > 0:
@@ -783,9 +666,7 @@ class RadarSiteView(View):
             next_btn.callback = self._next_callback
             self.add_item(next_btn)
 
-    async def interaction_check(
-        self, interaction: discord.Interaction
-    ) -> bool:
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user != self.original_user:
             await interaction.response.send_message(
                 "This interaction is not yours.", ephemeral=True
@@ -816,10 +697,7 @@ class RadarSiteView(View):
         self._rebuild_items()
         embed = discord.Embed(
             title="AWS NEXRAD Data Downloader",
-            description=(
-                f"Select a radar site "
-                f"({len(self.radar_sites)} available):"
-            ),
+            description=(f"Select a radar site ({len(self.radar_sites)} available):"),
             color=discord.Color.blue(),
         )
         await interaction.response.edit_message(embed=embed, view=self)
@@ -829,10 +707,7 @@ class RadarSiteView(View):
         self._rebuild_items()
         embed = discord.Embed(
             title="AWS NEXRAD Data Downloader",
-            description=(
-                f"Select a radar site "
-                f"({len(self.radar_sites)} available):"
-            ),
+            description=(f"Select a radar site ({len(self.radar_sites)} available):"),
             color=discord.Color.blue(),
         )
         await interaction.response.edit_message(embed=embed, view=self)
@@ -844,9 +719,7 @@ class StartView(View):
         self.original_user = original_user
         self.messages_to_delete = []
 
-    async def interaction_check(
-        self, interaction: discord.Interaction
-    ) -> bool:
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user != self.original_user:
             await interaction.response.send_message(
                 "This interaction is not yours.", ephemeral=True
@@ -854,15 +727,11 @@ class StartView(View):
             return False
         return True
 
-    @discord.ui.button(
-        label="Start Download", style=ButtonStyle.green
-    )
-    async def start_download(
-        self, interaction: discord.Interaction, button: Button
-    ):
-        today = (
-            datetime.now(timezone.utc) - timedelta(days=1)
-        ).replace(hour=0, minute=0, second=0, microsecond=0)
+    @discord.ui.button(label="Start Download", style=ButtonStyle.green)
+    async def start_download(self, interaction: discord.Interaction, button: Button):
+        today = (datetime.now(timezone.utc) - timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
         radar_sites = await get_radar_sites(today)
         if not radar_sites:
             await interaction.response.send_message(
@@ -885,17 +754,9 @@ class StartView(View):
         )
         embed = discord.Embed(
             title="AWS NEXRAD Data Downloader",
-            description=(
-                f"Select a radar site "
-                f"({len(radar_sites)} available):"
-            ),
+            description=(f"Select a radar site ({len(radar_sites)} available):"),
             color=discord.Color.blue(),
         )
         await interaction.response.send_message(embed=embed, view=view)
         msg = await interaction.original_response()
         self.messages_to_delete.append(msg)
-
-
-
-
-

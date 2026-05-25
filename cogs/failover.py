@@ -61,8 +61,8 @@ FAILOVER_TOKEN = os.getenv("FAILOVER_TOKEN", "")
 # If unset, falls back to state_store.REDIS_URL (correct for the primary node).
 ELECTION_REDIS_URL = os.getenv("ELECTION_REDIS_URL", "")
 
-HEARTBEAT_TTL  = 420  # seconds — lease expiry
-SYNC_INTERVAL  = 30   # seconds — heartbeat / check cadence
+HEARTBEAT_TTL = 420  # seconds — lease expiry
+SYNC_INTERVAL = 30  # seconds — heartbeat / check cadence
 
 STARTUP_GRACE_SECONDS = 120
 MAX_FAILURES = max(5, HEARTBEAT_TTL // (2 * SYNC_INTERVAL))
@@ -163,12 +163,15 @@ class FailoverCog(commands.Cog):
             nodes: dict = await client.hgetall(NODES_KEY) or {}
             my_hostname = socket.gethostname()
             to_delete = [
-                field for field in nodes
+                field
+                for field in nodes
                 if field != self._identity and field.split(":")[1:2] == [my_hostname]
             ]
             if to_delete:
                 await client.hdel(NODES_KEY, *to_delete)
-                logger.debug(f"[FAILOVER] Removed {len(to_delete)} stale self-entries from nodes hash")
+                logger.debug(
+                    f"[FAILOVER] Removed {len(to_delete)} stale self-entries from nodes hash"
+                )
         except Exception as e:
             logger.debug(f"[FAILOVER] Could not clean own stale entries: {e}")
 
@@ -227,9 +230,7 @@ class FailoverCog(commands.Cog):
         Returns True if renewed, False if someone else holds the key."""
         try:
             client = await self._get_redis()
-            result = await client.eval(
-                _LUA_RENEW, 1, LEASE_KEY, self._identity, str(HEARTBEAT_TTL)
-            )
+            result = await client.eval(_LUA_RENEW, 1, LEASE_KEY, self._identity, str(HEARTBEAT_TTL))
             return result is not None
         except (
             redis.exceptions.ConnectionError,
@@ -269,7 +270,9 @@ class FailoverCog(commands.Cog):
             if self._is_our_node(manual):
                 logger.info(f"[FAILOVER] Startup: manual override names us as Primary")
                 if not await self._write_lease():
-                    logger.warning("[FAILOVER] Startup (manual): Redis unreachable — cannot write lease; booting as STANDBY")
+                    logger.warning(
+                        "[FAILOVER] Startup (manual): Redis unreachable — cannot write lease; booting as STANDBY"
+                    )
                     self.bot.state.is_primary = False
                     return False
                 self.bot.state.is_primary = True
@@ -278,14 +281,18 @@ class FailoverCog(commands.Cog):
                 except Exception as e:
                     logger.warning(f"[FAILOVER] Startup resync (manual) failed: {e}")
                 return True
-            logger.info(f"[FAILOVER] Startup: manual override names '{manual}' — booting as STANDBY")
+            logger.info(
+                f"[FAILOVER] Startup: manual override names '{manual}' — booting as STANDBY"
+            )
             self.bot.state.is_primary = False
             return False
 
         holder = await self._read_lease_holder()
         if holder and holder != self._identity:
             if self._identity.startswith("P:") and holder.startswith("S:"):
-                logger.warning(f"[FAILOVER] Startup: lease held by Standby '{holder}' — pre-empting")
+                logger.warning(
+                    f"[FAILOVER] Startup: lease held by Standby '{holder}' — pre-empting"
+                )
             else:
                 logger.warning(f"[FAILOVER] Startup: lease held by '{holder}' — booting as STANDBY")
                 self.bot.state.is_primary = False
@@ -336,7 +343,9 @@ class FailoverCog(commands.Cog):
                         await self._promote(force=True)
                 else:
                     if self.bot.state.is_primary:
-                        logger.warning(f"[FAILOVER] Manual override: demoting to standby (target: '{manual_primary}')")
+                        logger.warning(
+                            f"[FAILOVER] Manual override: demoting to standby (target: '{manual_primary}')"
+                        )
                         await self._demote()
                     return
 
@@ -362,13 +371,13 @@ class FailoverCog(commands.Cog):
                 # Lost the lease between read and renew — re-check and demote.
                 new_holder = await self._read_lease_holder()
                 if new_holder and new_holder != self._identity:
-                    logger.warning(f"[FAILOVER] Lost lease to {new_holder} during renewal — demoting")
+                    logger.warning(
+                        f"[FAILOVER] Lost lease to {new_holder} during renewal — demoting"
+                    )
                     await self._demote()
             return
         # Lease expired — reclaim with NX so we don't stomp a legitimate holder.
-        result = await self._exec(
-            "SET", LEASE_KEY, self._identity, "NX", "EX", str(HEARTBEAT_TTL)
-        )
+        result = await self._exec("SET", LEASE_KEY, self._identity, "NX", "EX", str(HEARTBEAT_TTL))
         if result is None:
             new_holder = await self._read_lease_holder()
             if new_holder and new_holder != self._identity:
@@ -417,11 +426,15 @@ class FailoverCog(commands.Cog):
         holder = await self._read_lease_holder()
         if holder:
             if self._identity.startswith("P:") and holder.startswith("S:"):
-                logger.warning(f"[FAILOVER] Configured Primary reclaiming lease from Standby '{holder}'")
+                logger.warning(
+                    f"[FAILOVER] Configured Primary reclaiming lease from Standby '{holder}'"
+                )
                 await self._promote()
                 return
             if self._primary_failures > 0:
-                logger.info(f"[FAILOVER] Primary lease held by {holder}; clearing {self._primary_failures} failures")
+                logger.info(
+                    f"[FAILOVER] Primary lease held by {holder}; clearing {self._primary_failures} failures"
+                )
             self._primary_failures = 0
             return
         count = self._register_failure("Primary lease expired")
@@ -446,9 +459,7 @@ class FailoverCog(commands.Cog):
         # currently-held primary.
         promoting_identity = self._node_identity(True)
         if force:
-            await self._exec(
-                "SET", LEASE_KEY, promoting_identity, "EX", str(HEARTBEAT_TTL)
-            )
+            await self._exec("SET", LEASE_KEY, promoting_identity, "EX", str(HEARTBEAT_TTL))
             logger.warning("[FAILOVER] !!! PROMOTING TO PRIMARY (forced) !!!")
         else:
             claim_result = await self._exec(
@@ -479,6 +490,7 @@ class FailoverCog(commands.Cog):
         await self._cleanup_own_stale_entries()
 
         from utils.events_db import restore_from_sync, set_syncthing_folder_mode  # noqa: PLC0415
+
         restore_from_sync()
         await set_syncthing_folder_mode("sendonly")
 
@@ -489,7 +501,9 @@ class FailoverCog(commands.Cog):
             local = self._build_local_redis()
             info = await local.info("replication")
             if info.get("role") == "slave":
-                logger.warning("[FAILOVER] Promoting Redis replica to standalone master (REPLICAOF NO ONE)")
+                logger.warning(
+                    "[FAILOVER] Promoting Redis replica to standalone master (REPLICAOF NO ONE)"
+                )
                 await local.execute_command("REPLICAOF", "NO", "ONE")
                 await asyncio.sleep(0.5)
             await local.aclose()
@@ -519,6 +533,7 @@ class FailoverCog(commands.Cog):
             logger.exception(f"[FAILOVER] Resync on promotion failed: {e}")
             try:
                 from main import send_bot_alert  # noqa: PLC0415
+
                 await send_bot_alert(
                     "Failover: promoted with stale Redis state",
                     f"This node was promoted to Primary but `resync_to_redis()` failed: `{e}`.\n"
@@ -544,7 +559,7 @@ class FailoverCog(commands.Cog):
                         await self.bot.unload_extension(loaded)
                     except Exception as rollback_err:
                         logger.error(f"[FAILOVER] Rollback failure on {loaded}: {rollback_err}")
-                
+
                 # Signal demotion and exit. Call _do_demote() directly —
                 # _demote() would re-acquire _role_lock which is already held
                 # by the enclosing _promote(), and asyncio.Lock is not
@@ -587,6 +602,7 @@ class FailoverCog(commands.Cog):
             try:
                 import json as _json
                 from datetime import datetime, timezone
+
                 csu_data = _json.loads(csu_raw)
                 today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
                 if csu_data.get("date") == today:
@@ -607,6 +623,7 @@ class FailoverCog(commands.Cog):
         self.bot.state.is_primary = False
         self._identity = self._node_identity(False)
         from utils.events_db import set_syncthing_folder_mode  # noqa: PLC0415
+
         await set_syncthing_folder_mode("receiveonly")
         failed = []
         for ext in ALL_EXTENSIONS:
@@ -624,6 +641,7 @@ class FailoverCog(commands.Cog):
             )
             try:
                 from main import send_bot_alert  # noqa: PLC0415
+
                 await send_bot_alert(
                     "Failover: forced exit — cog unload failed during demotion",
                     f"Could not unload {failed} during `_demote()`. "
@@ -634,6 +652,7 @@ class FailoverCog(commands.Cog):
             except Exception as alert_err:
                 logger.warning(f"[FAILOVER] Could not send demote-failure alert: {alert_err}")
             import os as _os  # noqa: PLC0415
+
             _os._exit(1)
         self._primary_failures = 0
 
@@ -646,9 +665,7 @@ class FailoverCog(commands.Cog):
         logger.error(f"AppCommand error: Command 'failover' raised an exception: {error}")
         try:
             if interaction.response.is_done():
-                await interaction.followup.send(
-                    f"❌ An error occurred: `{error}`", ephemeral=True
-                )
+                await interaction.followup.send(f"❌ An error occurred: `{error}`", ephemeral=True)
             else:
                 await interaction.response.send_message(
                     f"❌ An error occurred: `{error}`", ephemeral=True
@@ -657,8 +674,7 @@ class FailoverCog(commands.Cog):
             logger.warning(f"[FAILOVER] Could not send error reply: {reply_err}")
 
     @app_commands.command(
-        name="failover",
-        description="Manually designate the Primary node (Admin only)"
+        name="failover", description="Manually designate the Primary node (Admin only)"
     )
     async def failover_slash(self, interaction: discord.Interaction):
         raw_admin_id = os.getenv("ADMIN_USER_ID", "0")
@@ -731,19 +747,23 @@ class FailoverView(discord.ui.View):
                 label += " (Active Primary)"
             if node == cog._identity:
                 label += " (This Node)"
-            options.append(discord.SelectOption(
-                label=label,
-                value=node,
-                description=f"Force {node} to be Primary",
-                default=(node == current_manual),
-            ))
+            options.append(
+                discord.SelectOption(
+                    label=label,
+                    value=node,
+                    description=f"Force {node} to be Primary",
+                    default=(node == current_manual),
+                )
+            )
 
-        options.append(discord.SelectOption(
-            label="❌ Clear Manual Override",
-            value="CLEAR",
-            description="Return to standard automatic failover",
-            emoji="🔄",
-        ))
+        options.append(
+            discord.SelectOption(
+                label="❌ Clear Manual Override",
+                value="CLEAR",
+                description="Return to standard automatic failover",
+                emoji="🔄",
+            )
+        )
 
         self.add_item(FailoverSelect(cog, options))
 

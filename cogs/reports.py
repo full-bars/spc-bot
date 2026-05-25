@@ -32,20 +32,24 @@ _PNS_LATLON_RE = re.compile(r"START LAT/LON:\s*([\d\.\-]+)\s*/\s*([\d\.\-]+)", r
 _PNS_MONTHS_STR = "JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC"
 _PNS_NARR_DATE_RE = re.compile(rf"({_PNS_MONTHS_STR})\w*\s+(\d{{1,2}})\s*,\s*(\d{{4}})", re.I)
 
+
 class PNSView(discord.ui.View):
     def __init__(self, raw_text: str):
-        super().__init__(timeout=86400) # Long timeout for persistent posts
+        super().__init__(timeout=86400)  # Long timeout for persistent posts
         self.raw_text = raw_text
 
     @discord.ui.button(label="📜 View Full Text", style=discord.ButtonStyle.secondary)
     async def view_text(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Split text if it exceeds 2000 chars (unlikely for most, but just in case)
         if len(self.raw_text) > 1950:
-            parts = [self.raw_text[i:i+1950] for i in range(0, len(self.raw_text), 1950)]
+            parts = [self.raw_text[i : i + 1950] for i in range(0, len(self.raw_text), 1950)]
             for i, p in enumerate(parts):
-                await interaction.response.send_message(f"```\n{p}\n```", ephemeral=True) if i == 0 else await interaction.followup.send(f"```\n{p}\n```", ephemeral=True)
+                await interaction.response.send_message(
+                    f"```\n{p}\n```", ephemeral=True
+                ) if i == 0 else await interaction.followup.send(f"```\n{p}\n```", ephemeral=True)
         else:
             await interaction.response.send_message(f"```\n{self.raw_text}\n```", ephemeral=True)
+
 
 class ReportsCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -93,7 +97,9 @@ class ReportsCog(commands.Cog):
                 continue
 
             # Match Line 1: 0131 AM     TSTM WND DMG     DICKSON                 36.03N 87.39W
-            m_l1 = re.search(r"^(\d{4}\s+[AP]M)\s+(.{16})\s+(.{24})\s+(\d+\.\d+N\s+\d+\.\d+W)", r, re.M)
+            m_l1 = re.search(
+                r"^(\d{4}\s+[AP]M)\s+(.{16})\s+(.{24})\s+(\d+\.\d+N\s+\d+\.\d+W)", r, re.M
+            )
             if not m_l1:
                 continue
 
@@ -114,7 +120,9 @@ class ReportsCog(commands.Cog):
                 source = source.strip()
 
             # Remarks
-            m_remarks = re.search(r"REMARKS\s*\.\.\.\s*(.*?)(?=\n\s*\n|\$\$|$)", r, re.I | re.DOTALL)
+            m_remarks = re.search(
+                r"REMARKS\s*\.\.\.\s*(.*?)(?=\n\s*\n|\$\$|$)", r, re.I | re.DOTALL
+            )
             remarks = m_remarks.group(1).replace("\n", " ").strip() if m_remarks else ""
 
             # Specialized logic for automated stations (ASOS, AWOS, MTR)
@@ -140,31 +148,43 @@ class ReportsCog(commands.Cog):
             lsr_ts = datetime.now(timezone.utc).timestamp()
             if product_id and len(product_id) >= 12:
                 try:
-                    lsr_ts = datetime.strptime(product_id[:12], "%Y%m%d%H%M").replace(tzinfo=timezone.utc).timestamp()
+                    lsr_ts = (
+                        datetime.strptime(product_id[:12], "%Y%m%d%H%M")
+                        .replace(tzinfo=timezone.utc)
+                        .timestamp()
+                    )
                 except Exception:
-                    logger.debug("LSR timestamp parse failed for product_id %r, falling back to now()", product_id)
+                    logger.debug(
+                        "LSR timestamp parse failed for product_id %r, falling back to now()",
+                        product_id,
+                    )
 
             # Dedup check for Tornadoes (Discord side)
             if "TORNADO" in event_type.upper():
                 from utils.db import get_posted_warning_timestamp
                 from utils.state_store import find_matching_tornado
+
                 match = await find_matching_tornado(office, lsr_ts, location, window_hours=1.0)
                 if match:
                     event_id, vtec_id = match
-                    logger.info(f"[REPORTS] Skipping Discord post for Tornado LSR {product_id}, matches {event_id}")
+                    logger.info(
+                        f"[REPORTS] Skipping Discord post for Tornado LSR {product_id}, matches {event_id}"
+                    )
 
                     # Calculate Lead Time if we have a vtec_id
                     if vtec_id:
                         warn_ts = await get_posted_warning_timestamp(vtec_id)
                         if warn_ts:
                             lead_time = (lsr_ts - warn_ts) / 60.0
-                            logger.info(f"[REPORTS] Calculated lead time for {event_id}: {lead_time:.1f} min")
+                            logger.info(
+                                f"[REPORTS] Calculated lead time for {event_id}: {lead_time:.1f} min"
+                            )
                             # Update existing event with lead time
                             await add_significant_event(
                                 event_id=event_id,
                                 event_type="Tornado",
                                 location=location,
-                                lead_time=lead_time
+                                lead_time=lead_time,
                             )
                     continue
 
@@ -188,9 +208,7 @@ class ReportsCog(commands.Cog):
             )
 
             embed = discord.Embed(
-                description=desc,
-                color=color,
-                timestamp=datetime.now(timezone.utc)
+                description=desc, color=color, timestamp=datetime.now(timezone.utc)
             )
             embed.set_footer(text=f"{office} LSR | {coords}")
 
@@ -227,7 +245,7 @@ class ReportsCog(commands.Cog):
         for stop_marker in ("&&", "EF SCALE:", "THE ENHANCED FUJITA SCALE"):
             m_stop = re.search(re.escape(stop_marker), raw_text, re.I)
             if m_stop:
-                search_text = raw_text[:m_stop.start()]
+                search_text = raw_text[: m_stop.start()]
                 break
 
         # 2. Extract All Ratings and find the Max
@@ -236,12 +254,16 @@ class ReportsCog(commands.Cog):
         ef_nums = []
         for r in ratings:
             if r.upper() == "U":
-                ef_nums.append(-1) # Unknown
+                ef_nums.append(-1)  # Unknown
             else:
                 ef_nums.append(int(r))
 
         max_ef = max(ef_nums) if ef_nums else None
-        rating_str = f"EF{max_ef}" if max_ef is not None and max_ef >= 0 else ("EFU" if max_ef == -1 else "N/A")
+        rating_str = (
+            f"EF{max_ef}"
+            if max_ef is not None and max_ef >= 0
+            else ("EFU" if max_ef == -1 else "N/A")
+        )
 
         # 3. Location/Event Name
         m_event = re.search(r"\.\.\.(.*?)\.\.\.", raw_text)
@@ -284,9 +306,7 @@ class ReportsCog(commands.Cog):
 
         view = PNSView(raw_text)
         embed = discord.Embed(
-            description=desc,
-            color=discord.Color.teal(),
-            timestamp=datetime.now(timezone.utc)
+            description=desc, color=discord.Color.teal(), timestamp=datetime.now(timezone.utc)
         )
         embed.set_footer(text=f"{office} PNS | {product_id}")
 
@@ -305,7 +325,11 @@ class ReportsCog(commands.Cog):
         if m_num:
             event_date = f"{m_num.group(3)}-{m_num.group(1).zfill(2)}-{m_num.group(2).zfill(2)}"
             try:
-                event_ts = datetime.strptime(event_date, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp()
+                event_ts = (
+                    datetime.strptime(event_date, "%Y-%m-%d")
+                    .replace(tzinfo=timezone.utc)
+                    .timestamp()
+                )
             except Exception as e:
                 logger.warning(f"Failed to parse event date '{event_date}': {e}")
         else:
@@ -313,10 +337,14 @@ class ReportsCog(commands.Cog):
             m_narr = _PNS_NARR_DATE_RE.search(raw_text)
             if m_narr:
                 m_str = m_narr.group(1).upper()[:3]
-                m_idx = (_PNS_MONTHS_STR.split("|").index(m_str) + 1)
+                m_idx = _PNS_MONTHS_STR.split("|").index(m_str) + 1
                 event_date = f"{m_narr.group(3)}-{str(m_idx).zfill(2)}-{m_narr.group(2).zfill(2)}"
                 try:
-                    event_ts = datetime.strptime(event_date, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp()
+                    event_ts = (
+                        datetime.strptime(event_date, "%Y-%m-%d")
+                        .replace(tzinfo=timezone.utc)
+                        .timestamp()
+                    )
                 except Exception as e:
                     logger.warning(f"Failed to parse event date '{event_date}': {e}")
 
@@ -327,6 +355,7 @@ class ReportsCog(commands.Cog):
             coords = f"{m_latlon.group(1)}N {abs(float(m_latlon.group(2)))}W"
 
         from utils.state_store import find_matching_tornado
+
         match = await find_matching_tornado(office, event_ts, event_name)
 
         # Only log to significant events if it's a Tornado survey
@@ -336,7 +365,9 @@ class ReportsCog(commands.Cog):
         if is_tornado:
             if match:
                 event_id, vtec_id = match
-                logger.info(f"[REPORTS] Found matching tornado {event_id} for survey, updating rating to {rating_str}")
+                logger.info(
+                    f"[REPORTS] Found matching tornado {event_id} for survey, updating rating to {rating_str}"
+                )
                 # Update existing row by using the same event_id
                 await add_significant_event(
                     event_id=event_id,
@@ -346,22 +377,24 @@ class ReportsCog(commands.Cog):
                     coords=coords,
                     timestamp=event_ts,
                     source=office,
-                    raw_text=raw_text
+                    raw_text=raw_text,
                 )
             else:
                 # Log as a new survey event
                 await add_significant_event(
                     event_id=f"IEM:PNS:{product_id}",
-                    event_type="Tornado", # Log as Tornado so it shows in /recenttornadoes
+                    event_type="Tornado",  # Log as Tornado so it shows in /recenttornadoes
                     location=event_name,
                     magnitude=rating_str,
                     coords=coords,
                     timestamp=event_ts,
                     source=office,
-                    raw_text=raw_text
+                    raw_text=raw_text,
                 )
         else:
-            logger.info(f"[REPORTS] Skipping SignificantEvent log for non-tornado PNS: {event_name}")
+            logger.info(
+                f"[REPORTS] Skipping SignificantEvent log for non-tornado PNS: {event_name}"
+            )
 
         if event_date:
             logger.info(f"[REPORTS] Detected event date {event_date} in PNS, checking for tracks")
@@ -377,6 +410,7 @@ class ReportsCog(commands.Cog):
                 return
 
             import json as _json
+
             data = _json.loads(content)
             # Find datglobalid options
             options = {}
@@ -433,7 +467,7 @@ class ReportsCog(commands.Cog):
                     title="🌪️ Tornado Track + Lead Time",
                     description=f"**Event:** {label}\n**Date:** {event_date}",
                     color=discord.Color.red(),
-                    url=f"https://mesonet.agron.iastate.edu/plotting/auto/?q=253&dat={event_date.replace('-', '/')}&datglobalid={guid}"
+                    url=f"https://mesonet.agron.iastate.edu/plotting/auto/?q=253&dat={event_date.replace('-', '/')}&datglobalid={guid}",
                 )
 
                 if file_to_send:
@@ -449,16 +483,19 @@ class ReportsCog(commands.Cog):
 
                 # Link DAT guid to tornado and cache photos
                 from utils.events_db import cache_dat_photos, link_dat_guid_to_tornado
+
                 match_result = await link_dat_guid_to_tornado(event_date, guid, label)
                 if match_result:
                     event_id, location, magnitude, coords = match_result
                     # Pre-cache photos in the background
-                    asyncio.create_task(cache_dat_photos(
-                        event_id=event_id,
-                        location=location,
-                        magnitude=magnitude or "",
-                        coords=coords or "",
-                    ))
+                    asyncio.create_task(
+                        cache_dat_photos(
+                            event_id=event_id,
+                            location=location,
+                            magnitude=magnitude or "",
+                            coords=coords or "",
+                        )
+                    )
 
         except Exception as e:
             logger.warning(f"[REPORTS] Survey check failed for {event_date}: {e}")
@@ -474,6 +511,7 @@ class ReportsCog(commands.Cog):
                 return
 
             import json as _json
+
             data = _json.loads(content)
             for feature in data.get("features", []):
                 props = feature.get("properties", {})
@@ -491,7 +529,7 @@ class ReportsCog(commands.Cog):
                 if is_sig:
                     # We found a significant report not seen via iembot fast-path
                     # Log it
-                    valid_str = props.get("valid") # 2026-04-28T11:08:00Z
+                    valid_str = props.get("valid")  # 2026-04-28T11:08:00Z
                     ts = 0.0
                     if valid_str:
                         try:
@@ -515,7 +553,10 @@ class ReportsCog(commands.Cog):
                         # this event, update that entry with the cleaner GeoJSON
                         # location ("City, ST") rather than skipping entirely.
                         from utils.state_store import find_matching_tornado  # noqa: PLC0415
-                        match_id = await find_matching_tornado(office, ts, location, window_hours=1.0)
+
+                        match_id = await find_matching_tornado(
+                            office, ts, location, window_hours=1.0
+                        )
                         if match_id:
                             await add_significant_event(
                                 event_id=match_id[0],
@@ -527,7 +568,9 @@ class ReportsCog(commands.Cog):
                                 source=office,
                                 raw_text=props.get("remark"),
                             )
-                            logger.debug(f"[REPORTS] Updated location for {match_id} → {location!r}")
+                            logger.debug(
+                                f"[REPORTS] Updated location for {match_id} → {location!r}"
+                            )
                             await self.bot.state.add_posted_report(pid)
                             continue
 
@@ -550,6 +593,7 @@ class ReportsCog(commands.Cog):
     @poll_lsrs.before_loop
     async def before_poll_lsrs(self):
         await self.bot.wait_until_ready()
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(ReportsCog(bot))

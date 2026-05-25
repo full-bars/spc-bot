@@ -30,21 +30,12 @@ async def get_radar_sites(date: datetime) -> list[str]:
     prefix = f"{date.year}/{date.month:02d}/{date.day:02d}/"
     try:
         async with _s3() as s3:
-            response = await s3.list_objects_v2(
-                Bucket=BUCKET, Prefix=prefix, Delimiter="/"
-            )
+            response = await s3.list_objects_v2(Bucket=BUCKET, Prefix=prefix, Delimiter="/")
         if "CommonPrefixes" not in response:
-            logger.warning(
-                f"[RADAR] No radar sites found for {date.strftime('%Y-%m-%d')}"
-            )
+            logger.warning(f"[RADAR] No radar sites found for {date.strftime('%Y-%m-%d')}")
             return []
-        sites = sorted(
-            [p["Prefix"].split("/")[-2] for p in response["CommonPrefixes"]]
-        )
-        logger.info(
-            f"[RADAR] Found {len(sites)} radar sites "
-            f"for {date.strftime('%Y-%m-%d')}"
-        )
+        sites = sorted([p["Prefix"].split("/")[-2] for p in response["CommonPrefixes"]])
+        logger.info(f"[RADAR] Found {len(sites)} radar sites for {date.strftime('%Y-%m-%d')}")
         return sites
     except Exception as e:
         logger.exception(f"[RADAR] Error listing radar sites: {e}")
@@ -66,12 +57,14 @@ async def list_files(radar_site: str, dates: list) -> list[dict]:
                     for obj in response.get("Contents", []):
                         if obj["Key"].lower().endswith(".tar") or "_mdm" in obj["Key"].lower():
                             continue
-                        files.append({
-                            "Key": obj["Key"],
-                            "LastModified": obj["LastModified"].replace(tzinfo=timezone.utc),
-                            "Size": obj["Size"],
-                            "RadarSite": radar_site,
-                        })
+                        files.append(
+                            {
+                                "Key": obj["Key"],
+                                "LastModified": obj["LastModified"].replace(tzinfo=timezone.utc),
+                                "Size": obj["Size"],
+                                "RadarSite": radar_site,
+                            }
+                        )
                     if not response.get("IsTruncated"):
                         break
                     page_kwargs["ContinuationToken"] = response["NextContinuationToken"]
@@ -126,9 +119,7 @@ def parse_z_time(time_str: str, reference_date: datetime) -> datetime:
     else:
         hour = int(time_str)
         minute = 0
-    return reference_date.replace(
-        hour=hour, minute=minute, second=0, microsecond=0
-    )
+    return reference_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
 
 def resolve_z_range(start_str: str, end_str: str, reference_date: datetime):
@@ -136,9 +127,7 @@ def resolve_z_range(start_str: str, end_str: str, reference_date: datetime):
     end_dt = parse_z_time(end_str, reference_date)
 
     if start_dt == end_dt:
-        raise ValueError(
-            "Start and end times are the same — please enter a valid range."
-        )
+        raise ValueError("Start and end times are the same — please enter a valid range.")
 
     if end_dt <= start_dt:
         end_dt += timedelta(days=1)

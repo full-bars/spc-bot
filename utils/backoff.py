@@ -37,8 +37,7 @@ class TaskBackoff:
         """Call after a successful cycle to reset backoff."""
         if self._failures > 0:
             logger.info(
-                f"[BACKOFF] {self.name}: recovered after "
-                f"{self._failures} consecutive failure(s)"
+                f"[BACKOFF] {self.name}: recovered after {self._failures} consecutive failure(s)"
             )
         self._failures = 0
 
@@ -59,10 +58,7 @@ class TaskBackoff:
             )
             await asyncio.sleep(delay)
         else:
-            logger.debug(
-                f"[BACKOFF] {self.name}: failure #{self._failures}, "
-                f"no delay yet"
-            )
+            logger.debug(f"[BACKOFF] {self.name}: failure #{self._failures}, no delay yet")
 
         # Send alert at threshold
         if self._failures == 5 and bot:
@@ -70,6 +66,7 @@ class TaskBackoff:
                 # main imports utils.* at module load, so importing
                 # main at the top of this file would deadlock.
                 from main import send_bot_alert  # noqa: PLC0415
+
                 await send_bot_alert(
                     f"{self.name} degraded",
                     f"Task `{self.name}` has failed **{self._failures}** times "

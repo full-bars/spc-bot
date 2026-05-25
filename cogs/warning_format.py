@@ -4,6 +4,7 @@ Handles styling decisions (emoji, color, severity tags), URL generation,
 and warning description text construction. Async image downloading for
 IEM Autoplot maps.
 """
+
 import asyncio
 import logging
 import re
@@ -20,6 +21,7 @@ logger = logging.getLogger("spc_bot.warnings")
 
 try:
     import spc_rust_core as _rust
+
     _RUST_AVAILABLE = True
 except ImportError:
     _rust = None  # type: ignore[assignment]
@@ -31,16 +33,142 @@ _STATE_REGEX = re.compile(
 )
 
 _STATES_LIST = [
-    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
-    "ALABAMA", "ALASKA", "ARIZONA", "ARKANSAS", "CALIFORNIA", "COLORADO", "CONNECTICUT", "DELAWARE", "FLORIDA", "GEORGIA", "HAWAII", "IDAHO", "ILLINOIS", "INDIANA", "IOWA", "KANSAS", "KENTUCKY", "LOUISIANA", "MAINE", "MARYLAND", "MASSACHUSETTS", "MICHIGAN", "MINNESOTA", "MISSISSIPPI", "MISSOURI", "MONTANA", "NEBRASKA", "NEVADA", "NEW HAMPSHIRE", "NEW JERSEY", "NEW MEXICO", "NEW YORK", "NORTH CAROLINA", "NORTH DACOTA", "OHIO", "OKLAHOMA", "OREGON", "PENNSYLVANIA", "RHODE ISLAND", "SOUTH CAROLINA", "SOUTH DAKOTA", "TENNESSEE", "TEXAS", "UTAH", "VERMONT", "VIRGINIA", "WASHINGTON", "WEST VIRGINIA", "WISCONSIN", "WYOMING"
+    "AL",
+    "AK",
+    "AZ",
+    "AR",
+    "CA",
+    "CO",
+    "CT",
+    "DE",
+    "FL",
+    "GA",
+    "HI",
+    "ID",
+    "IL",
+    "IN",
+    "IA",
+    "KS",
+    "KY",
+    "LA",
+    "ME",
+    "MD",
+    "MA",
+    "MI",
+    "MN",
+    "MS",
+    "MO",
+    "MT",
+    "NE",
+    "NV",
+    "NH",
+    "NJ",
+    "NM",
+    "NY",
+    "NC",
+    "ND",
+    "OH",
+    "OK",
+    "OR",
+    "PA",
+    "RI",
+    "SC",
+    "SD",
+    "TN",
+    "TX",
+    "UT",
+    "VT",
+    "VA",
+    "WA",
+    "WV",
+    "WI",
+    "WY",
+    "ALABAMA",
+    "ALASKA",
+    "ARIZONA",
+    "ARKANSAS",
+    "CALIFORNIA",
+    "COLORADO",
+    "CONNECTICUT",
+    "DELAWARE",
+    "FLORIDA",
+    "GEORGIA",
+    "HAWAII",
+    "IDAHO",
+    "ILLINOIS",
+    "INDIANA",
+    "IOWA",
+    "KANSAS",
+    "KENTUCKY",
+    "LOUISIANA",
+    "MAINE",
+    "MARYLAND",
+    "MASSACHUSETTS",
+    "MICHIGAN",
+    "MINNESOTA",
+    "MISSISSIPPI",
+    "MISSOURI",
+    "MONTANA",
+    "NEBRASKA",
+    "NEVADA",
+    "NEW HAMPSHIRE",
+    "NEW JERSEY",
+    "NEW MEXICO",
+    "NEW YORK",
+    "NORTH CAROLINA",
+    "NORTH DACOTA",
+    "OHIO",
+    "OKLAHOMA",
+    "OREGON",
+    "PENNSYLVANIA",
+    "RHODE ISLAND",
+    "SOUTH CAROLINA",
+    "SOUTH DAKOTA",
+    "TENNESSEE",
+    "TEXAS",
+    "UTAH",
+    "VERMONT",
+    "VIRGINIA",
+    "WASHINGTON",
+    "WEST VIRGINIA",
+    "WISCONSIN",
+    "WYOMING",
 ]
 
 _GEOGRAPHIC_GARBAGE = [
-    "AND", "INJURED", "EXPECT", "DAMAGE", "TORNADO", "THUNDERSTORM",
-    "ROOF", "SIDING", "VEHICLE", "REMAIN", "ALERT", "ROOM", "BASEMENT",
-    "PEOPLE", "LOCATIONS", "PRECAUTIONARY", "PREPAREDNESS", "ACTIONS",
-    "FLYING", "DEBRIS", "BUILDING", "TREES", "SHELTER", "LIKELY", "PROTECT",
-    "LIGHTNING", "INDOORS", "THUNDER", "KILLERS", "REMEMBER", "ENOUGH", "STRUCK", "STORM"
+    "AND",
+    "INJURED",
+    "EXPECT",
+    "DAMAGE",
+    "TORNADO",
+    "THUNDERSTORM",
+    "ROOF",
+    "SIDING",
+    "VEHICLE",
+    "REMAIN",
+    "ALERT",
+    "ROOM",
+    "BASEMENT",
+    "PEOPLE",
+    "LOCATIONS",
+    "PRECAUTIONARY",
+    "PREPAREDNESS",
+    "ACTIONS",
+    "FLYING",
+    "DEBRIS",
+    "BUILDING",
+    "TREES",
+    "SHELTER",
+    "LIKELY",
+    "PROTECT",
+    "LIGHTNING",
+    "INDOORS",
+    "THUNDER",
+    "KILLERS",
+    "REMEMBER",
+    "ENOUGH",
+    "STRUCK",
+    "STORM",
 ] + _STATES_LIST
 
 _GEOGRAPHIC_GARBAGE_RE = re.compile(
@@ -49,12 +177,12 @@ _GEOGRAPHIC_GARBAGE_RE = re.compile(
 )
 
 _WARNING_STYLE = {
-    "Tornado Warning":             ("🌪️", discord.Color.red()),
+    "Tornado Warning": ("🌪️", discord.Color.red()),
     "Severe Thunderstorm Warning": ("⛈️", discord.Color.gold()),
-    "Flash Flood Warning":         ("🌊", discord.Color.dark_blue()),
-    "Severe Weather Statement":    ("⛈️", discord.Color.gold()),
-    "Flash Flood Statement":       ("🌊", discord.Color.dark_blue()),
-    "Special Weather Statement":   ("☁️", discord.Color.blue()),
+    "Flash Flood Warning": ("🌊", discord.Color.dark_blue()),
+    "Severe Weather Statement": ("⛈️", discord.Color.gold()),
+    "Flash Flood Statement": ("🌊", discord.Color.dark_blue()),
+    "Special Weather Statement": ("☁️", discord.Color.blue()),
 }
 
 
@@ -63,7 +191,9 @@ def _is_null_vtec_time(s: str) -> bool:
     return bool(s) and s.startswith("000000")
 
 
-def get_warning_style(event: str, text: str, params: dict = None, vtec: dict = None) -> Tuple[str, str, discord.Color, Optional[str]]:
+def get_warning_style(
+    event: str, text: str, params: dict = None, vtec: dict = None
+) -> Tuple[str, str, discord.Color, Optional[str]]:
     """Determine (emoji, display_event_name, color, footer_id) based on event type and severity tags.
 
     If VTEC is provided, use its phenomenon/significance to override event label mismatch
@@ -125,7 +255,9 @@ def get_warning_style(event: str, text: str, params: dict = None, vtec: dict = N
     return emoji, display_event, color, footer_id
 
 
-def get_tornado_attributes(event: str, text: str, params: dict = None) -> Tuple[Optional[str], Optional[str]]:
+def get_tornado_attributes(
+    event: str, text: str, params: dict = None
+) -> Tuple[Optional[str], Optional[str]]:
     """Extract tornado confidence and severity from warning text and parameters.
 
     Returns (confidence, severity) where:
@@ -180,7 +312,13 @@ def iem_autoplot_url(vtec: dict, valid_time: Optional[str] = None) -> str:
         if start and not _is_null_vtec_time(start):
             # Parse YYMMDDTHHMMZ format
             try:
-                yy, mm, dd, hh, min_ = int(start[0:2]), int(start[2:4]), int(start[4:6]), int(start[8:10]), int(start[10:12])
+                yy, mm, dd, hh, min_ = (
+                    int(start[0:2]),
+                    int(start[2:4]),
+                    int(start[4:6]),
+                    int(start[8:10]),
+                    int(start[10:12]),
+                )
                 yyyy = 2000 + yy
                 valid_time_str = f"{yyyy:04d}-{mm:02d}-{dd:02d}%20{hh:02d}{min_:02d}"
             except (ValueError, IndexError):
@@ -233,8 +371,11 @@ def _vtec_url(vtec: dict) -> str:
     end = vtec.get("end", "")
 
     # Use end time when start is missing or is the null-start sentinel (CON/EXT/CAN/EXP products)
-    ref = start if (start and len(start) >= 11 and not _is_null_vtec_time(start)) \
-              else (end if (end and len(end) >= 11 and not _is_null_vtec_time(end)) else "")
+    ref = (
+        start
+        if (start and len(start) >= 11 and not _is_null_vtec_time(start))
+        else (end if (end and len(end) >= 11 and not _is_null_vtec_time(end)) else "")
+    )
 
     if ref:
         try:
@@ -276,7 +417,9 @@ def _vtec_unix_ts(vtec: dict) -> int:
     return int(time.time())
 
 
-def _area_with_state(area_desc: str, ugc_codes: List[str], state_fallback: Optional[str] = None) -> str:  # noqa: C901
+def _area_with_state(
+    area_desc: str, ugc_codes: List[str], state_fallback: Optional[str] = None
+) -> str:  # noqa: C901
     """Append [STATE] abbreviations to the area string, grouping counties by state.
 
     Uses the NWS API geocode.UGC list (e.g. ['MSC023', 'ARC001']) to determine
@@ -301,18 +444,21 @@ def _area_with_state(area_desc: str, ugc_codes: List[str], state_fallback: Optio
 
     # Parse county names from areaDesc - try to preserve "County, ST" pairs
     # Split by semicolon or newline first
-    counties = [c.strip() for c in re.split(r'[;\n]\s*', area_desc) if c.strip()]
+    counties = [c.strip() for c in re.split(r"[;\n]\s*", area_desc) if c.strip()]
 
     # If we only have one item and it has commas, it's likely a comma-separated list.
     # Split by comma but ONLY if not followed by a state abbreviation.
     if len(counties) == 1 and "," in counties[0]:
-        counties = [c.strip() for c in re.split(r',(?!\s+[A-Z]{2}(?:\s|$|,|;))', counties[0]) if c.strip()]
+        counties = [
+            c.strip() for c in re.split(r",(?!\s+[A-Z]{2}(?:\s|$|,|;))", counties[0]) if c.strip()
+        ]
 
     if not counties:
         return area_desc
 
     # Group UGC codes by state (first 2 chars), preserving order of first appearance
     from collections import OrderedDict
+
     state_counts: dict = OrderedDict()
     for ugc in ugc_codes:
         if len(ugc) >= 2:
@@ -326,7 +472,7 @@ def _area_with_state(area_desc: str, ugc_codes: List[str], state_fallback: Optio
     parts = []
     idx = 0
     for state, count in state_counts.items():
-        group = counties[idx:idx + count]
+        group = counties[idx : idx + count]
         if group:
             # Clean up county names that already have state info (e.g. "Caddo, OK" -> "Caddo")
             cleaned_group = []
@@ -415,7 +561,7 @@ def build_concise_warning_text(
             text_to_search,
         )
         if m_hdr:
-            text_to_search = text_to_search[m_hdr.end():].lstrip()
+            text_to_search = text_to_search[m_hdr.end() :].lstrip()
         # Strip $$-terminated footer so the narrative regex doesn't capture it
         m_end = re.search(r"\$\$", text_to_search)
         if m_end:
@@ -470,7 +616,9 @@ def build_concise_warning_text(
 
         # Refined to catch specific magnitudes like "2.50 IN" or "GOLF BALL"
         # and ignore "HAIL THREAT...RADAR INDICATED"
-        m_hail = re.search(r"(?:MAX )?HAIL(?: SIZE)?\.\.\.(?!RADAR|THREAT|NONE)(.+?)(?:\n|$)", text_to_search, re.I)
+        m_hail = re.search(
+            r"(?:MAX )?HAIL(?: SIZE)?\.\.\.(?!RADAR|THREAT|NONE)(.+?)(?:\n|$)", text_to_search, re.I
+        )
         if m_hail:
             hail_val = m_hail.group(1).strip().upper()
             # Skip zero-size hail — NWS emits "0.00 IN" as a default/null value
@@ -478,7 +626,9 @@ def build_concise_warning_text(
                 tags.append(f"hail: {hail_val}")
 
         # Refined for wind
-        m_wind = re.search(r"(?:MAX )?WIND(?: GUST)?\.\.\.(?!RADAR|THREAT|NONE)(.+?)(?:\n|$)", text_to_search, re.I)
+        m_wind = re.search(
+            r"(?:MAX )?WIND(?: GUST)?\.\.\.(?!RADAR|THREAT|NONE)(.+?)(?:\n|$)", text_to_search, re.I
+        )
         if m_wind:
             tags.append(f"wind: {m_wind.group(1).strip().upper()}")
 
@@ -492,7 +642,11 @@ def build_concise_warning_text(
     elif raw_text:
         # Step A: Look for the standard "Warning for..." bullet
         # Refined regex: must NOT cross into common narrative headers or the next bullet
-        m_area = re.search(r"(?:Warning for|Statement for|IMPACT)[\s.]+(.+?)(?=\n\s*\*|\n\s*At\s+|\n\s*LAT\.\.\.LON|\n\s*HAZARD\.\.\.|\n\s*SOURCE\.\.\.|\n\s*IMPACT\.\.\.|\n\s*PRECAUTIONARY|\n\s*PREPAREDNESS|$)", raw_text, re.I | re.DOTALL)
+        m_area = re.search(
+            r"(?:Warning for|Statement for|IMPACT)[\s.]+(.+?)(?=\n\s*\*|\n\s*At\s+|\n\s*LAT\.\.\.LON|\n\s*HAZARD\.\.\.|\n\s*SOURCE\.\.\.|\n\s*IMPACT\.\.\.|\n\s*PRECAUTIONARY|\n\s*PREPAREDNESS|$)",
+            raw_text,
+            re.I | re.DOTALL,
+        )
 
         # Step B: Fallback to the technical header line (e.g., "CLEVELAND OK-MCCLAIN OK-")
         if not m_area:
@@ -516,12 +670,16 @@ def build_concise_warning_text(
 
             # If we didn't get multiple parts, try a smart comma split
             if len(parts) <= 1:
-                parts = [c.strip() for c in re.split(r',(?!\s+[A-Z]{2}(?:\s|$|,|;))', raw_list) if c.strip()]
+                parts = [
+                    c.strip()
+                    for c in re.split(r",(?!\s+[A-Z]{2}(?:\s|$|,|;))", raw_list)
+                    if c.strip()
+                ]
 
             counties = []
             for p in parts:
                 c = p.strip().strip(".")
-                if not c or len(c) < 2: # Allow 2-letter state codes to be caught by filter
+                if not c or len(c) < 2:  # Allow 2-letter state codes to be caught by filter
                     continue
 
                 # Truncate at "THROUGH" instead of skipping the whole part
@@ -532,10 +690,30 @@ def build_concise_warning_text(
                 if _GEOGRAPHIC_GARBAGE_RE.search(c):
                     continue
                 # Skip remaining structural text
-                if any(x in c.upper() for x in ["UNTIL", "PORTIONS", "AM", "PM", "EDT", "CDT", "MDT", "PDT", "HST", "AKDT", "LOCATED"]):
+                if any(
+                    x in c.upper()
+                    for x in [
+                        "UNTIL",
+                        "PORTIONS",
+                        "AM",
+                        "PM",
+                        "EDT",
+                        "CDT",
+                        "MDT",
+                        "PDT",
+                        "HST",
+                        "AKDT",
+                        "LOCATED",
+                    ]
+                ):
                     continue
                 # Strip prefixes and "County/Parish"
-                c = re.sub(r"^(?:Northeastern|Northwestern|Southeastern|Southwestern|Northern|Southern|Eastern|Western|Central)\s+", "", c, flags=re.I)
+                c = re.sub(
+                    r"^(?:Northeastern|Northwestern|Southeastern|Southwestern|Northern|Southern|Eastern|Western|Central)\s+",
+                    "",
+                    c,
+                    flags=re.I,
+                )
                 c = re.split(r"\s+in\s+", c, flags=re.I)[0]
                 c = re.sub(r"\s+(?:Count[iy]|Parish).*$", "", c, flags=re.I)
 
@@ -556,11 +734,11 @@ def build_concise_warning_text(
         clean_prev = re.sub(r"\s*\[[A-Z]{2}\]", "", prev_area)
         clean_prev = clean_prev.replace(" and ", ", ")
 
-        prev_parts = [c.strip() for c in re.split(r'[;,]\s*', clean_prev) if c.strip()]
+        prev_parts = [c.strip() for c in re.split(r"[;,]\s*", clean_prev) if c.strip()]
 
         # Clean current area list: split and run through state stripper/garbage filter
         # This prevents "OK, OK" in the expands to list
-        raw_curr = [c.strip() for c in re.split(r'[;,]\s*', area) if c.strip()]
+        raw_curr = [c.strip() for c in re.split(r"[;,]\s*", area) if c.strip()]
         curr_parts = []
         for c in raw_curr:
             c_clean = _STATE_REGEX.sub("", c).strip()
@@ -571,7 +749,9 @@ def build_concise_warning_text(
 
         # If previous was just "affected area", don't diff, just show the new area
         if prev_area == "affected area":
-            area_formatted = f" for {_area_with_state(area, ugc_codes or [], state_fallback=state_fallback)}"
+            area_formatted = (
+                f" for {_area_with_state(area, ugc_codes or [], state_fallback=state_fallback)}"
+            )
         else:
             prev_set = set(prev_parts)
             curr_set = set(curr_parts)
@@ -597,9 +777,13 @@ def build_concise_warning_text(
 
                 area_formatted = f" ({', '.join(parts)})"
             else:
-                area_formatted = f" for {_area_with_state(area, ugc_codes or [], state_fallback=state_fallback)}"
+                area_formatted = (
+                    f" for {_area_with_state(area, ugc_codes or [], state_fallback=state_fallback)}"
+                )
     else:
-        area_formatted = f" for {_area_with_state(area, ugc_codes or [], state_fallback=state_fallback)}"
+        area_formatted = (
+            f" for {_area_with_state(area, ugc_codes or [], state_fallback=state_fallback)}"
+        )
 
     # 4. Expiration time (VTEC end field: '260428T0530Z')
     expires_str = ""
@@ -615,12 +799,20 @@ def build_concise_warning_text(
     if text_to_search:
         # Narrative extraction: capture the "At..." bullet or the primary impact statement.
         # We stop at the next bullet point (*) or known footer blocks.
-        m_nat = re.search(r"(?:\*\s*)?At\s+(.+?)(?=\n\s*\*|\n\s*LAT\.\.\.LON|\n\s*PRECAUTIONARY|\n\s*TIME\.\.\.MOT\.\.\.LOC|$)", text_to_search, re.I | re.DOTALL)
+        m_nat = re.search(
+            r"(?:\*\s*)?At\s+(.+?)(?=\n\s*\*|\n\s*LAT\.\.\.LON|\n\s*PRECAUTIONARY|\n\s*TIME\.\.\.MOT\.\.\.LOC|$)",
+            text_to_search,
+            re.I | re.DOTALL,
+        )
 
         # Fallback for Special Weather Statements which often lead with "...A STRONG THUNDERSTORM..."
         if not m_nat and vtec.get("phenom") == "SPS":
             # Capture from the first significant impact line starting with dots
-            m_nat = re.search(r"(?:\n|^)\s*\.\.\.([^.].+?)(?=\n\s*\*|\n\s*LAT\.\.\.LON|$)", text_to_search, re.I | re.DOTALL)
+            m_nat = re.search(
+                r"(?:\n|^)\s*\.\.\.([^.].+?)(?=\n\s*\*|\n\s*LAT\.\.\.LON|$)",
+                text_to_search,
+                re.I | re.DOTALL,
+            )
 
         if m_nat:
             val = m_nat.group(1).strip()
@@ -631,7 +823,19 @@ def build_concise_warning_text(
                 word = m.group(1).upper()
                 # Only bold if the word (excluding trailing dots) is a high-signal keyword
                 base_word = re.sub(r"\.+$", "", word)
-                if base_word in ("TORNADO", "HAIL", "WIND", "GUST", "HAZARD", "WATERSPOUT", "IMPACT", "SOURCE", "MAX", "DAMAGE", "THREAT"):
+                if base_word in (
+                    "TORNADO",
+                    "HAIL",
+                    "WIND",
+                    "GUST",
+                    "HAZARD",
+                    "WATERSPOUT",
+                    "IMPACT",
+                    "SOURCE",
+                    "MAX",
+                    "DAMAGE",
+                    "THREAT",
+                ):
                     return f"**{m.group(1)}**"
                 return m.group(1)
 
@@ -677,11 +881,9 @@ def _extract_narrative(raw: str) -> Optional[str]:
     # we lead with the substantive narrative rather than transmission
     # metadata. Heuristic: find the line that begins "BULLETIN -" or
     # the first line starting with "The National Weather Service in".
-    nws_idx = re.search(
-        r"(?m)^(?:BULLETIN.*|The National Weather Service\b.*)$", text
-    )
+    nws_idx = re.search(r"(?m)^(?:BULLETIN.*|The National Weather Service\b.*)$", text)
     if nws_idx:
-        text = text[nws_idx.start():]
+        text = text[nws_idx.start() :]
 
     # Trim known footers — order matters because LAT...LON usually
     # precedes ATTN.
@@ -710,7 +912,9 @@ async def _download_warning_image(image_url: str, filename: str) -> discord.File
                 logger.debug(f"[IMG_DL_SUCCESS] {filename}: got {len(content)} bytes")
                 return discord.File(BytesIO(content), filename=filename)
 
-            logger.debug(f"[IMG_DL_RETRY] Attempt {attempt+1}/8: status={status}, content_len={len(content) if content else 0}")
+            logger.debug(
+                f"[IMG_DL_RETRY] Attempt {attempt + 1}/8: status={status}, content_len={len(content) if content else 0}"
+            )
 
             # Map might be pending (404/400). Use exponential backoff: 2s, 4s, 8s, 10s...
             if attempt < 7:
@@ -722,7 +926,7 @@ async def _download_warning_image(image_url: str, filename: str) -> discord.File
                 f"[IMG_DL_FAIL] {filename}: Failed after 8 attempts (final status={status})"
             )
         except Exception as e:
-            logger.debug(f"[IMG_DL_ERROR] Attempt {attempt+1}/8: {e}")
+            logger.debug(f"[IMG_DL_ERROR] Attempt {attempt + 1}/8: {e}")
             if attempt < 7:
                 delay = min(2 ** (attempt + 1), 10)
                 await asyncio.sleep(delay)

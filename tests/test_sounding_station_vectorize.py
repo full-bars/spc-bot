@@ -44,6 +44,7 @@ def _make_df() -> pd.DataFrame:
 
 # ── _fetch_stations parity ────────────────────────────────────────────────────
 
+
 class TestFetchStationsParity:
     """Ensure vectorized hemisphere logic matches the old row-wise apply."""
 
@@ -60,7 +61,7 @@ class TestFetchStationsParity:
         df["lon"] = df.apply(lambda r: to_decimal(r["LON"], r["B"]), axis=1)
         df["ICAO"] = df["ICAO"].str.strip()
         df["NAME"] = df["NAME"].str.strip()
-        df["LOC"]  = df["LOC"].str.strip()
+        df["LOC"] = df["LOC"].str.strip()
         return df
 
     def _apply_new(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -68,15 +69,15 @@ class TestFetchStationsParity:
         df = df[pd.to_numeric(df["LAT"], errors="coerce").notna()].copy()
         df["ICAO"] = df["ICAO"].str.strip()
         df["NAME"] = df["NAME"].str.strip()
-        df["LOC"]  = df["LOC"].str.strip()
-        df["A"]    = df["A"].str.strip()
-        df["B"]    = df["B"].str.strip()
-        df["lat"] = np.where(df["A"].isin(("N", "E")),
-                             df["LAT"].astype(float),
-                             -df["LAT"].astype(float))
-        df["lon"] = np.where(df["B"].isin(("N", "E")),
-                             df["LON"].astype(float),
-                             -df["LON"].astype(float))
+        df["LOC"] = df["LOC"].str.strip()
+        df["A"] = df["A"].str.strip()
+        df["B"] = df["B"].str.strip()
+        df["lat"] = np.where(
+            df["A"].isin(("N", "E")), df["LAT"].astype(float), -df["LAT"].astype(float)
+        )
+        df["lon"] = np.where(
+            df["B"].isin(("N", "E")), df["LON"].astype(float), -df["LON"].astype(float)
+        )
         return df
 
     def test_lat_lon_identical(self):
@@ -121,6 +122,7 @@ class TestFetchStationsParity:
 
 # ── find_nearest_stations parity ──────────────────────────────────────────────
 
+
 class TestFindNearestStationsParity:
     """Pin find_nearest_stations output against fixture data."""
 
@@ -130,19 +132,20 @@ class TestFindNearestStationsParity:
         df = raw[pd.to_numeric(raw["LAT"], errors="coerce").notna()].copy()
         df["ICAO"] = df["ICAO"].str.strip()
         df["NAME"] = df["NAME"].str.strip()
-        df["LOC"]  = df["LOC"].str.strip()
-        df["A"]    = df["A"].str.strip()
-        df["B"]    = df["B"].str.strip()
-        df["lat"] = np.where(df["A"].isin(("N", "E")),
-                             df["LAT"].astype(float),
-                             -df["LAT"].astype(float))
-        df["lon"] = np.where(df["B"].isin(("N", "E")),
-                             df["LON"].astype(float),
-                             -df["LON"].astype(float))
+        df["LOC"] = df["LOC"].str.strip()
+        df["A"] = df["A"].str.strip()
+        df["B"] = df["B"].str.strip()
+        df["lat"] = np.where(
+            df["A"].isin(("N", "E")), df["LAT"].astype(float), -df["LAT"].astype(float)
+        )
+        df["lon"] = np.where(
+            df["B"].isin(("N", "E")), df["LON"].astype(float), -df["LON"].astype(float)
+        )
         return df
 
     def test_nearest_to_oklahoma_city(self):
         from cogs.sounding_utils import find_nearest_stations
+
         df = self._build_station_df()
         results = find_nearest_stations(35.47, -97.51, df, n=2)
         assert len(results) == 2
@@ -151,6 +154,7 @@ class TestFindNearestStationsParity:
 
     def test_icao_dash_becomes_none(self):
         from cogs.sounding_utils import find_nearest_stations
+
         df = self._build_station_df()
         # Request 4 stations to include McMurdo (---- ICAO)
         results = find_nearest_stations(35.47, -97.51, df, n=4)
@@ -160,6 +164,7 @@ class TestFindNearestStationsParity:
 
     def test_result_fields_are_stripped(self):
         from cogs.sounding_utils import find_nearest_stations
+
         df = self._build_station_df()
         results = find_nearest_stations(35.47, -97.51, df, n=3)
         for r in results:
@@ -170,6 +175,7 @@ class TestFindNearestStationsParity:
 
     def test_dist_km_rounded(self):
         from cogs.sounding_utils import find_nearest_stations
+
         df = self._build_station_df()
         results = find_nearest_stations(35.47, -97.51, df, n=1)
         assert isinstance(results[0]["dist_km"], float)

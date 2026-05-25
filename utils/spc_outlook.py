@@ -10,6 +10,7 @@ in meters, and project the result back to lat/lon. This keeps the buffer
 geometrically meaningful at all CONUS latitudes — a flat-degree buffer
 would be ~30% too large in the south and ~30% too small in the north.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -54,8 +55,8 @@ CACHE_TTL_SECONDS = 30 * 60
 _cache: dict = {
     "fetched_at": 0.0,
     "polygon_latlon": None,  # buffered polygon in EPSG:4326 (None = no MDT/HIGH)
-    "labels": frozenset(),   # which of MDT/HIGH were active at fetch
-    "max_risk": "TSTM",      # highest overall risk level on Day 1
+    "labels": frozenset(),  # which of MDT/HIGH were active at fetch
+    "max_risk": "TSTM",  # highest overall risk level on Day 1
 }
 
 
@@ -76,7 +77,7 @@ def _project_to_latlon(geom):
 
 
 def _build_buffered_polygon(features: list, buffer_km: float):
-    """Return (buffered_polygon_in_latlon, set_of_labels_present, max_risk_label) 
+    """Return (buffered_polygon_in_latlon, set_of_labels_present, max_risk_label)
     or (None, frozenset(), max_risk) when no MDT/HIGH polygons are in the set.
     """
     selected = []
@@ -123,7 +124,7 @@ async def get_high_risk_polygon(
     force_refresh: bool = False,
 ):
     """Return (buffered_polygon, frozenset_of_active_labels).
-    
+
     The polygon is the union of all MDT and HIGH categorical regions on
     today's Day 1 outlook. Result is cached for ``CACHE_TTL_SECONDS``.
     """
@@ -135,9 +136,7 @@ async def get_high_risk_polygon(
     ):
         return _cache["polygon_latlon"], _cache["labels"]
 
-    content, status = await http_get_bytes(
-        SPC_DAY1_CATEGORICAL_GEOJSON_URL, retries=2, timeout=15
-    )
+    content, status = await http_get_bytes(SPC_DAY1_CATEGORICAL_GEOJSON_URL, retries=2, timeout=15)
     if not content or status != 200:
         logger.warning(
             f"[OUTLOOK] Day 1 categorical fetch failed (status={status}); "

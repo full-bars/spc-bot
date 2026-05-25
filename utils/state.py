@@ -31,6 +31,7 @@ from typing import Dict, List, Optional, Set
 
 class RecentLogHandler(logging.Handler):
     """Logging handler that keeps the last N lines in memory."""
+
     def __init__(self, max_lines: int = 20):
         super().__init__()
         self.buffer: deque[str] = deque(maxlen=max_lines)
@@ -150,13 +151,25 @@ class TimingTracker:
 
     def __init__(self):
         self.last_post_times: Dict[str, Optional[datetime]] = {
-            "day1": None, "day2": None, "day3": None,
-            "day48": None, "scp": None, "md": None, "watch": None,
-            "csu_day1": None, "csu_day2": None, "csu_day3": None,
-            "csu_day4": None, "csu_day5": None, "csu_day6": None,
-            "csu_day7": None, "csu_day8": None,
-            "csu_panel12": None, "csu_panel38": None,
-            "wxnext": None, "sounding": None,
+            "day1": None,
+            "day2": None,
+            "day3": None,
+            "day48": None,
+            "scp": None,
+            "md": None,
+            "watch": None,
+            "csu_day1": None,
+            "csu_day2": None,
+            "csu_day3": None,
+            "csu_day4": None,
+            "csu_day5": None,
+            "csu_day6": None,
+            "csu_day7": None,
+            "csu_day8": None,
+            "csu_panel12": None,
+            "csu_panel38": None,
+            "wxnext": None,
+            "sounding": None,
         }
         self.last_posted_urls: Dict[str, List[str]] = {}
 
@@ -282,21 +295,25 @@ class BotState:
 
     async def add_posted_md(self, md_number: str) -> None:
         from utils import state_store
+
         self.posted_mds.add(md_number)
         await state_store.add_posted_md(md_number)
 
     async def add_posted_watch(self, watch_number: str) -> None:
         from utils import state_store
+
         self.posted_watches.add(watch_number)
         await state_store.add_posted_watch(watch_number)
 
     async def add_posted_report(self, product_id: str) -> None:
         from utils import state_store
+
         self.posted_reports.add(product_id)
         await state_store.add_posted_report(product_id)
 
     async def add_posted_product_id(self, product_id: str) -> None:
         from utils import state_store
+
         # posted_product_ids is a deque(maxlen=1000)
         if product_id not in self.posted_product_ids:
             self.posted_product_ids.append(product_id)
@@ -313,6 +330,7 @@ class BotState:
         tornado_severity: Optional[str] = None,
     ) -> None:
         from utils import state_store
+
         self.posted_warnings[vtec_id] = {
             "message_id": message_id,
             "channel_id": channel_id,
@@ -324,11 +342,13 @@ class BotState:
 
     async def add_posted_sounding(self, pkey: str) -> None:
         from utils import state_store
+
         self.posted_soundings.add(pkey)
         await state_store.add_posted_sounding(pkey)
 
     async def add_sounding_handled_watch(self, watch_number: str) -> None:
         from utils import state_store
+
         self.sounding_handled_watches.add(watch_number)
         await state_store.add_sounding_handled_watch(watch_number)
 
@@ -341,16 +361,18 @@ class BotState:
         post may be mid-flight and the persisted row has not been written yet.
         """
         from utils import state_store
+
         await state_store.prune_posted_warnings(max_size)
         surviving = await state_store.get_all_posted_warnings()
         before = len(self.posted_warnings)
         self.posted_warnings = {
-            k: v for k, v in self.posted_warnings.items()
-            if k in surviving or not v
+            k: v for k, v in self.posted_warnings.items() if k in surviving or not v
         }
         return before - len(self.posted_warnings)
 
-    def sweep_active(self, grace_minutes: int = 60, now: Optional[datetime] = None) -> tuple[int, int]:
+    def sweep_active(
+        self, grace_minutes: int = 60, now: Optional[datetime] = None
+    ) -> tuple[int, int]:
         """Drop entries from ``active_warnings`` and ``active_watches`` whose
         VTEC ``end`` timestamp or watch ``expires`` field is past now+grace.
 
@@ -397,6 +419,7 @@ class BotState:
     async def remove_posted_warning(self, vtec_id: str) -> None:
         """Roll back a posted warning across memory + SQLite + Redis."""
         from utils import state_store
+
         self.posted_warnings.pop(vtec_id, None)
         await state_store.remove_posted_warning(vtec_id)
 
@@ -404,6 +427,7 @@ class BotState:
         """Roll back a posted product ID across memory + SQLite + Redis.
         Silently no-ops if the id is not currently in the in-memory deque."""
         from utils import state_store
+
         try:
             self.posted_product_ids.remove(product_id)
         except ValueError:
@@ -430,6 +454,7 @@ class BotState:
 
     async def add_csu_posted(self, day: str) -> None:
         from utils import state_store
+
         self.csu_posted.add(str(day))
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         value = json.dumps({"date": today, "days": sorted(list(self.csu_posted))})
@@ -484,8 +509,7 @@ class BotState:
             },
             "last_posted_urls": self.last_posted_urls.copy(),
             "last_post_times": {
-                k: v.isoformat() if v else None
-                for k, v in self.last_post_times.copy().items()
+                k: v.isoformat() if v else None for k, v in self.last_post_times.copy().items()
             },
         }
 

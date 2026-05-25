@@ -11,13 +11,14 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
-
 # ── Startup smoke ───────────────────────────────────────────────────────────
+
 
 def test_main_module_imports_with_required_env():
     """Importing main.py must succeed with the env already set by conftest."""
     import importlib
     import main
+
     importlib.reload(main)  # force a fresh run of module-level code
     assert main.bot is not None
     assert main.bot.state is not None
@@ -34,6 +35,7 @@ def test_all_extensions_list_is_shared():
 
 # ── Shutdown guard (PR #91) ─────────────────────────────────────────────────
 
+
 async def test_shutdown_guard_ignores_duplicate_signals():
     """Two back-to-back `_shutdown()` calls must only run the work once."""
     import main
@@ -49,10 +51,9 @@ async def test_shutdown_guard_ignores_duplicate_signals():
 
     # Patch the expensive / I/O-bound things `_shutdown` touches so the
     # test runs offline.
-    with patch.object(main.bot, "close", new=AsyncMock(side_effect=_fake_close)), \
-         patch("utils.http.close_session", new=AsyncMock()), \
-         patch("main.close_db", new=AsyncMock()):
-
+    with patch.object(main.bot, "close", new=AsyncMock(side_effect=_fake_close)), patch(
+        "utils.http.close_session", new=AsyncMock()
+    ), patch("main.close_db", new=AsyncMock()):
         # First invocation: runs cleanup.
         await main._shutdown()
         # Second invocation: must early-return because guard is set.
@@ -66,6 +67,7 @@ async def test_shutdown_guard_ignores_duplicate_signals():
 
 
 # ── Watchdog restart path (PR #91) ──────────────────────────────────────────
+
 
 def _fake_bot_with_cogs(cogs_dict, is_primary=True):
     """Build a mock bot whose `cogs` is a real dict (discord.py's real

@@ -15,8 +15,9 @@ NWWS_PASSWORD = os.getenv("NWWS_PASSWORD")
 NWWS_SERVER = "nwws-oi.weather.gov"
 
 # Set up clean logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("nwws_monitor")
+
 
 class NWWSMonitorClient(ClientXMPP):
     def __init__(self, jid, password):
@@ -38,16 +39,18 @@ class NWWSMonitorClient(ClientXMPP):
         logger.error("Authentication failed!")
 
     def message(self, msg):
-        if msg['type'] in ('chat', 'normal'):
-            body = msg['body']
-            if not body: return
-            
+        if msg["type"] in ("chat", "normal"):
+            body = msg["body"]
+            if not body:
+                return
+
             # Print first 500 chars clearly
-            print("\n" + "="*80)
+            print("\n" + "=" * 80)
             print(f"SENDER: {msg['from']}")
             print("-" * 40)
             print(body[:500])
-            print("="*80 + "\n")
+            print("=" * 80 + "\n")
+
 
 if __name__ == "__main__":
     if not NWWS_USER or not NWWS_PASSWORD:
@@ -56,11 +59,11 @@ if __name__ == "__main__":
 
     jid = f"{NWWS_USER}@{NWWS_SERVER}"
     print(f"Connecting to {NWWS_SERVER} as {jid}...")
-    
+
     # Use the standard synchronous-entry pattern for the test script
     xmpp = NWWSMonitorClient(jid, NWWS_PASSWORD)
     xmpp.use_ipv6 = False
-    
+
     # Connect and run the loop
     if xmpp.connect(address=(NWWS_SERVER, 5222)):
         print("Starting event loop. Press Ctrl+C to stop.")

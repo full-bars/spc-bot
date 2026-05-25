@@ -34,6 +34,7 @@ def _worker_init():
     _logging.getLogger().setLevel(_logging.WARNING)
 
     import matplotlib as _mpl
+
     _mpl.use("Agg")
 
     # Silence SounderPy banner
@@ -52,10 +53,10 @@ def get_hodo_executor() -> concurrent.futures.ProcessPoolExecutor:
     global _HODO_EXECUTOR
     if _HODO_EXECUTOR is None:
         import logging as _logging
+
         _logging.getLogger("spc_bot").info(f"Initializing Hodo Pool ({_MAX_HODO_WORKERS} workers)")
         _HODO_EXECUTOR = concurrent.futures.ProcessPoolExecutor(
-            max_workers=_MAX_HODO_WORKERS,
-            initializer=_worker_init
+            max_workers=_MAX_HODO_WORKERS, initializer=_worker_init
         )
     return _HODO_EXECUTOR
 
@@ -65,11 +66,12 @@ def prefork_sounding_executor() -> None:
     global _SOUNDING_EXECUTOR
     if _SOUNDING_EXECUTOR is None:
         import logging as _logging
-        _logging.getLogger("spc_bot").info(f"Pre-forking Sounding Pool ({_MAX_SOUNDING_WORKERS} workers)")
+
+        _logging.getLogger("spc_bot").info(
+            f"Pre-forking Sounding Pool ({_MAX_SOUNDING_WORKERS} workers)"
+        )
         _SOUNDING_EXECUTOR = concurrent.futures.ProcessPoolExecutor(
-            max_workers=_MAX_SOUNDING_WORKERS,
-            initializer=_worker_init,
-            max_tasks_per_child=5
+            max_workers=_MAX_SOUNDING_WORKERS, initializer=_worker_init, max_tasks_per_child=5
         )
 
 
@@ -78,11 +80,12 @@ def get_sounding_executor() -> concurrent.futures.ProcessPoolExecutor:
     global _SOUNDING_EXECUTOR
     if _SOUNDING_EXECUTOR is None:
         import logging as _logging
-        _logging.getLogger("spc_bot").info(f"Initializing Sounding Pool ({_MAX_SOUNDING_WORKERS} workers)")
+
+        _logging.getLogger("spc_bot").info(
+            f"Initializing Sounding Pool ({_MAX_SOUNDING_WORKERS} workers)"
+        )
         _SOUNDING_EXECUTOR = concurrent.futures.ProcessPoolExecutor(
-            max_workers=_MAX_SOUNDING_WORKERS,
-            initializer=_worker_init,
-            max_tasks_per_child=5
+            max_workers=_MAX_SOUNDING_WORKERS, initializer=_worker_init, max_tasks_per_child=5
         )
     return _SOUNDING_EXECUTOR
 
@@ -98,7 +101,7 @@ def get_sounding_semaphore() -> asyncio.Semaphore:
 def sounding_queue_depth() -> int:
     """Return current number of tasks waiting for a sounding worker slot."""
     sem = get_sounding_semaphore()
-    if hasattr(sem, '_waiters') and sem._waiters is not None:
+    if hasattr(sem, "_waiters") and sem._waiters is not None:
         return len(sem._waiters)
     return 0
 

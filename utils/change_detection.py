@@ -12,6 +12,7 @@ logger = logging.getLogger("spc_bot.change_detection")
 # Rust core fallback
 try:
     import spc_rust_core
+
     RUST_AVAILABLE = True
     _validate_batch_rust = spc_rust_core.validate_image_cache_batch
     logger.info("Hashing engine initialized: using Rust hybrid core (XXH3)")

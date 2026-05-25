@@ -50,8 +50,8 @@ def _stub_exec(responses: dict | None = None, default=None):
 
 # ── Standby Promotion Scenarios ───────────────────────────────────────────────
 
-class TestStandbyPromotion:
 
+class TestStandbyPromotion:
     @pytest.mark.asyncio
     async def test_promotes_when_lease_is_missing(self, monkeypatch):
         """Standby should promote to Primary after MAX_FAILURES consecutive misses."""
@@ -101,8 +101,8 @@ class TestStandbyPromotion:
 
 # ── Primary Demotion Scenarios ────────────────────────────────────────────────
 
-class TestPrimaryDemotion:
 
+class TestPrimaryDemotion:
     @pytest.mark.asyncio
     async def test_demotes_when_lease_stolen(self, monkeypatch):
         """Primary should demote if it sees another node holds the lease."""
@@ -189,8 +189,8 @@ class TestPrimaryDemotion:
 
 # ── Startup Grace & Fail-Fast ─────────────────────────────────────────────────
 
-class TestFailoverResilience:
 
+class TestFailoverResilience:
     def test_startup_grace_period(self):
         """Failures must not count during the first 120s of uptime."""
         cog = FailoverCog(_make_bot())
@@ -261,8 +261,8 @@ class TestFailoverResilience:
 
 # ── Lease safety (Lua scripts) ────────────────────────────────────────────────
 
-class TestLeaseSafety:
 
+class TestLeaseSafety:
     @pytest.mark.asyncio
     async def test_release_lease_uses_lua(self, monkeypatch):
         """_release_lease must call client.eval (Lua) not a plain DEL."""
@@ -339,12 +339,14 @@ class TestLeaseSafety:
 # cogs/failover.py:480-498 has no test pinning its behaviour — exactly the
 # scenario that bit v5.28.0 before #412 added the rollback at all.
 
+
 def _stub_do_promote_prereqs(monkeypatch, cog):
     """Mock out every side-effecting call _do_promote makes BEFORE the
     cog-load loop, so the test isolates the rollback path."""
     monkeypatch.setattr(cog, "_cleanup_own_stale_entries", AsyncMock())
-    monkeypatch.setattr(cog, "_build_local_redis",
-                        MagicMock(side_effect=Exception("skip redis flip")))
+    monkeypatch.setattr(
+        cog, "_build_local_redis", MagicMock(side_effect=Exception("skip redis flip"))
+    )
     monkeypatch.setattr(cog, "_write_lease", AsyncMock())
     monkeypatch.setattr(cog, "_rehydrate_bot_state", AsyncMock())
 
@@ -353,21 +355,23 @@ def _stub_do_promote_prereqs(monkeypatch, cog):
     monkeypatch.setattr(cog, "_exec", _stub_exec({"SET": "OK"}))
 
     import utils.state_store as state_store
+
     monkeypatch.setattr(state_store, "invalidate_all_caches", MagicMock())
     monkeypatch.setattr(state_store, "mirror_to_sqlite", AsyncMock())
     monkeypatch.setattr(state_store, "resync_to_redis", AsyncMock())
 
     import utils.events_db as events_db
+
     monkeypatch.setattr(events_db, "restore_from_sync", MagicMock())
     monkeypatch.setattr(events_db, "set_syncthing_folder_mode", AsyncMock())
 
     # Compress the 2s sleep _do_promote takes before rehydrate
     import asyncio
+
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
 
 
 class TestPromoteFaultInjection:
-
     @pytest.mark.asyncio
     async def test_partial_cog_load_failure_rolls_back_in_reverse(self, monkeypatch):
         """If load_extension raises on the 4th cog, the 3 already-loaded
@@ -396,8 +400,9 @@ class TestPromoteFaultInjection:
 
         # Unloads happened in reverse order of successful loads
         unload_calls = [c.args[0] for c in bot.unload_extension.await_args_list]
-        assert unload_calls == ["cog_c", "cog_b", "cog_a"], \
+        assert unload_calls == ["cog_c", "cog_b", "cog_a"], (
             f"expected reverse-order unload, got {unload_calls}"
+        )
         demote_mock.assert_awaited_once()
         # tree.sync must NOT happen on a rolled-back promotion
         bot.tree.sync.assert_not_awaited()
@@ -432,8 +437,9 @@ class TestPromoteFaultInjection:
         await cog._do_promote()
 
         unload_calls = [c.args[0] for c in bot.unload_extension.await_args_list]
-        assert unload_calls == ["cog_b", "cog_a"], \
+        assert unload_calls == ["cog_b", "cog_a"], (
             f"rollback must continue past unload failure; got {unload_calls}"
+        )
         demote_mock.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -507,6 +513,7 @@ class TestPromoteFaultInjection:
         # so it acquires/releases state appropriately. But stub the extension
         # unload-loop side of _do_demote to keep the test isolated.
         from discord.ext.commands import ExtensionNotLoaded
+
         bot.unload_extension = AsyncMock(side_effect=ExtensionNotLoaded("noop"))
 
         # Real lock semantics — must complete within 2 seconds.
@@ -520,8 +527,9 @@ class TestPromoteFaultInjection:
             )
 
         # After rollback the node should be back in standby state.
-        assert bot.state.is_primary is False, \
+        assert bot.state.is_primary is False, (
             "rollback must leave the node demoted, not stuck as primary"
+        )
 
 
 # ── Fault Injection: side-effects during _do_promote ──────────────────────────
@@ -541,28 +549,31 @@ class TestPromoteFaultInjection:
 # could accidentally make any of these failures fatal and strand a node
 # that should have been a healthy primary.
 
+
 def _stub_for_full_promotion(monkeypatch, cog):
     """Mock prereqs so _do_promote runs end-to-end with a normal cog list."""
     monkeypatch.setattr(cog, "_cleanup_own_stale_entries", AsyncMock())
-    monkeypatch.setattr(cog, "_build_local_redis",
-                        MagicMock(side_effect=Exception("skip redis flip")))
+    monkeypatch.setattr(
+        cog, "_build_local_redis", MagicMock(side_effect=Exception("skip redis flip"))
+    )
     monkeypatch.setattr(cog, "_write_lease", AsyncMock())
     # SET NX at top of _do_promote returns "OK" so these tests can exercise
     # the post-claim side-effect paths.
     monkeypatch.setattr(cog, "_exec", _stub_exec({"SET": "OK"}))
 
     import utils.events_db as events_db
+
     monkeypatch.setattr(events_db, "restore_from_sync", MagicMock())
     monkeypatch.setattr(events_db, "set_syncthing_folder_mode", AsyncMock())
 
     import asyncio
+
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
 
     cog.bot.get_cog = MagicMock(return_value=None)
 
 
 class TestPromoteSideEffectFaultInjection:
-
     @pytest.mark.asyncio
     async def test_mirror_to_sqlite_failure_does_not_abort_promotion(self, monkeypatch):
         """If mirror_to_sqlite() raises, the bot still loads cogs and syncs."""
@@ -571,9 +582,13 @@ class TestPromoteSideEffectFaultInjection:
         _stub_for_full_promotion(monkeypatch, cog)
 
         import utils.state_store as state_store
+
         monkeypatch.setattr(state_store, "invalidate_all_caches", MagicMock())
-        monkeypatch.setattr(state_store, "mirror_to_sqlite",
-                            AsyncMock(side_effect=RuntimeError("redis SCAN exploded")))
+        monkeypatch.setattr(
+            state_store,
+            "mirror_to_sqlite",
+            AsyncMock(side_effect=RuntimeError("redis SCAN exploded")),
+        )
         monkeypatch.setattr(state_store, "resync_to_redis", AsyncMock(return_value={"dirty": 0}))
         monkeypatch.setattr(cog, "_rehydrate_bot_state", AsyncMock())
 
@@ -596,11 +611,13 @@ class TestPromoteSideEffectFaultInjection:
         _stub_for_full_promotion(monkeypatch, cog)
 
         import utils.state_store as state_store
+
         monkeypatch.setattr(state_store, "invalidate_all_caches", MagicMock())
         monkeypatch.setattr(state_store, "mirror_to_sqlite", AsyncMock())
         monkeypatch.setattr(state_store, "resync_to_redis", AsyncMock(return_value={"dirty": 0}))
-        monkeypatch.setattr(cog, "_rehydrate_bot_state",
-                            AsyncMock(side_effect=RuntimeError("HGETALL failed")))
+        monkeypatch.setattr(
+            cog, "_rehydrate_bot_state", AsyncMock(side_effect=RuntimeError("HGETALL failed"))
+        )
 
         monkeypatch.setattr(failover_module, "ALL_EXTENSIONS", ["cog_a"])
         bot.load_extension = AsyncMock()
@@ -620,15 +637,18 @@ class TestPromoteSideEffectFaultInjection:
         _stub_for_full_promotion(monkeypatch, cog)
 
         import utils.state_store as state_store
+
         monkeypatch.setattr(state_store, "invalidate_all_caches", MagicMock())
         monkeypatch.setattr(state_store, "mirror_to_sqlite", AsyncMock())
         monkeypatch.setattr(cog, "_rehydrate_bot_state", AsyncMock())
-        monkeypatch.setattr(state_store, "resync_to_redis",
-                            AsyncMock(side_effect=RuntimeError("replay died")))
+        monkeypatch.setattr(
+            state_store, "resync_to_redis", AsyncMock(side_effect=RuntimeError("replay died"))
+        )
 
         # main.send_bot_alert is imported lazily inside _do_promote; patch the
         # module-level symbol so the import inside the except sees our mock.
         import main as main_module
+
         send_alert = AsyncMock()
         monkeypatch.setattr(main_module, "send_bot_alert", send_alert)
 
@@ -653,15 +673,20 @@ class TestPromoteSideEffectFaultInjection:
         _stub_for_full_promotion(monkeypatch, cog)
 
         import utils.state_store as state_store
+
         monkeypatch.setattr(state_store, "invalidate_all_caches", MagicMock())
-        monkeypatch.setattr(state_store, "mirror_to_sqlite",
-                            AsyncMock(side_effect=RuntimeError("mirror down")))
-        monkeypatch.setattr(cog, "_rehydrate_bot_state",
-                            AsyncMock(side_effect=RuntimeError("rehydrate down")))
-        monkeypatch.setattr(state_store, "resync_to_redis",
-                            AsyncMock(side_effect=RuntimeError("resync down")))
+        monkeypatch.setattr(
+            state_store, "mirror_to_sqlite", AsyncMock(side_effect=RuntimeError("mirror down"))
+        )
+        monkeypatch.setattr(
+            cog, "_rehydrate_bot_state", AsyncMock(side_effect=RuntimeError("rehydrate down"))
+        )
+        monkeypatch.setattr(
+            state_store, "resync_to_redis", AsyncMock(side_effect=RuntimeError("resync down"))
+        )
 
         import main as main_module
+
         monkeypatch.setattr(main_module, "send_bot_alert", AsyncMock())
 
         monkeypatch.setattr(failover_module, "ALL_EXTENSIONS", ["cog_a", "cog_b"])
@@ -683,8 +708,8 @@ class TestPromoteSideEffectFaultInjection:
 # The `force=True` path (manual override) bypasses NX so an operator can
 # forcibly take the lease from any currently-held node.
 
-class TestPromoteSplitBrainPrevention:
 
+class TestPromoteSplitBrainPrevention:
     @pytest.mark.asyncio
     async def test_nx_loser_aborts_promotion_cleanly(self, monkeypatch):
         """If SET NX returns None (lease held), the cog must NOT mutate
@@ -694,12 +719,19 @@ class TestPromoteSplitBrainPrevention:
         _stub_do_promote_prereqs(monkeypatch, cog)
         # Override the prereq stub: SET returns None (NX failed),
         # GET (subsequent holder lookup) returns the other node's identity.
-        monkeypatch.setattr(cog, "_exec", _stub_exec({
-            "SET": None,
-            "GET": "P:other-node:beef",
-        }))
+        monkeypatch.setattr(
+            cog,
+            "_exec",
+            _stub_exec(
+                {
+                    "SET": None,
+                    "GET": "P:other-node:beef",
+                }
+            ),
+        )
 
         import utils.state_store as state_store
+
         invalidate = MagicMock()
         monkeypatch.setattr(state_store, "invalidate_all_caches", invalidate)
         monkeypatch.setattr(failover_module, "ALL_EXTENSIONS", ["cog_a"])
@@ -707,8 +739,7 @@ class TestPromoteSplitBrainPrevention:
 
         await cog._do_promote()
 
-        assert bot.state.is_primary is False, \
-            "NX loser must not flip is_primary"
+        assert bot.state.is_primary is False, "NX loser must not flip is_primary"
         invalidate.assert_not_called()
         bot.load_extension.assert_not_awaited()
         bot.tree.sync.assert_not_awaited()
@@ -756,12 +787,10 @@ class TestPromoteSplitBrainPrevention:
         # At least one SET on LEASE_KEY happened, and the first one (the claim)
         # did NOT include NX as an argument.
         lease_sets = [
-            args for args in set_calls
-            if any(a == failover_module.LEASE_KEY.upper() for a in args)
+            args for args in set_calls if any(a == failover_module.LEASE_KEY.upper() for a in args)
         ]
         assert lease_sets, "force=True must still write the lease"
-        assert "NX" not in lease_sets[0], \
-            f"force=True must NOT use NX; got {lease_sets[0]}"
+        assert "NX" not in lease_sets[0], f"force=True must NOT use NX; got {lease_sets[0]}"
 
     @pytest.mark.asyncio
     async def test_concurrent_promote_only_one_winner(self, monkeypatch):
@@ -796,6 +825,7 @@ class TestPromoteSplitBrainPrevention:
                 if cmd == "GET":
                     return shared.get(str(args[1]))
                 return None
+
             return AsyncMock(side_effect=_exec)
 
         monkeypatch.setattr(cog_a, "_exec", _make_exec(cog_a))
@@ -810,8 +840,8 @@ class TestPromoteSplitBrainPrevention:
         await asyncio.gather(cog_a._do_promote(), cog_b._do_promote())
 
         winners = [b.state.is_primary for b in (bot_a, bot_b)]
-        assert winners.count(True) == 1, \
+        assert winners.count(True) == 1, (
             f"exactly one cog must win the lease; got is_primary={winners}"
+        )
         # Only the winner should have loaded cogs.
-        assert (bot_a.load_extension.await_count == 1) ^ \
-               (bot_b.load_extension.await_count == 1)
+        assert (bot_a.load_extension.await_count == 1) ^ (bot_b.load_extension.await_count == 1)

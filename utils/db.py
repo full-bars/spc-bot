@@ -64,7 +64,11 @@ async def _write(sql: str, params: tuple, op: str) -> None:
             _write_failure_count = 0
     except Exception as e:
         _write_failure_count += 1
-        level = logger.error if _write_failure_count >= _WRITE_FAILURE_ALERT_THRESHOLD else logger.warning
+        level = (
+            logger.error
+            if _write_failure_count >= _WRITE_FAILURE_ALERT_THRESHOLD
+            else logger.warning
+        )
         level(f"{op} failed ({_write_failure_count} consecutive): {e}")
 
 
@@ -80,7 +84,11 @@ async def _write_many(sql: str, rows: Iterable[tuple], op: str) -> None:
             _write_failure_count = 0
     except Exception as e:
         _write_failure_count += 1
-        level = logger.error if _write_failure_count >= _WRITE_FAILURE_ALERT_THRESHOLD else logger.warning
+        level = (
+            logger.error
+            if _write_failure_count >= _WRITE_FAILURE_ALERT_THRESHOLD
+            else logger.warning
+        )
         level(f"{op} failed ({_write_failure_count} consecutive): {e}")
 
 
@@ -280,6 +288,7 @@ async def check_integrity() -> bool:
 
 # ── Image hash operations ─────────────────────────────────────────────────────
 
+
 async def get_hash(url: str, cache_type: Optional[str] = None) -> Optional[str]:
     """Get stored hash for a URL. When cache_type is given, scope the
     lookup — saves a second Upstash round-trip at the state-store layer."""
@@ -292,9 +301,7 @@ async def get_hash(url: str, cache_type: Optional[str] = None) -> Optional[str]:
                 ) as cursor:
                     row = await cursor.fetchone()
                     return row["hash"] if row else None
-            async with db.execute(
-                "SELECT hash FROM image_hashes WHERE url = ?", (url,)
-            ) as cursor:
+            async with db.execute("SELECT hash FROM image_hashes WHERE url = ?", (url,)) as cursor:
                 row = await cursor.fetchone()
                 return row["hash"] if row else None
     except Exception as e:
@@ -324,9 +331,7 @@ async def get_all_hashes(cache_type: Optional[str] = None) -> dict:
                 ) as cursor:
                     rows = await cursor.fetchall()
             else:
-                async with db.execute(
-                    "SELECT url, hash FROM image_hashes"
-                ) as cursor:
+                async with db.execute("SELECT url, hash FROM image_hashes") as cursor:
                     rows = await cursor.fetchall()
             return {row["url"]: row["hash"] for row in rows}
     except Exception as e:
@@ -348,6 +353,7 @@ async def set_hashes_batch(hashes: dict, cache_type: str = "auto"):
 
 
 # ── Posted MDs ────────────────────────────────────────────────────────────────
+
 
 async def get_posted_mds() -> set:
     """Get all posted MD numbers."""
@@ -398,13 +404,12 @@ async def prune_posted_mds(max_size: int = 200):
 
 # ── Posted watches ────────────────────────────────────────────────────────────
 
+
 async def get_posted_watches() -> set:
     """Get all posted watch numbers."""
     try:
         async with get_read_db() as db:
-            async with db.execute(
-                "SELECT watch_number FROM posted_watches"
-            ) as cursor:
+            async with db.execute("SELECT watch_number FROM posted_watches") as cursor:
                 rows = await cursor.fetchall()
                 return {row["watch_number"] for row in rows}
     except Exception as e:
@@ -449,6 +454,7 @@ async def prune_posted_watches(max_size: int = 200):
 
 # ── Posted surveys (DAT tracks) ──────────────────────────────────────────────
 
+
 async def get_posted_surveys() -> set:
     """Get all posted DAT survey GUIDs."""
     try:
@@ -485,6 +491,7 @@ async def prune_posted_surveys(max_size: int = 100):
 
 
 # ── Posted reports (LSRs) ────────────────────────────────────────────────────
+
 
 async def get_posted_reports() -> set:
     """Get all posted LSR product IDs."""
@@ -539,6 +546,7 @@ async def prune_posted_reports(max_size: int = 500):
 
 
 # ── Posted product IDs (cross-feed dedup) ───────────────────────────────────
+
 
 async def get_posted_product_ids() -> set:
     """Get all posted product IDs (for cross-feed deduplication)."""
@@ -600,6 +608,7 @@ async def remove_posted_product_id(product_id: str):
 
 # ── Posted warnings ───────────────────────────────────────────────────────────
 
+
 async def get_all_posted_warnings() -> dict:
     """Get all posted warning mappings: {vtec_id: {'message_id': ..., 'channel_id': ..., 'area': ...}}."""
     try:
@@ -626,8 +635,7 @@ async def get_posted_warning_timestamp(vtec_id: str) -> Optional[float]:
     try:
         async with get_read_db() as db:
             async with db.execute(
-                "SELECT posted_at FROM posted_warnings WHERE vtec_id = ?",
-                (vtec_id,)
+                "SELECT posted_at FROM posted_warnings WHERE vtec_id = ?", (vtec_id,)
             ) as cursor:
                 row = await cursor.fetchone()
                 return row["posted_at"] if row else None
@@ -693,6 +701,7 @@ async def prune_posted_warnings(max_size: int = 500):
 
 # ── Soundings ─────────────────────────────────────────────────────────────────
 
+
 async def get_posted_soundings() -> set[str]:
     """Get all posted sounding keys."""
     try:
@@ -756,13 +765,12 @@ async def clear_sounding_handled_watches():
 
 # ── Key/value state ───────────────────────────────────────────────────────────
 
+
 async def get_state(key: str) -> Optional[str]:
     """Get a value from the key/value store."""
     try:
         async with get_read_db() as db:
-            async with db.execute(
-                "SELECT value FROM bot_state WHERE key = ?", (key,)
-            ) as cursor:
+            async with db.execute("SELECT value FROM bot_state WHERE key = ?", (key,)) as cursor:
                 row = await cursor.fetchone()
                 return row["value"] if row else None
     except Exception as e:
@@ -804,6 +812,7 @@ async def delete_state(key: str):
 
 # ── Posted URLs ───────────────────────────────────────────────────────────────
 
+
 async def get_posted_urls(day_key: str) -> list:
     """Get last posted URLs for a day key."""
     try:
@@ -844,6 +853,7 @@ async def set_posted_urls(day_key: str, urls: list):
 
 # ── Product text cache (IEMBot fast-path) ───────────────────────────────────
 
+
 async def get_product_cache(product_id: str) -> Optional[str]:
     """Get cached product text if not expired. Prunes expired rows at most once per hour."""
     global _last_product_cache_prune
@@ -872,6 +882,7 @@ async def get_product_cache(product_id: str) -> Optional[str]:
 
 # ── HTTP validators (ETag / Last-Modified) ─────────────────────────────────
 
+
 async def get_validators(url: str) -> Optional[dict]:
     """Return {'etag': ..., 'last_modified': ...} for a URL, or None."""
     try:
@@ -893,9 +904,7 @@ async def get_all_validators() -> dict:
     """Bulk-load every stored validator for startup hydration."""
     try:
         async with get_read_db() as db:
-            async with db.execute(
-                "SELECT url, etag, last_modified FROM http_validators"
-            ) as cursor:
+            async with db.execute("SELECT url, etag, last_modified FROM http_validators") as cursor:
                 rows = await cursor.fetchall()
                 return {
                     row["url"]: {
@@ -936,6 +945,7 @@ async def set_product_cache(product_id: str, text: str, ttl: int = 600):
 
 
 # ── Upstash Quota ──────────────────────────────────────────────────────────
+
 
 async def get_upstash_commands_today() -> int:
     """Get the number of Upstash commands used today (UTC)."""
@@ -980,6 +990,7 @@ async def set_watch_centroid_cache(watch_num: str, centroid: tuple) -> None:
 
 
 # ── Dirty writes (Upstash sync queue) ───────────────────────────────────────
+
 
 async def add_dirty_write(op: str, args: tuple):
     """Add a pending Upstash write to the queue."""
@@ -1050,7 +1061,11 @@ async def quarantine_dirty_writes(ids: list[int]):
             _write_failure_count = 0
     except Exception as e:
         _write_failure_count += 1
-        level = logger.error if _write_failure_count >= _WRITE_FAILURE_ALERT_THRESHOLD else logger.warning
+        level = (
+            logger.error
+            if _write_failure_count >= _WRITE_FAILURE_ALERT_THRESHOLD
+            else logger.warning
+        )
         level(f"quarantine_dirty_writes failed ({_write_failure_count} consecutive): {e}")
 
 

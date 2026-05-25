@@ -49,9 +49,7 @@ async def _fetch_wxnext_image(url: str) -> tuple[bytes | None, str | None]:
     """Fetch image bytes and return (content, hash) or (None, None)."""
     try:
         session = await ensure_session()
-        async with session.get(
-            url, timeout=aiohttp.ClientTimeout(total=15)
-        ) as resp:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
             ct = resp.headers.get("Content-Type", "")
             if resp.status == 200 and "image" in ct:
                 content = await resp.read()
@@ -110,9 +108,7 @@ class NCARCog(commands.Cog):
             url, MANUAL_CACHE_FILE, self.bot.state.manual_cache
         )
         if not cache_path:
-            await interaction.followup.send(
-                "Failed to download WxNext2 forecast image."
-            )
+            await interaction.followup.send("Failed to download WxNext2 forecast image.")
             return
         await interaction.followup.send(
             "**NCAR WxNext2 Mean — AI Convective Hazard Forecast (Days 1-8)**",
@@ -183,9 +179,11 @@ class NCARCog(commands.Cog):
             return
         cache_path = get_cache_path_for_url(url)
         try:
+
             def _write_cache():
                 with open(cache_path, "wb") as f:
                     f.write(content)
+
             await asyncio.get_running_loop().run_in_executor(None, _write_cache)
             self.bot.state.manual_cache[url] = h
             await set_hash(url, h, "manual")

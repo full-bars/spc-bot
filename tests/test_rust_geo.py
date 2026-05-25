@@ -15,16 +15,17 @@ class TestHaversine:
         """Rust version should match Python implementation."""
         test_cases = [
             (40.7128, -74.0060, 34.0522, -118.2437),  # NYC to LA
-            (35.6762, 139.6503, 51.5074, -0.1278),     # Tokyo to London
-            (0.0, 0.0, 0.0, 180.0),                     # Equator, opposite sides
+            (35.6762, 139.6503, 51.5074, -0.1278),  # Tokyo to London
+            (0.0, 0.0, 0.0, 180.0),  # Equator, opposite sides
         ]
 
         for lat1, lon1, lat2, lon2 in test_cases:
             rust_result = haversine(lat1, lon1, lat2, lon2)
             python_result = haversine_py(lat1, lon1, lat2, lon2)
             # Allow 0.01 km tolerance
-            assert abs(rust_result - python_result) < 0.01, \
+            assert abs(rust_result - python_result) < 0.01, (
                 f"Mismatch: {rust_result} vs {python_result}"
+            )
 
     def test_nyc_to_la_distance(self):
         """NYC to LA distance should be approximately 3944 km."""
@@ -66,8 +67,7 @@ class TestHaversineBatch:
         for i, (lat, lon) in enumerate(targets):
             individual = haversine(origin_lat, origin_lon, lat, lon)
             batch = batch_results[i]
-            assert abs(individual - batch) < 0.001, \
-                f"Item {i}: {individual} vs {batch}"
+            assert abs(individual - batch) < 0.001, f"Item {i}: {individual} vs {batch}"
 
     def test_empty_targets(self):
         """Empty targets should return empty list."""

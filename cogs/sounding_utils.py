@@ -43,7 +43,9 @@ from utils.state_store import get_state, set_state  # noqa: E402  # follows soun
 
 logger = logging.getLogger("spc_bot")
 
-RAOB_STATIONS_URL = "https://raw.githubusercontent.com/kylejgillett/sounderpy/main/src/RAOB-STATIONS.txt"
+RAOB_STATIONS_URL = (
+    "https://raw.githubusercontent.com/kylejgillett/sounderpy/main/src/RAOB-STATIONS.txt"
+)
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 USER_AGENT = "spc-bot-sounding/1.0"
 
@@ -54,6 +56,7 @@ _station_cache_lock: asyncio.Lock = asyncio.Lock()
 
 # ── User preferences ──────────────────────────────────────────────────────────
 
+
 async def get_user_dark_mode(user_id: int) -> bool:
     """Get user dark mode preference from DB."""
     try:
@@ -62,6 +65,7 @@ async def get_user_dark_mode(user_id: int) -> bool:
     except Exception as e:
         logger.debug(f"[SOUNDING] Dark mode lookup failed for {user_id}: {e}")
         return False
+
 
 async def set_user_dark_mode(user_id: int, dark: bool):
     """Save user dark mode preference to DB."""
@@ -72,6 +76,7 @@ async def set_user_dark_mode(user_id: int, dark: bool):
 
 
 # ── Station list ──────────────────────────────────────────────────────────────
+
 
 async def get_raob_stations() -> pd.DataFrame:
     """Fetch and cache the RAOB station list."""
@@ -87,11 +92,13 @@ async def get_raob_stations() -> pd.DataFrame:
         _station_cache = df
     return _station_cache
 
+
 def _fetch_stations() -> pd.DataFrame:
     df = pd.read_csv(
         RAOB_STATIONS_URL,
-        skiprows=8, sep=",",
-        names=["WMO","ICAO","NAME","LOC","EL","LAT","A","LON","B","X"],
+        skiprows=8,
+        sep=",",
+        names=["WMO", "ICAO", "NAME", "LOC", "EL", "LAT", "A", "LON", "B", "X"],
         skipinitialspace=True,
     )
     df = df[pd.to_numeric(df["LAT"], errors="coerce").notna()].copy()
@@ -104,12 +111,12 @@ def _fetch_stations() -> pd.DataFrame:
     df["B"] = df["B"].str.strip()
 
     # Vectorized hemisphere sign: N/E → +1, S/W → -1
-    df["lat"] = np.where(df["A"].isin(("N", "E")),
-                         df["LAT"].astype(float),
-                         -df["LAT"].astype(float))
-    df["lon"] = np.where(df["B"].isin(("N", "E")),
-                         df["LON"].astype(float),
-                         -df["LON"].astype(float))
+    df["lat"] = np.where(
+        df["A"].isin(("N", "E")), df["LAT"].astype(float), -df["LAT"].astype(float)
+    )
+    df["lon"] = np.where(
+        df["B"].isin(("N", "E")), df["LON"].astype(float), -df["LON"].astype(float)
+    )
     return df
 
 
@@ -123,19 +130,22 @@ def find_nearest_stations(lat: float, lon: float, df: pd.DataFrame, n: int = 3) 
         row = df.iloc[idx]
         # Columns are pre-stripped at station-list load; no per-call .strip() needed
         icao = str(row["ICAO"])
-        results.append({
-            "icao": icao if icao != "----" else None,
-            "wmo": str(row["WMO"]),
-            "name": str(row["NAME"]),
-            "loc": str(row["LOC"]),
-            "lat": row["lat"],
-            "lon": row["lon"],
-            "dist_km": round(dist_km, 1),
-        })
+        results.append(
+            {
+                "icao": icao if icao != "----" else None,
+                "wmo": str(row["WMO"]),
+                "name": str(row["NAME"]),
+                "loc": str(row["LOC"]),
+                "lat": row["lat"],
+                "lon": row["lon"],
+                "dist_km": round(dist_km, 1),
+            }
+        )
     return results
 
 
 # ── Location resolution ───────────────────────────────────────────────────────
+
 
 async def resolve_location(location: str) -> tuple[float, float, str]:
     """
@@ -174,9 +184,11 @@ async def resolve_location(location: str) -> tuple[float, float, str]:
     lat, lon, display = await geocode_city(location)
     return lat, lon, display
 
+
 async def geocode_city(query: str) -> tuple[float, float, str]:
     """Geocode a city name using Nominatim. Returns (lat, lon, display_name)."""
     from urllib.parse import urlparse
+
     host = urlparse(NOMINATIM_URL).netloc
     if circuit_breaker.is_open(host):
         raise CircuitOpenError(f"Circuit breaker is open for {host}")
@@ -204,6 +216,7 @@ async def geocode_city(query: str) -> tuple[float, float, str]:
 
 
 # ── Time resolution ───────────────────────────────────────────────────────────
+
 
 def parse_sounding_time(time_str: Optional[str]) -> Optional[tuple[str, str, str, str]]:
     """
@@ -237,6 +250,7 @@ def parse_sounding_time(time_str: Optional[str]) -> Optional[tuple[str, str, str
             f"Example: `04-10-2026 12z`"
         ) from e
 
+
 def get_recent_sounding_times(n: int = 4) -> list[tuple[str, str, str, str]]:
     """
     Return the n most recent 00z/12z sounding times that are in the past.
@@ -245,20 +259,21 @@ def get_recent_sounding_times(n: int = 4) -> list[tuple[str, str, str, str]]:
     times = []
     for days_back in range(5):
         for hour in [12, 0]:
-            dt = now.replace(
-                hour=hour, minute=0, second=0, microsecond=0
-            ) - timedelta(days=days_back)
+            dt = now.replace(hour=hour, minute=0, second=0, microsecond=0) - timedelta(
+                days=days_back
+            )
             if dt < now:
-                times.append((
-                    str(dt.year),
-                    str(dt.month).zfill(2),
-                    str(dt.day).zfill(2),
-                    str(dt.hour).zfill(2),
-                ))
+                times.append(
+                    (
+                        str(dt.year),
+                        str(dt.month).zfill(2),
+                        str(dt.day).zfill(2),
+                        str(dt.hour).zfill(2),
+                    )
+                )
             if len(times) >= n:
                 return times
     return times
-
 
 
 async def get_watch_area_centroid(affected_zones: list) -> tuple[float, float] | None:
@@ -269,14 +284,10 @@ async def get_watch_area_centroid(affected_zones: list) -> tuple[float, float] |
     all_lats = []
     all_lons = []
 
-    async with aiohttp.ClientSession(
-        headers={"User-Agent": "spc-bot-sounding/1.0"}
-    ) as session:
+    async with aiohttp.ClientSession(headers={"User-Agent": "spc-bot-sounding/1.0"}) as session:
         for zone_url in affected_zones[:10]:  # cap at 10 zones
             try:
-                async with session.get(
-                    zone_url, timeout=aiohttp.ClientTimeout(total=5)
-                ) as resp:
+                async with session.get(zone_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                     data = await resp.json()
                 geometry = data.get("geometry")
                 if not geometry:
@@ -313,7 +324,7 @@ async def get_md_area_centroid(raw_text: str) -> tuple[float, float] | None:
     lons = []
 
     for i in range(0, len(coords_str), 8):
-        part = coords_str[i:i+8]
+        part = coords_str[i : i + 8]
         if len(part) < 8:
             continue
         try:
@@ -382,8 +393,15 @@ def _iem_level_is_valid(lv: dict) -> bool:
     return True
 
 
-def _iem_to_clean_data(profile: dict, station_id: str, station_name: str,
-                        lat: float, lon: float, elev: float, valid: str) -> dict | None:
+def _iem_to_clean_data(
+    profile: dict,
+    station_id: str,
+    station_name: str,
+    lat: float,
+    lon: float,
+    elev: float,
+    valid: str,
+) -> dict | None:
     """
     Convert IEM RAOB profile dict to SounderPy clean_data format.
     IEM fields: pres, hght, tmpc, dwpc, drct, sknt
@@ -415,8 +433,7 @@ def _iem_to_clean_data(profile: dict, station_id: str, station_name: str,
 
     if len(levels) < raw_count:
         logger.debug(
-            f"[IEM] QC dropped {raw_count - len(levels)}/{raw_count} levels "
-            f"for {station_id}"
+            f"[IEM] QC dropped {raw_count - len(levels)}/{raw_count} levels for {station_id}"
         )
 
     pres = np.array([lv["pres"] for lv in levels], dtype=float)
@@ -439,8 +456,12 @@ def _iem_to_clean_data(profile: dict, station_id: str, station_name: str,
             dt = datetime.strptime(valid, "%Y-%m-%dT%H:%M:%S")
             dt = dt.replace(tzinfo=timezone.utc)
 
-        run_time = [str(dt.year), str(dt.month).zfill(2),
-                    str(dt.day).zfill(2), f"{dt.hour:02d}:{dt.minute:02d}"]
+        run_time = [
+            str(dt.year),
+            str(dt.month).zfill(2),
+            str(dt.day).zfill(2),
+            f"{dt.hour:02d}:{dt.minute:02d}",
+        ]
     except Exception as e:
         logger.debug(f"[IEM] Datetime parse failed for {valid!r}: {e}")
         run_time = ["none", "none", "none", "none"]
@@ -472,11 +493,17 @@ def _iem_to_clean_data(profile: dict, station_id: str, station_name: str,
     }
 
 
-async def fetch_iem_sounding(station_id: str, year: str, month: str,
-                              day: str, hour: str,
-                              station_name: str = "",
-                              lat: float = 0, lon: float = 0,
-                              elev: float = 0) -> Optional[dict]:
+async def fetch_iem_sounding(
+    station_id: str,
+    year: str,
+    month: str,
+    day: str,
+    hour: str,
+    station_name: str = "",
+    lat: float = 0,
+    lon: float = 0,
+    elev: float = 0,
+) -> Optional[dict]:
     """
     Fetch a sounding from IEM and convert to SounderPy clean_data format.
     Falls back to SounderPy (Wyoming) if IEM fails.
@@ -501,7 +528,9 @@ async def fetch_iem_sounding(station_id: str, year: str, month: str,
             profile_data["profile"],
             station_id=station_id,
             station_name=station_name or station_id,
-            lat=lat, lon=lon, elev=elev,
+            lat=lat,
+            lon=lon,
+            elev=elev,
             valid=profile_data.get("valid", ts),
         )
         if clean:
@@ -558,10 +587,7 @@ async def get_available_sounding_times_iem(
                 logger.debug(f"[SOUNDING] IEM profile probe failed for {station_id}: {e}")
             return None
 
-    times_to_check = [
-        now - timedelta(hours=h)
-        for h in range(hours_back + 1)
-    ]
+    times_to_check = [now - timedelta(hours=h) for h in range(hours_back + 1)]
 
     # Limit concurrency to 5 simultaneous requests to avoid overwhelming IEM
     semaphore = asyncio.Semaphore(5)
@@ -574,7 +600,8 @@ async def get_available_sounding_times_iem(
     _AVAILABILITY_CACHE[cache_key] = (now, found)
     if len(_AVAILABILITY_CACHE) > 2000:
         expired = [
-            k for k, (ts, _) in _AVAILABILITY_CACHE.items()
+            k
+            for k, (ts, _) in _AVAILABILITY_CACHE.items()
             if (now - ts).total_seconds() >= AVAILABILITY_CACHE_TTL
         ]
         for k in expired:
@@ -588,7 +615,8 @@ _ACARS_STATION_COORDS: dict = {}
 
 
 async def get_acars_profiles_near(
-    lat: float, lon: float,
+    lat: float,
+    lon: float,
     max_dist_km: float = 400,
     hours_back: int = 3,
 ) -> list[dict]:
@@ -646,20 +674,24 @@ async def get_acars_profiles_near(
                 time_part = profile_id.split("_")[1] if "_" in profile_id else hour + "00"
                 # High-precision deduplication key used by SoundingCog
                 pkey = f"acars:{airport_code}:{year}{month}{day}_{time_part}z"
-                results.append({
-                    "profile_id": profile_id,
-                    "airport": airport_code,
-                    "name": airport_code,
-                    "lat": airport_latlon[0],
-                    "lon": airport_latlon[1],
-                    "dist_km": round(dist, 1),
-                    "year": year,
-                    "month": month,
-                    "day": day,
-                    "acars_hour": hour,
-                    "pkey": pkey,
-                    "time_label": f"{time_part[:2]}:{time_part[2:]}z" if len(time_part) >= 4 else f"{time_part}z",
-                })
+                results.append(
+                    {
+                        "profile_id": profile_id,
+                        "airport": airport_code,
+                        "name": airport_code,
+                        "lat": airport_latlon[0],
+                        "lon": airport_latlon[1],
+                        "dist_km": round(dist, 1),
+                        "year": year,
+                        "month": month,
+                        "day": day,
+                        "acars_hour": hour,
+                        "pkey": pkey,
+                        "time_label": f"{time_part[:2]}:{time_part[2:]}z"
+                        if len(time_part) >= 4
+                        else f"{time_part}z",
+                    }
+                )
 
     results.sort(key=lambda x: x["dist_km"])
     return results[:5]
@@ -731,28 +763,38 @@ async def get_acars_profiles_in_polygon(
                 time_part = profile_id.split("_")[1] if "_" in profile_id else hour + "00"
                 # High-precision deduplication key used by SoundingCog
                 pkey = f"acars:{airport_code}:{year}{month}{day}_{time_part}z"
-                results.append({
-                    "profile_id": profile_id,
-                    "airport": airport_code,
-                    "name": airport_code,
-                    "lat": airport_latlon[0],
-                    "lon": airport_latlon[1],
-                    "year": year,
-                    "month": month,
-                    "day": day,
-                    "acars_hour": hour,
-                    "pkey": pkey,
-                    "time_label": f"{time_part[:2]}:{time_part[2:]}z" if len(time_part) >= 4 else f"{time_part}z",
-                })
+                results.append(
+                    {
+                        "profile_id": profile_id,
+                        "airport": airport_code,
+                        "name": airport_code,
+                        "lat": airport_latlon[0],
+                        "lon": airport_latlon[1],
+                        "year": year,
+                        "month": month,
+                        "day": day,
+                        "acars_hour": hour,
+                        "pkey": pkey,
+                        "time_label": f"{time_part[:2]}:{time_part[2:]}z"
+                        if len(time_part) >= 4
+                        else f"{time_part}z",
+                    }
+                )
             if len(results) >= max_results:
                 return results
 
     return results
 
 
-def _fsl_to_clean_data(text: str, station_id: str, station_name: str,
-                       lat: float, lon: float, elev: float,
-                       run_time: list[str]) -> Optional[dict]:
+def _fsl_to_clean_data(
+    text: str,
+    station_id: str,
+    station_name: str,
+    lat: float,
+    lon: float,
+    elev: float,
+    run_time: list[str],
+) -> Optional[dict]:
     """Parse GSL 'FSL' format ASCII text into SounderPy clean_data."""
     lines = text.splitlines()
     levels = []
@@ -778,14 +820,16 @@ def _fsl_to_clean_data(text: str, station_id: str, station_name: str,
             if p_raw == 99999 or z_raw == 99999:
                 continue
 
-            levels.append({
-                "pres": p_raw / 10.0,
-                "hght": float(z_raw),
-                "tmpc": t_raw / 10.0 if t_raw != 99999 else np.nan,
-                "dwpc": td_raw / 10.0 if td_raw != 99999 else np.nan,
-                "drct": float(wdir_raw) if wdir_raw != 99999 else np.nan,
-                "sknt": float(wspd_raw) if wspd_raw != 99999 else np.nan
-            })
+            levels.append(
+                {
+                    "pres": p_raw / 10.0,
+                    "hght": float(z_raw),
+                    "tmpc": t_raw / 10.0 if t_raw != 99999 else np.nan,
+                    "dwpc": td_raw / 10.0 if td_raw != 99999 else np.nan,
+                    "drct": float(wdir_raw) if wdir_raw != 99999 else np.nan,
+                    "sknt": float(wspd_raw) if wspd_raw != 99999 else np.nan,
+                }
+            )
         except (ValueError, IndexError):
             continue
 
@@ -841,19 +885,34 @@ def _fsl_to_clean_data(text: str, station_id: str, station_name: str,
     }
 
 
-async def fetch_gsl_sounding(station_id: str, year: str, month: str,
-                              day: str, hour: str,
-                              station_name: str = "",
-                              lat: float = 0, lon: float = 0,
-                              elev: float = 0) -> Optional[dict]:
+async def fetch_gsl_sounding(
+    station_id: str,
+    year: str,
+    month: str,
+    day: str,
+    hour: str,
+    station_name: str = "",
+    lat: float = 0,
+    lon: float = 0,
+    elev: float = 0,
+) -> Optional[dict]:
     """
     Fetch a sounding from NOAA/GSL and convert to SounderPy clean_data format.
     Uses the rucsoundings.noaa.gov ASCII 'FSL' format.
     """
     month_map = {
-        "01": "JAN", "02": "FEB", "03": "MAR", "04": "APR",
-        "05": "MAY", "06": "JUN", "07": "JUL", "08": "AUG",
-        "09": "SEP", "10": "OCT", "11": "NOV", "12": "DEC"
+        "01": "JAN",
+        "02": "FEB",
+        "03": "MAR",
+        "04": "APR",
+        "05": "MAY",
+        "06": "JUN",
+        "07": "JUL",
+        "08": "AUG",
+        "09": "SEP",
+        "10": "OCT",
+        "11": "NOV",
+        "12": "DEC",
     }
     month_name = month_map.get(month, "JAN")
 
@@ -867,13 +926,19 @@ async def fetch_gsl_sounding(station_id: str, year: str, month: str,
 
     try:
         from utils.http import http_get_text
+
         text = await http_get_text(url, retries=1, timeout=15)
         if not text or "No data available" in text:
             return None
 
         clean = _fsl_to_clean_data(
-            text, station_id, station_name or station_id,
-            lat, lon, elev, [year, month, day, f"{hour}:00"]
+            text,
+            station_id,
+            station_name or station_id,
+            lat,
+            lon,
+            elev,
+            [year, month, day, f"{hour}:00"],
         )
         if clean:
             logger.debug(f"[GSL] Got sounding for {station_id} at {year}-{month}-{day} {hour}z")
@@ -885,26 +950,27 @@ async def fetch_gsl_sounding(station_id: str, year: str, month: str,
 
 async def fetch_acars_sounding(
     profile_id: str,
-    year: str, month: str, day: str, hour: str,
+    year: str,
+    month: str,
+    day: str,
+    hour: str,
 ) -> Optional[dict]:
     """Fetch an ACARS sounding profile and return SounderPy clean_data."""
     import sounderpy as spy  # noqa: PLC0415  # deferred; see fetch_sounding
+
     loop = asyncio.get_running_loop()
     try:
-        acars = await loop.run_in_executor(
-            None, lambda: spy.acars_data(year, month, day, hour)
-        )
+        acars = await loop.run_in_executor(None, lambda: spy.acars_data(year, month, day, hour))
         await loop.run_in_executor(None, acars.list_profiles)
-        clean_data = await loop.run_in_executor(
-            None, lambda: acars.get_profile(profile_id)
-        )
-        if validate_sounding_data(clean_data, min_levels=8): # ACARS needs a bit more depth
+        clean_data = await loop.run_in_executor(None, lambda: acars.get_profile(profile_id))
+        if validate_sounding_data(clean_data, min_levels=8):  # ACARS needs a bit more depth
             return clean_data
         logger.warning(f"[ACARS] Profile {profile_id} failed validation (shallow or empty)")
         return None
     except Exception as e:
         logger.warning(f"[ACARS] Fetch failed for {profile_id}: {e}")
         return None
+
 
 # ── SounderPy fetch and plot ──────────────────────────────────────────────────
 
@@ -915,7 +981,7 @@ async def get_available_sounding_times(
     skip_cache: bool = False,
 ) -> list[tuple[str, str, str, str]]:
     """
-    Unified availability check: Try IEM first, fall back to a direct 
+    Unified availability check: Try IEM first, fall back to a direct
     Wyoming/GSL probe for standard hours.
     """
     # 1. Try IEM (Fastest, covers all hours)
@@ -940,10 +1006,9 @@ async def get_available_sounding_times(
         return []
 
     # Parallel probe Wyoming/GSL
-    results = await asyncio.gather(*[
-        fetch_sounding(station_id, y, mo, d, h)
-        for y, mo, d, h in valid_probe_times
-    ])
+    results = await asyncio.gather(
+        *[fetch_sounding(station_id, y, mo, d, h) for y, mo, d, h in valid_probe_times]
+    )
 
     return [valid_probe_times[i] for i, res in enumerate(results) if res is not None]
 
@@ -953,6 +1018,7 @@ async def filter_stations_with_data(stations: list[dict]) -> list[dict]:
     Check each station in parallel for available sounding data.
     Uses unified availability check (IEM + Wyoming probe).
     """
+
     async def has_data(station: dict) -> tuple[dict, bool]:
         station_id = station.get("icao") or station.get("wmo")
         available = await get_available_sounding_times(station_id, hours_back=24)
@@ -960,6 +1026,7 @@ async def filter_stations_with_data(stations: list[dict]) -> list[dict]:
 
     results = await asyncio.gather(*[has_data(s) for s in stations])
     return [s for s, ok in results if ok]
+
 
 def validate_sounding_data(data: Optional[dict], min_levels: int = 5) -> bool:
     """Check if sounding data dict is valid and has enough levels for plotting."""
@@ -1029,11 +1096,17 @@ def sounding_quality_warning(data: Optional[dict]) -> Optional[str]:
         logger.debug(f"[SOUNDING] Quality assessment failed: {e}")
     return None
 
+
 async def fetch_sounding(
     station_id: str,
-    year: str, month: str, day: str, hour: str,
+    year: str,
+    month: str,
+    day: str,
+    hour: str,
     station_name: str = "",
-    lat: float = 0, lon: float = 0, elev: float = 0,
+    lat: float = 0,
+    lon: float = 0,
+    elev: float = 0,
 ) -> Optional[dict]:
     """
     Fetch sounding data with multi-source fallback and circuit-awareness.
@@ -1051,8 +1124,7 @@ async def fetch_sounding(
         logger.debug(f"[SOUNDING] Fetching Wyoming for {station_id} {hour}z")
         try:
             wyo_data = await loop.run_in_executor(
-                None,
-                lambda: spy.get_obs_data(station_id, year, month, day, hour)
+                None, lambda: spy.get_obs_data(station_id, year, month, day, hour)
             )
             if validate_sounding_data(wyo_data):
                 logger.debug(f"[SOUNDING] Wyoming success for {station_id} {hour}z")
@@ -1065,8 +1137,15 @@ async def fetch_sounding(
     if not circuit_breaker.is_open(iem_host):
         logger.debug(f"[SOUNDING] Fetching IEM for {station_id} {hour}z")
         iem_data = await fetch_iem_sounding(
-            station_id, year, month, day, hour,
-            station_name=station_name, lat=lat, lon=lon, elev=elev
+            station_id,
+            year,
+            month,
+            day,
+            hour,
+            station_name=station_name,
+            lat=lat,
+            lon=lon,
+            elev=elev,
         )
         if validate_sounding_data(iem_data):
             return iem_data
@@ -1076,13 +1155,13 @@ async def fetch_sounding(
     # 3. GSL (High-authority redundant fallback)
     logger.debug(f"[SOUNDING] Fetching GSL fallback for {station_id} {hour}z")
     gsl_data = await fetch_gsl_sounding(
-        station_id, year, month, day, hour,
-        station_name=station_name, lat=lat, lon=lon, elev=elev
+        station_id, year, month, day, hour, station_name=station_name, lat=lat, lon=lon, elev=elev
     )
     if validate_sounding_data(gsl_data):
         return gsl_data
 
     return None
+
 
 async def generate_plot(
     clean_data: dict,
@@ -1095,6 +1174,7 @@ async def generate_plot(
     parallel without matplotlib thread-safety concerns.
     """
     from utils.worker_pool import get_sounding_executor
+
     loop = asyncio.get_running_loop()
     try:
         # Wrap in wait_for to prevent infinite hangs in the subprocess
@@ -1106,7 +1186,7 @@ async def generate_plot(
                 output_path,
                 dark_mode,
             ),
-            timeout=60.0
+            timeout=60.0,
         )
         return True
     except asyncio.TimeoutError:
@@ -1119,15 +1199,14 @@ async def generate_plot(
         # this, but guard in case a profile slips through.
         msg = str(e)
         if "zero-size array" in msg or "fmin" in msg or "fmax" in msg:
-            logger.warning(
-                f"[SOUNDING] Plot failed due to insufficient data quality: {e}"
-            )
+            logger.warning(f"[SOUNDING] Plot failed due to insufficient data quality: {e}")
             return False
         logger.exception(f"[SOUNDING] Plot generation failed: {e}")
         return False
     except Exception as e:
         logger.exception(f"[SOUNDING] Plot generation failed: {e}")
         return False
+
 
 def _plot_sync(clean_data: dict, output_path: str, dark_mode: bool):
     """Synchronous plot generation — runs in executor."""

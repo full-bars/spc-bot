@@ -2,6 +2,7 @@
 
 Handles TTL-based eviction of cached files to prevent disk space exhaustion.
 """
+
 import asyncio
 import logging
 import os
@@ -28,7 +29,9 @@ def _cleanup_sync(cache_dir: str, max_age_seconds: int) -> tuple[int, int]:
                     os.remove(entry.path)
                     deleted += 1
                     freed_bytes += size
-                    logger.debug(f"[CACHE] Evicted {entry.name} ({size} bytes, age: {age_seconds / 3600:.1f}h)")
+                    logger.debug(
+                        f"[CACHE] Evicted {entry.name} ({size} bytes, age: {age_seconds / 3600:.1f}h)"
+                    )
                 except Exception as e:
                     logger.warning(f"[CACHE] Failed to delete {entry.path}: {e}")
     except Exception as e:
@@ -51,7 +54,9 @@ async def cleanup_old_cache_files(
     deleted, freed_bytes = await asyncio.to_thread(_cleanup_sync, cache_dir, max_age_seconds)
 
     if deleted > 0:
-        logger.info(f"[CACHE] Evicted {deleted} file(s), freed {freed_bytes / (1024*1024):.1f} MB")
+        logger.info(
+            f"[CACHE] Evicted {deleted} file(s), freed {freed_bytes / (1024 * 1024):.1f} MB"
+        )
 
     return deleted, freed_bytes
 

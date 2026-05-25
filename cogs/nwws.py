@@ -31,6 +31,7 @@ logger = logging.getLogger("spc_bot")
 # Rust core fallback
 try:
     import spc_rust_core
+
     _normalize_product_id_rust = spc_rust_core.normalize_product_id
     _parse_md_number_rust = spc_rust_core.parse_md_number
     _parse_watch_number_rust = spc_rust_core.parse_watch_number
@@ -43,7 +44,8 @@ except (ImportError, AttributeError):
 _USE_RUST_NWWS = False
 try:
     import spc_rust_core
-    if hasattr(spc_rust_core, 'nwws_start'):
+
+    if hasattr(spc_rust_core, "nwws_start"):
         _USE_RUST_NWWS = True
         logger.info("NWWS Rust backend enabled")
 except (ImportError, AttributeError):
@@ -112,6 +114,7 @@ def parse_watch_number(text: str) -> Optional[tuple]:
             pass
     return parse_watch_number_py(text)
 
+
 # --- Secondary Firehose Logger ---
 # This logger writes EVERYTHING from NWWS to a separate file (capped at 10MB)
 # so the main log stays quiet.
@@ -124,19 +127,21 @@ firehose_logger.propagate = False
 if not firehose_logger.handlers:
     fh = RotatingFileHandler(
         NWWS_FIREHOSE_LOG,
-        maxBytes=10*1024*1024, # 10MB
-        backupCount=1
+        maxBytes=10 * 1024 * 1024,  # 10MB
+        backupCount=1,
     )
-    fh.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
+    fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
     firehose_logger.addHandler(fh)
+
 
 # --- NWWS-OI Custom XML Payload ---
 # Specification: <x xmlns='nwws-oi' cccc='...' ttaaii='...' issue='...' awipsid='...' id='...' />
 class NWWSPayload(ElementBase):
-    name = 'x'
-    namespace = 'nwws-oi'
-    plugin_attrib = 'nwws'
-    interfaces = {'cccc', 'ttaaii', 'issue', 'awipsid', 'id'}
+    name = "x"
+    namespace = "nwws-oi"
+    plugin_attrib = "nwws"
+    interfaces = {"cccc", "ttaaii", "issue", "awipsid", "id"}
+
 
 class NWWSClient(ClientXMPP):
     def __init__(self, jid, password, bot):
@@ -147,12 +152,12 @@ class NWWSClient(ClientXMPP):
         self.is_connected = False
         # Room is 'nwws' on the conference server
         self.room = f"nwws@conference.{NWWS_SERVER}"
-        self.nick = jid.split('@')[0]
+        self.nick = jid.split("@")[0]
 
         # Register the MUC plugin and our custom payload
-        self.register_plugin('xep_0045') # Multi-User Chat
-        self.register_plugin('xep_0199') # XMPP Ping
-        self.register_plugin('xep_0203') # Delayed Delivery — needed to detect archived backlog
+        self.register_plugin("xep_0045")  # Multi-User Chat
+        self.register_plugin("xep_0199")  # XMPP Ping
+        self.register_plugin("xep_0203")  # Delayed Delivery — needed to detect archived backlog
         register_stanza_plugin(Message, NWWSPayload)
 
         self.add_event_handler("session_start", self.session_start)
@@ -173,7 +178,7 @@ class NWWSClient(ClientXMPP):
             while self.is_connected:
                 try:
                     start = time.perf_counter()
-                    await self['xep_0199'].ping(self.boundjid.host, timeout=10)
+                    await self["xep_0199"].ping(self.boundjid.host, timeout=10)
                     latency_ms = (time.perf_counter() - start) * 1000
                     self.bot.state.nwws_ping = latency_ms
                 except Exception:
@@ -200,7 +205,7 @@ class NWWSClient(ClientXMPP):
 
         # Join the NWWS-OI Multi-User Chat
         logger.info(f"Joining room {self.room} as {self.nick}...")
-        self.plugin['xep_0045'].join_muc(self.room, self.nick)
+        self.plugin["xep_0045"].join_muc(self.room, self.nick)
         logger.info(f"XMPP Session Started as {self.boundjid}")
 
     def on_disconnect(self, event):
@@ -210,39 +215,40 @@ class NWWSClient(ClientXMPP):
     def message(self, msg):
         # The specification says weather products arrive as 'groupchat' messages
         # from the room.
-        msg_type = msg['type']
+        msg_type = msg["type"]
 
         # Extract the custom NWWS-OI payload
-        payload = msg['nwws']
+        payload = msg["nwws"]
         raw_text = payload.xml.text.strip() if payload.xml is not None and payload.xml.text else ""
 
         # If no custom payload, check body (for MOTD or other messages)
-        body = msg['body']
+        body = msg["body"]
 
         # --- VERBOSE LOGGING: Directed to nwws_firehose.log ---
-        if payload['awipsid'] or raw_text:
+        if payload["awipsid"] or raw_text:
             # Metadata log
             firehose_logger.info(
                 f"[{msg_type.upper()}] from {msg['from']} | "
                 f"cccc: {payload['cccc']}, ttaaii: {payload['ttaaii']}, awipsid: {payload['awipsid']}, issue: {payload['issue']}"
             )
             # Full text log (no truncation, rotating file handles size)
-            text_clean = raw_text.replace('\r', '')
-            firehose_logger.info(f"RAW TEXT:\n{text_clean}\n" + "-"*40)
+            text_clean = raw_text.replace("\r", "")
+            firehose_logger.info(f"RAW TEXT:\n{text_clean}\n" + "-" * 40)
         elif body and "**WARNING**" in body:
             firehose_logger.info(f"MOTD: {body[:100]}...")
         # ---------------------
 
-        if not raw_text or not payload['awipsid']:
+        if not raw_text or not payload["awipsid"]:
             return
 
         # Check for archived message (XEP-0203 delay element).
         # xep_0203 parses the stamp into a datetime; backlog messages are > 10s old.
         from datetime import datetime as dt_class
         from datetime import timezone as tz_class
+
         is_archived = False
         try:
-            stamp = msg['delay']['stamp']
+            stamp = msg["delay"]["stamp"]
             if isinstance(stamp, dt_class):
                 if stamp.tzinfo is None:
                     stamp = stamp.replace(tzinfo=tz_class.utc)
@@ -255,6 +261,7 @@ class NWWSClient(ClientXMPP):
         if not is_archived:
             from datetime import datetime as dt_class
             from datetime import timezone as tz_class
+
             now = dt_class.now(tz_class.utc)
             self.bot.state.nwws_msg_count += 1
 
@@ -274,8 +281,12 @@ class NWWSClient(ClientXMPP):
                         self.bot.state.nwws_throughput = throughput
                     else:
                         # 70/30 rolling average: favor recent data
-                        self.bot.state.nwws_throughput = (self.bot.state.nwws_throughput * 0.7) + (throughput * 0.3)
-                    logger.debug(f"Throughput update: {self.bot.state.nwws_throughput:.2f} msg/s ({self.bot.state.nwws_msg_count} in {elapsed:.1f}s)")
+                        self.bot.state.nwws_throughput = (self.bot.state.nwws_throughput * 0.7) + (
+                            throughput * 0.3
+                        )
+                    logger.debug(
+                        f"Throughput update: {self.bot.state.nwws_throughput:.2f} msg/s ({self.bot.state.nwws_msg_count} in {elapsed:.1f}s)"
+                    )
                     # Reset window
                     self.bot.state.nwws_msg_count = 0
                     self.bot.state.nwws_last_window_time = now
@@ -286,12 +297,16 @@ class NWWSClient(ClientXMPP):
         # Capture receive timestamp for accurate wire latency measurement
         from datetime import datetime as dt_class
         from datetime import timezone as tz_class
+
         received_at = dt_class.now(tz_class.utc)
 
         # Route to processing
         nwws_cog = self.bot.get_cog("NWWSCog")
         if nwws_cog:
-            self.bot.loop.create_task(nwws_cog._process_nwws_message(payload, raw_text, received_at, is_archived))
+            self.bot.loop.create_task(
+                nwws_cog._process_nwws_message(payload, raw_text, received_at, is_archived)
+            )
+
 
 class NWWSCog(commands.Cog):
     MANAGED_TASK_NAMES = [("monitor_connection", "nwws_connection")]
@@ -316,6 +331,7 @@ class NWWSCog(commands.Cog):
         if self._use_rust:
             try:
                 import spc_rust_core
+
                 spc_rust_core.nwws_start(NWWS_USER, NWWS_PASSWORD, NWWS_SERVER)
                 logger.info("Rust NWWS backend started successfully")
                 self._drain_rust_nwws.start()
@@ -334,6 +350,7 @@ class NWWSCog(commands.Cog):
         if self._use_rust:
             try:
                 import spc_rust_core
+
                 spc_rust_core.nwws_stop()
                 logger.info("Rust NWWS backend stopped")
             except Exception as e:
@@ -380,23 +397,25 @@ class NWWSCog(commands.Cog):
                 class RustPayload:
                     def __init__(self, d):
                         self._dict = d
+
                     def __getitem__(self, key):
                         return self._dict.get(key)
 
                 payload = RustPayload(msg_dict)
-                raw_text = msg_dict.get('text') or msg_dict.get('raw_text', '')
-                if not raw_text or not msg_dict.get('awipsid'):
+                raw_text = msg_dict.get("text") or msg_dict.get("raw_text", "")
+                if not raw_text or not msg_dict.get("awipsid"):
                     continue
-                
+
                 # Check for archived message (XEP-0203 delay stamp)
                 is_archived = False
-                delay_stamp = msg_dict.get('delay_stamp')
+                delay_stamp = msg_dict.get("delay_stamp")
                 if delay_stamp and isinstance(delay_stamp, str):
                     from datetime import datetime as dt_class
                     from datetime import timezone as tz_class
+
                     try:
-                        if delay_stamp.endswith('Z'):
-                            delay_time = dt_class.fromisoformat(delay_stamp.replace('Z', '+00:00'))
+                        if delay_stamp.endswith("Z"):
+                            delay_time = dt_class.fromisoformat(delay_stamp.replace("Z", "+00:00"))
                         else:
                             delay_time = dt_class.fromisoformat(delay_stamp)
                         now = dt_class.now(tz_class.utc)
@@ -406,6 +425,7 @@ class NWWSCog(commands.Cog):
 
                 # Use current time; Rust already timestamped it
                 from datetime import datetime, timezone
+
                 received_at = datetime.now(timezone.utc)
 
                 asyncio.create_task(
@@ -452,21 +472,24 @@ class NWWSCog(commands.Cog):
             if not self.monitor_connection.is_running():
                 self.monitor_connection.start()
 
-    async def _process_nwws_message(self, payload, raw_text: str, received_at, is_archived: bool = False):
+    async def _process_nwws_message(
+        self, payload, raw_text: str, received_at, is_archived: bool = False
+    ):
         """Parse raw text product and route to appropriate cogs."""
         try:
-            afos_pil = payload['awipsid']
-            office = payload['cccc']
-            ttaaii = payload['ttaaii']
+            afos_pil = payload["awipsid"]
+            office = payload["cccc"]
+            ttaaii = payload["ttaaii"]
 
-            issue_str = payload['issue'] or time.strftime("%Y%m%d%H%M", time.gmtime())
+            issue_str = payload["issue"] or time.strftime("%Y%m%d%H%M", time.gmtime())
             product_id = normalize_product_id(office, ttaaii, afos_pil, issue_str)
 
             if not is_archived:
-                issue_val = payload['issue'] or issue_str
+                issue_val = payload["issue"] or issue_str
                 try:
                     from datetime import datetime as dt_class
                     from datetime import timezone as tz_class
+
                     start_time = self.bot.state.bot_start_time
 
                     if isinstance(start_time, dt_class):
@@ -475,15 +498,21 @@ class NWWSCog(commands.Cog):
                             if "T" in issue_val:
                                 issue_dt = dt_class.fromisoformat(issue_val.replace("Z", "+00:00"))
                             elif len(issue_val) >= 14:
-                                issue_dt = dt_class.strptime(issue_val[:14], "%Y%m%d%H%M%S").replace(tzinfo=tz_class.utc)
+                                issue_dt = dt_class.strptime(
+                                    issue_val[:14], "%Y%m%d%H%M%S"
+                                ).replace(tzinfo=tz_class.utc)
                             else:
-                                issue_dt = dt_class.strptime(issue_val[:12], "%Y%m%d%H%M").replace(tzinfo=tz_class.utc)
+                                issue_dt = dt_class.strptime(issue_val[:12], "%Y%m%d%H%M").replace(
+                                    tzinfo=tz_class.utc
+                                )
 
                             latency = max(0.0, (received_at - issue_dt).total_seconds())
                             if self.bot.state.nwws_latency is None:
                                 self.bot.state.nwws_latency = latency
                             else:
-                                self.bot.state.nwws_latency = (self.bot.state.nwws_latency * 0.7) + (latency * 0.3)
+                                self.bot.state.nwws_latency = (
+                                    self.bot.state.nwws_latency * 0.7
+                                ) + (latency * 0.3)
                 except Exception as e:
                     logger.debug(f"Latency calculation failed ({issue_val}): {e}")
 
@@ -494,12 +523,16 @@ class NWWSCog(commands.Cog):
                     watches_cog = self.bot.get_cog("WatchesCog")
                     if watches_cog:
                         from cogs.iembot import _parse_watch_text
+
                         text = _parse_watch_text(raw_text)
                         if text:
                             from utils.state_store import set_product_cache
+
                             await set_product_cache(f"watch_{watch_num}", text, ttl=600)
 
-                        await watches_cog.post_watch_now(watch_num, {"type": wtype, "expires": None, "affected_zones": []})
+                        await watches_cog.post_watch_now(
+                            watch_num, {"type": wtype, "expires": None, "affected_zones": []}
+                        )
                         logger.info(f"Triggered Watch {watch_num} via XMPP")
 
             elif "SWOMCD" in afos_pil:
@@ -508,6 +541,7 @@ class NWWSCog(commands.Cog):
                     mesoscale_cog = self.bot.get_cog("MesoscaleCog")
                     if mesoscale_cog:
                         from utils.state_store import set_product_cache
+
                         await set_product_cache(f"md_{md_num}", raw_text, ttl=600)
                         await mesoscale_cog.post_md_now(md_num)
                         logger.info(f"Triggered MD {md_num} via XMPP")
@@ -528,11 +562,13 @@ class NWWSCog(commands.Cog):
                         "FFW": "Flash Flood Warning",
                         "SVS": "Severe Weather Statement",
                         "FFS": "Flash Flood Statement",
-                        "SPS": "Special Weather Statement"
+                        "SPS": "Special Weather Statement",
                     }
                     pil_prefix = next((p for p in event_map if afos_pil.startswith(p)), None)
                     if pil_prefix:
-                        await warnings_cog.post_warning_now(product_id, cleaned_text, event_map[pil_prefix])
+                        await warnings_cog.post_warning_now(
+                            product_id, cleaned_text, event_map[pil_prefix]
+                        )
                         logger.info(f"Triggered {pil_prefix} Warning via XMPP")
 
             elif any(afos_pil.startswith(x) for x in ("LSR", "PNS")):
@@ -584,6 +620,7 @@ class NWWSCog(commands.Cog):
     @monitor_connection.before_loop
     async def before_monitor(self):
         await self.bot.wait_until_ready()
+
 
 async def setup(bot):
     await bot.add_cog(NWWSCog(bot))

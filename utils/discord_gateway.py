@@ -16,7 +16,7 @@ async def get_discord_gateway_url(bot) -> Optional[str]:
     """Get the Discord gateway URL the bot is connected to."""
     try:
         # Discord.py stores gateway info in the bot's websocket connection
-        if bot.ws and hasattr(bot.ws, 'socket') and bot.ws.socket:
+        if bot.ws and hasattr(bot.ws, "socket") and bot.ws.socket:
             # Get the remote address from the socket
             peername = bot.ws.socket.getpeername()
             if peername:
@@ -27,10 +27,12 @@ async def get_discord_gateway_url(bot) -> Optional[str]:
     # Fallback: try to query Discord's gateway endpoint
     try:
         session = await ensure_session()
-        async with session.get('https://discord.com/api/v10/gateway', timeout=aiohttp.ClientTimeout(total=5)) as resp:
+        async with session.get(
+            "https://discord.com/api/v10/gateway", timeout=aiohttp.ClientTimeout(total=5)
+        ) as resp:
             if resp.status == 200:
                 data = await resp.json()
-                url = data.get('url', '').replace('wss://', '').replace('/', '')
+                url = data.get("url", "").replace("wss://", "").replace("/", "")
                 return url
     except Exception as e:
         logger.debug(f"Could not query Discord gateway endpoint: {e}")
@@ -71,26 +73,25 @@ async def geolocate_ip(ip: Optional[str]) -> Optional[str]:
         session = await ensure_session()
         # Use ipinfo.io (fast, reliable, no auth required)
         async with session.get(
-                f'https://ipinfo.io/{ip}/json',
-                timeout=aiohttp.ClientTimeout(total=10)
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    city = data.get('city', '')
-                    region = data.get('region', '')
-                    country = data.get('country', '')
+            f"https://ipinfo.io/{ip}/json", timeout=aiohttp.ClientTimeout(total=10)
+        ) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                city = data.get("city", "")
+                region = data.get("region", "")
+                country = data.get("country", "")
 
-                    # Format the location string
-                    parts = []
-                    if city:
-                        parts.append(city)
-                    if region and region != city:
-                        parts.append(region)
-                    if country:
-                        parts.append(country)
+                # Format the location string
+                parts = []
+                if city:
+                    parts.append(city)
+                if region and region != city:
+                    parts.append(region)
+                if country:
+                    parts.append(country)
 
-                    if parts:
-                        return ', '.join(parts)
+                if parts:
+                    return ", ".join(parts)
     except asyncio.TimeoutError:
         logger.debug(f"Gateway geolocation lookup timed out for {ip}")
     except Exception as e:
