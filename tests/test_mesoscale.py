@@ -251,8 +251,8 @@ async def test_post_md_now_no_channel_returns_early():
 
 
 @pytest.mark.asyncio
-async def test_post_md_now_marks_posted_before_send():
-    """MD is marked as posted immediately to prevent concurrent duplicate posts."""
+async def test_post_md_now_does_not_mark_posted_on_send_failure():
+    """If channel.send raises, MD must NOT be added to posted_mds so it can be retried."""
     bot, channel = _make_bot_for_post()
     channel.send.side_effect = Exception("failed")
     cog = MesoscaleCog.__new__(MesoscaleCog)
@@ -261,7 +261,7 @@ async def test_post_md_now_marks_posted_before_send():
     with patch("cogs.mesoscale.fetch_md_details", AsyncMock(return_value=("img", "sum", True, "/path"))):
         await cog.post_md_now("0398")  # must not raise
 
-    assert "0398" in bot.state.posted_mds
+    assert "0398" not in bot.state.posted_mds
 
 
 # ── fetch_latest_md_numbers — IEM fallback parse path ────────────────────────
