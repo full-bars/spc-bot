@@ -41,10 +41,7 @@ async def send_with_handling(source, content: str, file_paths=None):
         except Exception as e:
             logger.warning(f"Could not create discord.File from {fp}: {e}")
     try:
-        if (
-            hasattr(source, "response")
-            and getattr(source, "response", None) is not None
-        ):
+        if hasattr(source, "response") and getattr(source, "response", None) is not None:
             await source.followup.send(content, files=files)
         else:
             await source.send(content, files=files)
@@ -57,19 +54,11 @@ async def send_with_handling(source, content: str, file_paths=None):
         logger.exception(f"Unexpected error sending message: {e}")
 
 
-async def fetch_and_send_weather_images(
-    source, urls, title: str, state, use_cached: bool = False
-):
+async def fetch_and_send_weather_images(source, urls, title: str, state, use_cached: bool = False):
     if not await check_all_urls_exist_parallel(urls):
-        msg = (
-            f"{title.replace('**Latest ', '').replace('**', '')} "
-            f"not currently available."
-        )
+        msg = f"{title.replace('**Latest ', '').replace('**', '')} not currently available."
         try:
-            if (
-                hasattr(source, "response")
-                and getattr(source, "response", None) is not None
-            ):
+            if hasattr(source, "response") and getattr(source, "response", None) is not None:
                 await source.followup.send(msg)
             else:
                 await source.send(msg)
@@ -83,16 +72,9 @@ async def fetch_and_send_weather_images(
     if files:
         await send_with_handling(source, title, file_paths=files)
     else:
-        msg = (
-            f"No new "
-            f"{title.replace('**Latest ', '').replace('**', '').lower()} "
-            f"available."
-        )
+        msg = f"No new {title.replace('**Latest ', '').replace('**', '').lower()} available."
         try:
-            if (
-                hasattr(source, "response")
-                and getattr(source, "response", None) is not None
-            ):
+            if hasattr(source, "response") and getattr(source, "response", None) is not None:
                 await source.followup.send(msg)
             else:
                 await source.send(msg)
@@ -138,7 +120,7 @@ class MDPaginatorView(discord.ui.View):
         # 2. Second embed: The Text (below image)
         cleaned_text = clean_md_text_for_discord(raw_text)
         text_embed = discord.Embed(
-            description=cleaned_text[:4090], # Stay under Discord embed limit
+            description=cleaned_text[:4090],  # Stay under Discord embed limit
             color=discord.Color.dark_orange(),
         )
 
@@ -150,9 +132,7 @@ class MDPaginatorView(discord.ui.View):
         return None, [img_embed, text_embed], files
 
     @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary)
-    async def prev_btn(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
+    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.index = max(0, self.index - 1)
         self._update_buttons()
         content, embeds, files = self.build_response()
@@ -161,9 +141,7 @@ class MDPaginatorView(discord.ui.View):
         )
 
     @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary)
-    async def next_btn(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
+    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.index = min(len(self.md_data) - 1, self.index + 1)
         self._update_buttons()
         content, embeds, files = self.build_response()
@@ -252,7 +230,7 @@ class StatusView(discord.ui.View):
                     lines.append(f"`{identity}` *(parse error)*")
 
             status_text = "\n".join(lines) if lines else "*(Unable to parse node data)*"
-            
+
             # Add failover stats for the current node
             st = self.bot.state
             stats = []
@@ -262,10 +240,10 @@ class StatusView(discord.ui.View):
                 stats.append(f"Renewals: `{st.lease_renewals}`")
             if st.sync_failures > 0:
                 stats.append(f"Sync Errs: `{st.sync_failures}`")
-                
+
             if stats:
                 status_text += "\n" + " | ".join(stats)
-                
+
             return status_text
         except Exception as e:
             logger.debug(f"Could not fetch cluster status: {e}")
@@ -278,13 +256,16 @@ class StatusView(discord.ui.View):
         try:
             # Get public IP from ipinfo.io
             session = await _http.ensure_session()
-            async with session.get('https://ipinfo.io/ip', timeout=aiohttp.ClientTimeout(total=5)) as resp:
+            async with session.get(
+                "https://ipinfo.io/ip", timeout=aiohttp.ClientTimeout(total=5)
+            ) as resp:
                 if resp.status == 200:
                     host_ip = (await resp.text()).strip()
         except Exception:
             pass
 
         import os as _os
+
         _configured_primary = _os.getenv("IS_PRIMARY", "true").lower() == "true"
         _is_failover = self.bot.state.is_primary and not _configured_primary
 
@@ -302,11 +283,15 @@ class StatusView(discord.ui.View):
             title="🛰️ SPCBot System Status",
             description=f"Operational Overview | **{role}** node",
             color=color,
-            timestamp=now
+            timestamp=now,
         )
 
         # System Info
-        uptime_str = format_timedelta(now - self.bot.state.bot_start_time) if self.bot.state.bot_start_time else "unknown"
+        uptime_str = (
+            format_timedelta(now - self.bot.state.bot_start_time)
+            if self.bot.state.bot_start_time
+            else "unknown"
+        )
         rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         system_val = (
             f"**Host:** `{hostname}` (`{host_ip}`)\n"
@@ -317,6 +302,7 @@ class StatusView(discord.ui.View):
 
         # Connectivity
         import importlib.util
+
         rust_status = "⚪ UNAVAILABLE"
         if importlib.util.find_spec("spc_rust_core"):
             rust_status = "🟢 ACTIVE"
@@ -327,6 +313,7 @@ class StatusView(discord.ui.View):
         if nwws_cog and getattr(nwws_cog, "_use_rust", False):
             try:
                 import spc_rust_core
+
                 rust_stats = spc_rust_core.nwws_stats()
                 if rust_stats.get("is_connected"):
                     nwws_status = "🟢 CONNECTED (Rust)"
@@ -338,7 +325,9 @@ class StatusView(discord.ui.View):
             except Exception:
                 nwws_status = "🟡 CONNECTING... (Rust)"
         elif nwws_cog and nwws_cog.xmpp_client:
-            nwws_status = "🟢 CONNECTED" if nwws_cog.xmpp_client.is_connected else "🟡 CONNECTING..."
+            nwws_status = (
+                "🟢 CONNECTED" if nwws_cog.xmpp_client.is_connected else "🟡 CONNECTING..."
+            )
         elif nwws_cog:
             nwws_status = "🟡 CONNECTING..." if self.bot.state.is_primary else "⚪ STANDBY"
 
@@ -362,8 +351,10 @@ class StatusView(discord.ui.View):
         conn_val = (
             f"**Rust Core:** {rust_status}\n"
             + nwws_line
-            + f"**IEMBot:** {iembot_status}" + (f" (`{iembot_ping:.0f}ms`)\n" if iembot_ping else "\n")
-            + f"**HTTP:** {'🟢 OK' if session_ok else '🔴 CLOSED'}" + (f" (`{http_lat * 1000:.1f}ms`)" if http_lat else "")
+            + f"**IEMBot:** {iembot_status}"
+            + (f" (`{iembot_ping:.0f}ms`)\n" if iembot_ping else "\n")
+            + f"**HTTP:** {'🟢 OK' if session_ok else '🔴 CLOSED'}"
+            + (f" (`{http_lat * 1000:.1f}ms`)" if http_lat else "")
         )
         embed.add_field(name="📡 Connectivity", value=conn_val, inline=True)
 
@@ -399,7 +390,11 @@ class StatusView(discord.ui.View):
             perf_val += f"**NWWS Throughput:** `{nwws_tput * 60:.1f} msg/min`"
         else:
             perf_val += "**NWWS Throughput:** `---`"
-        perf_val += f"\n**IEMBot Delay:** `{iem_lat:.1f}s`*" if iem_lat is not None else "\n**IEMBot Delay:** `---`"
+        perf_val += (
+            f"\n**IEMBot Delay:** `{iem_lat:.1f}s`*"
+            if iem_lat is not None
+            else "\n**IEMBot Delay:** `---`"
+        )
 
         embed.add_field(name="⏱️ Performance", value=perf_val, inline=True)
 
@@ -423,9 +418,7 @@ class StatusView(discord.ui.View):
             logger.debug(f"Outlook peek failed: {e}")
         risk_label = get_current_risk_display()
         active_high_risk = peek_active_labels()
-        env_val = (
-            f"**SPC Day 1:** `{risk_label}`\n"
-        )
+        env_val = f"**SPC Day 1:** `{risk_label}`\n"
         if active_high_risk:
             env_val += "*(Sounding Sweep Armed)*\n"
         active_warnings = self.bot.state.active_warnings
@@ -444,8 +437,7 @@ class StatusView(discord.ui.View):
             warn_line = f"**Active Warnings:** `0`"
         env_val += (
             f"**Active MDs:** `{len(self.bot.state.active_mds)}`\n"
-            f"**Active Watches:** `{len(self.bot.state.active_watches)}`\n"
-            + warn_line
+            f"**Active Watches:** `{len(self.bot.state.active_watches)}`\n" + warn_line
         )
         embed.add_field(name="🌩️ Environment", value=env_val, inline=True)
 
@@ -454,9 +446,15 @@ class StatusView(discord.ui.View):
         embed.add_field(name="🔗 Cluster Status", value=cluster_val, inline=False)
 
         # Circuits
-        open_circuits = [h for h in _http.circuit_breaker.failures if _http.circuit_breaker.is_open(h)]
+        open_circuits = [
+            h for h in _http.circuit_breaker.failures if _http.circuit_breaker.is_open(h)
+        ]
         if open_circuits:
-            embed.add_field(name="🔌 Open Circuits", value=", ".join(f"`{h}`" for h in open_circuits), inline=False)
+            embed.add_field(
+                name="🔌 Open Circuits",
+                value=", ".join(f"`{h}`" for h in open_circuits),
+                inline=False,
+            )
             embed.color = discord.Color.red()
 
         # DB write health
@@ -474,7 +472,7 @@ class StatusView(discord.ui.View):
         sorted_posts = sorted(
             [(k, v) for k, v in self.bot.state.last_post_times.items() if v],
             key=lambda x: x[1],
-            reverse=True
+            reverse=True,
         )[:5]
 
         for key, dt in sorted_posts:
@@ -492,17 +490,17 @@ class StatusView(discord.ui.View):
         if self.detailed:
             task_embed = discord.Embed(title="📋 Bot Task Details", color=color)
             task_labels = {
-                "auto_post_spc":        "NOAA-SPC outlooks",
+                "auto_post_spc": "NOAA-SPC outlooks",
                 "aggressive_check_spc": "NOAA-SPC aggressive check",
-                "auto_post_spc48":      "NOAA-SPC Day 4-8",
-                "auto_post_md":         "NOAA-SPC mesoscale discussions",
-                "auto_post_watches":    "NOAA-SPC watches",
-                "auto_post_scp":        "NIU/Gensini SCP graphics",
-                "csu_mlp_daily_poll":   "CSU-MLP forecasts",
-                "wxnext_daily_poll":    "NCAR WxNext2",
-                "periodic_cleanup":     "periodic cache cleanup",
-                "poll_iembot_feed":     "IEMBot real-time feed",
-                "sync_loop":            "Failover standby sync",
+                "auto_post_spc48": "NOAA-SPC Day 4-8",
+                "auto_post_md": "NOAA-SPC mesoscale discussions",
+                "auto_post_watches": "NOAA-SPC watches",
+                "auto_post_scp": "NIU/Gensini SCP graphics",
+                "csu_mlp_daily_poll": "CSU-MLP forecasts",
+                "wxnext_daily_poll": "NCAR WxNext2",
+                "periodic_cleanup": "periodic cache cleanup",
+                "poll_iembot_feed": "IEMBot real-time feed",
+                "sync_loop": "Failover standby sync",
                 "auto_sounding_watches": "Sounding monitor",
                 "monitor_special_soundings": "Special-release sounding monitor",
                 "monitor_high_risk_soundings": "High-risk sounding sweep",
@@ -576,21 +574,21 @@ class TaskMgrView(discord.ui.View):
             title="🖥️ SPCBot Task Manager",
             description="Real-time background task monitoring",
             color=color,
-            timestamp=now
+            timestamp=now,
         )
 
         task_labels = {
-            "auto_post_spc":        "NOAA-SPC outlooks",
+            "auto_post_spc": "NOAA-SPC outlooks",
             "aggressive_check_spc": "NOAA-SPC aggressive check",
-            "auto_post_spc48":      "NOAA-SPC Day 4-8",
-            "auto_post_md":         "NOAA-SPC mesoscale discussions",
-            "auto_post_watches":    "NOAA-SPC watches",
-            "auto_post_scp":        "NIU/Gensini SCP graphics",
-            "csu_mlp_daily_poll":   "CSU-MLP forecasts",
-            "wxnext_daily_poll":    "NCAR WxNext2",
-            "periodic_cleanup":     "periodic cache cleanup",
-            "poll_iembot_feed":     "IEMBot real-time feed",
-            "sync_loop":            "Failover standby sync",
+            "auto_post_spc48": "NOAA-SPC Day 4-8",
+            "auto_post_md": "NOAA-SPC mesoscale discussions",
+            "auto_post_watches": "NOAA-SPC watches",
+            "auto_post_scp": "NIU/Gensini SCP graphics",
+            "csu_mlp_daily_poll": "CSU-MLP forecasts",
+            "wxnext_daily_poll": "NCAR WxNext2",
+            "periodic_cleanup": "periodic cache cleanup",
+            "poll_iembot_feed": "IEMBot real-time feed",
+            "sync_loop": "Failover standby sync",
             "auto_sounding_watches": "Sounding monitor",
             "monitor_special_soundings": "Special-release sounding monitor",
             "monitor_high_risk_soundings": "High-risk sounding sweep",
@@ -759,7 +757,9 @@ class StatusCog(commands.Cog):
     @commands.command(name="wpc")
     async def wpc_prefix(self, ctx):
         await fetch_and_send_weather_images(
-            ctx, WPC_IMAGE_URLS, "**WPC Excessive Rainfall Outlooks (Day 1-3)**",
+            ctx,
+            WPC_IMAGE_URLS,
+            "**WPC Excessive Rainfall Outlooks (Day 1-3)**",
             self.bot.state,
             use_cached=False,
         )
@@ -837,14 +837,10 @@ class StatusCog(commands.Cog):
             inline=False,
         )
 
-        embed.set_footer(
-            text=f"WXModelBot v{__version__} | Host: {socket.gethostname()}"
-        )
+        embed.set_footer(text=f"WXModelBot v{__version__} | Host: {socket.gethostname()}")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @discord.app_commands.command(
-        name="scp", description="Get latest SCP Forecast Graphics"
-    )
+    @discord.app_commands.command(name="scp", description="Get latest SCP Forecast Graphics")
     @discord.app_commands.describe(fresh="Bypass cache and fetch the latest images directly")
     async def scp_slash(self, interaction: discord.Interaction, fresh: Optional[bool] = False):
         await interaction.response.defer()
@@ -856,9 +852,7 @@ class StatusCog(commands.Cog):
             use_cached=not fresh,
         )
 
-    @discord.app_commands.command(
-        name="spc1", description="Get latest SPC Day 1 Outlooks"
-    )
+    @discord.app_commands.command(name="spc1", description="Get latest SPC Day 1 Outlooks")
     @discord.app_commands.describe(fresh="Bypass cache and fetch the latest images directly")
     async def spc1_slash(self, interaction: discord.Interaction, fresh: Optional[bool] = False):
         await interaction.response.defer()
@@ -867,9 +861,7 @@ class StatusCog(commands.Cog):
             interaction, urls, "**Latest SPC Day 1 Outlooks**", self.bot.state, use_cached=not fresh
         )
 
-    @discord.app_commands.command(
-        name="spc2", description="Get latest SPC Day 2 Outlooks"
-    )
+    @discord.app_commands.command(name="spc2", description="Get latest SPC Day 2 Outlooks")
     @discord.app_commands.describe(fresh="Bypass cache and fetch the latest images directly")
     async def spc2_slash(self, interaction: discord.Interaction, fresh: Optional[bool] = False):
         await interaction.response.defer()
@@ -878,9 +870,7 @@ class StatusCog(commands.Cog):
             interaction, urls, "**Latest SPC Day 2 Outlooks**", self.bot.state, use_cached=not fresh
         )
 
-    @discord.app_commands.command(
-        name="spc3", description="Get latest SPC Day 3 Outlooks"
-    )
+    @discord.app_commands.command(name="spc3", description="Get latest SPC Day 3 Outlooks")
     @discord.app_commands.describe(fresh="Bypass cache and fetch the latest images directly")
     async def spc3_slash(self, interaction: discord.Interaction, fresh: Optional[bool] = False):
         await interaction.response.defer()
@@ -889,9 +879,7 @@ class StatusCog(commands.Cog):
             interaction, urls, "**Latest SPC Day 3 Outlooks**", self.bot.state, use_cached=not fresh
         )
 
-    @discord.app_commands.command(
-        name="spc48", description="Get latest SPC Day 4-8 Outlook"
-    )
+    @discord.app_commands.command(name="spc48", description="Get latest SPC Day 4-8 Outlook")
     async def spc48_slash(self, interaction: discord.Interaction):
         await interaction.response.defer()
         await fetch_and_send_weather_images(
@@ -902,13 +890,13 @@ class StatusCog(commands.Cog):
             use_cached=False,
         )
 
-    @discord.app_commands.command(
-        name="wpc", description="Get WPC Day 1-3 Rainfall Outlooks"
-    )
+    @discord.app_commands.command(name="wpc", description="Get WPC Day 1-3 Rainfall Outlooks")
     async def wpc_slash(self, interaction: discord.Interaction):
         await interaction.response.defer()
         await fetch_and_send_weather_images(
-            interaction, WPC_IMAGE_URLS, "**WPC Excessive Rainfall Outlooks (Day 1-3)**",
+            interaction,
+            WPC_IMAGE_URLS,
+            "**WPC Excessive Rainfall Outlooks (Day 1-3)**",
             self.bot.state,
             use_cached=False,
         )
@@ -931,9 +919,7 @@ class StatusCog(commands.Cog):
 
         if not md_numbers:
             logger.info("[/md] No active MDs found")
-            await interaction.followup.send(
-                "No active Mesoscale Discussions found."
-            )
+            await interaction.followup.send("No active Mesoscale Discussions found.")
             return
 
         async def _hydrate(md_num: str):
@@ -945,7 +931,9 @@ class StatusCog(commands.Cog):
 
                 # Extract the actual body text from the HTML
                 body_text = extract_md_body(raw_text)
-                logger.info(f"[/md] Fetched details for #{md_num} (body size: {len(body_text) if body_text else 0})")
+                logger.info(
+                    f"[/md] Fetched details for #{md_num} (body size: {len(body_text) if body_text else 0})"
+                )
 
                 cache_path = None
                 if image_url:
@@ -958,8 +946,8 @@ class StatusCog(commands.Cog):
                     "num": md_num,
                     "summary": summary,
                     "from_cache": from_cache,
-                    "raw_text": body_text, # Use extracted body
-                    "cache_path": cache_path
+                    "raw_text": body_text,  # Use extracted body
+                    "cache_path": cache_path,
                 }
             except asyncio.TimeoutError:
                 logger.warning(f"[/md] Hydration timed out for #{md_num}")
@@ -971,8 +959,7 @@ class StatusCog(commands.Cog):
         # Hydrate all active MDs (usually 1-5, rarely >10)
         try:
             md_data = await asyncio.wait_for(
-                asyncio.gather(*[_hydrate(num) for num in md_numbers]),
-                timeout=45.0
+                asyncio.gather(*[_hydrate(num) for num in md_numbers]), timeout=45.0
             )
             md_data = [d for d in md_data if d is not None]
         except asyncio.TimeoutError:
@@ -1034,7 +1021,7 @@ class StatusCog(commands.Cog):
     async def taskmgr_slash(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         view = TaskMgrView(self.bot, interaction)
-        embed = await view.build_embed( )
+        embed = await view.build_embed()
         msg = await interaction.followup.send(embed=embed, view=view, ephemeral=True, wait=True)
         view.message = msg
         asyncio.create_task(view.start_auto_update())
@@ -1068,7 +1055,6 @@ class StatusCog(commands.Cog):
                 )
         else:
             logger.error(f"Command error: {error}")
-
 
 
 async def setup(bot: commands.Bot):

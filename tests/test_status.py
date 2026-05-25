@@ -49,7 +49,7 @@ async def test_help_contains_new_sections():
 
     interaction.response.send_message.assert_called_once()
     embed = interaction.response.send_message.call_args.kwargs["embed"]
-    
+
     # Check for the new section
     found_section = False
     for field in embed.fields:
@@ -57,7 +57,7 @@ async def test_help_contains_new_sections():
             found_section = True
             assert "/recenttornadoes" in field.value
             assert "/sigtor" in field.value
-    
+
     assert found_section
     assert f"v{__version__}" in embed.footer.text
 
@@ -75,7 +75,7 @@ async def test_status_output_contains_version():
     interaction.followup.send.assert_called_once()
     embeds = interaction.followup.send.call_args.kwargs["embeds"]
     main_embed = embeds[0]
-    
+
     assert f"v{__version__}" in main_embed.footer.text
     assert "PRIMARY" in main_embed.description
 
@@ -87,12 +87,13 @@ async def test_status_output_shows_open_circuits():
     interaction = _make_interaction()
 
     from utils.http import circuit_breaker
+
     circuit_breaker.record_failure("test.host")
     circuit_breaker.record_failure("test.host")
     circuit_breaker.record_failure("test.host")
     circuit_breaker.record_failure("test.host")
-    circuit_breaker.record_failure("test.host") # 5 failures = Open
-    
+    circuit_breaker.record_failure("test.host")  # 5 failures = Open
+
     try:
         with patch("socket.socket") as mock_socket:
             mock_socket.return_value.getsockname.return_value = ["127.0.0.1"]
@@ -101,7 +102,7 @@ async def test_status_output_shows_open_circuits():
         interaction.followup.send.assert_called_once()
         embeds = interaction.followup.send.call_args.kwargs["embeds"]
         main_embed = embeds[0]
-        
+
         found = False
         for field in main_embed.fields:
             if "Open Circuits" in field.name:
@@ -151,18 +152,18 @@ async def test_logs_initialization():
 async def test_is_owner_check():
     """is_owner check should correctly identify the bot owner."""
     from cogs.status import is_owner
-    
+
     interaction = MagicMock()
     interaction.user.id = 123
     interaction.client.owner_id = 123
-    
+
     assert await is_owner(interaction) is True
-    
+
     interaction.client.owner_id = 456
     interaction.client.application = MagicMock()
     interaction.client.application.owner.id = 123
     assert await is_owner(interaction) is True
-    
+
     interaction.client.application.owner.id = 999
     interaction.client.application.owner = MagicMock(spec=discord.User)
     assert await is_owner(interaction) is False

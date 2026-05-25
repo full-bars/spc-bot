@@ -57,7 +57,9 @@ def _build_embed(data: dict) -> discord.Embed:
     if tags:
         embed.add_field(name="Tags", value=" · ".join(tags), inline=False)
 
-    embed.set_footer(text="Source: Project WxEye · sonde.projectweathereye.org · updates every 20 min")
+    embed.set_footer(
+        text="Source: Project WxEye · sonde.projectweathereye.org · updates every 20 min"
+    )
     return embed
 
 

@@ -10,6 +10,7 @@ from cogs.mesoscale import MesoscaleCog, fetch_latest_md_numbers
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
+
 def _make_bot(posted_mds=None, active_mds=None, is_primary=True):
     bot = MagicMock()
     bot.state.is_primary = is_primary
@@ -24,6 +25,7 @@ def _make_bot(posted_mds=None, active_mds=None, is_primary=True):
 
 
 # ── MD Cancellations ──────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_cancellation_fires_when_index_empty():
@@ -47,8 +49,9 @@ async def test_no_cancellation_when_md_still_active():
     """Active MD is NOT cancelled when it's still in the current index."""
     bot, channel = _make_bot(active_mds={"0100"})
 
-    with patch("cogs.mesoscale.fetch_latest_md_numbers", AsyncMock(return_value=(["0100"], False))), \
-         patch("cogs.mesoscale.fetch_md_details", AsyncMock(return_value=(None, None, False, None))):
+    with patch(
+        "cogs.mesoscale.fetch_latest_md_numbers", AsyncMock(return_value=(["0100"], False))
+    ), patch("cogs.mesoscale.fetch_md_details", AsyncMock(return_value=(None, None, False, None))):
         cog = MesoscaleCog(bot)
         await cog.auto_post_md()
 
@@ -78,13 +81,15 @@ async def test_partial_cancellation_when_some_mds_expire():
     """Only expired MDs get cancelled; active ones are spared."""
     bot, channel = _make_bot(active_mds={"0100", "0101"})
 
-    with patch("cogs.mesoscale.fetch_latest_md_numbers", AsyncMock(return_value=(["0101"], False))), \
-         patch("cogs.mesoscale.fetch_md_details", AsyncMock(return_value=(None, None, False, None))):
+    with patch(
+        "cogs.mesoscale.fetch_latest_md_numbers", AsyncMock(return_value=(["0101"], False))
+    ), patch("cogs.mesoscale.fetch_md_details", AsyncMock(return_value=(None, None, False, None))):
         cog = MesoscaleCog(bot)
         await cog.auto_post_md()
 
     cancel_calls = [
-        c for c in channel.send.call_args_list
+        c
+        for c in channel.send.call_args_list
         if "Cancelled" in (c.kwargs.get("embed", MagicMock()).title or "")
     ]
     assert len(cancel_calls) == 1
@@ -109,14 +114,16 @@ async def test_cancellation_skipped_in_fallback():
 
 # ── Lag protection ────────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_lag_protection_spares_newer_md():
     """An MD newer than anything on the index is spared (index lag guard)."""
     bot, channel = _make_bot(active_mds={"0101"})
 
     # Index has 0100; 0101 is newer so it should be spared
-    with patch("cogs.mesoscale.fetch_latest_md_numbers", AsyncMock(return_value=(["0100"], False))), \
-         patch("cogs.mesoscale.fetch_md_details", AsyncMock(return_value=(None, None, False, None))):
+    with patch(
+        "cogs.mesoscale.fetch_latest_md_numbers", AsyncMock(return_value=(["0100"], False))
+    ), patch("cogs.mesoscale.fetch_md_details", AsyncMock(return_value=(None, None, False, None))):
         cog = MesoscaleCog(bot)
         await cog.auto_post_md()
 
@@ -132,8 +139,9 @@ async def test_lag_protection_does_not_spare_older_md():
     """An MD older than the current max is cancelled even with lag guard active."""
     bot, channel = _make_bot(active_mds={"0099"})
 
-    with patch("cogs.mesoscale.fetch_latest_md_numbers", AsyncMock(return_value=(["0100"], False))), \
-         patch("cogs.mesoscale.fetch_md_details", AsyncMock(return_value=(None, None, False, None))):
+    with patch(
+        "cogs.mesoscale.fetch_latest_md_numbers", AsyncMock(return_value=(["0100"], False))
+    ), patch("cogs.mesoscale.fetch_md_details", AsyncMock(return_value=(None, None, False, None))):
         cog = MesoscaleCog(bot)
         await cog.auto_post_md()
 
@@ -145,8 +153,9 @@ async def test_year_wraparound_spares_early_year_md():
     """MD 0001 is treated as newer than 9999 (year wraparound guard)."""
     bot, channel = _make_bot(active_mds={"0001"})
 
-    with patch("cogs.mesoscale.fetch_latest_md_numbers", AsyncMock(return_value=(["9999"], False))), \
-         patch("cogs.mesoscale.fetch_md_details", AsyncMock(return_value=(None, None, False, None))):
+    with patch(
+        "cogs.mesoscale.fetch_latest_md_numbers", AsyncMock(return_value=(["9999"], False))
+    ), patch("cogs.mesoscale.fetch_md_details", AsyncMock(return_value=(None, None, False, None))):
         cog = MesoscaleCog(bot)
         await cog.auto_post_md()
 
@@ -154,6 +163,7 @@ async def test_year_wraparound_spares_early_year_md():
 
 
 # ── Standby guard ─────────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_standby_does_not_post_cancellations():
@@ -169,6 +179,7 @@ async def test_standby_does_not_post_cancellations():
 
 # ── Error handling ────────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_cancellation_send_failure_re_adds_md():
     """If Discord send fails, the MD remains in active_mds for retry."""
@@ -183,6 +194,7 @@ async def test_cancellation_send_failure_re_adds_md():
 
 
 # ── post_md_now (iembot fast-path) ───────────────────────────────────────────
+
 
 def _make_bot_for_post(posted_mds=None, active_mds=None):
     bot = MagicMock()
@@ -225,12 +237,17 @@ async def test_post_md_now_sends_and_marks_posted():
     # Configure mock state
     async def _mock_add(md):
         bot.state.posted_mds.add(md)
+
     bot.state.add_posted_md = AsyncMock(side_effect=_mock_add)
-    
-    with patch("cogs.mesoscale.fetch_md_details", AsyncMock(return_value=("img", dummy_text, True, "/path"))), \
-         patch("cogs.mesoscale.download_single_image", AsyncMock(return_value=(None, False, None))), \
-         patch("cogs.mesoscale.extract_md_body", return_value="Discussion body"), \
-         patch("cogs.mesoscale.clean_md_text_for_discord", return_value="Discussion body"):
+
+    with patch(
+        "cogs.mesoscale.fetch_md_details",
+        AsyncMock(return_value=("img", dummy_text, True, "/path")),
+    ), patch(
+        "cogs.mesoscale.download_single_image", AsyncMock(return_value=(None, False, None))
+    ), patch("cogs.mesoscale.extract_md_body", return_value="Discussion body"), patch(
+        "cogs.mesoscale.clean_md_text_for_discord", return_value="Discussion body"
+    ):
         await cog.post_md_now("100")
 
     channel.send.assert_called_once()
@@ -258,7 +275,9 @@ async def test_post_md_now_does_not_mark_posted_on_send_failure():
     cog = MesoscaleCog.__new__(MesoscaleCog)
     cog.bot = bot
 
-    with patch("cogs.mesoscale.fetch_md_details", AsyncMock(return_value=("img", "sum", True, "/path"))):
+    with patch(
+        "cogs.mesoscale.fetch_md_details", AsyncMock(return_value=("img", "sum", True, "/path"))
+    ):
         await cog.post_md_now("0398")  # must not raise
 
     assert "0398" not in bot.state.posted_mds
@@ -266,23 +285,25 @@ async def test_post_md_now_does_not_mark_posted_on_send_failure():
 
 # ── fetch_latest_md_numbers — IEM fallback parse path ────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_fetch_md_numbers_parses_iem_fallback_text():
     """When SPC index is empty, IEM retrieve.py text is parsed for MD numbers."""
     iem_text = (
-        "MESOSCALE DISCUSSION 0412\n"
-        "Some content...\n\n"
-        "MESOSCALE DISCUSSION 0413\n"
-        "More content...\n"
+        "MESOSCALE DISCUSSION 0412\nSome content...\n\nMESOSCALE DISCUSSION 0413\nMore content...\n"
     )
 
-    with patch("cogs.mesoscale.http_get_text", AsyncMock(side_effect=[
-        # First call: SPC index (empty → triggers fallback)
-        None,
-        # Second call: IEM retrieve.py
-        iem_text,
-    ])), \
-    patch("cogs.mesoscale.http_head_meta", AsyncMock(return_value=None)):
+    with patch(
+        "cogs.mesoscale.http_get_text",
+        AsyncMock(
+            side_effect=[
+                # First call: SPC index (empty → triggers fallback)
+                None,
+                # Second call: IEM retrieve.py
+                iem_text,
+            ]
+        ),
+    ), patch("cogs.mesoscale.http_head_meta", AsyncMock(return_value=None)):
         result, is_fallback = await fetch_latest_md_numbers(fresh=True)
 
     assert "0412" in result
@@ -293,8 +314,9 @@ async def test_fetch_md_numbers_parses_iem_fallback_text():
 @pytest.mark.asyncio
 async def test_fetch_md_numbers_returns_none_when_both_sources_fail():
     """If SPC index and IEM fallback both fail, None is returned (not empty list)."""
-    with patch("cogs.mesoscale.http_get_text", AsyncMock(return_value=None)), \
-         patch("cogs.mesoscale.http_head_meta", AsyncMock(return_value=None)):
+    with patch("cogs.mesoscale.http_get_text", AsyncMock(return_value=None)), patch(
+        "cogs.mesoscale.http_head_meta", AsyncMock(return_value=None)
+    ):
         result, is_fallback = await fetch_latest_md_numbers(fresh=True)
 
     assert result is None
@@ -306,8 +328,9 @@ async def test_fetch_md_numbers_zero_pads_md_numbers():
     """MD numbers from IEM are zero-padded to 4 digits."""
     iem_text = "MESOSCALE DISCUSSION 42\nContent."
 
-    with patch("cogs.mesoscale.http_get_text", AsyncMock(side_effect=[None, iem_text])), \
-         patch("cogs.mesoscale.http_head_meta", AsyncMock(return_value=None)):
+    with patch("cogs.mesoscale.http_get_text", AsyncMock(side_effect=[None, iem_text])), patch(
+        "cogs.mesoscale.http_head_meta", AsyncMock(return_value=None)
+    ):
         result, is_fallback = await fetch_latest_md_numbers(fresh=True)
 
     assert "0042" in result
@@ -323,8 +346,9 @@ async def test_fetch_md_numbers_deduplicates_repeated_numbers():
         "MESOSCALE DISCUSSION 0101\n"
     )
 
-    with patch("cogs.mesoscale.http_get_text", AsyncMock(side_effect=[None, iem_text])), \
-         patch("cogs.mesoscale.http_head_meta", AsyncMock(return_value=None)):
+    with patch("cogs.mesoscale.http_get_text", AsyncMock(side_effect=[None, iem_text])), patch(
+        "cogs.mesoscale.http_head_meta", AsyncMock(return_value=None)
+    ):
         result, is_fallback = await fetch_latest_md_numbers(fresh=True)
 
     assert result.count("0100") == 1
@@ -343,14 +367,22 @@ async def test_fetch_md_numbers_spc_path_uses_head_cache():
     import cogs.mesoscale as md_mod
 
     # Seed a cached HEAD so the comparison can match
-    md_mod._md_index_head = {"etag": '"abc123"', "last_modified": "Thu, 01 Jan 2026 00:00:00 GMT",
-                              "content_length": "12345"}
-
-    with patch("cogs.mesoscale.http_head_meta", AsyncMock(return_value={
+    md_mod._md_index_head = {
         "etag": '"abc123"',
         "last_modified": "Thu, 01 Jan 2026 00:00:00 GMT",
         "content_length": "12345",
-    })), patch("cogs.mesoscale.http_get_text") as mock_get:
+    }
+
+    with patch(
+        "cogs.mesoscale.http_head_meta",
+        AsyncMock(
+            return_value={
+                "etag": '"abc123"',
+                "last_modified": "Thu, 01 Jan 2026 00:00:00 GMT",
+                "content_length": "12345",
+            }
+        ),
+    ), patch("cogs.mesoscale.http_get_text") as mock_get:
         result, is_fallback = await fetch_latest_md_numbers(fresh=False)
 
     assert result is None

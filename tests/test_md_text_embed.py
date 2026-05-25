@@ -104,9 +104,11 @@ def test_chunk_splits_oversized_text_on_paragraph_boundaries():
     SPC formats areas/threats as fixed-width columns and a mid-line
     break would render unreadably."""
     # Build a text with paragraphs that fit individually but overflow together.
-    para = ("Line one of paragraph.\n"
-            "Line two extends the paragraph with more words.\n"
-            "Line three closes it out.")
+    para = (
+        "Line one of paragraph.\n"
+        "Line two extends the paragraph with more words.\n"
+        "Line three closes it out."
+    )
     paragraphs = [f"Paragraph {i}: {para}" for i in range(60)]
     text = "\n\n".join(paragraphs)
     assert len(text) > EMBED_BODY_LIMIT
@@ -164,10 +166,7 @@ def test_build_embed_multi_chunk_marks_pagination_and_image_only_first():
     """A long MD splits across multiple embeds; titles get an N/M suffix
     and only the first embed carries the image so Discord doesn't try
     to attach a graphic to every fragment."""
-    big_text = "\n\n".join(
-        f"Paragraph {i}: " + ("filler " * 50)
-        for i in range(60)
-    )
+    big_text = "\n\n".join(f"Paragraph {i}: " + ("filler " * 50) for i in range(60))
     embeds = build_md_embeds("0599", big_text, image_filename="mcd_0599.png")
     assert len(embeds) >= 2
     # Title pagination
@@ -200,10 +199,7 @@ def test_build_embed_no_image_filename_omits_image():
 def test_build_embed_description_under_4096_with_codeblock_overhead():
     """Each rendered description (code-block fences included) must
     stay inside Discord's 4096-char embed-description hard limit."""
-    big_text = "\n\n".join(
-        f"Paragraph {i}: " + ("filler " * 50)
-        for i in range(60)
-    )
+    big_text = "\n\n".join(f"Paragraph {i}: " + ("filler " * 50) for i in range(60))
     embeds = build_md_embeds("0599", big_text, image_filename="mcd_0599.png")
     for e in embeds:
         assert len(e.description) <= 4096

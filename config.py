@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 _cached_version = None
 
+
 def get_version() -> str:
     """Get version from git tag, VERSION file, or fallback (cached)."""
     global _cached_version
@@ -22,7 +23,7 @@ def get_version() -> str:
             cwd=os.path.dirname(__file__),
             stderr=subprocess.DEVNULL,
             text=True,
-            timeout=5
+            timeout=5,
         ).strip()
         # Remove leading 'v' if present (v5.16.1 → 5.16.1)
         if version.startswith("v"):
@@ -57,6 +58,7 @@ def __getattr__(name):
 load_dotenv()
 
 logger = logging.getLogger("spc_bot")
+
 
 def _require_int(name: str) -> int:
     """Require an integer environment variable — fail fast if missing."""

@@ -36,9 +36,7 @@ async def test_first_poll_sends_no_conditional_headers(monkeypatch):
     monkeypatch.setattr(cache, "http_get_bytes_conditional", _fake_conditional)
     monkeypatch.setattr(cache, "ensure_session", AsyncMock())
 
-    updated, total, data = await cache.check_partial_updates_parallel(
-        ["https://x/a"], cache={}
-    )
+    updated, total, data = await cache.check_partial_updates_parallel(["https://x/a"], cache={})
 
     assert called_with == {"etag": None, "last_modified": None}
     assert total == 1
@@ -67,9 +65,7 @@ async def test_second_poll_echoes_stored_validators(monkeypatch):
     monkeypatch.setattr(cache, "ensure_session", AsyncMock())
 
     await cache.check_partial_updates_parallel(["https://x/a"], cache={})
-    updated, total, data = await cache.check_partial_updates_parallel(
-        ["https://x/a"], cache={}
-    )
+    updated, total, data = await cache.check_partial_updates_parallel(["https://x/a"], cache={})
 
     assert total == 1
     assert updated == 0  # 304 → no update
@@ -116,8 +112,6 @@ async def test_placeholder_image_is_not_reported_as_update(monkeypatch):
     monkeypatch.setattr(cache, "http_get_bytes_conditional", _fake_conditional)
     monkeypatch.setattr(cache, "ensure_session", AsyncMock())
 
-    updated, total, data = await cache.check_partial_updates_parallel(
-        ["https://x/a"], cache={}
-    )
+    updated, total, data = await cache.check_partial_updates_parallel(["https://x/a"], cache={})
     assert updated == 0
     assert data == {}

@@ -20,10 +20,15 @@ def _feature(label, geom):
 def _square(lon0, lat0, lon1, lat1):
     return {
         "type": "Polygon",
-        "coordinates": [[
-            [lon0, lat0], [lon1, lat0], [lon1, lat1],
-            [lon0, lat1], [lon0, lat0],
-        ]],
+        "coordinates": [
+            [
+                [lon0, lat0],
+                [lon1, lat0],
+                [lon1, lat1],
+                [lon0, lat1],
+                [lon0, lat0],
+            ]
+        ],
     }
 
 
@@ -145,6 +150,7 @@ def test_caption_prefix_matches_severity_label():
     """The caption prefix used by monitor_high_risk_soundings must
     follow the active label set: MDT alone → 'MDT-Risk'; HIGH alone or
     HIGH+MDT → 'High-Risk' (HIGH is the dominant level)."""
+
     # Replicate the prefix-selection rule inline to pin the contract.
     def prefix(labels):
         return "High-Risk" if "HIGH" in labels else "MDT-Risk"

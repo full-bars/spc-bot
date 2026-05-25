@@ -87,10 +87,10 @@ logger = logging.getLogger("spc_bot")
 
 _redis_host = os.getenv("REDIS_HOST") or "localhost"
 _redis_port = int(os.getenv("REDIS_PORT") or 6379)
-_redis_db   = int(os.getenv("REDIS_DB") or 0)
+_redis_db = int(os.getenv("REDIS_DB") or 0)
 REDIS_URL = os.getenv("REDIS_URL") or f"redis://{_redis_host}:{_redis_port}/{_redis_db}"
 
-CACHE_TTL_SECONDS    = 60.0
+CACHE_TTL_SECONDS = 60.0
 REDIS_TIMEOUT_SECONDS = 5.0
 
 # Key prefixes — single source of truth. Never construct a key manually.
@@ -220,6 +220,7 @@ async def _scan_all_keys(pattern: str) -> List[str]:
 
 
 # ── Local cache ──────────────────────────────────────────────────────────────
+
 
 class _CacheEntry:
     __slots__ = ("value", "expires_at")
@@ -355,11 +356,13 @@ async def _replay(op: str, args: tuple) -> None:
 
 # ── Internal Redis helpers ────────────────────────────────────────────────────
 
+
 async def _set_hash_in_redis(url: str, hash_val: str, cache_type: str) -> None:
     await _redis_cmd("HSET", _k_hash_url_lookup(cache_type), url, hash_val)
 
 
 # ── Public API — drop-in for utils.db ────────────────────────────────────────
+
 
 async def check_integrity() -> bool:
     return await sqlite_backend.check_integrity()
@@ -381,6 +384,7 @@ async def get_db():
 
 
 # ── Image hashes ─────────────────────────────────────────────────────────────
+
 
 async def get_hash(url: str, cache_type: Optional[str] = None) -> Optional[str]:
     cache_key = f"hash::{cache_type or 'ANY'}::{url}"
@@ -461,6 +465,7 @@ async def set_hashes_batch(hashes: Dict[str, str], cache_type: str = "auto") -> 
 
 # ── Posted MDs ───────────────────────────────────────────────────────────────
 
+
 async def get_posted_mds() -> Set[str]:
     cache_key = "posted_mds"
     hit, val = _cache_get(cache_key)
@@ -505,6 +510,7 @@ async def prune_posted_mds(max_size: int = 200) -> None:
 
 # ── Posted watches ───────────────────────────────────────────────────────────
 
+
 async def get_posted_watches() -> Set[str]:
     cache_key = "posted_watches"
     hit, val = _cache_get(cache_key)
@@ -547,6 +553,7 @@ async def prune_posted_watches(max_size: int = 100) -> None:
 
 
 # ── Posted surveys ───────────────────────────────────────────────────────────
+
 
 async def get_posted_surveys() -> Set[str]:
     cache_key = "posted_surveys"
@@ -591,6 +598,7 @@ async def prune_posted_surveys(max_size: int = 100) -> None:
 
 # ── Posted reports (LSRs) ────────────────────────────────────────────────────
 
+
 async def get_posted_reports() -> Set[str]:
     cache_key = "posted_reports"
     hit, val = _cache_get(cache_key)
@@ -633,6 +641,7 @@ async def prune_posted_reports(max_size: int = 500) -> None:
 
 
 # ── Posted product IDs (cross-feed dedup) ───────────────────────────────────
+
 
 async def get_posted_product_ids() -> Set[str]:
     cache_key = "posted_product_ids"
@@ -692,6 +701,7 @@ async def prune_posted_product_ids(max_size: int = 1000) -> None:
 
 # ── Significant events — routed to events_db, not Redis ─────────────────────
 
+
 async def add_significant_event(
     event_id: str,
     event_type: str,
@@ -704,7 +714,10 @@ async def add_significant_event(
     raw_text: str = "",
 ) -> None:
     from utils.events_db import add_significant_event as _add  # noqa: PLC0415
-    await _add(event_id, event_type, location, magnitude, vtec_id, coords, timestamp, source, raw_text)
+
+    await _add(
+        event_id, event_type, location, magnitude, vtec_id, coords, timestamp, source, raw_text
+    )
 
 
 async def get_recent_significant_events(
@@ -713,6 +726,7 @@ async def get_recent_significant_events(
     limit: int = 50,
 ) -> List[dict]:
     from utils.events_db import get_recent_significant_events as _get  # noqa: PLC0415
+
     return await _get(event_type, since_hours, limit)
 
 
@@ -723,10 +737,12 @@ async def find_matching_tornado(
     window_hours: float = 12.0,
 ) -> Optional[Tuple[str, Optional[str]]]:
     from utils.events_db import find_matching_tornado as _find  # noqa: PLC0415
+
     return await _find(source, timestamp, location_query, window_hours)
 
 
 # ── Posted warnings ──────────────────────────────────────────────────────────
+
 
 async def get_all_posted_warnings() -> Dict[str, dict]:
     cache_key = "posted_warnings"
@@ -779,7 +795,15 @@ async def add_posted_warning(
         logger.debug(f"[STATE] add_posted_warning({vtec_id}) queued: {e}")
         await _enqueue_dirty(
             "add_posted_warning",
-            (vtec_id, message_id, channel_id, posted_at, area, tornado_confidence, tornado_severity),
+            (
+                vtec_id,
+                message_id,
+                channel_id,
+                posted_at,
+                area,
+                tornado_confidence,
+                tornado_severity,
+            ),
         )
 
 
@@ -811,6 +835,7 @@ async def prune_posted_warnings(max_size: int = 500) -> None:
 
 
 # ── Soundings ─────────────────────────────────────────────────────────────────
+
 
 async def get_posted_soundings() -> Set[str]:
     hit, val = _cache_get("posted_soundings")
@@ -874,6 +899,7 @@ async def clear_sounding_handled_watches() -> None:
 
 # ── Key/value state ───────────────────────────────────────────────────────────
 
+
 async def get_state(key: str) -> Optional[str]:
     cache_key = f"state::{key}"
     hit, val = _cache_get(cache_key)
@@ -912,6 +938,7 @@ async def delete_state(key: str) -> None:
 
 # ── Posted URLs (per day) ────────────────────────────────────────────────────
 
+
 async def get_posted_urls(day_key: str) -> List[str]:
     cache_key = f"posted_urls::{day_key}"
     hit, val = _cache_get(cache_key)
@@ -922,7 +949,9 @@ async def get_posted_urls(day_key: str) -> List[str]:
         try:
             urls = json.loads(result) if result else []
         except json.JSONDecodeError:
-            logger.warning(f"[STATE] get_posted_urls({day_key}): malformed data, falling back to SQLite")
+            logger.warning(
+                f"[STATE] get_posted_urls({day_key}): malformed data, falling back to SQLite"
+            )
             urls = await sqlite_backend.get_posted_urls(day_key)
         _cache_set(cache_key, urls)
         return list(urls)
@@ -944,6 +973,7 @@ async def set_posted_urls(day_key: str, urls: List[str]) -> None:
 
 
 # ── Product text cache (TTL) ─────────────────────────────────────────────────
+
 
 async def get_product_cache(product_id: str) -> Optional[str]:
     cache_key = f"product_cache::{product_id}"
@@ -975,6 +1005,7 @@ async def set_product_cache(product_id: str, text: str, ttl: int = 600) -> None:
 # SQLite-only — conditional-GET runs every 60s per URL; pushing every
 # validator update through Redis would be wasteful on the hot path.
 
+
 async def get_validators(url: str) -> Optional[Dict[str, str]]:
     return await sqlite_backend.get_validators(url)
 
@@ -988,6 +1019,7 @@ async def set_validators(url: str, etag: str, last_modified: str) -> None:
 
 
 # ── Startup resync ───────────────────────────────────────────────────────────
+
 
 async def resync_to_redis(force_full: bool = False) -> Dict[str, int]:
     """Push pending writes from SQLite to Redis.
@@ -1015,8 +1047,12 @@ async def resync_to_redis(force_full: bool = False) -> Dict[str, int]:
             await _replay(item["op"], tuple(item["args"]))
             ids_to_delete.append(item["id"])
         except _RedisUnavailable:
-            remaining = len(pending) - len(ids_to_delete) - len(ids_to_bump) - len(ids_to_quarantine)
-            logger.warning(f"[STATE] Resync paused — Redis unavailable with {remaining} write(s) still pending")
+            remaining = (
+                len(pending) - len(ids_to_delete) - len(ids_to_bump) - len(ids_to_quarantine)
+            )
+            logger.warning(
+                f"[STATE] Resync paused — Redis unavailable with {remaining} write(s) still pending"
+            )
             redis_down = True
             break
         except Exception as e:
@@ -1053,7 +1089,6 @@ async def resync_to_redis(force_full: bool = False) -> Dict[str, int]:
         "retried": len(ids_to_bump),
         "quarantined": len(ids_to_quarantine),
     }
-
 
 
 async def mirror_to_sqlite() -> None:
@@ -1101,8 +1136,14 @@ async def mirror_to_sqlite() -> None:
 
 async def _resync_full() -> Dict[str, int]:
     counts: Dict[str, int] = {
-        "hashes": 0, "posted_mds": 0, "posted_watches": 0,
-        "posted_surveys": 0, "posted_reports": 0, "posted_product_ids": 0, "state": 0, "urls": 0,
+        "hashes": 0,
+        "posted_mds": 0,
+        "posted_watches": 0,
+        "posted_surveys": 0,
+        "posted_reports": 0,
+        "posted_product_ids": 0,
+        "state": 0,
+        "urls": 0,
     }
     try:
         for cache_type in ("auto", "manual"):

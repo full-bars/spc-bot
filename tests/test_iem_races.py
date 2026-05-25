@@ -14,16 +14,18 @@ import pytest
 
 # ── fetch_watch_details ───────────────────────────────────────────────────────
 
-class TestFetchWatchDetailsRace:
 
+class TestFetchWatchDetailsRace:
     @pytest.mark.asyncio
     async def test_returns_tuple_of_three(self):
         """fetch_watch_details always returns a 3-tuple regardless of outcome."""
-        with patch("utils.cache.fetch_with_validators", new_callable=AsyncMock) as mv, \
-             patch("cogs.watch_fetch.fetch_watch_details_iem", new_callable=AsyncMock) as mi:
+        with patch("utils.cache.fetch_with_validators", new_callable=AsyncMock) as mv, patch(
+            "cogs.watch_fetch.fetch_watch_details_iem", new_callable=AsyncMock
+        ) as mi:
             mv.return_value = (None, 404)
             mi.return_value = (None, None, None)
             from cogs.watches import fetch_watch_details
+
             result = await fetch_watch_details("0102")
         assert isinstance(result, tuple)
         assert len(result) == 3
@@ -31,42 +33,47 @@ class TestFetchWatchDetailsRace:
     @pytest.mark.asyncio
     async def test_iem_text_used_when_spc_fails(self):
         """When SPC page fails, IEM text summary is surfaced in the result."""
-        with patch("utils.cache.fetch_with_validators", new_callable=AsyncMock) as mv, \
-             patch("cogs.watch_fetch.fetch_watch_details_iem", new_callable=AsyncMock) as mi:
+        with patch("utils.cache.fetch_with_validators", new_callable=AsyncMock) as mv, patch(
+            "cogs.watch_fetch.fetch_watch_details_iem", new_callable=AsyncMock
+        ) as mi:
             mv.return_value = (None, 404)
             mi.return_value = ("IEM summary", "http://iem.example/img.png", None)
             from cogs.watches import fetch_watch_details
+
             image_url, text_summary, probs = await fetch_watch_details("0102")
         assert text_summary == "IEM summary"
 
     @pytest.mark.asyncio
     async def test_both_fail_no_crash(self):
         """When both SPC and IEM fail, function returns without raising."""
-        with patch("utils.cache.fetch_with_validators", new_callable=AsyncMock) as mv, \
-             patch("cogs.watch_fetch.fetch_watch_details_iem", new_callable=AsyncMock) as mi:
+        with patch("utils.cache.fetch_with_validators", new_callable=AsyncMock) as mv, patch(
+            "cogs.watch_fetch.fetch_watch_details_iem", new_callable=AsyncMock
+        ) as mi:
             mv.return_value = (None, 404)
             mi.return_value = (None, None, None)
             from cogs.watches import fetch_watch_details
+
             result = await fetch_watch_details("0102")
         assert result == (None, None, None)
 
 
 # ── fetch_md_details race ────────────────────────────────────────────────────
 
+
 @pytest.mark.real_create_task
 class TestFetchMdDetailsRace:
-
     @pytest.mark.asyncio
     async def test_spc_wins_returns_image(self):
         """fetch_md_details returns image URL from SPC when available."""
         fake_html = '<img src="mcd0398.png">'
-        with patch("utils.cache.fetch_with_validators", new_callable=AsyncMock) as mv, \
-             patch("cogs.mesoscale.fetch_md_details_iem", new_callable=AsyncMock) as mi, \
-             patch("cogs.mesoscale.get_cached_md_text", new_callable=AsyncMock) as mc:
+        with patch("utils.cache.fetch_with_validators", new_callable=AsyncMock) as mv, patch(
+            "cogs.mesoscale.fetch_md_details_iem", new_callable=AsyncMock
+        ) as mi, patch("cogs.mesoscale.get_cached_md_text", new_callable=AsyncMock) as mc:
             mv.return_value = (fake_html.encode("utf-8"), 200)
             mi.return_value = (None, None, None)
             mc.return_value = None
             from cogs.mesoscale import fetch_md_details
+
             image_url, summary, from_cache, raw_text = await fetch_md_details("0398")
         assert "mcd0398" in image_url
         assert from_cache is False
@@ -74,6 +81,7 @@ class TestFetchMdDetailsRace:
     @pytest.mark.asyncio
     async def test_iem_image_used_when_spc_fails(self):
         """When SPC fails and no cache, IEM image URL is returned."""
+
         # Use real asyncio primitives but mock the fetchers to control timing.
         async def slow_spc(*args, **kwargs):
             await asyncio.sleep(0.05)
@@ -82,12 +90,13 @@ class TestFetchMdDetailsRace:
         async def fast_iem(*args, **kwargs):
             return ("http://iem.example/mcd0398.png", "IEM summary", "IEM raw")
 
-        with patch("utils.cache.fetch_with_validators", side_effect=slow_spc), \
-             patch("cogs.mesoscale.fetch_md_details_iem", side_effect=fast_iem), \
-             patch("cogs.mesoscale.os.path.exists", return_value=False), \
-             patch("cogs.mesoscale.get_cached_md_text", return_value=None):
-
+        with patch("utils.cache.fetch_with_validators", side_effect=slow_spc), patch(
+            "cogs.mesoscale.fetch_md_details_iem", side_effect=fast_iem
+        ), patch("cogs.mesoscale.os.path.exists", return_value=False), patch(
+            "cogs.mesoscale.get_cached_md_text", return_value=None
+        ):
             from cogs.mesoscale import fetch_md_details
+
             image_url, summary, from_cache, raw_text = await fetch_md_details("0398")
 
         assert image_url == "http://iem.example/mcd0398.png"
@@ -96,21 +105,24 @@ class TestFetchMdDetailsRace:
     @pytest.mark.asyncio
     async def test_cache_returned_when_both_fail(self):
         """When SPC fails and IEM returns nothing, cached file is used."""
-        with patch("utils.cache.fetch_with_validators", new_callable=AsyncMock) as mv, \
-             patch("cogs.mesoscale.fetch_md_details_iem", new_callable=AsyncMock) as mi, \
-             patch("cogs.mesoscale.os.path.exists", return_value=True), \
-             patch("cogs.mesoscale.get_cached_md_text", return_value=None):
+        with patch("utils.cache.fetch_with_validators", new_callable=AsyncMock) as mv, patch(
+            "cogs.mesoscale.fetch_md_details_iem", new_callable=AsyncMock
+        ) as mi, patch("cogs.mesoscale.os.path.exists", return_value=True), patch(
+            "cogs.mesoscale.get_cached_md_text", return_value=None
+        ):
             mv.return_value = (None, 404)
             mi.return_value = (None, None, None)
             from cogs.mesoscale import fetch_md_details
+
             image_url, summary, from_cache, raw_text = await fetch_md_details("0398")
         assert from_cache is True
         assert image_url is not None
 
+
 # ── post_soundings_for_watch ─────────────────────────────────────────────────
 
-class TestPostSoundingsForWatch:
 
+class TestPostSoundingsForWatch:
     def _make_bot(self):
         bot = MagicMock()
         bot.state = MagicMock()
@@ -157,7 +169,11 @@ class TestPostSoundingsForWatch:
         cog._restore_attempted = True
 
         channel = AsyncMock()
-        nws_info = {"type": "SVR", "expires": None, "affected_zones": ["https://api.weather.gov/zones/county/IAC001"]}
+        nws_info = {
+            "type": "SVR",
+            "expires": None,
+            "affected_zones": ["https://api.weather.gov/zones/county/IAC001"],
+        }
 
         with patch("cogs.sounding.get_watch_area_centroid", new=AsyncMock(return_value=None)):
             await cog.post_soundings_for_watch("0102", nws_info, channel)
@@ -170,7 +186,7 @@ class TestPostSoundingsForWatch:
         from cogs.watches import WatchesCog
 
         bot = self._make_bot()
-        bot.state.is_primary = True # MUST be primary to run task
+        bot.state.is_primary = True  # MUST be primary to run task
         bot.wait_until_ready = AsyncMock()
         bot.get_channel = MagicMock(return_value=AsyncMock())
 
@@ -185,10 +201,13 @@ class TestPostSoundingsForWatch:
             }
         }
 
-        with patch("cogs.watches.fetch_active_watches_nws", new=AsyncMock(return_value=nws_result)), \
-             patch("cogs.watches.fetch_watch_details", new=AsyncMock(return_value=(None, None, None))), \
-             patch("cogs.watches.download_single_image", new=AsyncMock(return_value=(None, False, None))):
-
+        with patch(
+            "cogs.watches.fetch_active_watches_nws", new=AsyncMock(return_value=nws_result)
+        ), patch(
+            "cogs.watches.fetch_watch_details", new=AsyncMock(return_value=(None, None, None))
+        ), patch(
+            "cogs.watches.download_single_image", new=AsyncMock(return_value=(None, False, None))
+        ):
             cog = WatchesCog(bot)
             cog.auto_post_watches.cancel()
             await cog.auto_post_watches()
@@ -212,9 +231,9 @@ class TestPostSoundingsForWatch:
 
 
 class TestSoundingDedupAcrossWatches:
-
     def _make_cog(self):
         from cogs.sounding import SoundingCog
+
         bot = MagicMock()
         bot.state = MagicMock()
         bot.state.posted_soundings = set()
@@ -262,25 +281,29 @@ class TestSoundingDedupAcrossWatches:
         from cogs import sounding as sounding_module
 
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        
+
         async def fake_get_state(key):
             if key == "sounding_handled_date":
                 return today
             return None
 
         monkeypatch.setattr(sounding_module, "get_state", fake_get_state)
-        monkeypatch.setattr(sounding_module, "get_posted_soundings", AsyncMock(return_value={
-            "raob:KOAX:2026-04-23_00z", "acars:OMA:20260423_20z"
-        }))
-        monkeypatch.setattr(sounding_module, "get_sounding_handled_watches", AsyncMock(return_value={"0134", "0135"}))
+        monkeypatch.setattr(
+            sounding_module,
+            "get_posted_soundings",
+            AsyncMock(return_value={"raob:KOAX:2026-04-23_00z", "acars:OMA:20260423_20z"}),
+        )
+        monkeypatch.setattr(
+            sounding_module,
+            "get_sounding_handled_watches",
+            AsyncMock(return_value={"0134", "0135"}),
+        )
         monkeypatch.setattr(sounding_module, "prune_posted_soundings", AsyncMock())
 
         cog = self._make_cog()
         await cog.cog_load()
 
-        assert cog._posted_watch_soundings == {
-            "raob:KOAX:2026-04-23_00z", "acars:OMA:20260423_20z"
-        }
+        assert cog._posted_watch_soundings == {"raob:KOAX:2026-04-23_00z", "acars:OMA:20260423_20z"}
         assert cog._handled_watches == {"0134", "0135"}
 
     @pytest.mark.asyncio
@@ -298,7 +321,9 @@ class TestSoundingDedupAcrossWatches:
         monkeypatch.setattr(sounding_module, "set_state", AsyncMock())
         monkeypatch.setattr(sounding_module, "clear_sounding_handled_watches", mock_clear)
         monkeypatch.setattr(sounding_module, "get_posted_soundings", AsyncMock(return_value=set()))
-        monkeypatch.setattr(sounding_module, "get_sounding_handled_watches", AsyncMock(return_value=set()))
+        monkeypatch.setattr(
+            sounding_module, "get_sounding_handled_watches", AsyncMock(return_value=set())
+        )
         monkeypatch.setattr(sounding_module, "prune_posted_soundings", AsyncMock())
 
         cog = self._make_cog()
@@ -313,10 +338,16 @@ class TestSoundingDedupAcrossWatches:
         from cogs import sounding as sounding_module
 
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        
+
         monkeypatch.setattr(sounding_module, "get_state", AsyncMock(return_value=today))
-        monkeypatch.setattr(sounding_module, "get_posted_soundings", AsyncMock(return_value={"raob:KOAX:2026-04-23_00z"}))
-        monkeypatch.setattr(sounding_module, "get_sounding_handled_watches", AsyncMock(return_value={"0134"}))
+        monkeypatch.setattr(
+            sounding_module,
+            "get_posted_soundings",
+            AsyncMock(return_value={"raob:KOAX:2026-04-23_00z"}),
+        )
+        monkeypatch.setattr(
+            sounding_module, "get_sounding_handled_watches", AsyncMock(return_value={"0134"})
+        )
         monkeypatch.setattr(sounding_module, "prune_posted_soundings", AsyncMock())
 
         cog = self._make_cog()
@@ -335,7 +366,9 @@ class TestSoundingDedupAcrossWatches:
 
         mock_get = AsyncMock(return_value=set())
         monkeypatch.setattr(sounding_module, "get_posted_soundings", mock_get)
-        monkeypatch.setattr(sounding_module, "get_sounding_handled_watches", AsyncMock(return_value=set()))
+        monkeypatch.setattr(
+            sounding_module, "get_sounding_handled_watches", AsyncMock(return_value=set())
+        )
         monkeypatch.setattr(sounding_module, "get_state", AsyncMock(return_value=None))
         monkeypatch.setattr(sounding_module, "prune_posted_soundings", AsyncMock())
 
@@ -360,9 +393,9 @@ class TestSoundingDedupAcrossWatches:
 
 
 class TestWatchesNearAndCaption:
-
     def _make_cog_with_watches(self, active_watches: dict):
         from cogs.sounding import SoundingCog
+
         bot = MagicMock()
         bot.state = MagicMock()
         bot.state.active_watches = active_watches
@@ -421,8 +454,8 @@ class TestWatchesNearAndCaption:
             "0900": {"type": "SVR", "affected_zones": ["x"]},  # far away
         }
         centroids = {
-            "0134": (42.5, -96.0),     # near the station
-            "0900": (33.0, -84.0),     # Georgia — thousands of km off
+            "0134": (42.5, -96.0),  # near the station
+            "0900": (33.0, -84.0),  # Georgia — thousands of km off
         }
 
         cog = self._make_cog_with_watches(active)
@@ -461,6 +494,7 @@ class TestWatchesNearAndCaption:
         """One applicable watch → single-watch phrasing, matches pre-fix
         output so existing readers aren't surprised."""
         from cogs.sounding import SoundingCog
+
         cog = SoundingCog.__new__(SoundingCog)
 
         applicable = [("0134", "Tornado", 123.4)]
@@ -470,6 +504,7 @@ class TestWatchesNearAndCaption:
     def test_caption_multi_watch_lists_all(self):
         """Three applicable watches → all listed, sorted, with type tag."""
         from cogs.sounding import SoundingCog
+
         cog = SoundingCog.__new__(SoundingCog)
 
         applicable = [
@@ -485,6 +520,7 @@ class TestWatchesNearAndCaption:
         for every active watch) we still caption against the triggering
         watch so the post isn't mislabeled as free-floating."""
         from cogs.sounding import SoundingCog
+
         cog = SoundingCog.__new__(SoundingCog)
 
         frag = cog._format_watches_caption([], "0134", "SVR Watch")

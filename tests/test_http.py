@@ -36,10 +36,7 @@ class _MockResponse:
     def raise_for_status(self):
         if self.status >= 400:
             raise aiohttp.ClientResponseError(
-                self.request_info,
-                self.history,
-                status=self.status,
-                message="Mocked HTTP Error"
+                self.request_info, self.history, status=self.status, message="Mocked HTTP Error"
             )
 
 
@@ -65,6 +62,7 @@ async def _reset_http_module():
 
 
 # ── http_get_bytes ──────────────────────────────────────────────────────────
+
 
 async def test_http_get_bytes_success():
     session = _session_returning(_MockResponse(200, b"payload"))
@@ -97,8 +95,9 @@ async def test_http_get_bytes_retry_after_is_capped():
     async def _fake_sleep(d):
         slept.append(d)
 
-    with patch("utils.http.ensure_session", AsyncMock(return_value=session)), \
-         patch("utils.http.asyncio.sleep", _fake_sleep):
+    with patch("utils.http.ensure_session", AsyncMock(return_value=session)), patch(
+        "utils.http.asyncio.sleep", _fake_sleep
+    ):
         await http.http_get_bytes("https://x/a", retries=2)
     assert slept and max(slept) <= 60
 
@@ -106,16 +105,15 @@ async def test_http_get_bytes_retry_after_is_capped():
 async def test_http_get_bytes_gives_up_after_retries():
     """Every attempt raises — function returns (None, None)."""
     session = MagicMock()
-    session.get = MagicMock(
-        side_effect=aiohttp.ClientError("boom")
-    )
+    session.get = MagicMock(side_effect=aiohttp.ClientError("boom"))
     session.closed = False
 
     async def _fake_sleep(_):
         pass
 
-    with patch("utils.http.ensure_session", AsyncMock(return_value=session)), \
-         patch("utils.http.asyncio.sleep", _fake_sleep):
+    with patch("utils.http.ensure_session", AsyncMock(return_value=session)), patch(
+        "utils.http.asyncio.sleep", _fake_sleep
+    ):
         content, status = await http.http_get_bytes("https://x/a", retries=3)
     assert content is None
     assert status == 0
@@ -123,6 +121,7 @@ async def test_http_get_bytes_gives_up_after_retries():
 
 
 # ── http_get_bytes_conditional ──────────────────────────────────────────────
+
 
 async def test_conditional_get_sends_validator_headers():
     """If-None-Match and If-Modified-Since must be sent when provided."""
@@ -188,6 +187,7 @@ async def test_conditional_get_200_returns_fresh_validators():
 
 # ── CircuitBreaker state machine ────────────────────────────────────────────
 
+
 @pytest.fixture
 def _spc_caplog(caplog):
     """The `spc_bot` logger has propagate=False, so pytest's default caplog
@@ -196,6 +196,7 @@ def _spc_caplog(caplog):
     up records — safer than adding the handler manually, since `at_level`
     on newer pytest also adds the handler and we'd get duplicate records."""
     import logging
+
     logger = logging.getLogger("spc_bot")
     prior_propagate = logger.propagate
     logger.propagate = True
@@ -222,6 +223,7 @@ class TestCircuitBreakerStateMachine:
         caplog = _spc_caplog
         cb = self._make_breaker()
         import logging
+
         # Disambiguate this test's host name so leftover records from any
         # other test that happens to use "h" can't bleed into the count.
         host = "test_open_does_not_relog.example"
@@ -229,17 +231,16 @@ class TestCircuitBreakerStateMachine:
             for _ in range(3):
                 cb.record_failure(host)
             warning_count_after_trip = sum(
-                1 for r in caplog.records
-                if "Circuit OPEN" in r.message and host in r.message
+                1 for r in caplog.records if "Circuit OPEN" in r.message and host in r.message
             )
             assert warning_count_after_trip == 1, "should log once on threshold edge"
             # Further failures while already OPEN must NOT re-log the threshold.
             for _ in range(10):
                 cb.record_failure(host)
-            assert sum(
-                1 for r in caplog.records
-                if "Circuit OPEN" in r.message and host in r.message
-            ) == warning_count_after_trip
+            assert (
+                sum(1 for r in caplog.records if "Circuit OPEN" in r.message and host in r.message)
+                == warning_count_after_trip
+            )
 
     def test_half_open_blocks_other_callers(self):
         """The first caller after recovery_timeout transitions OPEN→HALF_OPEN
@@ -268,6 +269,7 @@ class TestCircuitBreakerStateMachine:
         caplog = _spc_caplog
         cb = self._make_breaker()
         import logging
+
         for _ in range(3):
             cb.record_failure("h")
         time.sleep(0.06)

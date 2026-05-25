@@ -201,9 +201,7 @@ def _make_cog(posted: dict | None = None) -> WarningsCog:
     # claim_posted_warning must return a real PostedWarningClaim so the
     # placeholder/confirm/rollback semantics match production. The claim
     # delegates to bot.state.add_posted_warning, which is mocked above.
-    cog.bot.state.claim_posted_warning = lambda vtec_id: PostedWarningClaim(
-        cog.bot.state, vtec_id
-    )
+    cog.bot.state.claim_posted_warning = lambda vtec_id: PostedWarningClaim(cog.bot.state, vtec_id)
     channel = MagicMock()
     channel.send = AsyncMock()
     cog.bot.get_channel = MagicMock(return_value=channel)
@@ -226,6 +224,7 @@ async def test_post_warning_now_dedups_against_posted_set(monkeypatch):
     cog.bot.state.add_posted_warning = AsyncMock()
     cog.bot.state.add_posted_product_id = AsyncMock(side_effect=_mock_add_product_id)
     import cogs.warnings as warnings_mod
+
     monkeypatch.setattr(warnings_mod, "_download_warning_image", AsyncMock(return_value=None))
     monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
 
@@ -248,17 +247,16 @@ async def test_post_warning_now_posts_CON_updates(monkeypatch):
     cog.bot.state.add_posted_warning = AsyncMock()
     cog.bot.state.add_posted_product_id = AsyncMock()
     import cogs.warnings as warnings_mod
+
     monkeypatch.setattr(warnings_mod, "_download_warning_image", AsyncMock(return_value=None))
 
-    con_text = SAMPLE_RAW.replace(
-        "/O.NEW.KOUN.SV.W.0042.", "/O.CON.KOUN.SV.W.0042."
-    )
+    con_text = SAMPLE_RAW.replace("/O.NEW.KOUN.SV.W.0042.", "/O.CON.KOUN.SV.W.0042.")
     await cog.post_warning_now(
         "202604272030-KOUN-WWUS54-SVSOUN",
         con_text,
         "Severe Thunderstorm Warning",
     )
-    
+
     channel = cog.bot.get_channel.return_value
     channel.send.assert_called_once()
     embed = channel.send.call_args.kwargs["embed"]
@@ -302,6 +300,7 @@ async def test_post_warning_now_claims_key_before_send(monkeypatch):
 
     cog.bot.state.add_posted_warning = AsyncMock(side_effect=_mock_add_warning)
     import cogs.warnings as warnings_mod
+
     monkeypatch.setattr(warnings_mod, "_download_warning_image", AsyncMock(return_value=None))
     monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
 
@@ -337,6 +336,7 @@ async def test_post_warning_now_dedups_by_product_id(monkeypatch):
     cog.bot.state.add_posted_warning = AsyncMock()
     cog.bot.state.add_posted_product_id = AsyncMock(side_effect=_mock_add_product_id)
     import cogs.warnings as warnings_mod
+
     monkeypatch.setattr(warnings_mod, "_download_warning_image", AsyncMock(return_value=None))
 
     # First post (e.g. from IEMBot)
@@ -368,28 +368,33 @@ async def test_post_warning_now_race_dedup(monkeypatch):
 
     async def _mock_add_product_id(pid):
         cog.bot.state.posted_product_ids.append(pid)
+
     cog.bot.state.add_posted_product_id.side_effect = _mock_add_product_id
 
     # Mock image download to be slow to create a race window
     async def _slow_download(*args, **kwargs):
         await asyncio.sleep(0.1)
         return None
+
     monkeypatch.setattr(warnings_mod, "_download_warning_image", _slow_download)
 
     # Launch two concurrent tasks for different product IDs but same VTEC ID
     await asyncio.gather(
         cog.post_warning_now("PROD-1", SAMPLE_RAW, "Severe Thunderstorm Warning"),
-        cog.post_warning_now("PROD-2", SAMPLE_RAW, "Severe Thunderstorm Warning")
+        cog.post_warning_now("PROD-2", SAMPLE_RAW, "Severe Thunderstorm Warning"),
     )
 
     # Only one should have been posted because they share the same VTEC ID
     assert cog.bot.get_channel.return_value.send.call_count == 1
-    assert "PROD-1" in cog.bot.state.posted_product_ids or "PROD-2" in cog.bot.state.posted_product_ids
+    assert (
+        "PROD-1" in cog.bot.state.posted_product_ids or "PROD-2" in cog.bot.state.posted_product_ids
+    )
     # But only one product ID should be in the set if the second one returned early
     assert len(cog.bot.state.posted_product_ids) == 1
 
 
 # ── get_warning_style ─────────────────────────────────────────────────────────
+
 
 class TestGetWarningStyle:
     """NWS API sometimes returns explicit null for damage-threat params.
@@ -410,14 +415,16 @@ class TestGetWarningStyle:
 
     def test_both_null_does_not_raise(self):
         emoji, display_event, _, _ = get_warning_style(
-            "Tornado Warning", "",
+            "Tornado Warning",
+            "",
             params={"tornadoDamageThreat": None, "thunderstormDamageThreat": None},
         )
         assert emoji and display_event  # just shouldn't raise
 
     def test_catastrophic_tornado_threat_detected(self):
         emoji, display_event, color, footer_id = get_warning_style(
-            "Tornado Warning", "",
+            "Tornado Warning",
+            "",
             params={"tornadoDamageThreat": "CATASTROPHIC"},
         )
         assert "Tornado Emergency" in display_event
@@ -426,7 +433,8 @@ class TestGetWarningStyle:
 
     def test_destructive_thunderstorm_threat_detected(self):
         emoji, display_event, _, footer_id = get_warning_style(
-            "Severe Thunderstorm Warning", "",
+            "Severe Thunderstorm Warning",
+            "",
             params={"thunderstormDamageThreat": "DESTRUCTIVE"},
         )
         assert "DESTRUCTIVE" in display_event
@@ -436,7 +444,7 @@ class TestGetWarningStyle:
 def test_build_concise_warning_text_updates_format():
     """Verify that is_update=True produces the detailed 'updates' format."""
     from cogs.warnings import build_concise_warning_text
-    
+
     vtec = {
         "action": "CON",
         "office": "KJAN",
@@ -445,39 +453,35 @@ def test_build_concise_warning_text_updates_format():
         "etn": "0001",
         "start": "260429T2200Z",
         "end": "260429T2300Z",
-        "vtec_id": "KJAN.SV.W.0001"
+        "vtec_id": "KJAN.SV.W.0001",
     }
-    
+
     # Previous area: Clarke, Jasper, Jones
     # Current area: Jasper, Jones (Clarke cancelled)
     prev_area = "Clarke, Jasper, Jones"
     feature = {
-        "properties": {
-            "areaDesc": "Jasper, Jones",
-            "parameters": {
-                "maxWindGust": ["60 MPH"]
-            }
-        }
+        "properties": {"areaDesc": "Jasper, Jones", "parameters": {"maxWindGust": ["60 MPH"]}}
     }
-    
+
     text = build_concise_warning_text(
-        "Severe Thunderstorm Warning",
-        vtec,
-        feature=feature,
-        is_update=True,
-        prev_area=prev_area
+        "Severe Thunderstorm Warning", vtec, feature=feature, is_update=True, prev_area=prev_area
     )
-    
+
     assert "updates Severe Thunderstorm Warning" in text
     assert "(**cancels** Clarke, **continues** Jasper, Jones)" in text
     assert "till 23:00Z." in text
-    assert text.endswith("]") # unix timestamp tag
+    assert text.endswith("]")  # unix timestamp tag
 
 
 # ── NWS API _tick path ────────────────────────────────────────────────────────
 
-def _nws_feature(vtec_str: str, event: str = "Severe Thunderstorm Warning",
-                 area: str = "Noble, Garfield", ugc: list | None = None) -> dict:
+
+def _nws_feature(
+    vtec_str: str,
+    event: str = "Severe Thunderstorm Warning",
+    area: str = "Noble, Garfield",
+    ugc: list | None = None,
+) -> dict:
     """Build a minimal NWS GeoJSON feature dict."""
     return {
         "id": "urn:oid:2.49.0.1.840.0.test",
@@ -519,12 +523,14 @@ def _nws_feature(vtec_str: str, event: str = "Severe Thunderstorm Warning",
 
 
 def _nws_response(features: list) -> bytes:
-    return json.dumps({
-        "type": "FeatureCollection",
-        "features": features,
-        "title": "Current watches, warnings, and advisories",
-        "updated": "2026-04-29T20:20:00+00:00",
-    }).encode()
+    return json.dumps(
+        {
+            "type": "FeatureCollection",
+            "features": features,
+            "title": "Current watches, warnings, and advisories",
+            "updated": "2026-04-29T20:20:00+00:00",
+        }
+    ).encode()
 
 
 def _make_tick_cog(active=None, posted=None):
@@ -535,6 +541,7 @@ def _make_tick_cog(active=None, posted=None):
     cog._perm_warned = set()
     cog._discover_sem = asyncio.Semaphore(5)
     from utils.backoff import TaskBackoff
+
     cog._backoff = TaskBackoff("auto_poll_warnings")
     cog._validators = {"etag": "", "last_modified": ""}
     cog._cancelled_warnings = set()
@@ -547,16 +554,16 @@ def _make_tick_cog(active=None, posted=None):
     async def _mock_add_warning(vtec_id, msg_id, chan_id, *args, **kwargs):
         area = kwargs.get("area", args[1] if len(args) > 1 else "")
         cog.bot.state.posted_warnings[vtec_id] = {
-            "message_id": msg_id, "channel_id": chan_id, "area": area,
+            "message_id": msg_id,
+            "channel_id": chan_id,
+            "area": area,
         }
 
     cog.bot.state.add_posted_warning = AsyncMock(side_effect=_mock_add_warning)
     cog.bot.state.add_posted_product_id = AsyncMock()
     cog.bot.state.remove_posted_product_id = AsyncMock()
     cog.bot.state.remove_posted_warning = AsyncMock()
-    cog.bot.state.claim_posted_warning = lambda vtec_id: PostedWarningClaim(
-        cog.bot.state, vtec_id
-    )
+    cog.bot.state.claim_posted_warning = lambda vtec_id: PostedWarningClaim(cog.bot.state, vtec_id)
     channel = MagicMock()
     channel.id = 12345
     channel.name = "test-channel"
@@ -579,8 +586,16 @@ async def test_tick_disappeared_warning_triggers_cancellation(monkeypatch):
     """A warning that was in active_warnings but has vanished from the API
     response must fire a cancellation embed."""
     vtec_id = "KOUN.SV.W.0042"
-    active = {vtec_id: {"office": "KOUN", "phenom": "SV", "sig": "W",
-                         "etn": "0042", "vtec_id": vtec_id, "action": "NEW"}}
+    active = {
+        vtec_id: {
+            "office": "KOUN",
+            "phenom": "SV",
+            "sig": "W",
+            "etn": "0042",
+            "vtec_id": vtec_id,
+            "action": "NEW",
+        }
+    }
     posted = {vtec_id: {"message_id": 1, "channel_id": 2, "area": "Noble"}}
 
     cog, channel = _make_tick_cog(active=active, posted=posted)
@@ -590,8 +605,10 @@ async def test_tick_disappeared_warning_triggers_cancellation(monkeypatch):
     cog.bot.state.add_posted_warning = AsyncMock()
     cog.bot.state.add_posted_product_id = AsyncMock()
     import cogs.warnings as warnings_mod
-    monkeypatch.setattr(warnings_mod, "http_get_bytes_conditional",
-                        AsyncMock(return_value=(content, 200, {})))
+
+    monkeypatch.setattr(
+        warnings_mod, "http_get_bytes_conditional", AsyncMock(return_value=(content, 200, {}))
+    )
     monkeypatch.setattr(warnings_mod, "_download_warning_image", AsyncMock(return_value=None))
     monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
 
@@ -623,8 +640,10 @@ async def test_tick_initial_discovery_posts_active_warning_missed_at_startup(mon
     cog.bot.state.add_posted_warning = AsyncMock()
     cog.bot.state.add_posted_product_id = AsyncMock()
     import cogs.warnings as warnings_mod
-    monkeypatch.setattr(warnings_mod, "http_get_bytes_conditional",
-                        AsyncMock(return_value=(content, 200, {})))
+
+    monkeypatch.setattr(
+        warnings_mod, "http_get_bytes_conditional", AsyncMock(return_value=(content, 200, {}))
+    )
     monkeypatch.setattr(warnings_mod, "_download_warning_image", AsyncMock(return_value=None))
     monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
     monkeypatch.setattr(warnings_mod, "add_significant_event", AsyncMock(), raising=False)
@@ -643,8 +662,16 @@ async def test_tick_initial_discovery_posts_active_warning_missed_at_startup(mon
 async def test_tick_con_area_change_posts_partial_update(monkeypatch):
     """When a CON warning's area differs from the stored area, an update embed is posted."""
     vtec_id = "KOUN.SV.W.0042"
-    active = {vtec_id: {"office": "KOUN", "phenom": "SV", "sig": "W",
-                         "etn": "0042", "vtec_id": vtec_id, "action": "CON"}}
+    active = {
+        vtec_id: {
+            "office": "KOUN",
+            "phenom": "SV",
+            "sig": "W",
+            "etn": "0042",
+            "vtec_id": vtec_id,
+            "action": "CON",
+        }
+    }
     posted = {vtec_id: {"message_id": 1, "channel_id": 2, "area": "Noble, Garfield, Grant"}}
 
     cog, channel = _make_tick_cog(active=active, posted=posted)
@@ -663,14 +690,16 @@ async def test_tick_con_area_change_posts_partial_update(monkeypatch):
         cog.bot.state.posted_warnings[vtec_id] = {
             "message_id": msg_id,
             "channel_id": chan_id,
-            "area": kwargs.get("area", "")
+            "area": kwargs.get("area", ""),
         }
 
     cog.bot.state.add_posted_warning = AsyncMock(side_effect=_mock_add_warning)
     cog.bot.state.add_posted_product_id = AsyncMock()
     import cogs.warnings as warnings_mod
-    monkeypatch.setattr(warnings_mod, "http_get_bytes_conditional",
-                        AsyncMock(return_value=(content, 200, {})))
+
+    monkeypatch.setattr(
+        warnings_mod, "http_get_bytes_conditional", AsyncMock(return_value=(content, 200, {}))
+    )
     monkeypatch.setattr(warnings_mod, "_download_warning_image", AsyncMock(return_value=None))
     monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
     monkeypatch.setattr(warnings_mod, "add_significant_event", AsyncMock(), raising=False)
@@ -688,8 +717,10 @@ async def test_tick_304_returns_early(monkeypatch):
     cog, channel = _make_tick_cog()
 
     import cogs.warnings as warnings_mod
-    monkeypatch.setattr(warnings_mod, "http_get_bytes_conditional",
-                        AsyncMock(return_value=(None, 304, {})))
+
+    monkeypatch.setattr(
+        warnings_mod, "http_get_bytes_conditional", AsyncMock(return_value=(None, 304, {}))
+    )
 
     await cog._tick()
 
@@ -709,8 +740,10 @@ async def test_tick_cancelled_warning_not_reactivated(monkeypatch):
     content = _nws_response([feature])
 
     import cogs.warnings as warnings_mod
-    monkeypatch.setattr(warnings_mod, "http_get_bytes_conditional",
-                        AsyncMock(return_value=(content, 200, {})))
+
+    monkeypatch.setattr(
+        warnings_mod, "http_get_bytes_conditional", AsyncMock(return_value=(content, 200, {}))
+    )
 
     await cog._tick()
 

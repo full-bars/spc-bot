@@ -10,6 +10,7 @@ from config import ARCHIVE_DIR, CACHE_DIR, RECORDING_DIR
 
 logger = logging.getLogger("spc_bot.maintenance")
 
+
 class MaintenanceCog(commands.Cog):
     MANAGED_TASK_NAMES = [("cleanup_cache_loop", "cleanup_cache_loop")]
 
@@ -42,12 +43,15 @@ class MaintenanceCog(commands.Cog):
 
             if deleted_count > 0:
                 mb_freed = total_size_freed / (1024 * 1024)
-                logger.info(f"[MAINTENANCE] Cleanup complete. Removed {deleted_count} items ({mb_freed:.2f} MB freed)")
+                logger.info(
+                    f"[MAINTENANCE] Cleanup complete. Removed {deleted_count} items ({mb_freed:.2f} MB freed)"
+                )
             else:
                 logger.info("[MAINTENANCE] Cleanup complete. No files needed deletion.")
 
             # Prune significant_events older than 365 days
             from utils.events_db import backfill_dat_guids, prune_old_significant_events
+
             await prune_old_significant_events(days=365)
 
             # Backfill missing DAT GUIDs via geographic matching
@@ -94,7 +98,9 @@ class MaintenanceCog(commands.Cog):
                             shutil.rmtree(entry.path)
                             logger.info(f"[MAINTENANCE] Pruned orphaned mission dir: {entry.name}")
                     except Exception as e:
-                        logger.warning(f"[MAINTENANCE] Failed to prune orphaned mission dir {entry.name}: {e}")
+                        logger.warning(
+                            f"[MAINTENANCE] Failed to prune orphaned mission dir {entry.name}: {e}"
+                        )
 
         # 3. Enforce budget on Event Archive (GIFs)
         # Default to 1GB budget for archived GIFs
@@ -112,9 +118,11 @@ class MaintenanceCog(commands.Cog):
             gif_files.sort(key=lambda x: x[1].st_mtime)
 
             total_archive_size = sum(f[1].st_size for f in gif_files)
-            if (total_archive_size / (1024*1024)) > ARCHIVE_BUDGET_MB:
-                logger.info(f"[MAINTENANCE] Event archive ({total_archive_size/(1024*1024):.1f}MB) exceeds budget ({ARCHIVE_BUDGET_MB}MB). Pruning oldest...")
-                while (total_archive_size / (1024*1024)) > ARCHIVE_BUDGET_MB and gif_files:
+            if (total_archive_size / (1024 * 1024)) > ARCHIVE_BUDGET_MB:
+                logger.info(
+                    f"[MAINTENANCE] Event archive ({total_archive_size / (1024 * 1024):.1f}MB) exceeds budget ({ARCHIVE_BUDGET_MB}MB). Pruning oldest..."
+                )
+                while (total_archive_size / (1024 * 1024)) > ARCHIVE_BUDGET_MB and gif_files:
                     path, stat = gif_files.pop(0)
                     try:
                         os.remove(path)
@@ -124,6 +132,7 @@ class MaintenanceCog(commands.Cog):
                         logger.warning(f"[MAINTENANCE] Failed to delete archive file {path}: {e}")
 
         return deleted_count, total_size_freed
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(MaintenanceCog(bot))

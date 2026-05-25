@@ -1,5 +1,6 @@
 # cogs/warning_channels.py
 """Slash commands for configuring per-type warning channel routing."""
+
 from __future__ import annotations
 
 import logging
@@ -37,10 +38,7 @@ _STATIC_DEFAULTS = {
 class DisableWarningsView(discord.ui.View):
     def __init__(self, enabled: list[tuple[str, str]]):
         super().__init__(timeout=120)
-        options = [
-            discord.SelectOption(label=label, value=code)
-            for code, label in enabled
-        ]
+        options = [discord.SelectOption(label=label, value=code) for code, label in enabled]
         self.select = discord.ui.Select(
             placeholder="Choose warning type(s) to disable…",
             min_values=1,
@@ -61,19 +59,22 @@ class DisableWarningsView(discord.ui.View):
 
 
 class WarningChannelsCog(commands.Cog):
-
-    @app_commands.command(name="enablewarnings", description="Route a warning type to a specific channel")
+    @app_commands.command(
+        name="enablewarnings", description="Route a warning type to a specific channel"
+    )
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.describe(
         warning_type="Warning product type to configure",
         channel="Channel where these warnings will be posted",
     )
-    @app_commands.choices(warning_type=[
-        app_commands.Choice(name="Tornado Warning", value="tor"),
-        app_commands.Choice(name="Severe Thunderstorm Warning", value="svr"),
-        app_commands.Choice(name="Flash Flood Warning", value="ffw"),
-        app_commands.Choice(name="Special Weather Statement", value="sps"),
-    ])
+    @app_commands.choices(
+        warning_type=[
+            app_commands.Choice(name="Tornado Warning", value="tor"),
+            app_commands.Choice(name="Severe Thunderstorm Warning", value="svr"),
+            app_commands.Choice(name="Flash Flood Warning", value="ffw"),
+            app_commands.Choice(name="Special Weather Statement", value="sps"),
+        ]
+    )
     async def enable_warnings(
         self,
         interaction: discord.Interaction,
@@ -87,7 +88,9 @@ class WarningChannelsCog(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="displaysetup", description="Show current warning channel routing configuration")
+    @app_commands.command(
+        name="displaysetup", description="Show current warning channel routing configuration"
+    )
     async def display_setup(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 

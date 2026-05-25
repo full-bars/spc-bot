@@ -50,9 +50,11 @@ def redis_mock(monkeypatch):
 
 # ── Cache semantics ──────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_get_state_cache_hit_skips_redis(isolated_db, redis_mock):
     """Second read in the TTL window must not hit Redis."""
+
     async def _responder(*args):
         if args[0] == "GET":
             return "cached-value"
@@ -68,6 +70,7 @@ async def test_get_state_cache_hit_skips_redis(isolated_db, redis_mock):
 @pytest.mark.asyncio
 async def test_cache_expires_after_ttl(isolated_db, redis_mock, monkeypatch):
     """Once the TTL elapses the next read must go to Redis again."""
+
     async def _responder(*args):
         return "v"
 
@@ -93,6 +96,7 @@ async def test_invalidate_all_caches_wipes_everything(isolated_db, redis_mock):
 
 # ── Writes update cache immediately ──────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_set_state_is_visible_locally_before_redis_ack(isolated_db, redis_mock):
     async def _slow(*args):
@@ -113,6 +117,7 @@ async def test_set_state_writes_to_sqlite_for_durability(isolated_db, redis_mock
 
 
 # ── Redis unavailable ─────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_read_falls_back_to_sqlite_when_redis_down(isolated_db, monkeypatch):
@@ -161,6 +166,7 @@ async def test_resync_drains_dirty_queue(isolated_db, monkeypatch):
 
 # ── Bulk paths ────────────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_get_posted_mds_bulk_load_cached(isolated_db, monkeypatch):
     async def _cmd(*args):
@@ -205,7 +211,14 @@ async def test_get_all_hashes_returns_dict(isolated_db, monkeypatch):
 @pytest.mark.asyncio
 async def test_get_all_posted_warnings_parses_dict(isolated_db, monkeypatch):
     import json
-    warning_data = {"message_id": 1, "channel_id": 2, "area": "OK", "tornado_confidence": None, "tornado_severity": None}
+
+    warning_data = {
+        "message_id": 1,
+        "channel_id": 2,
+        "area": "OK",
+        "tornado_confidence": None,
+        "tornado_severity": None,
+    }
 
     async def _cmd(*args):
         if args[0] == "HGETALL":
@@ -219,6 +232,7 @@ async def test_get_all_posted_warnings_parses_dict(isolated_db, monkeypatch):
 
 
 # ── Outage scenarios ──────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_add_posted_md_falls_back_on_redis_outage(isolated_db, monkeypatch):
@@ -258,6 +272,7 @@ async def test_add_posted_md_is_idempotent(isolated_db, monkeypatch):
 
 # ── Integration: real Redis semantics via fakeredis ──────────────────────────
 
+
 @pytest.fixture
 async def fake_redis_client(monkeypatch):
     """Install a fakeredis server as the state_store Redis client.
@@ -271,6 +286,7 @@ async def fake_redis_client(monkeypatch):
     server = fakeredis.FakeServer()
     client = fakeredis.FakeRedis(server=server, decode_responses=True)
     monkeypatch.setattr(state_store, "_redis_client", client)
+
     # The autouse mock_redis_cmd fixture replaced _redis_cmd with a stub that
     # always raises _RedisUnavailable. Restore the real implementation by
     # re-implementing it inline against the fake client — _get_redis_client()
@@ -280,6 +296,7 @@ async def fake_redis_client(monkeypatch):
             if a is None:
                 raise ValueError("_redis_cmd: None is not a valid argument")
         import redis.exceptions
+
         cmd_name = str(args[0]).upper()
         cmd_args = [str(a) for a in args[1:]]
         try:
@@ -336,8 +353,11 @@ async def test_fakeredis_connection_error_triggers_fallback(isolated_db, monkeyp
     async def _bang(*args, **kwargs):
         raise rex.ConnectionError("refused")
 
-    monkeypatch.setattr(state_store, "_redis_cmd",
-                        lambda *a: (_ for _ in ()).throw(state_store._RedisUnavailable("refused")))
+    monkeypatch.setattr(
+        state_store,
+        "_redis_cmd",
+        lambda *a: (_ for _ in ()).throw(state_store._RedisUnavailable("refused")),
+    )
 
     async def _unavail(*args):
         raise state_store._RedisUnavailable("refused")

@@ -24,10 +24,7 @@ def _build_watch_embed(
     """Canonical watch embed used by paginator, auto-post, iembot fast-path,
     and the upgrade-edit. One place to fix styling drift."""
     embed = discord.Embed(
-        title=(
-            f"{'🌪️' if is_tornado else '⛈️'}  "
-            f"{watch_label} #{int(watch_num)}"
-        ),
+        title=(f"{'🌪️' if is_tornado else '⛈️'}  {watch_label} #{int(watch_num)}"),
         color=color,
         timestamp=timestamp,
     )

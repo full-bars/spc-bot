@@ -32,8 +32,7 @@ class TestFetchActiveWatchesNWS:
     def _spc_html(*watch_nums):
         """Build a minimal SPC watch index HTML listing the given watch numbers."""
         links = "".join(
-            f'<a href="/products/watch/ww{n.zfill(4)}.html">Watch {n}</a>'
-            for n in watch_nums
+            f'<a href="/products/watch/ww{n.zfill(4)}.html">Watch {n}</a>' for n in watch_nums
         )
         return f"<html><body>{links}</body></html>"
 
@@ -118,10 +117,12 @@ class TestFetchActiveWatchesNWS:
         from cogs.watches import fetch_active_watches_nws
 
         vtec = "/O.NEW.KWNS.TO.A.0042.260409T1800Z-260410T0000Z/"
-        payload = self._make_response([
-            self._make_feature(vtec),
-            self._make_feature(vtec),
-        ])
+        payload = self._make_response(
+            [
+                self._make_feature(vtec),
+                self._make_feature(vtec),
+            ]
+        )
 
         with patch(
             "cogs.watch_fetch.http_get_bytes_conditional",
@@ -305,12 +306,15 @@ async def test_post_watch_now_sends_and_marks_posted():
     # to maintain the behavior of the existing test assertion.
     async def _mock_add(wn):
         bot.state.posted_watches.add(wn)
+
     bot.state.add_posted_watch = AsyncMock(side_effect=_mock_add)
 
     nws_info = {"type": "SVR", "expires": None, "affected_zones": []}
 
-    with patch("cogs.watches.fetch_watch_details", AsyncMock(return_value=("http://img.png", "summary", None))), \
-         patch("cogs.watches.download_single_image", AsyncMock(return_value=(None, False, None))):
+    with patch(
+        "cogs.watches.fetch_watch_details",
+        AsyncMock(return_value=("http://img.png", "summary", None)),
+    ), patch("cogs.watches.download_single_image", AsyncMock(return_value=(None, False, None))):
         await cog.post_watch_now("0102", nws_info)
 
     channel.send.assert_called_once()
@@ -352,8 +356,9 @@ async def test_post_watch_now_dispatches_to_sounding_cog():
     cog._pending_tasks = set()
     cog.bot = bot
 
-    with patch("cogs.watches.fetch_watch_details", AsyncMock(return_value=(None, None, None))), \
-         patch("cogs.watches.download_single_image", AsyncMock(return_value=(None, False, None))):
+    with patch(
+        "cogs.watches.fetch_watch_details", AsyncMock(return_value=(None, None, None))
+    ), patch("cogs.watches.download_single_image", AsyncMock(return_value=(None, False, None))):
         await cog.post_watch_now("0102", nws_info)
 
     # post_soundings_for_watch is called to build the coroutine arg for create_task

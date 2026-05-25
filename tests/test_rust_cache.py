@@ -82,10 +82,7 @@ class TestValidateImageCacheBatch:
 
     def test_large_batch(self):
         """Should handle large batches efficiently."""
-        items = [
-            (f"https://example.com/image{i}.png", b"data" * 1000)
-            for i in range(100)
-        ]
+        items = [(f"https://example.com/image{i}.png", b"data" * 1000) for i in range(100)]
         results = validate_image_cache_batch(items)
         assert len(results) == 100
 

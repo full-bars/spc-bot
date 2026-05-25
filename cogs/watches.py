@@ -28,8 +28,9 @@ from utils.http import http_get_bytes
 
 logger = logging.getLogger("spc_bot")
 
-_WATCH_FAST_POLL_INTERVAL_SEC = 30   # Stage 1: poll every 30s for image + probs
-_WATCH_SLOW_POLL_INTERVAL_SEC = 60   # Stage 2: poll every 60s for image only
+_WATCH_FAST_POLL_INTERVAL_SEC = 30  # Stage 1: poll every 30s for image + probs
+_WATCH_SLOW_POLL_INTERVAL_SEC = 60  # Stage 2: poll every 60s for image only
+
 
 class WatchPaginatorView(discord.ui.View):
     def __init__(self, watch_data, overview_path):
@@ -45,17 +46,11 @@ class WatchPaginatorView(discord.ui.View):
         self.next_btn.disabled = self.index >= len(self.watch_data) - 1
 
     def build_embed(self):
-        watch_num, nws_info, image_url, text_summary, probs, cache_path = (
-            self.watch_data[self.index]
-        )
-        wtype = (
-            nws_info.get("type", "SVR")
-            if isinstance(nws_info, dict)
-            else nws_info
-        )
-        expires = (
-            nws_info.get("expires") if isinstance(nws_info, dict) else None
-        )
+        watch_num, nws_info, image_url, text_summary, probs, cache_path = self.watch_data[
+            self.index
+        ]
+        wtype = nws_info.get("type", "SVR") if isinstance(nws_info, dict) else nws_info
+        expires = nws_info.get("expires") if isinstance(nws_info, dict) else None
         is_tornado = wtype == "TORNADO"
         return _build_watch_embed(
             watch_num,
@@ -75,46 +70,30 @@ class WatchPaginatorView(discord.ui.View):
         return _watch_files(watch_num, cache_path)
 
     @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary)
-    async def prev_btn(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
+    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.index = max(0, self.index - 1)
         self._update_buttons()
         embed = self.build_embed()
         files = self.build_files()
-        await interaction.response.edit_message(
-            embed=embed, attachments=files, view=self
-        )
+        await interaction.response.edit_message(embed=embed, attachments=files, view=self)
 
     @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary)
-    async def next_btn(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
+    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.index = min(len(self.watch_data) - 1, self.index + 1)
         self._update_buttons()
         embed = self.build_embed()
         files = self.build_files()
-        await interaction.response.edit_message(
-            embed=embed, attachments=files, view=self
-        )
+        await interaction.response.edit_message(embed=embed, attachments=files, view=self)
 
-    @discord.ui.button(
-        label="🗺️ Overview", style=discord.ButtonStyle.primary
-    )
-    async def overview_btn(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
+    @discord.ui.button(label="🗺️ Overview", style=discord.ButtonStyle.primary)
+    async def overview_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.overview_path:
             await interaction.response.send_message(
                 "**Current Active Watches Overview**",
-                file=discord.File(
-                    self.overview_path, filename="current_watches.png"
-                ),
+                file=discord.File(self.overview_path, filename="current_watches.png"),
             )
         else:
-            await interaction.response.send_message(
-                "Overview map unavailable."
-            )
+            await interaction.response.send_message("Overview map unavailable.")
 
     async def on_timeout(self):
         for item in self.children:
@@ -132,30 +111,20 @@ async def _execute_watches(interaction: discord.Interaction, bot: commands.Bot):
     nws_watches = await fetch_active_watches_nws()
     if nws_watches is None or not nws_watches:
         entries = await fetch_latest_watch_numbers()
-        nws_watches = {
-            num: {"type": wtype, "expires": None} for num, wtype in entries
-        }
+        nws_watches = {num: {"type": wtype, "expires": None} for num, wtype in entries}
     if not nws_watches:
         await interaction.followup.send("No active watches found.")
         return
 
-    overview_content, overview_status = await http_get_bytes(
-        SPC_VALID_WATCHES_URL
-    )
+    overview_content, overview_status = await http_get_bytes(SPC_VALID_WATCHES_URL)
     overview_path = None
-    if (
-        overview_content
-        and overview_status == 200
-        and not is_placeholder_image(overview_content)
-    ):
+    if overview_content and overview_status == 200 and not is_placeholder_image(overview_content):
         overview_path = get_cache_path_for_url(SPC_VALID_WATCHES_URL)
         try:
             with open(overview_path, "wb") as ovf:
                 ovf.write(overview_content)
         except Exception as e:
-            logger.warning(
-                f"[/watches] Could not save overview image: {e}"
-            )
+            logger.warning(f"[/watches] Could not save overview image: {e}")
             overview_path = None
 
     async def _hydrate(watch_num: str, nws_info: dict):
@@ -168,9 +137,7 @@ async def _execute_watches(interaction: discord.Interaction, bot: commands.Bot):
         return (watch_num, nws_info, image_url, text_summary, probs, cache_path)
 
     watch_data = list(
-        await asyncio.gather(
-            *[_hydrate(num, info) for num, info in nws_watches.items()]
-        )
+        await asyncio.gather(*[_hydrate(num, info) for num, info in nws_watches.items()])
     )
 
     view = WatchPaginatorView(watch_data, overview_path)
@@ -179,9 +146,7 @@ async def _execute_watches(interaction: discord.Interaction, bot: commands.Bot):
         view.next_btn.disabled = True
     embed = view.build_embed()
     files = view.build_files()
-    msg = await interaction.followup.send(
-        embed=embed, files=files, view=view, wait=True
-    )
+    msg = await interaction.followup.send(embed=embed, files=files, view=view, wait=True)
     view.message = msg
 
 
@@ -202,13 +167,19 @@ class WatchesCog(commands.Cog):
             t.cancel()
         self._pending_tasks.clear()
 
-    async def _upgrade_watch_embed(self, watch_num: str, message: discord.Message,
-                                    is_tornado: bool, watch_label: str,
-                                    color: discord.Color, expires):
+    async def _upgrade_watch_embed(
+        self,
+        watch_num: str,
+        message: discord.Message,
+        is_tornado: bool,
+        watch_label: str,
+        color: discord.Color,
+        expires,
+    ):
         """
         Polls for full SPC watch details (probs + image) and edits the original
         message once available.
-        
+
         Stage 1: Fast poll (30s) for up to 10 minutes.
         Stage 2: Slow poll (60s) for up to 20 minutes more (image only).
         """
@@ -274,11 +245,13 @@ class WatchesCog(commands.Cog):
                     if has_real_probs:
                         # We have real probs but still no image.
                         # Break to Stage 2 for dedicated image slow-poll.
-                        logger.info(f"Probs updated for #{watch_num}; transitioning to slow-poll for image")
+                        logger.info(
+                            f"Probs updated for #{watch_num}; transitioning to slow-poll for image"
+                        )
                         break
 
             except Exception as e:
-                logger.warning(f"Upgrade attempt {attempt+1} failed for #{watch_num}: {e}")
+                logger.warning(f"Upgrade attempt {attempt + 1} failed for #{watch_num}: {e}")
 
         # ── Stage 2: Slow poll specifically for the Image ──────────────────
         # Sometimes SPC takes 15-20 minutes to generate the GIF during high load.
@@ -382,7 +355,9 @@ class WatchesCog(commands.Cog):
             has_prelim = probs and "preliminary" in probs
             if not cache_path or has_prelim:
                 t = asyncio.create_task(
-                    self._upgrade_watch_embed(watch_num, message, is_tornado, watch_label, color, expires)
+                    self._upgrade_watch_embed(
+                        watch_num, message, is_tornado, watch_label, color, expires
+                    )
                 )
                 self._pending_tasks.add(t)
                 t.add_done_callback(self._pending_tasks.discard)
@@ -404,57 +379,36 @@ class WatchesCog(commands.Cog):
 
             nws_watches = await fetch_active_watches_nws()
             if nws_watches is None:
-                logger.warning(
-                    "NWS API fetch failed — skipping cycle, active set unchanged"
-                )
+                logger.warning("NWS API fetch failed — skipping cycle, active set unchanged")
                 return
             now_utc = datetime.now(timezone.utc)
 
             # ── Cancellations ──────────────────────────────────────────────
             for watch_num, info in list(self.bot.state.active_watches.items()):
                 wtype = info["type"] if isinstance(info, dict) else info
-                expires = (
-                    info.get("expires") if isinstance(info, dict) else None
-                )
+                expires = info.get("expires") if isinstance(info, dict) else None
 
                 expired_by_time = expires is not None and now_utc >= expires
                 missing_from_api = watch_num not in nws_watches
 
-                if not (
-                    expired_by_time or (missing_from_api and nws_watches)
-                ):
+                if not (expired_by_time or (missing_from_api and nws_watches)):
                     continue
 
                 self.bot.state.active_watches.pop(watch_num, None)
                 reason = "expired" if expired_by_time else "no longer active"
-                logger.info(
-                    f"Watch #{watch_num} {reason} — "
-                    f"posting cancellation"
-                )
-                watch_label = (
-                    "Tornado Watch"
-                    if wtype == "TORNADO"
-                    else "Severe Thunderstorm Watch"
-                )
+                logger.info(f"Watch #{watch_num} {reason} — posting cancellation")
+                watch_label = "Tornado Watch" if wtype == "TORNADO" else "Severe Thunderstorm Watch"
                 embed = discord.Embed(
-                    title=(
-                        f"✅  {watch_label} #{int(watch_num)} "
-                        f"— Expired / Cancelled"
-                    ),
+                    title=(f"✅  {watch_label} #{int(watch_num)} — Expired / Cancelled"),
                     color=discord.Color.green(),
                     timestamp=now_utc,
                 )
                 embed.set_footer(text="SPC Watch Monitor")
                 try:
                     await channel.send(embed=embed)
-                    logger.info(
-                        f"Posted cancellation for #{watch_num}"
-                    )
+                    logger.info(f"Posted cancellation for #{watch_num}")
                 except discord.HTTPException as e:
-                    logger.exception(
-                        f"Failed to send cancellation "
-                        f"for #{watch_num}: {e}"
-                    )
+                    logger.exception(f"Failed to send cancellation for #{watch_num}: {e}")
                     self.bot.state.active_watches[watch_num] = info
 
             # ── New watches ────────────────────────────────────────────────
@@ -478,23 +432,11 @@ class WatchesCog(commands.Cog):
                 wtype = nws_info.get("type", "SVR")
                 expires = nws_info.get("expires")
                 is_tornado = wtype == "TORNADO"
-                watch_label = (
-                    "Tornado Watch"
-                    if is_tornado
-                    else "Severe Thunderstorm Watch"
-                )
-                color = (
-                    discord.Color.red()
-                    if is_tornado
-                    else discord.Color.orange()
-                )
+                watch_label = "Tornado Watch" if is_tornado else "Severe Thunderstorm Watch"
+                color = discord.Color.red() if is_tornado else discord.Color.orange()
 
-                logger.info(
-                    f"New watch detected: #{watch_num} ({wtype})"
-                )
-                image_url, text_summary, probs = await fetch_watch_details(
-                    watch_num
-                )
+                logger.info(f"New watch detected: #{watch_num} ({wtype})")
+                image_url, text_summary, probs = await fetch_watch_details(watch_num)
                 cache_path = None
                 if image_url:
                     cache_path, _, _ = await download_single_image(
@@ -528,14 +470,14 @@ class WatchesCog(commands.Cog):
                     has_prelim = probs and "preliminary" in probs
                     if not cache_path or has_prelim:
                         t = asyncio.create_task(
-                            self._upgrade_watch_embed(watch_num, message, is_tornado, watch_label, color, expires)
+                            self._upgrade_watch_embed(
+                                watch_num, message, is_tornado, watch_label, color, expires
+                            )
                         )
                         self._pending_tasks.add(t)
                         t.add_done_callback(self._pending_tasks.discard)
                 except discord.HTTPException as e:
-                    logger.exception(
-                        f"Discord send failed for #{watch_num}: {e}"
-                    )
+                    logger.exception(f"Discord send failed for #{watch_num}: {e}")
 
             self._watches_backoff.success()
 
@@ -556,8 +498,7 @@ class WatchesCog(commands.Cog):
             exc = None
         if exc:
             logger.error(
-                f"[TASK] auto_post_watches stopped due to exception: "
-                f"{type(exc).__name__}: {exc}",
+                f"[TASK] auto_post_watches stopped due to exception: {type(exc).__name__}: {exc}",
                 exc_info=exc,
             )
 

@@ -10,6 +10,7 @@ Cache is ephemeral (10-min TTL), not persisted — only bridges the gap
 between issuance and SPC/IEM REST API availability.
 Only the last-seen seqnum is persisted to DB to avoid reprocessing on restart.
 """
+
 import asyncio
 import json as _json
 import logging
@@ -50,18 +51,18 @@ def _parse_watch_text(raw: str) -> Optional[str]:
     for i, line in enumerate(lines):
         if re.search(r"Watch for portions of", line, re.IGNORECASE):
             area_lines = []
-            for ll in lines[i+1:i+6]:
+            for ll in lines[i + 1 : i + 6]:
                 if re.search(r"Effective|until|Primary", ll, re.IGNORECASE):
                     break
                 area_lines.append(ll)
             if area_lines:
                 parts.append("**Areas:** " + ", ".join(area_lines))
         if re.search(r"Effective this", line, re.IGNORECASE):
-            combined = " ".join(lines[i:i+3])
+            combined = " ".join(lines[i : i + 3])
             parts.append("**Time:** " + re.sub(r"\s+", " ", combined).strip())
         if re.search(r"Primary threats", line, re.IGNORECASE):
             threats = []
-            for ll in lines[i+1:i+6]:
+            for ll in lines[i + 1 : i + 6]:
                 if re.search(r"SUMMARY|PRECAUTIONARY|ATTN", ll, re.IGNORECASE):
                     break
                 threats.append(ll)
@@ -69,7 +70,7 @@ def _parse_watch_text(raw: str) -> Optional[str]:
                 parts.append("**Threats:**\n" + "\n".join(f"• {t}" for t in threats))
         if re.search(r"^SUMMARY\.\.\.", line, re.IGNORECASE):
             summary_lines = []
-            for ll in lines[i:i+4]:
+            for ll in lines[i : i + 4]:
                 if re.search(r"^DISCUSSION\.\.\.", ll, re.IGNORECASE):
                     break
                 summary_lines.append(ll)
@@ -133,10 +134,7 @@ class IEMBotCog(commands.Cog):
                 val = await get_state("iembot_last_seqnum")
                 if val:
                     self.bot.state.iembot_last_seqnum = int(val)
-                    logger.info(
-                        f"Resuming from seqnum "
-                        f"{self.bot.state.iembot_last_seqnum}"
-                    )
+                    logger.info(f"Resuming from seqnum {self.bot.state.iembot_last_seqnum}")
             except Exception as e:
                 logger.warning(f"Could not load seqnum: {e}")
             self._seqnum_loaded = True
@@ -169,18 +167,23 @@ class IEMBotCog(commands.Cog):
                 try:
                     from datetime import datetime as dt_class
                     from datetime import timezone as tz_class
+
                     now = dt_class.now(tz_class.utc)
                     start_time = self.bot.state.bot_start_time
                     if isinstance(start_time, dt_class):
                         uptime_sec = (now - start_time).total_seconds()
                         if uptime_sec > 60:
                             ts_str = product_id.split("-")[0]
-                            issue_dt = dt_class.strptime(ts_str, "%Y%m%d%H%M").replace(tzinfo=tz_class.utc)
+                            issue_dt = dt_class.strptime(ts_str, "%Y%m%d%H%M").replace(
+                                tzinfo=tz_class.utc
+                            )
                             latency = max(0.0, (now - issue_dt).total_seconds())
                             if self.bot.state.iembot_latency is None:
                                 self.bot.state.iembot_latency = latency
                             else:
-                                self.bot.state.iembot_latency = (self.bot.state.iembot_latency * 0.9) + (latency * 0.1)
+                                self.bot.state.iembot_latency = (
+                                    self.bot.state.iembot_latency * 0.9
+                                ) + (latency * 0.1)
                 except Exception as e:
                     logger.debug(f"Latency tracking failed: {e}")
 
@@ -205,7 +208,9 @@ class IEMBotCog(commands.Cog):
         if not raw:
             logger.warning(f"Could not fetch watch text for {product_id}")
             return
-        m = re.search(r"(?:Tornado|Severe Thunderstorm)\s+Watch\s+Number\s+(\d+)", raw, re.IGNORECASE)
+        m = re.search(
+            r"(?:Tornado|Severe Thunderstorm)\s+Watch\s+Number\s+(\d+)", raw, re.IGNORECASE
+        )
         if not m:
             return
         watch_num = m.group(1).zfill(4)
@@ -310,18 +315,13 @@ class IEMBotCog(commands.Cog):
                             tail = max(m.get("seqnum", 0) for m in probe_msgs)
                             self.bot.state.iembot_botstalk_last_seqnum = tail
                             await set_state("iembot_botstalk_last_seqnum", str(tail))
-                            logger.info(
-                                f"Botstalk first-run: fast-forwarded to seqnum {tail}"
-                            )
+                            logger.info(f"Botstalk first-run: fast-forwarded to seqnum {tail}")
                 except Exception as e:
                     logger.warning(f"Botstalk seqnum fast-forward failed: {e}")
                 return  # skip processing this tick; pick up new messages next cycle
 
         try:
-            url = (
-                f"{IEMBOT_BOTSTALK_URL}"
-                f"?seqnum={self.bot.state.iembot_botstalk_last_seqnum}"
-            )
+            url = f"{IEMBOT_BOTSTALK_URL}?seqnum={self.bot.state.iembot_botstalk_last_seqnum}"
             start_req = time.perf_counter()
             content, status = await http_get_bytes(url, retries=2, timeout=10)
             self.bot.state.iembot_ping = (time.perf_counter() - start_req) * 1000
@@ -348,26 +348,29 @@ class IEMBotCog(commands.Cog):
                 try:
                     from datetime import datetime as dt_class
                     from datetime import timezone as tz_class
+
                     now = dt_class.now(tz_class.utc)
                     start_time = self.bot.state.bot_start_time
                     if isinstance(start_time, dt_class):
                         uptime_sec = (now - start_time).total_seconds()
                         if uptime_sec > 60:
                             ts_str = product_id.split("-")[0]
-                            issue_dt = dt_class.strptime(ts_str, "%Y%m%d%H%M").replace(tzinfo=tz_class.utc)
+                            issue_dt = dt_class.strptime(ts_str, "%Y%m%d%H%M").replace(
+                                tzinfo=tz_class.utc
+                            )
                             latency = max(0.0, (now - issue_dt).total_seconds())
                             if self.bot.state.iembot_latency is None:
                                 self.bot.state.iembot_latency = latency
                             else:
-                                self.bot.state.iembot_latency = (self.bot.state.iembot_latency * 0.9) + (latency * 0.1)
+                                self.bot.state.iembot_latency = (
+                                    self.bot.state.iembot_latency * 0.9
+                                ) + (latency * 0.1)
                 except Exception as e:
                     logger.debug(f"Latency tracking failed: {e}")
 
                 pil_match = self._ISSUANCE_PIL_RE.search(product_id)
                 if pil_match:
-                    t = asyncio.create_task(
-                        self._handle_warning(product_id, pil_match.group(1))
-                    )
+                    t = asyncio.create_task(self._handle_warning(product_id, pil_match.group(1)))
                     t.add_done_callback(_log_task_exception)
 
             if new_seqnum > self.bot.state.iembot_botstalk_last_seqnum:
@@ -391,18 +394,14 @@ class IEMBotCog(commands.Cog):
     async def _handle_warning(self, product_id: str, pil_prefix: str):
         raw = await _fetch_product_text(product_id)
         if not raw:
-            logger.warning(
-                f"Could not fetch warning text for {product_id}"
-            )
+            logger.warning(f"Could not fetch warning text for {product_id}")
             return
 
         # Routing logic: Warnings go to WarningsCog, Reports to ReportsCog
         if pil_prefix in ("LSR", "PNS"):
             reports_cog = self.bot.cogs.get("ReportsCog")
             if reports_cog:
-                t = asyncio.create_task(
-                    reports_cog.post_report_now(product_id, raw, pil_prefix)
-                )
+                t = asyncio.create_task(reports_cog.post_report_now(product_id, raw, pil_prefix))
                 t.add_done_callback(_log_task_exception)
             return
 
@@ -414,9 +413,7 @@ class IEMBotCog(commands.Cog):
         if not event:
             return
 
-        t = asyncio.create_task(
-            warnings_cog.post_warning_now(product_id, raw, event)
-        )
+        t = asyncio.create_task(warnings_cog.post_warning_now(product_id, raw, event))
         t.add_done_callback(_log_task_exception)
 
     @poll_botstalk_feed.after_loop

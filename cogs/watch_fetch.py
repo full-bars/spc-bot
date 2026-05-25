@@ -78,9 +78,7 @@ async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
     # 3. Update validators
     if validators and (validators.get("etag") or validators.get("last_modified")):
         await set_validators(
-            NWS_ALERTS_URL,
-            validators.get("etag", ""),
-            validators.get("last_modified", "")
+            NWS_ALERTS_URL, validators.get("etag", ""), validators.get("last_modified", "")
         )
 
     try:
@@ -99,7 +97,9 @@ async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
         for wm in _WW_HREF_RE.finditer(spc_html):
             valid_etns.add(wm.group(1).zfill(4))
     else:
-        logger.warning("Could not fetch SPC watch index for ETN validation — accepting all NWS API results")
+        logger.warning(
+            "Could not fetch SPC watch index for ETN validation — accepting all NWS API results"
+        )
 
     result = {}
     for feature in data.get("features", []):
@@ -120,9 +120,7 @@ async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
             expires_dt = None
             if expires_str:
                 try:
-                    expires_dt = datetime.fromisoformat(expires_str).astimezone(
-                        timezone.utc
-                    )
+                    expires_dt = datetime.fromisoformat(expires_str).astimezone(timezone.utc)
                 except (ValueError, TypeError) as e:
                     logger.debug(f"Could not parse expires {expires_str!r}: {e}")
 
@@ -175,9 +173,7 @@ async def fetch_latest_watch_numbers() -> List[Tuple[str, str]]:
         seen.append(num)
 
     async def _classify(num: str) -> Tuple[str, str]:
-        watch_html = await http_get_text(
-            f"https://www.spc.noaa.gov/products/watch/ww{num}.html"
-        )
+        watch_html = await http_get_text(f"https://www.spc.noaa.gov/products/watch/ww{num}.html")
         wtype = "SVR"
         if watch_html and _TORNADO_WATCH_RE.search(watch_html):
             wtype = "TORNADO"
@@ -186,7 +182,9 @@ async def fetch_latest_watch_numbers() -> List[Tuple[str, str]]:
     return list(await asyncio.gather(*[_classify(n) for n in seen]))
 
 
-async def fetch_watch_details_iem(watch_number: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+async def fetch_watch_details_iem(
+    watch_number: str,
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
     Fallback: fetch watch details from IEM watches API when SPC is unreachable.
     Uses mesonet.agron.iastate.edu/json/watches.py which has structured data
@@ -225,9 +223,11 @@ async def fetch_watch_details_iem(watch_number: str) -> Tuple[Optional[str], Opt
                     if tor_pct:
                         prelim_lines.append(f"🔴 Sig. tornado (EF2+): **{tor_pct}%**")
                     if hail_pct:
-                        prelim_lines.append(f"🟢 2\"+ hail: **{hail_pct}%** | Max: **{max_hail}\"**")
+                        prelim_lines.append(f'🟢 2"+ hail: **{hail_pct}%** | Max: **{max_hail}"**')
                     if max_wind_mph:
-                        prelim_lines.append(f"🔵 Max gusts: **{max_wind_mph} mph ({int(max_wind)} kt)**")
+                        prelim_lines.append(
+                            f"🔵 Max gusts: **{max_wind_mph} mph ({int(max_wind)} kt)**"
+                        )
                     if len(prelim_lines) > 1:
                         probs = "\n".join(prelim_lines)
 
@@ -247,9 +247,7 @@ async def fetch_watch_details(
     Races SPC and IEM page fetches simultaneously — whichever returns first wins.
     """
     page_url = f"https://www.spc.noaa.gov/products/watch/ww{watch_number}.html"
-    prob_url = (
-        f"https://www.spc.noaa.gov/products/watch/ww{watch_number}_prob.html"
-    )
+    prob_url = f"https://www.spc.noaa.gov/products/watch/ww{watch_number}_prob.html"
 
     from utils.cache import fetch_with_validators
 
@@ -274,21 +272,14 @@ async def fetch_watch_details(
             m = re.search(pattern, html, re.IGNORECASE)
             if m:
                 fname = m.group(0)
-                image_url = (
-                    f"https://www.spc.noaa.gov/products/watch/{fname}"
-                )
+                image_url = f"https://www.spc.noaa.gov/products/watch/{fname}"
                 break
         if not image_url:
-            image_url = (
-                f"https://www.spc.noaa.gov/products/watch/"
-                f"ww{watch_number}_overview.gif"
-            )
+            image_url = f"https://www.spc.noaa.gov/products/watch/ww{watch_number}_overview.gif"
 
     text_summary = None
     if html:
-        text_blocks = re.findall(
-            r"<pre[^>]*>(.*?)</pre>", html, re.DOTALL | re.IGNORECASE
-        )
+        text_blocks = re.findall(r"<pre[^>]*>(.*?)</pre>", html, re.DOTALL | re.IGNORECASE)
         for block in text_blocks:
             clean = re.sub(r"<[^>]+>", "", block).strip()
             if len(clean) < 100:
@@ -296,9 +287,7 @@ async def fetch_watch_details(
             if not re.search(r"SEL\d|Watch Number", clean, re.IGNORECASE):
                 continue
 
-            lines = [
-                line.strip() for line in clean.splitlines() if line.strip()
-            ]
+            lines = [line.strip() for line in clean.splitlines() if line.strip()]
 
             states = []
             in_states = False
@@ -307,9 +296,7 @@ async def fetch_watch_details(
                     in_states = True
                     continue
                 if in_states:
-                    if re.search(
-                        r"Effective|until|Primary", line, re.IGNORECASE
-                    ):
+                    if re.search(r"Effective|until|Primary", line, re.IGNORECASE):
                         break
                     if line and not re.search(r"\*", line):
                         states.append(line)
@@ -318,7 +305,7 @@ async def fetch_watch_details(
             for line in lines:
                 if re.search(r"Effective this", line, re.IGNORECASE):
                     idx = lines.index(line)
-                    combined = " ".join(lines[idx: idx + 3])
+                    combined = " ".join(lines[idx : idx + 3])
                     combined = re.sub(r"\s+", " ", combined).strip()
                     time_line = combined
                     break
@@ -330,9 +317,7 @@ async def fetch_watch_details(
                     in_threats = True
                     continue
                 if in_threats:
-                    if re.search(
-                        r"SUMMARY|PRECAUTIONARY|ATTN", line, re.IGNORECASE
-                    ):
+                    if re.search(r"SUMMARY|PRECAUTIONARY|ATTN", line, re.IGNORECASE):
                         break
                     if line and not line.startswith("*"):
                         if threats and not re.search(
@@ -350,34 +335,21 @@ async def fetch_watch_details(
             if time_line:
                 parts.append("**Time:** " + time_line)
             if threats:
-                parts.append(
-                    "**Threats:**\n"
-                    + "\n".join(f"• {t}" for t in threats[:5])
-                )
+                parts.append("**Threats:**\n" + "\n".join(f"• {t}" for t in threats[:5]))
             if parts:
                 text_summary = "\n".join(parts)
                 break
 
     probs = None
     if prob_html:
-        cells = re.findall(
-            r"<td[^>]*>(.*?)</td>", prob_html, re.DOTALL | re.IGNORECASE
-        )
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", prob_html, re.DOTALL | re.IGNORECASE)
         pairs = []
         for cell in cells:
             clean = re.sub(r"<[^>]+>", " ", cell).strip()
             clean = re.sub(r"\s+", " ", clean)
-            clean = (
-                clean.replace("&gt;", ">")
-                .replace("&lt;", "<")
-                .replace("&amp;", "&")
-            )
-            label_m = re.search(
-                r"Probability of (.{5,80})", clean, re.IGNORECASE
-            )
-            value_m = re.search(
-                r"(Low|Mod|High)\s*\(([^)]+)\)", clean, re.IGNORECASE
-            )
+            clean = clean.replace("&gt;", ">").replace("&lt;", "<").replace("&amp;", "&")
+            label_m = re.search(r"Probability of (.{5,80})", clean, re.IGNORECASE)
+            value_m = re.search(r"(Low|Mod|High)\s*\(([^)]+)\)", clean, re.IGNORECASE)
             if label_m and not value_m:
                 pairs.append([label_m.group(1).strip(), None, None])
             elif value_m and pairs and pairs[-1][1] is None:
@@ -417,19 +389,12 @@ async def fetch_watch_details(
                 prob_lines.append(f"**{section}**")
                 for label, level, pct in entries:
                     emoji = section_emoji.get(section, "⚪")
-                    prob_lines.append(
-                        f"{emoji} {label}: **{level} ({pct})**"
-                    )
+                    prob_lines.append(f"{emoji} {label}: **{level} ({pct})**")
             if prob_lines:
                 probs = "\n".join(prob_lines)
-            logger.info(
-                f"Parsed {len(pairs)} prob entries "
-                f"for #{watch_number}"
-            )
+            logger.info(f"Parsed {len(pairs)} prob entries for #{watch_number}")
         else:
-            logger.warning(
-                f"No prob pairs parsed for #{watch_number}"
-            )
+            logger.warning(f"No prob pairs parsed for #{watch_number}")
 
     # Check iembot real-time cache first (populated within seconds of issuance)
     cached_text = await get_cached_watch_text(watch_number)

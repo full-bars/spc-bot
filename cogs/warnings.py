@@ -12,6 +12,7 @@ This is the v1 baseline. Subsequent PRs add:
   - PR E: PDS / Tornado Emergency styling.
   - PR F: SPS path with severe-only filter.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -82,8 +83,7 @@ class WarningsCog(commands.Cog):
     async def cog_load(self):
         # posted_warnings already hydrated by _hydrate_state before cog load
         logger.debug(
-            f"cog_load: {len(self.bot.state.posted_warnings)} posted warning(s) "
-            f"already in state"
+            f"cog_load: {len(self.bot.state.posted_warnings)} posted warning(s) already in state"
         )
 
         self.auto_poll_warnings.start()
@@ -103,7 +103,11 @@ class WarningsCog(commands.Cog):
         if not me:
             return []
         perms = channel.permissions_for(me)
-        return [p for p in ("send_messages", "embed_links", "attach_files") if not getattr(perms, p, False)]
+        return [
+            p
+            for p in ("send_messages", "embed_links", "attach_files")
+            if not getattr(perms, p, False)
+        ]
 
     async def _notify_channel_error(self, channel, missing: list[str]) -> None:
         """Alert the health channel about a permission problem (once per session per channel)."""
@@ -116,6 +120,7 @@ class WarningsCog(commands.Cog):
         logger.error(f"Missing permissions {missing} in warning channel #{ch_name} ({ch_id})")
         try:
             from main import send_bot_alert
+
             mention = f"<#{ch_id}>"
             await send_bot_alert(
                 "Warning Channel — Missing Permissions",
@@ -146,7 +151,9 @@ class WarningsCog(commands.Cog):
             return "sps"
         return "default"
 
-    async def _resolve_warning_channel(self, event: str, vtec_phenom: str | None = None) -> Optional[discord.abc.Messageable]:
+    async def _resolve_warning_channel(
+        self, event: str, vtec_phenom: str | None = None
+    ) -> Optional[discord.abc.Messageable]:
         """Return the channel to post this warning type to, or None if disabled.
 
         vtec_phenom: Override event name mapping with explicit VTEC phenom code (TO/SV/FF/SPS).
@@ -176,7 +183,9 @@ class WarningsCog(commands.Cog):
                         return None
                     return cast(discord.abc.Messageable, ch)
         static_id = self._STATIC_CHANNEL_FOR_PHENOM.get(phenom, WARNINGS_CHANNEL_ID)
-        logger.debug(f"[CH_RESOLVE] using static channel {static_id} for {phenom} (default fallback: {static_id == WARNINGS_CHANNEL_ID})")
+        logger.debug(
+            f"[CH_RESOLVE] using static channel {static_id} for {phenom} (default fallback: {static_id == WARNINGS_CHANNEL_ID})"
+        )
         channel = self.bot.get_channel(static_id)
         if channel:
             missing = self._check_channel_perms(channel)
@@ -193,20 +202,22 @@ class WarningsCog(commands.Cog):
     # We dedup against the same posted_warnings set as the NWS API
     # path; whichever fires first wins, the other is a no-op.
 
-    async def post_warning_now(
-        self, product_id: str, raw_text: str, event: str
-    ):
+    async def post_warning_now(self, product_id: str, raw_text: str, event: str):
         """Post a warning triggered by iembot. ``raw_text`` is the full
         VTEC product as plain text from the IEM nwstext API."""
         if not self.bot.state.is_primary:
             return
 
         vtec = parse_vtec(raw_text)
-        channel = await self._resolve_warning_channel(event, vtec_phenom=vtec.get("phenom") if vtec else None)
+        channel = await self._resolve_warning_channel(
+            event, vtec_phenom=vtec.get("phenom") if vtec else None
+        )
         if not channel:
             return
         if vtec:
-            logger.debug(f"[WARN_VTEC] iembot {event}: {vtec['vtec_id']} phenom={vtec.get('phenom')}")
+            logger.debug(
+                f"[WARN_VTEC] iembot {event}: {vtec['vtec_id']} phenom={vtec.get('phenom')}"
+            )
             if "TO" in event or vtec.get("phenom") == "TO":
                 logger.debug(f"[WARN_VTEC_RAW] iembot tornado: {raw_text}")
         if not vtec:
@@ -222,12 +233,10 @@ class WarningsCog(commands.Cog):
                     "sig": "S",
                     "etn": "0",
                     "start": None,
-                    "end": None
+                    "end": None,
                 }
             else:
-                logger.warning(
-                    f"iembot trigger: no VTEC in {product_id} — skipping"
-                )
+                logger.warning(f"iembot trigger: no VTEC in {product_id} — skipping")
                 return
 
         vtec_id = vtec["vtec_id"]
@@ -242,7 +251,11 @@ class WarningsCog(commands.Cog):
         # PR D: Lifecycle fast-path (cancel/expire/upgrade)
         if action in ("CAN", "EXP", "UPG"):
             if vtec_id in self.bot.state.active_warnings:
-                reason = "Cancelled" if action == "CAN" else ("Upgraded" if action == "UPG" else "Expired")
+                reason = (
+                    "Cancelled"
+                    if action == "CAN"
+                    else ("Upgraded" if action == "UPG" else "Expired")
+                )
                 # Use stored vtec if available, or current one
                 vtec_to_use = vtec or self.bot.state.active_warnings.get(vtec_id)
                 await self._handle_cancellation(vtec_id, reason=reason, vtec=vtec_to_use)
@@ -289,7 +302,9 @@ class WarningsCog(commands.Cog):
                 # Log significant events (tornadoes, hail, wind) to DB
                 event_id = await self._check_and_log_significant_event(event, raw_text, vtec)
 
-                emoji, display_event, color, footer_id = get_warning_style(event, raw_text, vtec=vtec)
+                emoji, display_event, color, footer_id = get_warning_style(
+                    event, raw_text, vtec=vtec
+                )
 
                 prev_area = self.bot.state.posted_warnings.get(vtec_id, {}).get("area", "")
                 concise_text = build_concise_warning_text(
@@ -315,7 +330,9 @@ class WarningsCog(commands.Cog):
                 # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS)
                 files = []
                 has_etn = vtec.get("etn") and vtec["etn"] != "0"
-                logger.debug(f"[WARN_IMG_CHECK] {vtec['vtec_id']}: has_etn={has_etn} phenom={vtec.get('phenom')}")
+                logger.debug(
+                    f"[WARN_IMG_CHECK] {vtec['vtec_id']}: has_etn={has_etn} phenom={vtec.get('phenom')}"
+                )
                 if has_etn or vtec.get("phenom") == "SPS":
                     image_url = iem_autoplot_url(vtec)
                     logger.debug(f"[WARN_IMG_IEMBOT] {vtec['vtec_id']}: {image_url}")
@@ -325,13 +342,19 @@ class WarningsCog(commands.Cog):
                         files.append(f)
                         embed.set_image(url=f"attachment://{filename}")
                     else:
-                        logger.warning(f"[WARN_IMG_FAIL] {vtec['vtec_id']}: image download returned None")
+                        logger.warning(
+                            f"[WARN_IMG_FAIL] {vtec['vtec_id']}: image download returned None"
+                        )
                 else:
-                    logger.debug(f"[WARN_IMG_SKIP] {vtec['vtec_id']}: no ETN, not downloading image")
+                    logger.debug(
+                        f"[WARN_IMG_SKIP] {vtec['vtec_id']}: no ETN, not downloading image"
+                    )
 
                 try:
                     msg = await channel.send(embed=embed, files=files, view=view)
-                    logger.info(f"Posted (iembot) {event} {vtec_id} ({'Update' if is_update else 'Issuance'})")
+                    logger.info(
+                        f"Posted (iembot) {event} {vtec_id} ({'Update' if is_update else 'Issuance'})"
+                    )
 
                     # Simple area extraction for persistence
                     area_m = re.search(r"for (.+?) till", concise_text)
@@ -350,7 +373,9 @@ class WarningsCog(commands.Cog):
                     await self._notify_channel_error(channel, ["send_messages (403 Forbidden)"])
                     await self.bot.state.remove_posted_product_id(product_id)
                     self.bot.state.active_warnings.pop(vtec_id, None)
-                    logger.error(f"iembot send forbidden for {vtec_id} in channel {channel.id}: {e}")
+                    logger.error(
+                        f"iembot send forbidden for {vtec_id} in channel {channel.id}: {e}"
+                    )
                     return  # claim auto-rolls back on context exit
                 except discord.HTTPException as e:
                     await self.bot.state.remove_posted_product_id(product_id)
@@ -386,6 +411,7 @@ class WarningsCog(commands.Cog):
 
             office = vtec.get("office", "NWS")
             from utils.state_store import find_matching_tornado
+
             match = await find_matching_tornado(office, time.time(), location, window_hours=1.0)
 
             event_id = match[0] if match else f"NWS:WARN:{vtec_id}"
@@ -398,7 +424,7 @@ class WarningsCog(commands.Cog):
                 vtec_id=vtec_id,
                 coords=coords,
                 source=office,
-                raw_text=raw_text
+                raw_text=raw_text,
             )
             logger.info(f"Logged confirmed tornado for {vtec_id} (match: {match is not None})")
 
@@ -413,7 +439,9 @@ class WarningsCog(commands.Cog):
                         recorder = self.bot.get_cog("RecorderCog")
                         if recorder:
                             recorder.start_mission(radar_id, time.time(), event_id=event_id)
-                            logger.info(f"Triggered VAD recorder for {radar_id} near {lat:.2f}, {lon:.2f} (Event: {event_id})")
+                            logger.info(
+                                f"Triggered VAD recorder for {radar_id} near {lat:.2f}, {lon:.2f} (Event: {event_id})"
+                            )
             except Exception as e:
                 logger.warning(f"Failed to trigger VAD recorder for {vtec_id}: {e}")
 
@@ -421,25 +449,32 @@ class WarningsCog(commands.Cog):
 
         return None
 
-    @app_commands.command(name="recenttornadoes", description="List confirmed tornadoes from recent warnings and reports")
+    @app_commands.command(
+        name="recenttornadoes",
+        description="List confirmed tornadoes from recent warnings and reports",
+    )
     @app_commands.describe(range="Time range to look back")
-    @app_commands.choices(range=[
-        app_commands.Choice(name="Last Hour", value=1),
-        app_commands.Choice(name="Last 3 Hours", value=3),
-        app_commands.Choice(name="Last 6 Hours", value=6),
-        app_commands.Choice(name="Last 12 Hours", value=12),
-        app_commands.Choice(name="Last 24 Hours", value=24),
-        app_commands.Choice(name="Last 48 Hours", value=48),
-        app_commands.Choice(name="Last 72 Hours", value=72),
-        app_commands.Choice(name="Last 7 Days (Week)", value=168),
-        app_commands.Choice(name="Last 30 Days (Month)", value=720),
-    ])
+    @app_commands.choices(
+        range=[
+            app_commands.Choice(name="Last Hour", value=1),
+            app_commands.Choice(name="Last 3 Hours", value=3),
+            app_commands.Choice(name="Last 6 Hours", value=6),
+            app_commands.Choice(name="Last 12 Hours", value=12),
+            app_commands.Choice(name="Last 24 Hours", value=24),
+            app_commands.Choice(name="Last 48 Hours", value=48),
+            app_commands.Choice(name="Last 72 Hours", value=72),
+            app_commands.Choice(name="Last 7 Days (Week)", value=168),
+            app_commands.Choice(name="Last 30 Days (Month)", value=720),
+        ]
+    )
     async def recent_tornadoes(self, interaction: discord.Interaction, range: int = 24):
         await interaction.response.defer()
 
         events = await get_recent_significant_events(event_type="Tornado", since_hours=range)
         if not events:
-            await interaction.followup.send("No confirmed tornadoes logged in the requested time frame.")
+            await interaction.followup.send(
+                "No confirmed tornadoes logged in the requested time frame."
+            )
             return
 
         # Sort by timestamp DESC just in case
@@ -450,21 +485,27 @@ class WarningsCog(commands.Cog):
 
         await interaction.followup.send(embed=embed, view=view)
 
-    @app_commands.command(name="sigtor", description="List significant (EF2+) tornadoes from recent surveys")
+    @app_commands.command(
+        name="sigtor", description="List significant (EF2+) tornadoes from recent surveys"
+    )
     @app_commands.describe(range="Time range to look back (hours)")
-    @app_commands.choices(range=[
-        app_commands.Choice(name="Last 24 Hours", value=24),
-        app_commands.Choice(name="Last 48 Hours", value=48),
-        app_commands.Choice(name="Last 72 Hours", value=72),
-        app_commands.Choice(name="Last 7 Days", value=168),
-        app_commands.Choice(name="Last 30 Days", value=720),
-    ])
+    @app_commands.choices(
+        range=[
+            app_commands.Choice(name="Last 24 Hours", value=24),
+            app_commands.Choice(name="Last 48 Hours", value=48),
+            app_commands.Choice(name="Last 72 Hours", value=72),
+            app_commands.Choice(name="Last 7 Days", value=168),
+            app_commands.Choice(name="Last 30 Days", value=720),
+        ]
+    )
     async def sig_tor(self, interaction: discord.Interaction, range: int = 168):
         await interaction.response.defer()
 
         events = await get_recent_significant_events(event_type="Tornado", since_hours=range)
         if not events:
-            await interaction.followup.send("No confirmed tornadoes logged in the requested time frame.")
+            await interaction.followup.send(
+                "No confirmed tornadoes logged in the requested time frame."
+            )
             return
 
         # Filter for EF2+ or 'Significant' wording
@@ -482,7 +523,9 @@ class WarningsCog(commands.Cog):
                 sig_events.append(e)
 
         if not sig_events:
-            await interaction.followup.send(f"No significant (EF2+) tornadoes found in the last {range} hours.")
+            await interaction.followup.send(
+                f"No significant (EF2+) tornadoes found in the last {range} hours."
+            )
             return
 
         # Sort by timestamp DESC
@@ -557,8 +600,7 @@ class WarningsCog(commands.Cog):
         unix_ts = _vtec_unix_ts(cancel_vtec)
 
         description = (
-            f"{office} [{action_verb} {display_event}]({vtec_link}){area_str}\n"
-            f"[<t:{unix_ts}:R>]"
+            f"{office} [{action_verb} {display_event}]({vtec_link}){area_str}\n[<t:{unix_ts}:R>]"
         )
 
         # Fetch the IEM Autoplot image — for cancelled events IEM marks it
@@ -588,7 +630,7 @@ class WarningsCog(commands.Cog):
                         await asyncio.sleep(2)
                         continue
                 except Exception as e:
-                    logger.debug(f"Cancellation image attempt {attempt+1} failed: {e}")
+                    logger.debug(f"Cancellation image attempt {attempt + 1} failed: {e}")
                     if attempt < 4:
                         await asyncio.sleep(2)
                         continue
@@ -625,8 +667,7 @@ class WarningsCog(commands.Cog):
             removed = await self.bot.state.prune_posted_warnings(self.POSTED_WARNINGS_MAX)
             if removed:
                 logger.info(
-                    f"Pruned {removed} posted_warnings entries "
-                    f"(cap={self.POSTED_WARNINGS_MAX})"
+                    f"Pruned {removed} posted_warnings entries (cap={self.POSTED_WARNINGS_MAX})"
                 )
         except Exception as e:
             logger.exception(f"prune_posted_warnings_loop failed: {e}")
@@ -659,6 +700,7 @@ class WarningsCog(commands.Cog):
         """Parse NWS JSON payload into an NWSAlertResponse, or return None on failure."""
         try:
             from models.nws import NWSAlertResponse
+
             return NWSAlertResponse.model_validate(_json.loads(content))
         except Exception as e:
             logger.warning(f"JSON/Pydantic parse failed: {e}")
@@ -675,7 +717,9 @@ class WarningsCog(commands.Cog):
             # SPS are often absent from the NWS API poll but shouldn't be auto-cancelled
             if ".SPS." in vtec_id or vtec_id.startswith("20"):
                 continue
-            vtec_context = current_vtec_data.get(vtec_id) or self.bot.state.active_warnings.get(vtec_id)
+            vtec_context = current_vtec_data.get(vtec_id) or self.bot.state.active_warnings.get(
+                vtec_id
+            )
             await self._handle_cancellation(vtec_id, reason="Expired", vtec=vtec_context)
             self.bot.state.active_warnings.pop(vtec_id, None)
 
@@ -695,9 +739,7 @@ class WarningsCog(commands.Cog):
             self._backoff.success()
             return
         if not content or status != 200:
-            logger.warning(
-                f"NWS API returned status {status} — will retry next cycle"
-            )
+            logger.warning(f"NWS API returned status {status} — will retry next cycle")
             await self._backoff.failure(self.bot)
             return
         if validators and (validators.get("etag") or validators.get("last_modified")):
@@ -711,6 +753,7 @@ class WarningsCog(commands.Cog):
         current_vtec_data = {}
         current_vtec_ids = set()
         from cogs.warning_format import _WARNING_STYLE
+
         for feature in alert_response.features:
             props = feature.properties
             event = props.event
@@ -723,7 +766,9 @@ class WarningsCog(commands.Cog):
                 parsed = parse_vtec(v)
                 if parsed:
                     vtec_dict = parsed
-                    logger.debug(f"[WARN_VTEC] nws-api {event}: {parsed['vtec_id']} phenom={parsed.get('phenom')}")
+                    logger.debug(
+                        f"[WARN_VTEC] nws-api {event}: {parsed['vtec_id']} phenom={parsed.get('phenom')}"
+                    )
                     # We prefer NEW for the initial tracking, but take any for metadata
                     if parsed["action"] == "NEW":
                         break
@@ -745,7 +790,9 @@ class WarningsCog(commands.Cog):
 
             if issuance_id in self.bot.state.posted_warnings:
                 # Still active, ensures it stays in the active set
-                logger.debug(f"[WARN_SKIP] {issuance_id} already posted (action={vtec_dict['action']})")
+                logger.debug(
+                    f"[WARN_SKIP] {issuance_id} already posted (action={vtec_dict['action']})"
+                )
                 if issuance_id not in self.bot.state.active_warnings:
                     self.bot.state.active_warnings[issuance_id] = vtec_dict
 
@@ -761,17 +808,23 @@ class WarningsCog(commands.Cog):
                             self._in_flight_vtecs.add(issuance_id)
                             try:
                                 try:
-                                    event_ch = await self._resolve_warning_channel(event, vtec_phenom=vtec_dict.get("phenom"))
+                                    event_ch = await self._resolve_warning_channel(
+                                        event, vtec_phenom=vtec_dict.get("phenom")
+                                    )
                                     if event_ch is None:
                                         continue
-                                    await self._post_warning(feature, event_ch, vtec_dict, event, is_update=True)
+                                    await self._post_warning(
+                                        feature, event_ch, vtec_dict, event, is_update=True
+                                    )
                                 except discord.HTTPException as e:
                                     logger.exception(f"Update send failed for {issuance_id}: {e}")
 
                                 # Update stored area so we don't spam updates for every poll
                                 description = props.description or ""
                                 params = props.parameters.model_dump() if props.parameters else {}
-                                tornado_confidence, tornado_severity = get_tornado_attributes(event, description, params)
+                                tornado_confidence, tornado_severity = get_tornado_attributes(
+                                    event, description, params
+                                )
                                 await self.bot.state.add_posted_warning(
                                     issuance_id,
                                     stored_info["message_id"],
@@ -820,10 +873,14 @@ class WarningsCog(commands.Cog):
             try:
                 async with self.bot.state.claim_posted_warning(issuance_id) as claim:
                     try:
-                        event_ch = await self._resolve_warning_channel(event, vtec_phenom=vtec_dict.get("phenom"))
+                        event_ch = await self._resolve_warning_channel(
+                            event, vtec_phenom=vtec_dict.get("phenom")
+                        )
                         if event_ch is None:
                             return
-                        msg, area_desc = await self._post_warning(feature, event_ch, vtec_dict, event)
+                        msg, area_desc = await self._post_warning(
+                            feature, event_ch, vtec_dict, event
+                        )
                     except discord.HTTPException as e:
                         logger.exception(f"Send failed for {issuance_id}: {e}")
                         return
@@ -832,7 +889,9 @@ class WarningsCog(commands.Cog):
                     try:
                         description = props.description or ""
                         params = props.parameters.model_dump() if props.parameters else {}
-                        tornado_confidence, tornado_severity = get_tornado_attributes(event, description, params)
+                        tornado_confidence, tornado_severity = get_tornado_attributes(
+                            event, description, params
+                        )
                         await claim.confirm(
                             msg.id,
                             msg.channel.id,
@@ -859,7 +918,9 @@ class WarningsCog(commands.Cog):
         props = feature.properties
         description = props.description or ""
         params = props.parameters.model_dump() if props.parameters else {}
-        emoji, display_event, color, footer_id = get_warning_style(event, description, params, vtec=vtec)
+        emoji, display_event, color, footer_id = get_warning_style(
+            event, description, params, vtec=vtec
+        )
         vtec_id = vtec["vtec_id"]
 
         ugc_codes = (props.geocode.UGC or []) if props.geocode else []
@@ -870,8 +931,12 @@ class WarningsCog(commands.Cog):
             prev_area = self.bot.state.posted_warnings.get(vtec_id, {}).get("area", "")
 
         concise_text = build_concise_warning_text(
-            display_event, vtec, feature=feature.model_dump(), ugc_codes=ugc_codes,
-            is_update=is_update, prev_area=prev_area
+            display_event,
+            vtec,
+            feature=feature.model_dump(),
+            ugc_codes=ugc_codes,
+            is_update=is_update,
+            prev_area=prev_area,
         )
 
         # Log significant events (tornadoes, hail, wind) to DB
@@ -916,13 +981,21 @@ class WarningsCog(commands.Cog):
 
     async def _audit_warning_channels(self):
         """Check all configured warning channels at startup; report perm issues."""
-        channel_ids = {TOR_CHANNEL_ID, SVR_CHANNEL_ID, FFW_CHANNEL_ID, SPS_CHANNEL_ID, WARNINGS_CHANNEL_ID}
+        channel_ids = {
+            TOR_CHANNEL_ID,
+            SVR_CHANNEL_ID,
+            FFW_CHANNEL_ID,
+            SPS_CHANNEL_ID,
+            WARNINGS_CHANNEL_ID,
+        }
         for ch_id in channel_ids:
             if not ch_id:
                 continue
             ch = self.bot.get_channel(ch_id)
             if not ch:
-                logger.warning(f"Warning channel {ch_id} not found in cache at startup — may not be visible to bot")
+                logger.warning(
+                    f"Warning channel {ch_id} not found in cache at startup — may not be visible to bot"
+                )
                 continue
             missing = self._check_channel_perms(ch)
             if missing:
@@ -939,8 +1012,7 @@ class WarningsCog(commands.Cog):
             exc = None
         if exc:
             logger.error(
-                f"auto_poll_warnings stopped: "
-                f"{type(exc).__name__}: {exc}",
+                f"auto_poll_warnings stopped: {type(exc).__name__}: {exc}",
                 exc_info=exc,
             )
 

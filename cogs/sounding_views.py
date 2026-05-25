@@ -24,15 +24,16 @@ logger = logging.getLogger("spc_bot")
 
 def _plot_path(station: str, year: str, month: str, day: str, hour: str, dark_mode: bool) -> str:
     mode_suffix = "dark" if dark_mode else "light"
-    return os.path.join(
-        CACHE_DIR, f"sounding_{station}_{year}{month}{day}_{hour}z_{mode_suffix}"
-    )
+    return os.path.join(CACHE_DIR, f"sounding_{station}_{year}{month}{day}_{hour}z_{mode_suffix}")
 
 
 async def post_sounding(
     interaction: discord.Interaction,
     station: dict,
-    year: str, month: str, day: str, hour: str,
+    year: str,
+    month: str,
+    day: str,
+    hour: str,
     dark_mode: bool,
     status_msg: discord.Message = None,
     messages_to_delete: list = None,
@@ -49,7 +50,8 @@ async def post_sounding(
 
     # Try the requested time, then fall back to previous times
     all_times = [(year, month, day, hour)] + [
-        (y, mo, d, h) for y, mo, d, h in get_recent_sounding_times(6)
+        (y, mo, d, h)
+        for y, mo, d, h in get_recent_sounding_times(6)
         if (y, mo, d, h) != (year, month, day, hour)
     ]
 
@@ -74,8 +76,14 @@ async def post_sounding(
 
             # Post immediately!
             await _send_sounding_embed(
-                interaction, station_id, label, f"{mo}-{d}-{y} {h}z",
-                dark_mode, png_path, fallback_note, status_msg
+                interaction,
+                station_id,
+                label,
+                f"{mo}-{d}-{y} {h}z",
+                dark_mode,
+                png_path,
+                fallback_note,
+                status_msg,
             )
             return
 
@@ -116,6 +124,7 @@ async def post_sounding(
     time_label = f"{used_month}-{used_day}-{used_year} {used_hour}z"
 
     from utils.worker_pool import get_sounding_semaphore, sounding_queue_depth
+
     sem = get_sounding_semaphore()
 
     if sem.locked():
@@ -166,8 +175,15 @@ async def post_sounding(
         return
 
     await _send_sounding_embed(
-        interaction, station_id, label, time_label,
-        dark_mode, png_path, fallback_note, status_msg, clean_data
+        interaction,
+        station_id,
+        label,
+        time_label,
+        dark_mode,
+        png_path,
+        fallback_note,
+        status_msg,
+        clean_data,
     )
 
 
@@ -220,6 +236,7 @@ async def _send_sounding_embed(
 
 # ── Time selection view ───────────────────────────────────────────────────────
 
+
 class TimeSelectionView(View):
     def __init__(
         self,
@@ -242,23 +259,23 @@ class TimeSelectionView(View):
             label = f"{month}-{day}-{year} {hour}z"
             btn = Button(label=label, style=ButtonStyle.green)
 
-            async def cb(
-                interaction, y=year, mo=month, d=day, h=hour
-            ):
+            async def cb(interaction, y=year, mo=month, d=day, h=hour):
                 # Immediately show loading state by editing this message
                 loading_embed = discord.Embed(
                     title="⏳ Fetching Sounding Data...",
                     description="Contacting Wyoming archive...",
                     color=discord.Color.blurple(),
                 )
-                await interaction.response.edit_message(
-                    embed=loading_embed, view=None
-                )
+                await interaction.response.edit_message(embed=loading_embed, view=None)
                 status_msg = await interaction.original_response()
 
                 await post_sounding(
-                    interaction, self.station,
-                    y, mo, d, h,
+                    interaction,
+                    self.station,
+                    y,
+                    mo,
+                    d,
+                    h,
                     self.dark_mode,
                     status_msg=status_msg,
                     messages_to_delete=self.messages_to_delete,
@@ -277,6 +294,7 @@ class TimeSelectionView(View):
 
 
 # ── Station selection view ────────────────────────────────────────────────────
+
 
 class StationSelectionView(View):
     def __init__(
@@ -312,14 +330,16 @@ class StationSelectionView(View):
                         description="Contacting Wyoming archive...",
                         color=discord.Color.blurple(),
                     )
-                    await interaction.response.edit_message(
-                        embed=loading_embed, view=None
-                    )
+                    await interaction.response.edit_message(embed=loading_embed, view=None)
                     status_msg = await interaction.original_response()
                     year, month, day, hour = self.time_args
                     await post_sounding(
-                        interaction, s,
-                        year, month, day, hour,
+                        interaction,
+                        s,
+                        year,
+                        month,
+                        day,
+                        hour,
                         self.dark_mode,
                         status_msg=status_msg,
                         messages_to_delete=[],
@@ -327,7 +347,9 @@ class StationSelectionView(View):
                 else:
                     # Show time picker, pass this message for cleanup
                     view = TimeSelectionView(
-                        s, self.dark_mode, self.original_user,
+                        s,
+                        self.dark_mode,
+                        self.original_user,
                         messages_to_delete=[],
                     )
                     station_id = s.get("icao") or s.get("wmo")
@@ -336,9 +358,7 @@ class StationSelectionView(View):
                         description="Choose a sounding time:",
                         color=discord.Color.blurple(),
                     )
-                    await interaction.response.edit_message(
-                        embed=embed, view=view
-                    )
+                    await interaction.response.edit_message(embed=embed, view=view)
 
             btn.callback = cb
             self.add_item(btn)
@@ -395,23 +415,41 @@ class CombinedSoundingView(View):
                             title="⏳ Fetching Sounding Data...",
                             description=f"Fetching {sid} at {hour}z...",
                             color=discord.Color.blurple(),
-                        ), ephemeral=True, wait=True
+                        ),
+                        ephemeral=True,
+                        wait=True,
                     )
                     clean_data = await fetch_sounding(
-                        sid, year, month, day, hour,
+                        sid,
+                        year,
+                        month,
+                        day,
+                        hour,
                         station_name=s["name"],
-                        lat=s["lat"], lon=s["lon"],
+                        lat=s["lat"],
+                        lon=s["lon"],
                     )
                     if clean_data:
-                        await _post_from_clean_data(interaction, clean_data, s["name"], sid,
-                                                     year, month, day, hour,
-                                                     self.dark_mode, status_msg)
+                        await _post_from_clean_data(
+                            interaction,
+                            clean_data,
+                            s["name"],
+                            sid,
+                            year,
+                            month,
+                            day,
+                            hour,
+                            self.dark_mode,
+                            status_msg,
+                        )
                     else:
-                        await status_msg.edit(embed=discord.Embed(
-                            title="❌ No Data",
-                            description=f"No sounding data found for {sid} at that time.",
-                            color=discord.Color.red(),
-                        ))
+                        await status_msg.edit(
+                            embed=discord.Embed(
+                                title="❌ No Data",
+                                description=f"No sounding data found for {sid} at that time.",
+                                color=discord.Color.red(),
+                            )
+                        )
                 else:
                     # Show time picker — defer+followup keeps station picker visible
                     await interaction.response.defer(ephemeral=True)
@@ -420,21 +458,28 @@ class CombinedSoundingView(View):
                         embed=discord.Embed(
                             title="⏳ Loading Available Times...",
                             color=discord.Color.blurple(),
-                        ), ephemeral=True, wait=True
+                        ),
+                        ephemeral=True,
+                        wait=True,
                     )
                     avail = await get_available_sounding_times(sid, hours_back=36)
                     if not avail:
-                        await status_msg.edit(embed=discord.Embed(
-                            title="❌ No Times Available",
-                            description=f"No recent sounding data found for {sid}.",
-                            color=discord.Color.red(),
-                        ))
+                        await status_msg.edit(
+                            embed=discord.Embed(
+                                title="❌ No Times Available",
+                                description=f"No recent sounding data found for {sid}.",
+                                color=discord.Color.red(),
+                            )
+                        )
                         return
-                    view = IEMTimeSelectionView(s, avail[:8], self.dark_mode,
-                                               self.original_user, [])
+                    view = IEMTimeSelectionView(
+                        s, avail[:8], self.dark_mode, self.original_user, []
+                    )
                     embed = discord.Embed(
                         title=f"Select Time — {s['name']} ({sid})",
-                        description="\n".join([f"`{t[3]}z` {t[1]}-{t[2]}-{t[0]}" for t in avail[:8]]),
+                        description="\n".join(
+                            [f"`{t[3]}z` {t[1]}-{t[2]}-{t[0]}" for t in avail[:8]]
+                        ),
                         color=discord.Color.blurple(),
                     )
                     await status_msg.edit(embed=embed, view=view)
@@ -466,14 +511,17 @@ class CombinedSoundingView(View):
                         p["profile_id"], p["year"], p["month"], p["day"], p["acars_hour"]
                     )
                     if not clean_data:
-                        await status_msg.edit(embed=discord.Embed(
-                            title="❌ ACARS Data Unavailable",
-                            description=f"Could not fetch profile for {p['airport']}.",
-                            color=discord.Color.red(),
-                        ))
+                        await status_msg.edit(
+                            embed=discord.Embed(
+                                title="❌ ACARS Data Unavailable",
+                                description=f"Could not fetch profile for {p['airport']}.",
+                                color=discord.Color.red(),
+                            )
+                        )
                         return
 
                     from utils.worker_pool import get_sounding_semaphore, sounding_queue_depth
+
                     sem = get_sounding_semaphore()
 
                     if sem.locked():
@@ -495,16 +543,18 @@ class CombinedSoundingView(View):
 
                         output_path = os.path.join(
                             CACHE_DIR,
-                            f"acars_{p['airport']}_{p['year']}{p['month']}{p['day']}_{p['acars_hour']}z"
+                            f"acars_{p['airport']}_{p['year']}{p['month']}{p['day']}_{p['acars_hour']}z",
                         )
                         success = await generate_plot(clean_data, output_path, self.dark_mode)
                         png_path = output_path + ".png"
                         if not success or not os.path.exists(png_path):
-                            await status_msg.edit(embed=discord.Embed(
-                                title="❌ Plot Failed",
-                                description="Could not generate ACARS sounding plot.",
-                                color=discord.Color.red(),
-                            ))
+                            await status_msg.edit(
+                                embed=discord.Embed(
+                                    title="❌ Plot Failed",
+                                    description="Could not generate ACARS sounding plot.",
+                                    color=discord.Color.red(),
+                                )
+                            )
                             return
 
                     await status_msg.delete()
@@ -518,7 +568,8 @@ class CombinedSoundingView(View):
 
                 btn.callback = acars_cb
                 self.add_item(btn)
-                if (i + 1) % 5 == 0: row += 1 # Wrap to next row after 5
+                if (i + 1) % 5 == 0:
+                    row += 1  # Wrap to next row after 5
 
         # Mode toggle button in its own row (Row 4)
         target_mode = "Light" if self.dark_mode else "Dark"
@@ -553,8 +604,14 @@ class CombinedSoundingView(View):
 class IEMTimeSelectionView(View):
     """Time selection view using IEM-discovered available times."""
 
-    def __init__(self, station: dict, times: list, dark_mode: bool,
-                 original_user: discord.User, messages_to_delete: list = None):
+    def __init__(
+        self,
+        station: dict,
+        times: list,
+        dark_mode: bool,
+        original_user: discord.User,
+        messages_to_delete: list = None,
+    ):
         super().__init__(timeout=300)
         self.station = station
         self.times = times
@@ -578,25 +635,42 @@ class IEMTimeSelectionView(View):
                         title="⏳ Fetching Sounding Data...",
                         description=f"Fetching {sid} at {h}z...",
                         color=discord.Color.blurple(),
-                    ), ephemeral=True, wait=True
+                    ),
+                    ephemeral=True,
+                    wait=True,
                 )
                 clean_data = await fetch_sounding(
-                    sid, y, mo, d, h,
+                    sid,
+                    y,
+                    mo,
+                    d,
+                    h,
                     station_name=self.station["name"],
-                    lat=self.station["lat"], lon=self.station["lon"],
+                    lat=self.station["lat"],
+                    lon=self.station["lon"],
                 )
                 if clean_data:
                     await _post_from_clean_data(
-                        interaction, clean_data, self.station["name"], sid,
-                        y, mo, d, h, self.dark_mode, status_msg,
+                        interaction,
+                        clean_data,
+                        self.station["name"],
+                        sid,
+                        y,
+                        mo,
+                        d,
+                        h,
+                        self.dark_mode,
+                        status_msg,
                         messages_to_delete=self.messages_to_delete,
                     )
                 else:
-                    await status_msg.edit(embed=discord.Embed(
-                        title="❌ No Data",
-                        description=f"No sounding data for {sid} at {h}z.",
-                        color=discord.Color.red(),
-                    ))
+                    await status_msg.edit(
+                        embed=discord.Embed(
+                            title="❌ No Data",
+                            description=f"No sounding data for {sid} at {h}z.",
+                            color=discord.Color.red(),
+                        )
+                    )
 
             btn.callback = cb
             self.add_item(btn)
@@ -611,13 +685,22 @@ class IEMTimeSelectionView(View):
 
 
 async def _post_from_clean_data(
-    interaction, clean_data, station_name, station_id,
-    year, month, day, hour, dark_mode, status_msg,
+    interaction,
+    clean_data,
+    station_name,
+    station_id,
+    year,
+    month,
+    day,
+    hour,
+    dark_mode,
+    status_msg,
     messages_to_delete=None,
 ):
     """Generate and post a sounding plot from clean_data."""
     label = f"{station_name} ({station_id})"
     from utils.worker_pool import get_sounding_semaphore, sounding_queue_depth
+
     sem = get_sounding_semaphore()
 
     if sem.locked():
@@ -645,9 +728,7 @@ async def _post_from_clean_data(
         except discord.HTTPException:
             pass
 
-        output_path = os.path.join(
-            CACHE_DIR, f"sounding_{station_id}_{year}{month}{day}_{hour}z"
-        )
+        output_path = os.path.join(CACHE_DIR, f"sounding_{station_id}_{year}{month}{day}_{hour}z")
         success = await generate_plot(clean_data, output_path, dark_mode)
         png_path = output_path + ".png"
 
@@ -655,11 +736,13 @@ async def _post_from_clean_data(
 
     if not success or not os.path.exists(png_path):
         try:
-            await status_msg.edit(embed=discord.Embed(
-                title="❌ Plot Failed",
-                description="Could not generate sounding plot.",
-                color=discord.Color.red(),
-            ))
+            await status_msg.edit(
+                embed=discord.Embed(
+                    title="❌ Plot Failed",
+                    description="Could not generate sounding plot.",
+                    color=discord.Color.red(),
+                )
+            )
         except discord.HTTPException:
             pass
         return

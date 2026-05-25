@@ -27,6 +27,7 @@ async def test_resync_empty_queue_is_noop(isolated_db):
 
 async def test_resync_success_deletes_rows(isolated_db, monkeypatch):
     """Successful replays should drain the queue completely."""
+
     async def _ok(op, args):
         return None
 
@@ -44,6 +45,7 @@ async def test_resync_success_deletes_rows(isolated_db, monkeypatch):
 
 async def test_resync_bumps_retry_on_unexpected_exception(isolated_db, monkeypatch):
     """A non-RedisUnavailable failure should bump retry_count, not delete."""
+
     async def _boom(op, args):
         raise ValueError("malformed args")
 
@@ -64,6 +66,7 @@ async def test_resync_bumps_retry_on_unexpected_exception(isolated_db, monkeypat
 async def test_resync_quarantines_after_max_retries(isolated_db, monkeypatch):
     """After _MAX_REPLAY_RETRIES failures, the row must be quarantined,
     not silently dropped — operator needs visibility into bad rows."""
+
     async def _boom(op, args):
         raise ValueError("still malformed")
 
@@ -95,6 +98,7 @@ async def test_resync_quarantines_after_max_retries(isolated_db, monkeypatch):
 async def test_resync_pauses_on_redis_unavailable(isolated_db, monkeypatch):
     """A RedisUnavailable exception should stop the loop without bumping
     or quarantining — the row will be retried cleanly next startup."""
+
     async def _down(op, args):
         raise state_store._RedisUnavailable("simulated outage")
 

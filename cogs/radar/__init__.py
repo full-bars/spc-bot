@@ -35,9 +35,7 @@ class RadarCog(commands.Cog):
         )
         view = StartView(original_user=original_user)
         if isinstance(ctx_or_interaction, discord.Interaction):
-            await ctx_or_interaction.response.send_message(
-                embed=embed, view=view
-            )
+            await ctx_or_interaction.response.send_message(embed=embed, view=view)
             msg = await ctx_or_interaction.original_response()
         else:
             msg = await ctx_or_interaction.send(embed=embed, view=view)
@@ -60,13 +58,15 @@ class RadarCog(commands.Cog):
         time="Time preset — Choose 'Custom/Other' or leave blank for custom Z-to-Z range",
         count="Number of most recent files to download (overrides time)",
     )
-    @discord.app_commands.choices(time=[
-        Choice(name="Last 1 hour", value="1h"),
-        Choice(name="Last 2 hours", value="2h"),
-        Choice(name="Last 3 hours", value="3h"),
-        Choice(name="Last 4 hours", value="4h"),
-        Choice(name="Custom / Other (Z-to-Z, explicit, etc.)", value="custom"),
-    ])
+    @discord.app_commands.choices(
+        time=[
+            Choice(name="Last 1 hour", value="1h"),
+            Choice(name="Last 2 hours", value="2h"),
+            Choice(name="Last 3 hours", value="3h"),
+            Choice(name="Last 4 hours", value="4h"),
+            Choice(name="Custom / Other (Z-to-Z, explicit, etc.)", value="custom"),
+        ]
+    )
     async def download_slash(
         self,
         interaction: discord.Interaction,
@@ -94,8 +94,11 @@ class RadarCog(commands.Cog):
             await interaction.response.defer()
             now = datetime.now(timezone.utc)
             await run_download(
-                interaction, radar_sites, [],
-                start_dt=None, end_dt=None,
+                interaction,
+                radar_sites,
+                [],
+                start_dt=None,
+                end_dt=None,
                 dates_to_query=[now],
                 max_files=count,
             )
@@ -129,8 +132,11 @@ class RadarCog(commands.Cog):
         if start_dt.date() < now.date():
             dates_to_query.insert(0, now - timedelta(days=1))
         await run_download(
-            interaction, radar_sites, messages_to_delete,
-            start_dt=start_dt, end_dt=now,
+            interaction,
+            radar_sites,
+            messages_to_delete,
+            start_dt=start_dt,
+            end_dt=now,
             dates_to_query=dates_to_query,
         )
 
@@ -138,14 +144,10 @@ class RadarCog(commands.Cog):
         name="downloaderstatus",
         description="Check AWS downloader and S3 latency",
     )
-    async def downloaderstatus_slash(
-        self, interaction: discord.Interaction
-    ):
+    async def downloaderstatus_slash(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         ws_latency = round(self.bot.latency * 1000)
-        ws_icon = (
-            "🟢" if ws_latency < 100 else "🟡" if ws_latency < 200 else "🔴"
-        )
+        ws_icon = "🟢" if ws_latency < 100 else "🟡" if ws_latency < 200 else "🔴"
         try:
             s3_start = time.time()
             async with _s3() as s3:
@@ -156,18 +158,12 @@ class RadarCog(commands.Cog):
                     MaxKeys=1,
                 )
             s3_latency = round((time.time() - s3_start) * 1000)
-            s3_icon = (
-                "🟢"
-                if s3_latency < 500
-                else "🟡" if s3_latency < 1000 else "🔴"
-            )
+            s3_icon = "🟢" if s3_latency < 500 else "🟡" if s3_latency < 1000 else "🔴"
             s3_status = f"{s3_latency}ms"
         except Exception as e:
             s3_status = f"Error: {e}"
             s3_icon = "🔴"
-        embed = discord.Embed(
-            title="AWS NEXRAD Downloader Status", color=discord.Color.blue()
-        )
+        embed = discord.Embed(title="AWS NEXRAD Downloader Status", color=discord.Color.blue())
         embed.add_field(
             name=f"{ws_icon} Discord WS Latency",
             value=f"`{ws_latency}ms`",

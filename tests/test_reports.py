@@ -13,6 +13,7 @@ from cogs.reports import ReportsCog
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
+
 def _make_cog(posted_reports=None):
     """ReportsCog with mocked bot — does NOT start poll_lsrs."""
     cog = ReportsCog.__new__(ReportsCog)
@@ -83,6 +84,7 @@ $$
 
 # ── _handle_lsr ───────────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_handle_lsr_posts_embed_for_non_tornado():
     """Non-tornado LSR events are posted unconditionally."""
@@ -100,10 +102,12 @@ async def test_handle_lsr_skips_discord_post_for_matched_tornado():
     """Tornado LSR is suppressed from Discord when a matching warning event exists."""
     cog, channel = _make_cog()
 
-    with patch("utils.state_store.find_matching_tornado",
-               AsyncMock(return_value=("NWS:WARN:KOUN.TO.W.0001", "KOUN.TO.W.0001"))), \
-         patch("utils.db.get_posted_warning_timestamp", AsyncMock(return_value=None)), \
-         patch("cogs.reports.add_significant_event", AsyncMock()):
+    with patch(
+        "utils.state_store.find_matching_tornado",
+        AsyncMock(return_value=("NWS:WARN:KOUN.TO.W.0001", "KOUN.TO.W.0001")),
+    ), patch("utils.db.get_posted_warning_timestamp", AsyncMock(return_value=None)), patch(
+        "cogs.reports.add_significant_event", AsyncMock()
+    ):
         await cog._handle_lsr("202604292130-KOUN-LSROUN", SAMPLE_LSR)
 
     channel.send.assert_not_called()
@@ -121,12 +125,11 @@ async def test_handle_lsr_calculates_lead_time():
 
     # warning issued at t=100, LSR arrives at t=1000
     # Patch it in both places it might be imported from/to
-    with patch("utils.state_store.find_matching_tornado",
-               AsyncMock(return_value=("ev1", "KOUN.TO.W.0001"))), \
-         patch("utils.db.get_posted_warning_timestamp",
-               AsyncMock(return_value=100.0)), \
-         patch("cogs.reports.add_significant_event",
-               AsyncMock(side_effect=_capture)):
+    with patch(
+        "utils.state_store.find_matching_tornado", AsyncMock(return_value=("ev1", "KOUN.TO.W.0001"))
+    ), patch("utils.db.get_posted_warning_timestamp", AsyncMock(return_value=100.0)), patch(
+        "cogs.reports.add_significant_event", AsyncMock(side_effect=_capture)
+    ):
         # Force lsr_ts to 480 via product_id timestamp
         await cog._handle_lsr("202604292130-KOUN-LSROUN", SAMPLE_LSR)
 
@@ -145,10 +148,9 @@ async def test_handle_lsr_marks_unwarned_tornado():
         captured_kwargs.update(kwargs)
 
     # No matching warning found (find_matching_tornado returns None)
-    with patch("utils.state_store.find_matching_tornado",
-               AsyncMock(return_value=None)), \
-         patch("cogs.reports.add_significant_event",
-               AsyncMock(side_effect=_capture)):
+    with patch("utils.state_store.find_matching_tornado", AsyncMock(return_value=None)), patch(
+        "cogs.reports.add_significant_event", AsyncMock(side_effect=_capture)
+    ):
         await cog._handle_lsr("202604292130-KOUN-LSROUN", SAMPLE_LSR)
 
     # Should have posted to Discord (no early continue)
@@ -195,6 +197,7 @@ async def test_handle_lsr_skips_product_with_no_parseable_reports():
 
 # ── post_report_now dedup ─────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_post_report_now_dedup_skips_already_posted():
     """product_id already in posted_reports is dropped before any processing."""
@@ -206,6 +209,7 @@ async def test_post_report_now_dedup_skips_already_posted():
 
 
 # ── _handle_pns ───────────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_handle_pns_ignores_non_survey():
@@ -223,11 +227,12 @@ async def test_handle_pns_posts_and_records():
 
     async def _mock_add_report(pid):
         cog.bot.state.posted_reports.add(pid)
+
     cog.bot.state.add_posted_report = AsyncMock(side_effect=_mock_add_report)
 
-    with patch("cogs.reports.add_significant_event", AsyncMock()), \
-         patch("utils.state_store.find_matching_tornado", AsyncMock(return_value=None)), \
-         patch.object(cog, "_check_for_surveys", AsyncMock()):
+    with patch("cogs.reports.add_significant_event", AsyncMock()), patch(
+        "utils.state_store.find_matching_tornado", AsyncMock(return_value=None)
+    ), patch.object(cog, "_check_for_surveys", AsyncMock()):
         await cog._handle_pns("202604292200-KOUN-PNSOUN", SAMPLE_PNS)
 
     channel.send.assert_called_once()
@@ -255,9 +260,9 @@ Estimated Peak Wind: 65 mph
 SUMMARY: Three tornadoes confirmed near Example City OK.
 $$
 """
-    with patch("cogs.reports.add_significant_event", AsyncMock()), \
-         patch("utils.state_store.find_matching_tornado", AsyncMock(return_value=None)), \
-         patch.object(cog, "_check_for_surveys", AsyncMock()):
+    with patch("cogs.reports.add_significant_event", AsyncMock()), patch(
+        "utils.state_store.find_matching_tornado", AsyncMock(return_value=None)
+    ), patch.object(cog, "_check_for_surveys", AsyncMock()):
         await cog._handle_pns("202604292200-KOUN-PNSOUN", multi_pns)
 
     embed: discord.Embed = channel.send.call_args.kwargs["embed"]
@@ -271,9 +276,9 @@ async def test_handle_pns_parses_numerical_date_for_survey_check():
 
     mock_check = AsyncMock()
 
-    with patch("cogs.reports.add_significant_event", AsyncMock()), \
-         patch("utils.state_store.find_matching_tornado", AsyncMock(return_value=None)), \
-         patch.object(cog, "_check_for_surveys", mock_check):
+    with patch("cogs.reports.add_significant_event", AsyncMock()), patch(
+        "utils.state_store.find_matching_tornado", AsyncMock(return_value=None)
+    ), patch.object(cog, "_check_for_surveys", mock_check):
         await cog._handle_pns("202604292200-KOUN-PNSOUN", SAMPLE_PNS)
         # Wait a tiny bit for the background task to be created
         await asyncio.sleep(0.01)
@@ -292,25 +297,24 @@ async def test_handle_pns_no_channel_returns_early():
 
 # ── _check_for_surveys ────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_check_for_surveys_posts_track_embed():
     """Valid DAT metadata triggers a tornado-track embed post."""
     cog, channel = _make_cog()
 
-    meta = {
-        "arguments": [
-            {"id": "datglobalid", "options": {"{GUID-XYZ}": "OUN EF2 Chickasha"}}
-        ]
-    }
+    meta = {"arguments": [{"id": "datglobalid", "options": {"{GUID-XYZ}": "OUN EF2 Chickasha"}}]}
     cog.bot.state.add_posted_survey = AsyncMock()
-    
-    with patch("cogs.reports.http_get_bytes",
-               AsyncMock(return_value=(json.dumps(meta).encode(), 200))), \
-         patch("utils.events_db.link_dat_guid_to_tornado", AsyncMock(return_value=("E1", "L1", "M1", "C1"))):
-         await cog._check_for_surveys("2026-04-29")
 
-         channel.send.assert_called_once()
-         cog.bot.state.add_posted_survey.assert_called_with("{GUID-XYZ}")
+    with patch(
+        "cogs.reports.http_get_bytes", AsyncMock(return_value=(json.dumps(meta).encode(), 200))
+    ), patch(
+        "utils.events_db.link_dat_guid_to_tornado", AsyncMock(return_value=("E1", "L1", "M1", "C1"))
+    ):
+        await cog._check_for_surveys("2026-04-29")
+
+        channel.send.assert_called_once()
+        cog.bot.state.add_posted_survey.assert_called_with("{GUID-XYZ}")
 
     embed: discord.Embed = channel.send.call_args.kwargs["embed"]
     assert "{GUID-XYZ}" in embed.image.url
@@ -322,13 +326,10 @@ async def test_check_for_surveys_dedup_skips_known_guid():
     cog, channel = _make_cog()
     cog.posted_surveys = {"{KNOWN-GUID}"}
 
-    meta = {
-        "arguments": [
-            {"id": "datglobalid", "options": {"{KNOWN-GUID}": "OUN EF1 Test"}}
-        ]
-    }
-    with patch("cogs.reports.http_get_bytes",
-               AsyncMock(return_value=(json.dumps(meta).encode(), 200))):
+    meta = {"arguments": [{"id": "datglobalid", "options": {"{KNOWN-GUID}": "OUN EF1 Test"}}]}
+    with patch(
+        "cogs.reports.http_get_bytes", AsyncMock(return_value=(json.dumps(meta).encode(), 200))
+    ):
         await cog._check_for_surveys("2026-04-29")
 
     channel.send.assert_not_called()
@@ -351,35 +352,39 @@ async def test_check_for_surveys_no_datglobalid_arg_returns_early():
     cog, channel = _make_cog()
 
     meta = {"arguments": [{"id": "somethingelse", "options": {}}]}
-    with patch("cogs.reports.http_get_bytes",
-               AsyncMock(return_value=(json.dumps(meta).encode(), 200))):
+    with patch(
+        "cogs.reports.http_get_bytes", AsyncMock(return_value=(json.dumps(meta).encode(), 200))
+    ):
         await cog._check_for_surveys("2026-04-29")
 
     channel.send.assert_not_called()
+
 
 @pytest.mark.asyncio
 async def test_check_for_surveys_falls_back_to_local_render():
     """If IEM Autoplot returns 404, bot renders and posts a local map from DAT geometry."""
     cog, channel = _make_cog()
 
-    meta = {
-        "arguments": [
-            {"id": "datglobalid", "options": {"{GUID-LOCAL}": "OUN EF2 Test"}}
-        ]
-    }
+    meta = {"arguments": [{"id": "datglobalid", "options": {"{GUID-LOCAL}": "OUN EF2 Test"}}]}
     cog.bot.state.add_posted_survey = AsyncMock()
-    
-    # IEM meta call succeeds (200), but IEM image call fails (404)
-    with patch("cogs.reports.http_get_bytes", side_effect=[
-        (json.dumps(meta).encode(), 200), # meta call
-        (None, 404)                      # image call
-    ]), \
-    patch("utils.dat_api.fetch_dat_track_geometry", AsyncMock(return_value=[[(35.0, -97.0), (35.1, -97.1)]])), \
-    patch("utils.map_utils.render_tornado_track", MagicMock()), \
-    patch("os.path.exists", return_value=True), \
-    patch("discord.File", return_value=MagicMock(spec=discord.File, filename="track_{GUID-LOCAL}.png")), \
-    patch("utils.events_db.link_dat_guid_to_tornado", AsyncMock(return_value=("E2", "L2", "M2", "C2"))):
 
+    # IEM meta call succeeds (200), but IEM image call fails (404)
+    with patch(
+        "cogs.reports.http_get_bytes",
+        side_effect=[
+            (json.dumps(meta).encode(), 200),  # meta call
+            (None, 404),  # image call
+        ],
+    ), patch(
+        "utils.dat_api.fetch_dat_track_geometry",
+        AsyncMock(return_value=[[(35.0, -97.0), (35.1, -97.1)]]),
+    ), patch("utils.map_utils.render_tornado_track", MagicMock()), patch(
+        "os.path.exists", return_value=True
+    ), patch(
+        "discord.File", return_value=MagicMock(spec=discord.File, filename="track_{GUID-LOCAL}.png")
+    ), patch(
+        "utils.events_db.link_dat_guid_to_tornado", AsyncMock(return_value=("E2", "L2", "M2", "C2"))
+    ):
         await cog._check_for_surveys("2026-04-29")
 
     channel.send.assert_called_once()

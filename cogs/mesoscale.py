@@ -23,9 +23,11 @@ from utils.state_store import get_state, set_state
 
 logger = logging.getLogger("spc_bot.mesoscale")
 
+
 def _log_task_exception(task: asyncio.Task) -> None:
     if not task.cancelled() and (exc := task.exception()):
         logger.exception("Unhandled exception in background task", exc_info=exc)
+
 
 _md_index_head: Optional[Dict[str, str]] = None
 _md_index_unreachable: Optional[bool] = None
@@ -126,8 +128,9 @@ async def fetch_latest_md_numbers(fresh: bool = False) -> Tuple[Optional[List[st
         return result, False
 
 
-
-async def fetch_md_details_iem(md_number: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+async def fetch_md_details_iem(
+    md_number: str,
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
     Fallback: fetch MD image and summary from IEM when SPC is unreachable.
     IEM mirrors SPC MCD images at a predictable URL.
@@ -139,7 +142,9 @@ async def fetch_md_details_iem(md_number: str) -> Tuple[Optional[str], Optional[
     # IEM mirrors SPC MCD PNGs
     iem_img_url = f"https://mesonet.agron.iastate.edu/pickup/mcd/mcd{padded}.png"
     img_bytes, img_status = await http_get_bytes(iem_img_url, retries=2, timeout=15)
-    iem_image_url = iem_img_url if (img_bytes and img_status == 200 and len(img_bytes) > 2048) else None
+    iem_image_url = (
+        iem_img_url if (img_bytes and img_status == 200 and len(img_bytes) > 2048) else None
+    )
 
     # IEM nwstext API for MCD text
     summary = None
@@ -169,6 +174,7 @@ async def fetch_md_details_iem(md_number: str) -> Tuple[Optional[str], Optional[
 
     return iem_image_url, summary, raw_text
 
+
 async def fetch_md_details(
     md_number: str,
 ) -> Tuple[Optional[str], Optional[str], bool, Optional[str]]:
@@ -181,6 +187,7 @@ async def fetch_md_details(
 
     async def _fetch_spc():
         from utils.cache import fetch_with_validators
+
         content, status = await fetch_with_validators(page_url)
         if content and status == 200:
             return content.decode("utf-8", errors="ignore")
@@ -190,6 +197,7 @@ async def fetch_md_details(
         # Self-import via module object so tests can monkeypatch
         # cogs.mesoscale.fetch_md_details_iem at runtime.
         import cogs.mesoscale as _self  # noqa: PLC0415
+
         iem_img, iem_summary, iem_raw = await _self.fetch_md_details_iem(md_number)
         return (iem_img, iem_summary, iem_raw)
 
@@ -252,13 +260,9 @@ async def fetch_md_details(
         logger.warning(f"SPC unreachable for #{md_number} and no cache or IEM available")
         return None, None, False, None
 
-    img_match = re.search(
-        rf'src="(mcd{md_number}(?:_full)?\.(?:png|gif))"', html, re.IGNORECASE
-    )
+    img_match = re.search(rf'src="(mcd{md_number}(?:_full)?\.(?:png|gif))"', html, re.IGNORECASE)
     if img_match:
-        image_url = (
-            f"https://www.spc.noaa.gov/products/md/{img_match.group(1)}"
-        )
+        image_url = f"https://www.spc.noaa.gov/products/md/{img_match.group(1)}"
     else:
         image_url = f"https://www.spc.noaa.gov/products/md/mcd{md_number}.png"
 
@@ -274,9 +278,7 @@ async def fetch_md_details(
         if concerning:
             summary = concerning.group(1).strip()
         else:
-            text_blocks = re.findall(
-                r"<pre[^>]*>(.*?)</pre>", html, re.DOTALL | re.IGNORECASE
-            )
+            text_blocks = re.findall(r"<pre[^>]*>(.*?)</pre>", html, re.DOTALL | re.IGNORECASE)
             for block in text_blocks:
                 clean = re.sub(r"<[^>]+>", "", block).strip()
                 lines = [line.strip() for line in clean.splitlines() if line.strip()]
@@ -298,7 +300,7 @@ EMBED_BODY_LIMIT = 4000
 def extract_md_body(raw_text: Optional[str]) -> Optional[str]:
     """Return the plain-text MD body from the SPC HTML page or IEM text.
 
-    Truncates at common footer blocks and strips the redundant header 
+    Truncates at common footer blocks and strips the redundant header
     to keep only the meat of the discussion.
     """
     if not raw_text:
@@ -308,9 +310,7 @@ def extract_md_body(raw_text: Optional[str]) -> Optional[str]:
     clean = None
     lowered_raw = raw_text.lower()
     if "<pre" in lowered_raw or "<p>" in lowered_raw:
-        text_blocks = re.findall(
-            r"<pre[^>]*>(.*?)</pre>", raw_text, re.DOTALL | re.IGNORECASE
-        )
+        text_blocks = re.findall(r"<pre[^>]*>(.*?)</pre>", raw_text, re.DOTALL | re.IGNORECASE)
         for block in text_blocks:
             candidate = re.sub(r"<[^>]+>", "", block)
             candidate = _html.unescape(candidate).strip()
@@ -335,7 +335,7 @@ def extract_md_body(raw_text: Optional[str]) -> Optional[str]:
         # Use regex for case-insensitive search
         m = re.search(re.escape(footer), clean, re.IGNORECASE)
         if m:
-            clean = clean[:m.start()].strip()
+            clean = clean[: m.start()].strip()
 
     # 3. Strip redundant top header (everything before 'Areas affected' or 'Concerning')
     markers = ["Areas affected", "Concerning", "Valid", "SUMMARY"]
@@ -343,7 +343,7 @@ def extract_md_body(raw_text: Optional[str]) -> Optional[str]:
         # Look for marker at start of line or following whitespace
         m = re.search(rf"(?m)^\s*{re.escape(marker)}", clean, re.IGNORECASE)
         if m:
-            clean = clean[m.start():].strip()
+            clean = clean[m.start() :].strip()
             break
 
     return clean
@@ -351,8 +351,8 @@ def extract_md_body(raw_text: Optional[str]) -> Optional[str]:
 
 def clean_md_text_for_discord(text: str) -> str:
     """Un-wraps SPC's hard-wrapped lines and tightens spacing with consistent bolding.
-    
-    Heuristically identifies headers, location lists, and status lines to ensure 
+
+    Heuristically identifies headers, location lists, and status lines to ensure
     consistent formatting even when the SPC text varies.
     """
     if not text:
@@ -408,7 +408,10 @@ def clean_md_text_for_discord(text: str) -> str:
                         break
                     nj = lines[j]
                     # Merge if line continues location list (starts with dots or contains dots)
-                    if nj.startswith("...") or ("..." in nj and not any(nj.lower().startswith(h.lower()) for h in all_headers)):
+                    if nj.startswith("...") or (
+                        "..." in nj
+                        and not any(nj.lower().startswith(h.lower()) for h in all_headers)
+                    ):
                         block.append(nj)
                         j += 1
                     else:
@@ -536,14 +539,18 @@ class MesoscaleCog(commands.Cog):
             return
 
         # Look for "PROBABILITY OF WATCH ISSUANCE...80 PERCENT" etc.
-        m = re.search(r"PROBABILITY OF WATCH ISSUANCE\s*\.\.\.\s*(\d+)\s*PERCENT", raw_text, re.IGNORECASE)
+        m = re.search(
+            r"PROBABILITY OF WATCH ISSUANCE\s*\.\.\.\s*(\d+)\s*PERCENT", raw_text, re.IGNORECASE
+        )
         if not m:
             return
 
         try:
             prob = int(m.group(1))
             if prob >= 80:
-                logger.info(f"High watch probability ({prob}%) for MD #{md_num} — triggering sounding pre-warm")
+                logger.info(
+                    f"High watch probability ({prob}%) for MD #{md_num} — triggering sounding pre-warm"
+                )
                 sounding_cog = self.bot.cogs.get("SoundingCog")
                 if sounding_cog:
                     t = asyncio.create_task(sounding_cog.prewarm_soundings_for_md(md_num, raw_text))
@@ -563,14 +570,21 @@ class MesoscaleCog(commands.Cog):
 
         async def _push_edit():
             md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
-            img_embed = discord.Embed(title=f"🌩️ SPC Mesoscale Discussion #{int(md_num)}", url=md_page_url, color=discord.Color.dark_orange())
+            img_embed = discord.Embed(
+                title=f"🌩️ SPC Mesoscale Discussion #{int(md_num)}",
+                url=md_page_url,
+                color=discord.Color.dark_orange(),
+            )
             files = []
             if cache_path:
                 files.append(discord.File(cache_path, filename=filename))
                 img_embed.set_image(url=f"attachment://{filename}")
 
             cleaned_text = clean_md_text_for_discord(full_text)
-            text_embed = discord.Embed(description=cleaned_text[:4090] if cleaned_text else "Fetching discussion text...", color=discord.Color.dark_orange())
+            text_embed = discord.Embed(
+                description=cleaned_text[:4090] if cleaned_text else "Fetching discussion text...",
+                color=discord.Color.dark_orange(),
+            )
             text_embed.set_footer(text="SPC MD Monitor")
             try:
                 await message.edit(embeds=[img_embed, text_embed], attachments=files)
@@ -589,7 +603,9 @@ class MesoscaleCog(commands.Cog):
                     changed = True
                     logger.info(f"Recovered text for #{md_num}")
             if not cache_path:
-                cp, _, _ = await download_single_image(image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache)
+                cp, _, _ = await download_single_image(
+                    image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
+                )
                 if cp:
                     cache_path = cp
                     changed = True
@@ -598,6 +614,7 @@ class MesoscaleCog(commands.Cog):
                 await _push_edit()
             if cache_path and full_text:
                 break
+
     async def post_md_now(self, md_num: str):
         md_num = md_num.zfill(4)
         if md_num in self.bot.state.posted_mds:
@@ -613,16 +630,25 @@ class MesoscaleCog(commands.Cog):
         full_text = extract_md_body(raw_text)
         cache_path = None
         if image_url:
-            cache_path, _, _ = await download_single_image(image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache)
+            cache_path, _, _ = await download_single_image(
+                image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
+            )
         md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
-        img_embed = discord.Embed(title=f"🌩️ SPC Mesoscale Discussion #{int(md_num)}", url=md_page_url, color=discord.Color.dark_orange())
+        img_embed = discord.Embed(
+            title=f"🌩️ SPC Mesoscale Discussion #{int(md_num)}",
+            url=md_page_url,
+            color=discord.Color.dark_orange(),
+        )
         filename = f"md_{md_num}.png"
         files = []
         if cache_path:
             files.append(discord.File(cache_path, filename=filename))
             img_embed.set_image(url=f"attachment://{filename}")
         cleaned_text = clean_md_text_for_discord(full_text)
-        text_embed = discord.Embed(description=cleaned_text[:4090] if cleaned_text else "Fetching discussion text...", color=discord.Color.dark_orange())
+        text_embed = discord.Embed(
+            description=cleaned_text[:4090] if cleaned_text else "Fetching discussion text...",
+            color=discord.Color.dark_orange(),
+        )
         text_embed.set_footer(text="SPC MD Monitor")
         try:
             msg = await channel.send(embeds=[img_embed, text_embed], files=files)
@@ -637,6 +663,7 @@ class MesoscaleCog(commands.Cog):
             logger.info(f"iembot-triggered: posted MD #{md_num}")
         except Exception as e:
             logger.exception(f"iembot send failed: {e}")
+
     @tasks.loop(seconds=30)
     async def auto_post_md(self):
         try:
@@ -674,8 +701,9 @@ class MesoscaleCog(commands.Cog):
                     if current_max >= 0:
                         num_int = int(md_num)
                         # Handle year wraparound (e.g. 0001 is newer than 9999)
-                        is_newer = (num_int > current_max and num_int - current_max < 1000) or \
-                                   (num_int < current_max and current_max - num_int > 8000)
+                        is_newer = (num_int > current_max and num_int - current_max < 1000) or (
+                            num_int < current_max and current_max - num_int > 8000
+                        )
                         if is_newer:
                             logger.info(
                                 f"Index lagging (highest is {current_max:04d}) — "
@@ -683,15 +711,9 @@ class MesoscaleCog(commands.Cog):
                             )
                             continue
 
-                    logger.info(
-                        f"MD #{md_num} no longer on index — "
-                        f"posting cancellation"
-                    )
+                    logger.info(f"MD #{md_num} no longer on index — posting cancellation")
                     embed = discord.Embed(
-                        title=(
-                            f"✅  Mesoscale Discussion #{int(md_num)} "
-                            f"— Cancelled"
-                        ),
+                        title=(f"✅  Mesoscale Discussion #{int(md_num)} — Cancelled"),
                         color=discord.Color.green(),
                         timestamp=datetime.now(timezone.utc),
                     )
@@ -704,10 +726,7 @@ class MesoscaleCog(commands.Cog):
                         logger.info(f"Posted cancellation for #{md_num}")
 
                     except discord.HTTPException as e:
-                        logger.exception(
-                            f"Failed to send cancellation "
-                            f"for #{md_num}: {e}"
-                        )
+                        logger.exception(f"Failed to send cancellation for #{md_num}: {e}")
             else:
                 logger.debug("In fallback mode — skipping cancellation check")
 
@@ -728,14 +747,22 @@ class MesoscaleCog(commands.Cog):
                 image_url, summary, from_cache, raw_text = await fetch_md_details(md_num)
 
                 if not image_url:
-                    logger.warning(
-                        f"Could not resolve image URL for MD #{md_num}"
-                    )
+                    logger.warning(f"Could not resolve image URL for MD #{md_num}")
                     continue
 
                 if raw_text:
                     t = asyncio.create_task(self._check_prewarm(md_num, raw_text))
-                    t.add_done_callback(lambda t: None if t.cancelled() else (logger.exception("Prewarm failed", exc_info=t.exception()) if t.exception() else None))
+                    t.add_done_callback(
+                        lambda t: (
+                            None
+                            if t.cancelled()
+                            else (
+                                logger.exception("Prewarm failed", exc_info=t.exception())
+                                if t.exception()
+                                else None
+                            )
+                        )
+                    )
 
                 full_text = extract_md_body(raw_text)
 
@@ -745,13 +772,22 @@ class MesoscaleCog(commands.Cog):
 
                 filename = f"md_{md_num}.png"
                 md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
-                img_embed = discord.Embed(title=f"🌩️ SPC Mesoscale Discussion #{int(md_num)}", url=md_page_url, color=discord.Color.dark_orange())
+                img_embed = discord.Embed(
+                    title=f"🌩️ SPC Mesoscale Discussion #{int(md_num)}",
+                    url=md_page_url,
+                    color=discord.Color.dark_orange(),
+                )
                 files = []
                 if cache_path:
                     files.append(discord.File(cache_path, filename=filename))
                     img_embed.set_image(url=f"attachment://{filename}")
                 cleaned_text = clean_md_text_for_discord(full_text)
-                text_embed = discord.Embed(description=cleaned_text[:4090] if cleaned_text else "Fetching discussion text...", color=discord.Color.dark_orange())
+                text_embed = discord.Embed(
+                    description=cleaned_text[:4090]
+                    if cleaned_text
+                    else "Fetching discussion text...",
+                    color=discord.Color.dark_orange(),
+                )
                 text_embed.set_footer(text="SPC MD Monitor")
                 try:
                     msg = await channel.send(embeds=[img_embed, text_embed], files=files)
@@ -770,9 +806,7 @@ class MesoscaleCog(commands.Cog):
             self._md_backoff.success()
 
         except Exception as e:
-            logger.exception(
-                f"Unexpected error in auto_post_md: {e}"
-            )
+            logger.exception(f"Unexpected error in auto_post_md: {e}")
             await self._md_backoff.failure(self.bot)
 
     @auto_post_md.after_loop
@@ -786,8 +820,7 @@ class MesoscaleCog(commands.Cog):
             exc = None
         if exc:
             logger.error(
-                f"[TASK] auto_post_md stopped due to exception: "
-                f"{type(exc).__name__}: {exc}",
+                f"[TASK] auto_post_md stopped due to exception: {type(exc).__name__}: {exc}",
                 exc_info=exc,
             )
 

@@ -4,7 +4,7 @@ utils/map_utils.py — Local map rendering for tornado tracks and geometry.
 
 import matplotlib
 
-matplotlib.use("Agg") # Headless
+matplotlib.use("Agg")  # Headless
 import logging
 from typing import List, Tuple
 
@@ -16,10 +16,11 @@ import matplotlib.pyplot as plt
 
 logger = logging.getLogger("spc_bot")
 
+
 def render_tornado_track(paths: List[List[Tuple[float, float]]], output_path: str):
     """
     Render a professional map image showing tornado track paths using terrain tiles.
-    
+
     :param paths: List of paths, each path is a list of (lat, lon) tuples.
     :param output_path: Path to save the resulting PNG image.
     """
@@ -65,9 +66,15 @@ def render_tornado_track(paths: List[List[Tuple[float, float]]], output_path: st
 
     # Set extent with 30% margin
     margin = 0.3
-    ax.set_extent([min_lon - (lon_span * margin), max_lon + (lon_span * margin),  # type: ignore[attr-defined]
-                   min_lat - (lat_span * margin), max_lat + (lat_span * margin)],
-                  crs=data_proj)
+    ax.set_extent(  # type: ignore[attr-defined]
+        [
+            min_lon - (lon_span * margin),
+            max_lon + (lon_span * margin),
+            min_lat - (lat_span * margin),
+            max_lat + (lat_span * margin),
+        ],
+        crs=data_proj,
+    )
 
     # 3. Add Tiles and Features
     # Zoom level 11 is a good balance for tornado tracks
@@ -75,13 +82,10 @@ def render_tornado_track(paths: List[List[Tuple[float, float]]], output_path: st
 
     # Add County lines (High Detail)
     counties = cfeature.NaturalEarthFeature(
-        category='cultural',
-        name='admin_2_counties',
-        scale='10m',
-        facecolor='none'
+        category="cultural", name="admin_2_counties", scale="10m", facecolor="none"
     )
-    ax.add_feature(counties, edgecolor='#555555', linewidth=0.6, linestyle=':')  # type: ignore[attr-defined]
-    ax.add_feature(cfeature.STATES, edgecolor='black', linewidth=1.0)  # type: ignore[attr-defined]
+    ax.add_feature(counties, edgecolor="#555555", linewidth=0.6, linestyle=":")  # type: ignore[attr-defined]
+    ax.add_feature(cfeature.STATES, edgecolor="black", linewidth=1.0)  # type: ignore[attr-defined]
 
     # 4. Plot paths
     for path in paths:
@@ -89,20 +93,47 @@ def render_tornado_track(paths: List[List[Tuple[float, float]]], output_path: st
             continue
         lats, lons = zip(*path)
         # Plot the main track with a white outline for visibility over tiles
-        ax.plot(lons, lats, color='#ff0000', linewidth=3.5, transform=data_proj,
-                zorder=10, solid_capstyle='round', path_effects=[
-                    patheffects.withStroke(linewidth=5, foreground='white')
-                ])
+        ax.plot(
+            lons,
+            lats,
+            color="#ff0000",
+            linewidth=3.5,
+            transform=data_proj,
+            zorder=10,
+            solid_capstyle="round",
+            path_effects=[patheffects.withStroke(linewidth=5, foreground="white")],
+        )
         # Add start/end markers
-        ax.scatter(lons[0], lats[0], color='#00ff00', s=60, edgecolors='black',
-                   transform=data_proj, zorder=15, label="Start")
-        ax.scatter(lons[-1], lats[-1], color='#000000', s=60, edgecolors='white',
-                   transform=data_proj, zorder=15, label="End")
+        ax.scatter(
+            lons[0],
+            lats[0],
+            color="#00ff00",
+            s=60,
+            edgecolors="black",
+            transform=data_proj,
+            zorder=15,
+            label="Start",
+        )
+        ax.scatter(
+            lons[-1],
+            lats[-1],
+            color="#000000",
+            s=60,
+            edgecolors="white",
+            transform=data_proj,
+            zorder=15,
+            label="End",
+        )
 
     # 5. Save
-    plt.title("NWS Damage Assessment Toolkit - Survey Track",
-              fontsize=16, fontweight='bold', pad=20, backgroundcolor='white')
+    plt.title(
+        "NWS Damage Assessment Toolkit - Survey Track",
+        fontsize=16,
+        fontweight="bold",
+        pad=20,
+        backgroundcolor="white",
+    )
 
-    plt.savefig(output_path, bbox_inches='tight', dpi=120)
+    plt.savefig(output_path, bbox_inches="tight", dpi=120)
     plt.close(fig)
     logger.info(f"[MAP] Rendered high-detail track to {output_path}")

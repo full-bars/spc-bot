@@ -44,6 +44,7 @@ os.environ.setdefault("REDIS_URL", "redis://127.0.0.1:1/0")
 
 # ── Autouse fixtures ─────────────────────────────────────────────────────────
 
+
 @pytest.fixture(autouse=True)
 def mock_redis_cmd(monkeypatch):
     """Prevent real Redis connections in tests by making _redis_cmd raise
@@ -198,6 +199,7 @@ def close_events_db_after_session():
     yield
     import asyncio
     from utils import events_db as edb_mod
+
     if edb_mod._db is not None:
         try:
             loop = asyncio.new_event_loop()

@@ -3,6 +3,7 @@
 Includes environmental evolution viewer, tornado photo carousel, and
 tornado dashboard (summary + card navigation modes).
 """
+
 import asyncio
 import logging
 import os
@@ -21,15 +22,21 @@ class EnvironmentalView(discord.ui.View):
         super().__init__(timeout=None)  # Persistent
         self.event_id = event_id
 
-    @discord.ui.button(label="View Environmental Evolution", style=discord.ButtonStyle.secondary, emoji="📊", custom_id="view_env_evo")
+    @discord.ui.button(
+        label="View Environmental Evolution",
+        style=discord.ButtonStyle.secondary,
+        emoji="📊",
+        custom_id="view_env_evo",
+    )
     async def view_env(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
 
         from utils.events_db import get_events_db
+
         db = await get_events_db()
         async with db.execute(
             "SELECT gif_path, srh_0_1, location FROM significant_events WHERE event_id = ?",
-            (self.event_id,)
+            (self.event_id,),
         ) as cur:
             row = await cur.fetchone()
 
@@ -51,14 +58,16 @@ class EnvironmentalView(discord.ui.View):
         # Post the GIF
         gif_path = row["gif_path"]
         if not os.path.exists(gif_path):
-            await interaction.followup.send("Archive file no longer exists on the server.", ephemeral=True)
+            await interaction.followup.send(
+                "Archive file no longer exists on the server.", ephemeral=True
+            )
             return
 
         file = discord.File(gif_path, filename="evolution.gif")
         embed = discord.Embed(
             title=f"🌪️ Environmental Evolution - {row['location']}",
             description=f"**Peak 0-1km SRH**: {row['srh_0_1']:.0f} m2/s2",
-            color=discord.Color.blue()
+            color=discord.Color.blue(),
         )
         embed.set_image(url="attachment://evolution.gif")
         await interaction.followup.send(embed=embed, file=file, ephemeral=True)
@@ -89,14 +98,16 @@ class TornadoPhotoView(discord.ui.View):
             embed = discord.Embed(
                 title=f"📸 Damage Photos: {self.location}" if i == 0 else None,
                 color=discord.Color.teal(),
-                timestamp=datetime.now(timezone.utc) if i == 0 else None
+                timestamp=datetime.now(timezone.utc) if i == 0 else None,
             )
             # Use proxy URL or original URL
             embed.set_image(url=url)
 
             if i == 0:
                 max_pages = (len(self.urls) + self.per_page - 1) // self.per_page
-                embed.set_footer(text=f"Page {self.page + 1} of {max_pages} ({len(self.urls)} total photos)")
+                embed.set_footer(
+                    text=f"Page {self.page + 1} of {max_pages} ({len(self.urls)} total photos)"
+                )
 
             embeds.append(embed)
 
@@ -117,7 +128,9 @@ class TornadoPhotoView(discord.ui.View):
 
     @discord.ui.button(label="🔙 Back to Card", style=discord.ButtonStyle.primary)
     async def back_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(embed=self.parent_view.build_card_embed(), embeds=[], view=self.parent_view)
+        await interaction.response.edit_message(
+            embed=self.parent_view.build_card_embed(), embeds=[], view=self.parent_view
+        )
 
 
 class TornadoDashboardView(discord.ui.View):
@@ -126,12 +139,12 @@ class TornadoDashboardView(discord.ui.View):
         self.events = events
         self.title = title
         self.mode = mode  # "summary" or "card"
-        self.index = 0    # Index for card mode
+        self.index = 0  # Index for card mode
 
         # Group by date (UTC) for summary mode
         self.grouped = {}
         for e in events:
-            dt = datetime.fromtimestamp(e['timestamp'], timezone.utc)
+            dt = datetime.fromtimestamp(e["timestamp"], timezone.utc)
             date_str = dt.strftime("%Y-%m-%d")
             if date_str not in self.grouped:
                 self.grouped[date_str] = []
@@ -145,7 +158,9 @@ class TornadoDashboardView(discord.ui.View):
 
         if self.mode == "summary":
             # Build select options for summary
-            options = [discord.SelectOption(label="Summary Dashboard", value="summary", default=True)]
+            options = [
+                discord.SelectOption(label="Summary Dashboard", value="summary", default=True)
+            ]
             for d in self.dates[:24]:
                 options.append(discord.SelectOption(label=f"Events for {d}", value=d))
 
@@ -172,14 +187,18 @@ class TornadoDashboardView(discord.ui.View):
 
         # Global Archive Button
         if self.events:
-            min_ts = min(e['timestamp'] for e in self.events)
-            max_ts = max(e['timestamp'] for e in self.events)
+            min_ts = min(e["timestamp"] for e in self.events)
+            max_ts = max(e["timestamp"] for e in self.events)
             min_dt = datetime.fromtimestamp(min_ts, timezone.utc).strftime("%Y-%m-%d")
-            max_dt = (datetime.fromtimestamp(max_ts, timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
+            max_dt = (datetime.fromtimestamp(max_ts, timezone.utc) + timedelta(days=1)).strftime(
+                "%Y-%m-%d"
+            )
 
             # Stable URL format using query parameters
             url = f"https://tornadoarchive.com/explorer/?start={min_dt}&end={max_dt}&domain=north_america"
-            self.add_item(discord.ui.Button(label="Tornado Archive", url=url, style=discord.ButtonStyle.link))
+            self.add_item(
+                discord.ui.Button(label="Tornado Archive", url=url, style=discord.ButtonStyle.link)
+            )
 
     async def _render_map_if_needed(self, e: dict) -> Tuple[Optional[str], Optional[discord.File]]:
         """Helper to fetch geometry and render a local map if possible."""
@@ -189,7 +208,9 @@ class TornadoDashboardView(discord.ui.View):
 
         png_path = os.path.join("cache", f"track_{guid}.png")
         if os.path.exists(png_path):
-            return f"attachment://track_{guid}.png", discord.File(png_path, filename=f"track_{guid}.png")
+            return f"attachment://track_{guid}.png", discord.File(
+                png_path, filename=f"track_{guid}.png"
+            )
 
         # Not cached, try to render now
         from utils.dat_api import fetch_dat_track_geometry
@@ -201,7 +222,9 @@ class TornadoDashboardView(discord.ui.View):
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, render_tornado_track, paths, png_path)
                 if os.path.exists(png_path):
-                    return f"attachment://track_{guid}.png", discord.File(png_path, filename=f"track_{guid}.png")
+                    return f"attachment://track_{guid}.png", discord.File(
+                        png_path, filename=f"track_{guid}.png"
+                    )
         except Exception as err:
             logger.warning(f"[DASHBOARD] Failed to render map for {guid}: {err}")
 
@@ -210,7 +233,9 @@ class TornadoDashboardView(discord.ui.View):
     async def on_select(self, interaction: discord.Interaction):
         val = interaction.data["values"][0]
         if val == "summary":
-            await interaction.response.edit_message(embed=self.build_summary_embed(), embeds=[], view=self)
+            await interaction.response.edit_message(
+                embed=self.build_summary_embed(), embeds=[], view=self
+            )
         else:
             # Switch to card mode at the first event of that day
             day_events = self.grouped[val]
@@ -226,7 +251,9 @@ class TornadoDashboardView(discord.ui.View):
                 embed.set_image(url=img_url)
                 embed.set_footer(text=f"Local DAT Render | {embed.footer.text}")
 
-            await interaction.response.edit_message(embed=embed, view=self, attachments=[file] if file else [])
+            await interaction.response.edit_message(
+                embed=embed, view=self, attachments=[file] if file else []
+            )
 
     @discord.ui.button(label="⏮️ First", style=discord.ButtonStyle.secondary)
     async def first_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -238,7 +265,9 @@ class TornadoDashboardView(discord.ui.View):
         if img_url:
             embed.set_image(url=img_url)
             embed.set_footer(text=f"Local DAT Render | {embed.footer.text}")
-        await interaction.response.edit_message(embed=embed, view=self, attachments=[file] if file else [])
+        await interaction.response.edit_message(
+            embed=embed, view=self, attachments=[file] if file else []
+        )
 
     @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary)
     async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -250,7 +279,9 @@ class TornadoDashboardView(discord.ui.View):
         if img_url:
             embed.set_image(url=img_url)
             embed.set_footer(text=f"Local DAT Render | {embed.footer.text}")
-        await interaction.response.edit_message(embed=embed, view=self, attachments=[file] if file else [])
+        await interaction.response.edit_message(
+            embed=embed, view=self, attachments=[file] if file else []
+        )
 
     @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary)
     async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -262,7 +293,9 @@ class TornadoDashboardView(discord.ui.View):
         if img_url:
             embed.set_image(url=img_url)
             embed.set_footer(text=f"Local DAT Render | {embed.footer.text}")
-        await interaction.response.edit_message(embed=embed, view=self, attachments=[file] if file else [])
+        await interaction.response.edit_message(
+            embed=embed, view=self, attachments=[file] if file else []
+        )
 
     @discord.ui.button(label="Last ⏭️", style=discord.ButtonStyle.secondary)
     async def last_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -274,7 +307,9 @@ class TornadoDashboardView(discord.ui.View):
         if img_url:
             embed.set_image(url=img_url)
             embed.set_footer(text=f"Local DAT Render | {embed.footer.text}")
-        await interaction.response.edit_message(embed=embed, view=self, attachments=[file] if file else [])
+        await interaction.response.edit_message(
+            embed=embed, view=self, attachments=[file] if file else []
+        )
 
     @discord.ui.button(label="📋 Summary", style=discord.ButtonStyle.primary)
     async def summary_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -291,7 +326,9 @@ class TornadoDashboardView(discord.ui.View):
         coords = e.get("coords")
         event_id = e.get("event_id")
         if not location or not coords:
-            await interaction.response.send_message("No location data available for this event.", ephemeral=True)
+            await interaction.response.send_message(
+                "No location data available for this event.", ephemeral=True
+            )
             return
 
         await interaction.response.defer()
@@ -317,7 +354,9 @@ class TornadoDashboardView(discord.ui.View):
             logger.info(f"[WARNINGS] Using {len(photos)} cached photo(s) for {event_id}")
 
         if not photos:
-            await interaction.followup.send("No damage photos found in the DAT for this event.", ephemeral=True)
+            await interaction.followup.send(
+                "No damage photos found in the DAT for this event.", ephemeral=True
+            )
             return
 
         photo_view = TornadoPhotoView(photos, self, location)
@@ -376,7 +415,7 @@ class TornadoDashboardView(discord.ui.View):
 
         lines = [
             f"**Total: {total_line} ({total_count} tornadoes)**",
-            "───────────────────────────"
+            "───────────────────────────",
         ]
 
         # Add daily breakdown
@@ -426,7 +465,7 @@ class TornadoDashboardView(discord.ui.View):
             title=f"{self.title}",
             description="\n".join(lines),
             color=discord.Color.red(),
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(timezone.utc),
         )
 
         embed.set_footer(
@@ -436,7 +475,7 @@ class TornadoDashboardView(discord.ui.View):
 
     def build_card_embed(self) -> discord.Embed:
         e = self.events[self.index]
-        dt = datetime.fromtimestamp(e['timestamp'], timezone.utc)
+        dt = datetime.fromtimestamp(e["timestamp"], timezone.utc)
         date_str = dt.strftime("%Y-%m-%d %H:%MZ")
         rel_time = f"<t:{int(e['timestamp'])}:R>"
 
@@ -446,12 +485,12 @@ class TornadoDashboardView(discord.ui.View):
         embed = discord.Embed(
             title=f"{emoji} Tornado: {e['location']}",
             color=discord.Color.red(),
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(timezone.utc),
         )
 
         embed.add_field(name="Rating", value=mag, inline=True)
         embed.add_field(name="Time", value=f"{date_str}\n({rel_time})", inline=True)
-        embed.add_field(name="Office", value=e['source'], inline=True)
+        embed.add_field(name="Office", value=e["source"], inline=True)
 
         if e.get("lead_time") is not None:
             if e["lead_time"] == -1:
@@ -464,18 +503,22 @@ class TornadoDashboardView(discord.ui.View):
             parts = e["vtec_id"].split(".")
             if len(parts) == 4:
                 office, phenom, sig, etn = parts
-                url = _vtec_url({
-                    "action": "NEW",
-                    "office": office,
-                    "phenom": phenom,
-                    "sig": sig,
-                    "etn": etn,
-                    "start": dt.strftime("%y%m%dT%H%MZ"),
-                })
+                url = _vtec_url(
+                    {
+                        "action": "NEW",
+                        "office": office,
+                        "phenom": phenom,
+                        "sig": sig,
+                        "etn": etn,
+                        "start": dt.strftime("%y%m%dT%H%MZ"),
+                    }
+                )
                 embed.add_field(name="VTEC ID", value=f"[{e['vtec_id']}]({url})", inline=True)
 
         if e.get("dat_guid"):
-            dat_url = f"https://apps.dat.noaa.gov/stormdamage/damageviewer/?datglobalid={e['dat_guid']}"
+            dat_url = (
+                f"https://apps.dat.noaa.gov/stormdamage/damageviewer/?datglobalid={e['dat_guid']}"
+            )
             embed.add_field(name="NWS DAT", value=f"[View Track]({dat_url})", inline=True)
 
             # Show track map in the card

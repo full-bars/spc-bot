@@ -72,6 +72,7 @@ async def hydrate_validators_from_store() -> int:
     logger.info(f"Hydrated {len(_validators_cache)} HTTP validators from store")
     return len(_validators_cache)
 
+
 logger = logging.getLogger("spc_bot")
 
 __all__ = [
@@ -255,9 +256,7 @@ async def download_images_parallel(
 ) -> List[str]:
     if use_cached and await should_use_cache_for_manual(urls):
         files = [
-            get_cache_path_for_url(u)
-            for u in urls
-            if os.path.exists(get_cache_path_for_url(u))
+            get_cache_path_for_url(u) for u in urls if os.path.exists(get_cache_path_for_url(u))
         ]
         logger.info(f"Using cached files for manual request: {files}")
         return files
@@ -367,22 +366,20 @@ async def check_all_urls_exist_parallel(urls: List[str]) -> bool:
     ok = all(results)
     if not ok:
         logger.warning(
-            f"Some URLs not reachable: "
-            f"{[(u, r) for u, r in zip(urls, results) if not r]}"
+            f"Some URLs not reachable: {[(u, r) for u, r in zip(urls, results) if not r]}"
         )
     return ok
+
+
 async def fetch_with_validators(
-    url: str,
-    retries: int = 3,
-    timeout: int = 30,
-    retry_statuses: Optional[List[int]] = None
+    url: str, retries: int = 3, timeout: int = 30, retry_statuses: Optional[List[int]] = None
 ) -> Tuple[Optional[bytes], Optional[int]]:
     """
     Fetch content using stored ETags/Last-Modified.
     Updates the validator cache on 200 responses.
 
-    If retry_statuses is provided (e.g. [404, 400] for pending maps), it will 
-    retry up to `retries` times with exponential backoff if the server 
+    If retry_statuses is provided (e.g. [404, 400] for pending maps), it will
+    retry up to `retries` times with exponential backoff if the server
     returns one of those statuses.
     """
     for attempt in range(retries + 1):
@@ -391,7 +388,7 @@ async def fetch_with_validators(
             url,
             etag=prev.get("etag") or None,
             last_modified=prev.get("last_modified") or None,
-            retries=1, # We handle retries here if retry_statuses is used
+            retries=1,  # We handle retries here if retry_statuses is used
             timeout=timeout,
         )
 

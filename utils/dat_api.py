@@ -12,6 +12,7 @@ logger = logging.getLogger("spc_bot")
 DAT_BASE_URL = "https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer"
 TRACK_LAYER_ID = 1
 
+
 async def fetch_dat_track_geometry(guid: str) -> Optional[List[List[Tuple[float, float]]]]:
     """
     Fetch the polyline geometry for a tornado track from DAT.

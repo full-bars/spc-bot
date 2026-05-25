@@ -13,6 +13,7 @@ from utils import db
 
 # ── posted_mds_batch ───────────────────────────────────────────────────────
 
+
 async def test_add_posted_mds_batch_empty_is_noop(isolated_db):
     await db.add_posted_mds_batch([])
     assert await db.get_posted_mds() == set()
@@ -30,6 +31,7 @@ async def test_add_posted_mds_batch_ignores_duplicates(isolated_db):
 
 
 # ── posted_watches_batch ───────────────────────────────────────────────────
+
 
 async def test_add_posted_watches_batch_empty_is_noop(isolated_db):
     await db.add_posted_watches_batch([])
@@ -49,6 +51,7 @@ async def test_add_posted_watches_batch_ignores_duplicates(isolated_db):
 
 # ── posted_reports_batch ───────────────────────────────────────────────────
 
+
 async def test_add_posted_reports_batch_empty_is_noop(isolated_db):
     await db.add_posted_reports_batch([])
     assert await db.get_posted_reports() == set()
@@ -66,6 +69,7 @@ async def test_add_posted_reports_batch_ignores_duplicates(isolated_db):
 
 
 # ── posted_product_ids_batch ───────────────────────────────────────────────
+
 
 async def test_add_posted_product_ids_batch_empty_is_noop(isolated_db):
     await db.add_posted_product_ids_batch([])

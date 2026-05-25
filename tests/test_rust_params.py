@@ -7,7 +7,8 @@ from lib.vad_plotter.params import (
     compute_srh,
     compute_bunkers_py,
     compute_srh_py,
-    vec2comp, comp2vec,
+    vec2comp,
+    comp2vec,
 )
 
 
@@ -15,9 +16,9 @@ from lib.vad_plotter.params import (
 def sample_vad_data():
     """Sample VAD profile for testing (altitude in km)."""
     return {
-        'wind_dir': np.array([250., 260., 270., 280., 290., 300., 310.]),
-        'wind_spd': np.array([5., 10., 15., 20., 25., 30., 35.]),
-        'altitude': np.array([0.1, 1., 2., 3., 4., 5., 6.]),
+        "wind_dir": np.array([250.0, 260.0, 270.0, 280.0, 290.0, 300.0, 310.0]),
+        "wind_spd": np.array([5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0]),
+        "altitude": np.array([0.1, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]),
     }
 
 
@@ -32,8 +33,8 @@ class TestVec2Comp:
 
     def test_array(self):
         """Test array inputs."""
-        dirs = np.array([0., 90., 180., 270.])
-        spds = np.array([10., 10., 10., 10.])
+        dirs = np.array([0.0, 90.0, 180.0, 270.0])
+        spds = np.array([10.0, 10.0, 10.0, 10.0])
         u, v = vec2comp(dirs, spds)
         assert isinstance(u, np.ndarray)
         assert isinstance(v, np.ndarray)
@@ -56,9 +57,9 @@ class TestComputeBunkers:
         """Rust version should match Python within tolerance."""
         # Make a copy to avoid mutating the fixture, and extend above 6km
         data = {
-            'wind_dir': np.append(sample_vad_data['wind_dir'].copy(), [275., 280.]),
-            'wind_spd': np.append(sample_vad_data['wind_spd'].copy(), [38., 40.]),
-            'altitude': np.append(sample_vad_data['altitude'].copy(), [7., 8.]),
+            "wind_dir": np.append(sample_vad_data["wind_dir"].copy(), [275.0, 280.0]),
+            "wind_spd": np.append(sample_vad_data["wind_spd"].copy(), [38.0, 40.0]),
+            "altitude": np.append(sample_vad_data["altitude"].copy(), [7.0, 8.0]),
         }
 
         rust_result = compute_bunkers(data)
@@ -68,10 +69,10 @@ class TestComputeBunkers:
             rust_dir, rust_spd = rust_motion
             python_dir, python_spd = python_motion
             # Allow very tight tolerance: algorithm now matches Python exactly
-            assert abs(rust_dir - python_dir) < 0.01 or abs(rust_dir - python_dir) > 359.9, \
-                   f"Direction mismatch: {rust_dir} vs {python_dir}"
-            assert abs(rust_spd - python_spd) < 0.01, \
-                   f"Speed mismatch: {rust_spd} vs {python_spd}"
+            assert abs(rust_dir - python_dir) < 0.01 or abs(rust_dir - python_dir) > 359.9, (
+                f"Direction mismatch: {rust_dir} vs {python_dir}"
+            )
+            assert abs(rust_spd - python_spd) < 0.01, f"Speed mismatch: {rust_spd} vs {python_spd}"
 
     def test_returns_three_motions_only(self, sample_vad_data):
         """Should return three motion tuples (mean, left, right)."""
@@ -90,9 +91,9 @@ class TestComputeBunkers:
     def test_empty_profile(self):
         """Should handle empty profile gracefully."""
         empty_data = {
-            'wind_dir': np.array([]),
-            'wind_spd': np.array([]),
-            'altitude': np.array([]),
+            "wind_dir": np.array([]),
+            "wind_spd": np.array([]),
+            "altitude": np.array([]),
         }
         try:
             result = compute_bunkers(empty_data)
@@ -110,9 +111,9 @@ class TestComputeSRH:
         """Rust version should match Python within tolerance."""
         # Make a copy to avoid mutating the fixture, and extend above 3km
         data = {
-            'wind_dir': np.append(sample_vad_data['wind_dir'].copy(), [275., 280.]),
-            'wind_spd': np.append(sample_vad_data['wind_spd'].copy(), [38., 40.]),
-            'altitude': np.append(sample_vad_data['altitude'].copy(), [7., 8.]),
+            "wind_dir": np.append(sample_vad_data["wind_dir"].copy(), [275.0, 280.0]),
+            "wind_spd": np.append(sample_vad_data["wind_spd"].copy(), [38.0, 40.0]),
+            "altitude": np.append(sample_vad_data["altitude"].copy(), [7.0, 8.0]),
         }
 
         storm_motion = (250.0, 20.0)
@@ -122,8 +123,9 @@ class TestComputeSRH:
         python_result = compute_srh_py(data, storm_motion, hght)
 
         # SRH values should match exactly (algorithm now matches Python perfectly)
-        assert abs(rust_result - python_result) < 0.01, \
-               f"SRH mismatch: Rust={rust_result} vs Python={python_result}"
+        assert abs(rust_result - python_result) < 0.01, (
+            f"SRH mismatch: Rust={rust_result} vs Python={python_result}"
+        )
 
     def test_computes_value(self, sample_vad_data):
         """Should compute a finite SRH value."""
@@ -142,9 +144,9 @@ class TestComputeSRH:
     def test_empty_profile(self):
         """Should handle empty profile gracefully."""
         empty_data = {
-            'wind_dir': np.array([]),
-            'wind_spd': np.array([]),
-            'altitude': np.array([]),
+            "wind_dir": np.array([]),
+            "wind_spd": np.array([]),
+            "altitude": np.array([]),
         }
         try:
             result = compute_srh(empty_data, (250.0, 20.0), 3000.0)

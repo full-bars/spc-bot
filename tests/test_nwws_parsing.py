@@ -6,6 +6,7 @@ Tests updated for Rust tokio XMPP backend.
 # Note: Comprehensive async tests for _process_nwws_message are run in CI
 # with full dependencies. These are minimal compatibility tests.
 
+
 def test_parse_md_number():
     """Test MD number parsing."""
     from cogs.nwws import parse_md_number

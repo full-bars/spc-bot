@@ -3,6 +3,7 @@ Integration tests for critical multi-module code paths.
 These tests execute full function bodies to catch NameErrors, missing
 attributes, and broken call signatures that unit tests miss.
 """
+
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from utils.state import BotState
@@ -30,6 +31,7 @@ def make_mock_interaction(bot):
 
 # ── Watches cog Integration ───────────────────────────────────────────────────
 
+
 class TestWatchesCogIntegration:
     async def test_auto_post_watches_no_nameerror_on_new_watch(self):
         """
@@ -37,6 +39,7 @@ class TestWatchesCogIntegration:
         code path executes without NameError — catches missing cache references.
         """
         from cogs.watches import WatchesCog
+
         bot = make_mock_bot()
         bot.state.is_primary = True
         bot.get_channel = MagicMock(return_value=AsyncMock())
@@ -51,10 +54,13 @@ class TestWatchesCogIntegration:
             }
         }
 
-        with patch("cogs.watches.fetch_active_watches_nws", new=AsyncMock(return_value=nws_result)), \
-             patch("cogs.watches.fetch_watch_details", new=AsyncMock(return_value=(None, None, None))), \
-             patch("cogs.watches.download_single_image", new=AsyncMock(return_value=(None, False, None))):
-
+        with patch(
+            "cogs.watches.fetch_active_watches_nws", new=AsyncMock(return_value=nws_result)
+        ), patch(
+            "cogs.watches.fetch_watch_details", new=AsyncMock(return_value=(None, None, None))
+        ), patch(
+            "cogs.watches.download_single_image", new=AsyncMock(return_value=(None, False, None))
+        ):
             cog = WatchesCog(bot)
             cog.auto_post_watches.cancel()
             await cog.auto_post_watches()
@@ -65,6 +71,7 @@ class TestWatchesCogIntegration:
         without NameError — catches missing cache references in slash path.
         """
         from cogs.watches import _execute_watches
+
         bot = make_mock_bot()
         interaction = make_mock_interaction(bot)
 
@@ -76,15 +83,18 @@ class TestWatchesCogIntegration:
             }
         }
 
-        with patch("cogs.watches.fetch_active_watches_nws", new=AsyncMock(return_value=nws_result)), \
-             patch("cogs.watches.fetch_watch_details", new=AsyncMock(return_value=(None, None, None))), \
-             patch("cogs.watches.download_single_image", new=AsyncMock(return_value=(None, False, None))), \
-             patch("cogs.watch_fetch.http_get_bytes", new=AsyncMock(return_value=(None, 404))):
-
+        with patch(
+            "cogs.watches.fetch_active_watches_nws", new=AsyncMock(return_value=nws_result)
+        ), patch(
+            "cogs.watches.fetch_watch_details", new=AsyncMock(return_value=(None, None, None))
+        ), patch(
+            "cogs.watches.download_single_image", new=AsyncMock(return_value=(None, False, None))
+        ), patch("cogs.watch_fetch.http_get_bytes", new=AsyncMock(return_value=(None, 404))):
             await _execute_watches(interaction, bot)
 
 
 # ── Outlooks cog Integration ──────────────────────────────────────────────────
+
 
 class TestOutlooksCogIntegration:
     async def test_check_and_post_day_no_urls_returned(self):
@@ -93,6 +103,7 @@ class TestOutlooksCogIntegration:
         without posting — no AttributeError on state access.
         """
         from cogs.outlooks import check_and_post_day
+
         bot = make_mock_bot()
         channel = AsyncMock()
 
