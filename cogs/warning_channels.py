@@ -63,6 +63,7 @@ class DisableWarningsView(discord.ui.View):
 class WarningChannelsCog(commands.Cog):
 
     @app_commands.command(name="enablewarnings", description="Route a warning type to a specific channel")
+    @app_commands.default_permissions(manage_guild=True)
     @app_commands.describe(
         warning_type="Warning product type to configure",
         channel="Channel where these warnings will be posted",
@@ -109,6 +110,7 @@ class WarningChannelsCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="disablewarnings", description="Stop posting a warning type")
+    @app_commands.default_permissions(manage_guild=True)
     async def disable_warnings(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 
