@@ -194,13 +194,9 @@ class ReportsCog(commands.Cog):
             )
             embed.set_footer(text=f"{office} LSR | {coords}")
 
-            # --- Persist State Before Sending ---
-            await self.bot.state.add_posted_report(product_id)
-
             # Log significant events to DB
             event_upper = event_type.upper()
             if "TORNADO" in event_upper:
-                # Mark unwarned tornadoes with lead_time=-1 (distinct from NULL/"still calculating")
                 await add_significant_event(
                     event_id=f"IEM:LSR:{product_id}",
                     event_type="Tornado",
@@ -210,11 +206,12 @@ class ReportsCog(commands.Cog):
                     timestamp=lsr_ts,
                     source=office,
                     raw_text=remarks,
-                    lead_time=-1,  # ← Sentinel value: explicitly UNWARNED
+                    lead_time=-1,
                 )
                 logger.info(f"[REPORTS] Recorded UNWARNED tornado: {location} at {time_str}")
 
             await channel.send(embed=embed)
+            await self.bot.state.add_posted_report(product_id)
 
     async def _handle_pns(self, product_id: str, raw_text: str):
         # Public Information Statement - Damage Survey
