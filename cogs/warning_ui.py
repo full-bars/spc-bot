@@ -3,6 +3,7 @@
 Includes environmental evolution viewer, tornado photo carousel, and
 tornado dashboard (summary + card navigation modes).
 """
+import asyncio
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -197,7 +198,8 @@ class TornadoDashboardView(discord.ui.View):
         try:
             paths = await fetch_dat_track_geometry(guid)
             if paths:
-                render_tornado_track(paths, png_path)
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, render_tornado_track, paths, png_path)
                 if os.path.exists(png_path):
                     return f"attachment://track_{guid}.png", discord.File(png_path, filename=f"track_{guid}.png")
         except Exception as err:

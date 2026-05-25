@@ -418,7 +418,8 @@ class ReportsCog(commands.Cog):
                 paths = await fetch_dat_track_geometry(guid)
                 if paths:
                     out_path = os.path.join("cache", f"track_{guid}.png")
-                    render_tornado_track(paths, out_path)
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(None, render_tornado_track, paths, out_path)
                     if os.path.exists(out_path):
                         file_to_send = discord.File(out_path, filename=f"track_{guid}.png")
 
