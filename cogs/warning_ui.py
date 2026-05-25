@@ -33,17 +33,19 @@ class EnvironmentalView(discord.ui.View):
             row = await cur.fetchone()
 
         if not row or not row["gif_path"]:
-            # Check if there is an active mission
             recorder = interaction.client.get_cog("RecorderCog")
             if recorder:
-                # We'd need a way to check active missions by event_id
-                # For now, a generic message
                 await interaction.followup.send(
                     "Environmental data is still being recorded or was not captured for this event. "
                     "Try again in 90 minutes.",
-                    ephemeral=True
+                    ephemeral=True,
                 )
-                return
+            else:
+                await interaction.followup.send(
+                    "No environmental data was captured for this event.",
+                    ephemeral=True,
+                )
+            return
 
         # Post the GIF
         gif_path = row["gif_path"]

@@ -181,10 +181,8 @@ class NWWSClient(ClientXMPP):
                 await asyncio.sleep(30)
         except asyncio.CancelledError:
             logger.debug("NWWS ping loop cancelled")
-
-        # Enable auto-reconnect at the slixmpp level
-        self.reconnect = True
-        self.use_ipv6 = False
+            self.reconnect = True
+            self.use_ipv6 = False
 
     def disconnect(self, reconnect=False, wait=False):
         if self._ping_task is not None:
@@ -293,7 +291,7 @@ class NWWSClient(ClientXMPP):
         # Route to processing
         nwws_cog = self.bot.get_cog("NWWSCog")
         if nwws_cog:
-            asyncio.create_task(nwws_cog._process_nwws_message(payload, raw_text, received_at, is_archived))
+            self.bot.loop.create_task(nwws_cog._process_nwws_message(payload, raw_text, received_at, is_archived))
 
 class NWWSCog(commands.Cog):
     MANAGED_TASK_NAMES = [("monitor_connection", "nwws_connection")]
