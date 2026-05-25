@@ -6,6 +6,23 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.34.4] — 2026-05-25
+
+### Fixed
+- **`/md` status command tuple unpack.** `fetch_latest_md_numbers` returns `(list, bool)` but the status cog was assigning the tuple directly, causing `len()` to always return 2. Unpacked to `md_numbers, _` and guarded against `None`. (#458)
+- **Warning UI environment data fallback.** `warning_ui.py` fell through to `row["gif_path"]` when `RecorderCog` was absent or the row had no GIF path, raising `TypeError`. Added an `else` branch that sends a "no environmental data" message and returns early. (#458)
+- **NWWS reconnect flag reset on clean shutdown.** `self.reconnect = True` and `self.use_ipv6 = False` ran on every exit including normal `CancelledError`; now scoped to the `except asyncio.CancelledError` branch. Also fixed `asyncio.create_task` → `self.bot.loop.create_task` in slixmpp sync callback. (#458)
+- **PIL frame handle leak in GIF recorder.** `Image.open()` frames were never closed after `save()`, leaking ~18 file handles per mission. Wrapped the save in a `try/finally` that calls `frame.close()` on each frame. (#458)
+- **Mark-before-send race in reports and mesoscale.** `add_posted_report` (reports) and `posted_mds.add` (mesoscale) were called before `channel.send`, so a Discord failure silently lost the product — it would never be retried. Both now write dedup state only after a successful send. (#459)
+- **`render_tornado_track` blocking the event loop.** The synchronous Cartopy render was called directly on the event loop in two places. Both call sites now use `await loop.run_in_executor(None, render_tornado_track, ...)`. (#460)
+- **HTTP 500 not retried by tenacity.** `http_get_json` returned `None` on 500 responses instead of raising, so tenacity never triggered a retry. Added 500 to the set of status codes that raise `ClientResponseError`. (#461)
+- **`get_events_db()` singleton race.** Concurrent first-callers could both open an aiosqlite connection, orphaning one. Fixed with a module-level `asyncio.Lock` and double-checked locking. (#461)
+- **Warning routing slash commands open to all members.** `/enablewarnings` and `/disablewarnings` had no permission gate; any guild member could reroute or disable warning types. Both commands now require `manage_guild`. (#462)
+
+### CI
+- **Ruff format enforced in CI.** `ruff format --check` added to the lint job; format violations now fail the pipeline. Formatted all pre-existing violations across the codebase. (#463)
+- **Coverage floor added.** `--cov-fail-under=20` added to pytest; builds now fail if coverage drops below 20%. (#463)
+
 ## [5.34.3] — 2026-05-21
 
 ### Fixed
