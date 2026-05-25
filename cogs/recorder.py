@@ -284,10 +284,14 @@ class RecorderCog(commands.Cog):
     @staticmethod
     def _make_gif_worker(frame_paths, gif_path):
         frames = [Image.open(f) for f in frame_paths]
-        frames[0].save(
-            gif_path, format="GIF", append_images=frames[1:],
-            save_all=True, duration=200, loop=0
-        )
+        try:
+            frames[0].save(
+                gif_path, format="GIF", append_images=frames[1:],
+                save_all=True, duration=200, loop=0
+            )
+        finally:
+            for frame in frames:
+                frame.close()
 
     @staticmethod
     def _calc_srh_worker(mission_dir, files):

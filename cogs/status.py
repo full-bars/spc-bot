@@ -922,8 +922,8 @@ class StatusCog(commands.Cog):
         logger.info("[/md] Command invoked (always fresh)")
         try:
             # We'll use a local fetch that doesn't mess with the auto-poster's cache
-            md_numbers = await fetch_latest_md_numbers(fresh=True)
-            logger.info(f"[/md] Fetched {len(md_numbers)} MD numbers")
+            md_numbers, _ = await fetch_latest_md_numbers(fresh=True)
+            logger.info(f"[/md] Fetched {len(md_numbers) if md_numbers else 0} MD numbers")
         except Exception as e:
             logger.error(f"[/md] fetch_latest_md_numbers failed: {e}")
             await interaction.followup.send("Failed to fetch MD index.")
