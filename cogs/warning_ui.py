@@ -18,9 +18,8 @@ logger = logging.getLogger("spc_bot")
 
 
 class EnvironmentalView(discord.ui.View):
-    def __init__(self, event_id: str):
+    def __init__(self):
         super().__init__(timeout=None)  # Persistent
-        self.event_id = event_id
 
     @discord.ui.button(
         label="View Environmental Evolution",
@@ -31,12 +30,20 @@ class EnvironmentalView(discord.ui.View):
     async def view_env(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
 
+        # Extract event_id from footer (format: "VTEC ... | {event_id}")
+        if not interaction.message.embeds:
+            return
+        footer = interaction.message.embeds[0].footer.text
+        if not footer or "|" not in footer:
+            return
+        event_id = footer.split("|")[-1].strip()
+
         from utils.events_db import get_events_db
 
         db = await get_events_db()
         async with db.execute(
             "SELECT gif_path, srh_0_1, location FROM significant_events WHERE event_id = ?",
-            (self.event_id,),
+            (event_id,),
         ) as cur:
             row = await cur.fetchone()
 

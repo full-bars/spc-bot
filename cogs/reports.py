@@ -34,21 +34,41 @@ _PNS_NARR_DATE_RE = re.compile(rf"({_PNS_MONTHS_STR})\w*\s+(\d{{1,2}})\s*,\s*(\d
 
 
 class PNSView(discord.ui.View):
-    def __init__(self, raw_text: str):
-        super().__init__(timeout=86400)  # Long timeout for persistent posts
-        self.raw_text = raw_text
+    def __init__(self):
+        super().__init__(timeout=None)
 
-    @discord.ui.button(label="📜 View Full Text", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(
+        label="📜 View Full Text", style=discord.ButtonStyle.secondary, custom_id="pns:view_text"
+    )
     async def view_text(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Split text if it exceeds 2000 chars (unlikely for most, but just in case)
-        if len(self.raw_text) > 1950:
-            parts = [self.raw_text[i : i + 1950] for i in range(0, len(self.raw_text), 1950)]
+        # Extract product_id from footer
+        # Footer text: "{office} PNS | {product_id}"
+        if not interaction.message.embeds:
+            return
+        footer = interaction.message.embeds[0].footer.text
+        if not footer or "|" not in footer:
+            return
+        product_id = footer.split("|")[-1].strip()
+
+        from utils.events_db import get_significant_event_raw_text
+
+        raw_text = await get_significant_event_raw_text(f"IEM:PNS:{product_id}")
+        if not raw_text:
+            await interaction.response.send_message(
+                "Raw text not found in database for this event.", ephemeral=True
+            )
+            return
+
+        # Split text if it exceeds 2000 chars
+        if len(raw_text) > 1950:
+            parts = [raw_text[i : i + 1950] for i in range(0, len(raw_text), 1950)]
             for i, p in enumerate(parts):
-                await interaction.response.send_message(
-                    f"```\n{p}\n```", ephemeral=True
-                ) if i == 0 else await interaction.followup.send(f"```\n{p}\n```", ephemeral=True)
+                if i == 0:
+                    await interaction.response.send_message(f"```\n{p}\n```", ephemeral=True)
+                else:
+                    await interaction.followup.send(f"```\n{p}\n```", ephemeral=True)
         else:
-            await interaction.response.send_message(f"```\n{self.raw_text}\n```", ephemeral=True)
+            await interaction.response.send_message(f"```\n{raw_text}\n```", ephemeral=True)
 
 
 class ReportsCog(commands.Cog):
@@ -57,6 +77,9 @@ class ReportsCog(commands.Cog):
         self.posted_surveys: set[str] = set()
         self._surveys_loaded = False
         self.poll_lsrs.start()
+
+    async def cog_load(self):
+        self.bot.add_view(PNSView())
 
     def cog_unload(self):
         self.poll_lsrs.cancel()
@@ -304,7 +327,7 @@ class ReportsCog(commands.Cog):
             f"[<t:{int(pns_ts)}:R>]"
         )
 
-        view = PNSView(raw_text)
+        view = PNSView()
         embed = discord.Embed(
             description=desc, color=discord.Color.teal(), timestamp=datetime.now(timezone.utc)
         )

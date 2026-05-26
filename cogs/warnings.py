@@ -85,6 +85,9 @@ class WarningsCog(commands.Cog):
         logger.debug(
             f"cog_load: {len(self.bot.state.posted_warnings)} posted warning(s) already in state"
         )
+        from cogs.warning_ui import EnvironmentalView
+
+        self.bot.add_view(EnvironmentalView())
 
         self.auto_poll_warnings.start()
         self.prune_posted_warnings_loop.start()
@@ -325,7 +328,7 @@ class WarningsCog(commands.Cog):
                 # Add Environmental Button for Tornado Warnings
                 view = None
                 if event == "Tornado Warning" and event_id:
-                    view = EnvironmentalView(event_id)
+                    view = EnvironmentalView()
 
                 # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS)
                 files = []
