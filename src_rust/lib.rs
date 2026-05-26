@@ -314,7 +314,7 @@ fn find_nearest_radar(lat: f64, lon: f64) -> PyResult<Option<String>> {
         pyo3::exceptions::PyRuntimeError::new_err(format!("RADAR_INDEX lock poisoned: {e}"))
     })?;
     if let Some(index) = index_lock.as_ref() {
-        if let Some(nearest) = index.nearest_neighbor(&[lat, lon]) {
+        if let Some(nearest) = index.nearest_neighbor([lat, lon]) {
             return Ok(Some(nearest.id.clone()));
         }
     }
