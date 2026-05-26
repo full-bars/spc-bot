@@ -5,6 +5,7 @@ Unit tests for watches VTEC parsing and API failure handling.
 Run with: python -m pytest tests/ -v
 """
 
+import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -285,6 +286,7 @@ async def test_post_watch_now_dedup_skips_already_posted():
     bot, channel = _make_watch_bot(posted_watches={"0102"})
     cog = WatchesCog.__new__(WatchesCog)
     cog._pending_tasks = set()
+    cog._watch_inflight = set()
     cog.bot = bot
 
     await cog.post_watch_now("0102", {"type": "SVR", "expires": None, "affected_zones": []})
@@ -300,6 +302,7 @@ async def test_post_watch_now_sends_and_marks_posted():
     bot, channel = _make_watch_bot()
     cog = WatchesCog.__new__(WatchesCog)
     cog._pending_tasks = set()
+    cog._watch_inflight = set()
     cog.bot = bot
 
     # Configure the mock state to actually add to the set when add_posted_watch is called
@@ -331,6 +334,7 @@ async def test_post_watch_now_no_channel_returns_early():
     bot.get_channel.return_value = None
     cog = WatchesCog.__new__(WatchesCog)
     cog._pending_tasks = set()
+    cog._watch_inflight = set()
     cog.bot = bot
 
     await cog.post_watch_now("0102", {"type": "SVR", "expires": None, "affected_zones": []})
@@ -354,6 +358,7 @@ async def test_post_watch_now_dispatches_to_sounding_cog():
 
     cog = WatchesCog.__new__(WatchesCog)
     cog._pending_tasks = set()
+    cog._watch_inflight = set()
     cog.bot = bot
 
     with patch(
@@ -363,3 +368,40 @@ async def test_post_watch_now_dispatches_to_sounding_cog():
 
     # post_soundings_for_watch is called to build the coroutine arg for create_task
     mock_sounding.post_soundings_for_watch.assert_called_once_with("0102", nws_info, channel)
+
+
+@pytest.mark.asyncio
+async def test_post_watch_now_concurrent_calls_post_once():
+    """Two near-simultaneous triggers for the same watch (NWWS push + iembot
+    poll) must result in exactly one send — the in-flight guard closes the
+    race. Latent in practice (watches are sparse) but proven on MDs."""
+    from cogs.watches import WatchesCog
+
+    bot, channel = _make_watch_bot()
+    cog = WatchesCog.__new__(WatchesCog)
+    cog._pending_tasks = set()
+    cog._watch_inflight = set()
+    cog.bot = bot
+
+    async def _mock_add(wn):
+        bot.state.posted_watches.add(wn)
+
+    bot.state.add_posted_watch = AsyncMock(side_effect=_mock_add)
+
+    # fetch_watch_details awaits, yielding the loop between the dedup check and
+    # the send — the window the race exploited. Both coroutines start before
+    # either marks posted_watches.
+    async def _slow_fetch(_wn):
+        await asyncio.sleep(0)
+        return ("http://img.png", "summary", None)
+
+    nws_info = {"type": "SVR", "expires": None, "affected_zones": []}
+
+    with patch("cogs.watches.fetch_watch_details", AsyncMock(side_effect=_slow_fetch)), patch(
+        "cogs.watches.download_single_image", AsyncMock(return_value=(None, False, None))
+    ):
+        await asyncio.gather(
+            cog.post_watch_now("0102", nws_info), cog.post_watch_now("0102", nws_info)
+        )
+
+    channel.send.assert_called_once()

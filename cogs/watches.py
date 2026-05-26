@@ -157,6 +157,7 @@ class WatchesCog(commands.Cog):
         self.bot = bot
         self._watches_backoff = TaskBackoff("auto_post_watches")
         self._pending_tasks: set[asyncio.Task] = set()
+        self._watch_inflight: set = set()  # watches mid-post — guards the check→send→mark race
 
     async def cog_load(self):
         self.auto_post_watches.start()
@@ -300,11 +301,25 @@ class WatchesCog(commands.Cog):
     async def post_watch_now(self, watch_num: str, nws_info: dict):
         """
         Immediately post a specific watch if it hasn't been posted yet.
-        Called by IEMBotCog when it detects a new watch from the real-time feed.
+        Called by NWWS-OI and IEMBotCog when a new watch is seen on the feed.
+
+        Both feeds can fire for the same watch. posted_watches is only marked
+        after a successful send, so the check→mark gap spans network awaits.
+        Reserve the slot synchronously to prevent a concurrent double-post — the
+        same race confirmed on MDs. Watches are sparse so it has not been seen
+        in the wild, but a duplicate during an outbreak would be costly. The
+        reservation is released in finally so a failed send still retries.
         """
         watch_num = watch_num.zfill(4)
-        if watch_num in self.bot.state.posted_watches:
+        if watch_num in self.bot.state.posted_watches or watch_num in self._watch_inflight:
             return
+        self._watch_inflight.add(watch_num)
+        try:
+            await self._post_watch_now_inner(watch_num, nws_info)
+        finally:
+            self._watch_inflight.discard(watch_num)
+
+    async def _post_watch_now_inner(self, watch_num: str, nws_info: dict):
         channel = self.bot.get_channel(SPC_CHANNEL_ID)
         if not channel:
             return
