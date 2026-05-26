@@ -58,6 +58,21 @@ updates:
     labels:
       - dependencies
       - rust
+    ignore:
+      # The XMPP crate stack is pinned to the 4.x line. The coordinated bump to
+      # tokio-xmpp 5.0 / xmpp-parsers 0.22 / minidom 0.18 was attempted and
+      # reverted (issue #464, PR #465). tokio-xmpp 5.0's strict xso parser
+      # treats any un-parseable incoming stanza as a FATAL stream error, and a
+      # non-compliant peer in the NWWS-OI MUC ("TropiTracker NWWS Ingest"
+      # broadcasts "[object Object]" as text in its presence) triggers an
+      # infinite reconnect loop with zero ingestion. tokio-xmpp 4 tolerates it.
+      # Do not re-raise until upstream makes stanza parse errors non-fatal.
+      - dependency-name: "tokio-xmpp"
+        versions: [">=5"]
+      - dependency-name: "xmpp-parsers"
+        versions: [">=0.22"]
+      - dependency-name: "minidom"
+        versions: [">=0.17"]
 
   # Base images in the Dockerfile
   - package-ecosystem: docker
