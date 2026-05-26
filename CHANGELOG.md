@@ -7,7 +7,7 @@ version numbers follow [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
-- **Mesoscale Discussions double-posting.** `post_md_now` is invoked by two independent feeds — the NWWS-OI XMPP push (`cogs/nwws.py`) and the IEMBot poller (`cogs/iembot.py`) — for the same MD. Because `posted_mds` is only marked after a successful `channel.send` (so a failed send still retries), the dedup check and the mark were separated by several network `await`s; two near-simultaneous triggers both passed the check and posted twice. Began when NWWS-OI ingestion was restored (2026-05-25), reactivating the second feed. `post_md_now` now reserves the MD in an in-flight set synchronously before any `await`, so the concurrent second call bails; the reservation is released in `finally`. The same latent race in `post_watch_now` is guarded identically as a precaution (not observed for watches, which are far sparser).
+- **Mesoscale Discussions double-posting.** `post_md_now` is invoked by two independent feeds — the NWWS-OI XMPP push (`cogs/nwws.py`) and the IEMBot poller (`cogs/iembot.py`) — for the same MD. Because `posted_mds` is only marked after a successful `channel.send` (so a failed send still retries), the dedup check and the mark were separated by several network `await`s; two near-simultaneous triggers both passed the check and posted twice. Began when NWWS-OI ingestion was restored (2026-05-25), reactivating the second feed. `post_md_now` now reserves the MD in an in-flight set synchronously before any `await`, so the concurrent second call bails; the reservation is released in `finally`. The same latent race in `post_watch_now` is guarded identically as a precaution (not observed for watches, which are far sparser). (#472)
 
 ## [5.34.5] — 2026-05-26
 
