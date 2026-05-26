@@ -155,6 +155,22 @@ info "Installing/updating dependencies..."
 "${VENV_DIR}/bin/pip" install -r "${INSTALL_DIR}/requirements.txt" --quiet
 info "Dependencies installed."
 
+# ── Rust extension (spc_rust_core) ──────────────────────────────────────────────
+# pyproject.toml uses the maturin build backend, but `pip install -r
+# requirements.txt` does NOT build it — so without this step a `git pull` that
+# changes Rust code would ship a stale extension. Build + install via PEP 517
+# (pip pulls maturin into an isolated build env); only needs cargo on PATH.
+if [ -f "${INSTALL_DIR}/Cargo.toml" ]; then
+    if command -v cargo >/dev/null 2>&1; then
+        info "Building Rust extension (spc_rust_core) with $(cargo --version)..."
+        "${VENV_DIR}/bin/pip" install "${INSTALL_DIR}" --quiet
+        info "Rust extension built and installed."
+    else
+        warn "cargo not found on PATH — skipping Rust build; spc_rust_core may be stale."
+        warn "Install Rust (https://rustup.rs) and ensure cargo is on PATH (e.g. /usr/local/bin or ~/.cargo/bin)."
+    fi
+fi
+
 # ── Interactive .env setup ────────────────────────────────────────────────────
 ENV_FILE="${INSTALL_DIR}/.env"
 if [ -f "$ENV_FILE" ]; then
