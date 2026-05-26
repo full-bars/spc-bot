@@ -523,6 +523,7 @@ class MesoscaleCog(commands.Cog):
         self._md_backoff = TaskBackoff("auto_post_md")
         self._cancelled_mds: set = set()  # MDs cancelled this session — never re-activate
         self._pending_tasks: set[asyncio.Task] = set()
+        self._md_inflight: set = set()  # MDs mid-post — guards the check→send→mark race
 
     async def cog_load(self):
         self.auto_post_md.start()
@@ -617,8 +618,22 @@ class MesoscaleCog(commands.Cog):
 
     async def post_md_now(self, md_num: str):
         md_num = md_num.zfill(4)
-        if md_num in self.bot.state.posted_mds:
+        # NWWS-OI push (cogs/nwws) and the iembot poller (cogs/iembot) can both
+        # call this for the same MD within a few hundred ms. posted_mds is only
+        # marked after a successful send, so the check→mark gap spans several
+        # network awaits — wide enough for a concurrent second call to slip
+        # through and double-post. Reserve the slot synchronously here so the
+        # second caller bails immediately; released in finally so a failed send
+        # still retries on the next trigger.
+        if md_num in self.bot.state.posted_mds or md_num in self._md_inflight:
             return
+        self._md_inflight.add(md_num)
+        try:
+            await self._post_md_now_inner(md_num)
+        finally:
+            self._md_inflight.discard(md_num)
+
+    async def _post_md_now_inner(self, md_num: str):
         channel = self.bot.get_channel(SPC_CHANNEL_ID)
         if not channel:
             return

@@ -1,5 +1,6 @@
 """Unit tests for cogs.mesoscale — SPC MD monitoring and IEM fallbacks."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
@@ -217,6 +218,7 @@ async def test_post_md_now_dedup_skips_already_posted():
     bot, channel = _make_bot_for_post(posted_mds={"0100"})
     cog = MesoscaleCog.__new__(MesoscaleCog)
     cog.bot = bot
+    cog._md_inflight = set()
 
     await cog.post_md_now("0100")
 
@@ -229,6 +231,7 @@ async def test_post_md_now_sends_and_marks_posted():
     bot, channel = _make_bot_for_post()
     cog = MesoscaleCog.__new__(MesoscaleCog)
     cog.bot = bot
+    cog._md_inflight = set()
     cog._pending_tasks = set()
 
     # Use a dummy text to trigger upgrade task creation
@@ -263,6 +266,7 @@ async def test_post_md_now_no_channel_returns_early():
     bot.get_channel.return_value = None
     cog = MesoscaleCog.__new__(MesoscaleCog)
     cog.bot = bot
+    cog._md_inflight = set()
 
     await cog.post_md_now("0100")  # should not raise
 
@@ -274,6 +278,7 @@ async def test_post_md_now_does_not_mark_posted_on_send_failure():
     channel.send.side_effect = Exception("failed")
     cog = MesoscaleCog.__new__(MesoscaleCog)
     cog.bot = bot
+    cog._md_inflight = set()
 
     with patch(
         "cogs.mesoscale.fetch_md_details", AsyncMock(return_value=("img", "sum", True, "/path"))
@@ -281,6 +286,38 @@ async def test_post_md_now_does_not_mark_posted_on_send_failure():
         await cog.post_md_now("0398")  # must not raise
 
     assert "0398" not in bot.state.posted_mds
+
+
+@pytest.mark.asyncio
+async def test_post_md_now_concurrent_calls_post_once():
+    """Two near-simultaneous triggers for the same MD (NWWS push + iembot poll)
+    must result in exactly one send — the in-flight guard closes the race."""
+    bot, channel = _make_bot_for_post()
+    cog = MesoscaleCog.__new__(MesoscaleCog)
+    cog.bot = bot
+    cog._md_inflight = set()
+    cog._pending_tasks = set()
+
+    async def _mock_add(md):
+        bot.state.posted_mds.add(md)
+
+    bot.state.add_posted_md = AsyncMock(side_effect=_mock_add)
+
+    # fetch_md_details awaits, yielding the loop between the dedup check and the
+    # send — exactly the window the bug exploited. Both coroutines start before
+    # either marks posted_mds.
+    async def _slow_fetch(_md):
+        await asyncio.sleep(0)
+        return ("img", "SPC MD 0100", True, "/path")
+
+    with patch("cogs.mesoscale.fetch_md_details", AsyncMock(side_effect=_slow_fetch)), patch(
+        "cogs.mesoscale.download_single_image", AsyncMock(return_value=(None, False, None))
+    ), patch("cogs.mesoscale.extract_md_body", return_value="body"), patch(
+        "cogs.mesoscale.clean_md_text_for_discord", return_value="body"
+    ):
+        await asyncio.gather(cog.post_md_now("0100"), cog.post_md_now("0100"))
+
+    channel.send.assert_called_once()
 
 
 # ── fetch_latest_md_numbers — IEM fallback parse path ────────────────────────
