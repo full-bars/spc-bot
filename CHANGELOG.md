@@ -6,6 +6,17 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.34.5] — 2026-05-26
+
+### Fixed
+- **Persistent Alert Buttons.** The "View Full Text" (PNS) and "View Environmental Evolution" (Tornado Warnings) buttons now survive bot restarts. These views are now registered as persistent views on startup and retrieve state directly from the database, rather than relying on volatile in-memory storage. (#470)
+- **Rust Build.** Updated `deploy.sh` to ensure the Rust extension is rebuilt during local deployments. (#469)
+- **NWWS Heartbeat.** Reduced log volume by suppressing per-timeout heartbeat messages, now only warning on sustained silence. (#468)
+
+### Dependencies
+- **XMPP Pinning.** Pinned the XMPP crate stack to 4.x to resolve upstream compatibility issues in `tokio-xmpp` 5.x. (#466, #467)
+- **Rust Math.** Updated `rstar` to v0.13.0. (#456)
+
 ## [5.34.4] — 2026-05-25
 
 ### Fixed
