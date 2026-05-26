@@ -259,6 +259,61 @@ class TestFailoverResilience:
         cog._promote.assert_awaited_once()
 
 
+# ── Reconciler drain ──────────────────────────────────────────────────────────
+
+
+class TestReconcilerDrain:
+    @pytest.mark.asyncio
+    async def test_sync_loop_drains_dirty_writes_when_primary(self, monkeypatch):
+        """A healthy Primary should drain the dirty-write queue each cycle."""
+        bot = _make_bot(is_primary=True)
+        cog = FailoverCog(bot)
+        cog._identity = "P:test-node:abc"
+
+        monkeypatch.setattr(cog, "_exec", _stub_exec({"HSET": 1, "GET": None}))
+        monkeypatch.setattr(cog, "_primary_cycle", AsyncMock())
+        resync = AsyncMock(return_value={"dirty": 2})
+        monkeypatch.setattr(failover_module.state_store, "resync_to_redis", resync)
+
+        await cog.sync_loop()
+
+        resync.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_no_drain_when_primary_cycle_demotes(self, monkeypatch):
+        """If _primary_cycle demotes us mid-cycle, we must not drain as Primary."""
+        bot = _make_bot(is_primary=True)
+        cog = FailoverCog(bot)
+        cog._identity = "P:test-node:abc"
+
+        async def _demote_side_effect():
+            bot.state.is_primary = False
+
+        monkeypatch.setattr(cog, "_exec", _stub_exec({"HSET": 1, "GET": None}))
+        monkeypatch.setattr(cog, "_primary_cycle", AsyncMock(side_effect=_demote_side_effect))
+        resync = AsyncMock(return_value={"dirty": 0})
+        monkeypatch.setattr(failover_module.state_store, "resync_to_redis", resync)
+
+        await cog.sync_loop()
+
+        resync.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_drain_swallows_resync_errors(self, monkeypatch):
+        """A failed resync must not propagate out of the drain helper."""
+        bot = _make_bot(is_primary=True)
+        cog = FailoverCog(bot)
+
+        monkeypatch.setattr(
+            failover_module.state_store,
+            "resync_to_redis",
+            AsyncMock(side_effect=RuntimeError("redis exploded")),
+        )
+
+        # Should not raise.
+        await cog._drain_dirty_writes()
+
+
 # ── Lease safety (Lua scripts) ────────────────────────────────────────────────
 
 

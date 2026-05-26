@@ -52,11 +52,16 @@ Semantics
   best-effort. If Redis fails, the key is enqueued for reconciliation.
 
 - RECONCILER: when a write to Redis fails but SQLite succeeded, the
-  key is added to a dirty set. A background task (started lazily on
-  first failure) periodically retries those writes until Redis ACKs.
+  op is appended to a durable dirty-write queue in SQLite. The failover
+  sync loop drains this queue (via resync_to_redis()) on every cycle
+  while this node is Primary, retrying each op until Redis ACKs; ops
+  that keep failing non-transiently are moved to a dead-letter table
+  after _MAX_REPLAY_RETRIES.
 
-- On process start, a full-resync pass ensures everything Redis is
-  missing gets pushed.
+- On process start and on promotion to Primary, a resync pass also
+  drains the queue, so a node never takes over with writes still
+  stranded locally (which would let the new Primary re-post items the
+  old Primary already handled).
 
 Connection
 ==========
