@@ -1608,13 +1608,24 @@ async fn nwws_connection_loop(
                 eprintln!("[XMPP] Connected successfully, starting message loop");
                 backoff_ms = 1000; // Reset backoff on success
 
-                // Message loop: receive events from client and process them
+                // Message loop: receive events from client and process them.
+                // A single 30s read gap is normal, so we don't log it. Only
+                // warn (once) if the feed stays silent for several gaps in a
+                // row — a sign the connection may be stalled (TCP up, no data).
+                const QUIET_TIMEOUTS_WARN: u32 = 5; // ~2.5 min of zero events
+                let mut consecutive_timeouts: u32 = 0;
+                let mut quiet_warned = false;
                 let mut connection_error = false;
                 while !connection_error {
                     match tokio::time::timeout(tokio::time::Duration::from_secs(30), client.next())
                         .await
                     {
                         Ok(Some(event)) => {
+                            if quiet_warned {
+                                eprintln!("[XMPP] Feed resumed after quiet period");
+                            }
+                            consecutive_timeouts = 0;
+                            quiet_warned = false;
                             // Process event - check if it's a stanza
                             if let Some(stanza) = event.into_stanza() {
                                 // Try to parse as message
@@ -1644,8 +1655,17 @@ async fn nwws_connection_loop(
                             connection_error = true;
                         }
                         Err(_) => {
-                            // Timeout is normal, keep the connection alive
-                            eprintln!("[XMPP] Heartbeat timeout (expected), continuing...");
+                            // A single 30s read gap is expected; stay silent
+                            // unless the feed has been quiet for several gaps
+                            // in a row, then warn once until it recovers.
+                            consecutive_timeouts += 1;
+                            if consecutive_timeouts == QUIET_TIMEOUTS_WARN {
+                                eprintln!(
+                                    "[XMPP] No events for ~{}s — feed unusually quiet (connection may be stalled)",
+                                    consecutive_timeouts * 30
+                                );
+                                quiet_warned = true;
+                            }
                         }
                     }
                 }
