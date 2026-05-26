@@ -66,7 +66,9 @@ updates:
       # non-compliant peer in the NWWS-OI MUC ("TropiTracker NWWS Ingest"
       # broadcasts "[object Object]" as text in its presence) triggers an
       # infinite reconnect loop with zero ingestion. tokio-xmpp 4 tolerates it.
-      # Do not re-raise until upstream makes stanza parse errors non-fatal.
+      # Do not re-raise until upstream makes stanza parse errors non-fatal:
+      #   https://gitlab.com/xmpp-rs/xmpp-rs/-/issues/172
+      # When that issue is resolved, lift this ignore and re-attempt the bump.
       - dependency-name: "tokio-xmpp"
         versions: [">=5"]
       - dependency-name: "xmpp-parsers"
