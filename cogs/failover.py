@@ -351,10 +351,34 @@ class FailoverCog(commands.Cog):
 
             if self.bot.state.is_primary:
                 await self._primary_cycle()
+                # Drain any writes that failed to reach Redis since the last
+                # cycle. Without this, a transient Redis blip on a long-lived
+                # Primary strands dirty writes in SQLite until the next
+                # restart/promotion — the Standby's Redis silently misses them
+                # and could re-post already-handled items after a failover.
+                # Re-check is_primary: _primary_cycle may have just demoted us.
+                if self.bot.state.is_primary:
+                    await self._drain_dirty_writes()
             else:
                 await self._standby_cycle()
         except Exception as e:
             logger.exception(f"[FAILOVER] Sync loop error: {e}")
+
+    async def _drain_dirty_writes(self) -> None:
+        """Replay writes that failed to reach Redis while we hold the lease.
+
+        resync_to_redis() is a cheap no-op (a single SQLite SELECT) when the
+        dirty queue is empty, and short-circuits on the first _RedisUnavailable
+        during an outage, so it is safe to call every sync cycle. Errors are
+        swallowed here — sync_loop's outer handler is the backstop.
+        """
+        try:
+            result = await state_store.resync_to_redis()
+            drained = result.get("dirty", 0)
+            if drained:
+                logger.info(f"[FAILOVER] Reconciler drained {drained} pending write(s) to Redis")
+        except Exception as e:
+            logger.warning(f"[FAILOVER] Dirty-write drain failed: {e}")
 
     async def _primary_cycle(self) -> None:
         holder = await self._read_lease_holder()
