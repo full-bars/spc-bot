@@ -156,6 +156,33 @@ async def add_significant_event(
         logger.warning(f"add_significant_event({event_id}) failed: {e}")
 
 
+async def get_significant_event_raw_text(event_id: str) -> Optional[str]:
+    """Retrieve raw text for a significant event by its ID."""
+    db = await get_events_db()
+    try:
+        async with db.execute(
+            "SELECT raw_text FROM significant_events WHERE event_id = ?", (event_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            return row["raw_text"] if row else None
+    except Exception as e:
+        logger.warning(f"get_significant_event_raw_text({event_id}) failed: {e}")
+        return None
+
+
+async def get_significant_event_by_vtec(vtec_id: str) -> Optional[aiosqlite.Row]:
+    """Retrieve a significant event record by its VTEC ID."""
+    db = await get_events_db()
+    try:
+        async with db.execute(
+            "SELECT * FROM significant_events WHERE vtec_id = ?", (vtec_id,)
+        ) as cur:
+            return await cur.fetchone()
+    except Exception as e:
+        logger.warning(f"get_significant_event_by_vtec({vtec_id}) failed: {e}")
+        return None
+
+
 async def update_event_environment(event_id: str, gif_path: str, srh_0_1: float) -> None:
     """Add environmental data to an existing event."""
     db = await get_events_db()
