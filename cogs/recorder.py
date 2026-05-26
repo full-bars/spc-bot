@@ -62,6 +62,8 @@ class VADRecordingMission:
 
 
 class RecorderCog(commands.Cog):
+    MANAGED_TASK_NAMES = [("recorder_loop", "recorder_loop")]
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.active_missions: Dict[str, VADRecordingMission] = {}

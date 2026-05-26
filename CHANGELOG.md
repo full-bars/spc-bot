@@ -6,6 +6,10 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **Redis dirty-write reconciler never drained at runtime.** `state_store` enqueues failed Redis writes to a durable SQLite dirty-write queue, but `resync_to_redis()` was only invoked on startup and on promotion — the documented "periodic background retry" did not exist. On a long-lived Primary, a transient Redis blip could strand writes locally until the next restart/promotion, leaving the Standby's Redis silently missing them and risking duplicate posts after a failover. The failover `sync_loop` now drains the queue every cycle while Primary (a cheap no-op when the queue is empty), and the stale module docstring was corrected. (#471)
+- **`recorder_loop` not supervised by the watchdog.** `RecorderCog` was the only task-owning cog without `MANAGED_TASK_NAMES`, so a stopped VAD recorder loop would never be auto-restarted. Added it to the watchdog's managed-task registry. (#471)
+
 ## [5.34.5] — 2026-05-26
 
 ### Fixed
