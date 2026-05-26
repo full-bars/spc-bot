@@ -6,6 +6,9 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **XMPP crate stack migrated to tokio-xmpp 5.0 / xmpp-parsers 0.22 / minidom 0.18.** The three crates are tightly coupled (xmpp-parsers 0.22 requires minidom 0.18 and pulls jid 0.12, which conflicts with tokio-xmpp 4's jid 0.11), so Dependabot's individual bumps (#453, #455, #457) were closed in favor of a single coordinated upgrade. Rewrote the Rust NWWS-OI sidecar for the new API: `tokio_xmpp::Client` replaces the removed `StartTlsAsyncClient`, stanzas are sent as the typed `Stanza` enum (`Stanza::Presence`) rather than a raw `minidom::Element`, inbound products are matched via `Event::Stanza(Stanza::Message)`, and `Message::bodies` now yields a plain `String` (the `Body` newtype's `.0` field is gone). Autoreconnect is now built into the client and always on, so the connection loop re-sends the MUC join presence on every `Event::Online` (including resumed sessions) and only rebuilds the client if the event stream itself ends. (#464)
+
 ## [5.34.4] — 2026-05-25
 
 ### Fixed

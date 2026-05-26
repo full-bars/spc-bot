@@ -7,7 +7,6 @@
 use futures::stream::StreamExt;
 use geo::algorithm::contains::Contains;
 use geo::{Coord, Point, Polygon};
-use minidom::Element;
 use nom::bytes::complete::tag_no_case;
 use nom::character::complete::{digit1, multispace0, multispace1};
 use nom::error::Error as NomError;
@@ -1473,10 +1472,12 @@ fn parse_xmpp_message(msg: &XmppMessage) -> Option<NwwsMessage> {
     let raw_text = {
         let inner = nwws_payload.text();
         if inner.trim().is_empty() {
+            // xmpp-parsers 0.22: bodies is BTreeMap<Lang, String>; the value is
+            // a plain String now (the Body newtype's `.0` field is gone).
             msg.bodies
                 .iter()
                 .next()
-                .map(|(_lang, body)| body.0.clone())
+                .map(|(_lang, body)| body.clone())
                 .unwrap_or_default()
         } else {
             inner
@@ -1505,57 +1506,13 @@ fn parse_xmpp_message(msg: &XmppMessage) -> Option<NwwsMessage> {
     })
 }
 
-/// Type alias for the default ServerConfig-based AsyncClient.
-type XmppClient = tokio_xmpp::starttls::StartTlsAsyncClient;
-
-/// Async function: connects to NWWS XMPP server and joins the MUC room.
-/// Returns a tokio_xmpp Client on success.
-async fn join_muc(user: &str, password: &str, server: &str) -> Result<XmppClient, String> {
+/// Build the MUC join presence, addressed to `room@conference.server/nick`.
+///
+/// In tokio-xmpp 5.0 stanzas are sent as the typed `Stanza` enum rather than a
+/// raw `minidom::Element`, so we hand back the parsed `Presence` and let the
+/// caller wrap it in `Stanza::Presence`.
+fn build_muc_presence(room_str: &str, nick: &str) -> Result<Presence, String> {
     use std::str::FromStr;
-
-    let jid_str = format!("{}@{}", user, server);
-    let room_str = format!("nwws@conference.{}", server);
-    let nick = user.to_string();
-
-    eprintln!("[XMPP] Connecting to {} as {}", server, jid_str);
-
-    // Create XMPP client using tokio-xmpp
-    // The Jid type must be parsed from a string
-    let jid = xmpp_parsers::jid::Jid::from_str(&jid_str)
-        .map_err(|e| format!("Invalid JID '{}': {}", jid_str, e))?;
-
-    let mut client = XmppClient::new(jid, password.to_owned());
-    client.set_reconnect(true);
-
-    eprintln!("[XMPP] Async client created, waiting for online event...");
-
-    // Wait for online event (the connection is established)
-    let mut online = false;
-    let mut attempts = 0;
-    const MAX_ATTEMPTS: u32 = 50; // 5 seconds max wait (50 * 100ms)
-
-    while !online && attempts < MAX_ATTEMPTS {
-        if let Some(event) =
-            tokio::time::timeout(tokio::time::Duration::from_millis(100), client.next())
-                .await
-                .ok()
-                .flatten()
-        {
-            if event.is_online() {
-                online = true;
-                eprintln!("[XMPP] Client online");
-                break;
-            }
-        }
-        attempts += 1;
-    }
-
-    if !online {
-        return Err("Timeout waiting for XMPP online event".to_string());
-    }
-
-    // Send presence stanza to join the MUC room
-    // Must address presence to room@conference.server/nick to properly join MUC
     use xmpp_parsers::jid::FullJid;
 
     let room_jid_str = format!("{}/{}", room_str, nick);
@@ -1564,25 +1521,18 @@ async fn join_muc(user: &str, password: &str, server: &str) -> Result<XmppClient
 
     let mut presence = Presence::new(PresenceType::None);
     presence.to = Some(room_jid.into());
-
-    // Convert Presence to Element via Into trait
-    let presence_element: Element = presence.into();
-
-    // Send the presence stanza
-    client
-        .send_stanza(presence_element)
-        .await
-        .map_err(|e| format!("Failed to send presence stanza: {}", e))?;
-
-    eprintln!("[XMPP] Presence stanza sent to {}/{}", room_str, nick);
-
-    // Wait briefly for room join confirmation
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-    Ok(client)
+    Ok(presence)
 }
 
-/// Internal async loop: maintains XMPP connection, receives messages, applies filters, forwards to channel.
+/// Internal async loop: maintains the XMPP connection, receives messages,
+/// applies filters, and forwards products to the channel.
+///
+/// tokio-xmpp 5.0's `Client` reconnects internally (autoreconnect is always on;
+/// there is no `set_reconnect`), so steady-state operation stays inside the
+/// inner event loop. We re-send the MUC presence on every `Event::Online` —
+/// including resumed sessions after an autoreconnect — so the feed resumes
+/// rather than going silent. The outer loop only rebuilds the client if the
+/// event stream itself ends (`None`), applying exponential backoff.
 #[allow(clippy::too_many_arguments)]
 async fn nwws_connection_loop(
     user: String,
@@ -1595,74 +1545,113 @@ async fn nwws_connection_loop(
     reconnect_count: Arc<AtomicU64>,
     last_error: Arc<RwLock<String>>,
 ) {
+    use std::str::FromStr;
+    use tokio_xmpp::{Client, Event, Stanza};
+
+    let jid_str = format!("{}@{}", user, server);
+    let room_str = format!("nwws@conference.{}", server);
+    let nick = user.clone();
+
+    // A malformed JID is unrecoverable — record it and stop rather than spin.
+    let jid = match xmpp_parsers::jid::Jid::from_str(&jid_str) {
+        Ok(j) => j,
+        Err(e) => {
+            let msg = format!("Invalid JID '{}': {}", jid_str, e);
+            eprintln!("[XMPP] {}", msg);
+            if let Ok(mut last_err) = last_error.write() {
+                *last_err = msg;
+            }
+            return;
+        }
+    };
+
     let mut backoff_ms = 1000u64;
     const MAX_BACKOFF_MS: u64 = 60000;
 
     loop {
-        eprintln!("[XMPP] Attempting connection to {}", server);
+        eprintln!("[XMPP] Connecting to {} as {}", server, jid_str);
 
-        // Attempt join_muc
-        match join_muc(&user, &password, &server).await {
-            Ok(mut client) => {
-                is_connected.store(true, Ordering::Relaxed);
-                eprintln!("[XMPP] Connected successfully, starting message loop");
-                backoff_ms = 1000; // Reset backoff on success
+        // StartTLS client with built-in autoreconnect.
+        let mut client = Client::new(jid.clone(), password.clone());
 
-                // Message loop: receive events from client and process them
-                let mut connection_error = false;
-                while !connection_error {
-                    match tokio::time::timeout(tokio::time::Duration::from_secs(30), client.next())
-                        .await
-                    {
-                        Ok(Some(event)) => {
-                            // Process event - check if it's a stanza
-                            if let Some(stanza) = event.into_stanza() {
-                                // Try to parse as message
-                                if let Ok(message) = XmppMessage::try_from(stanza.clone()) {
-                                    messages_received.fetch_add(1, Ordering::Relaxed);
+        // Inner event loop: drive high-level events until the stream ends.
+        loop {
+            match tokio::time::timeout(tokio::time::Duration::from_secs(30), client.next()).await {
+                Ok(Some(event)) => match event {
+                    Event::Online { resumed, .. } => {
+                        is_connected.store(true, Ordering::Relaxed);
+                        backoff_ms = 1000; // healthy connection resets backoff
+                        if resumed {
+                            // An internal autoreconnect re-established the stream.
+                            reconnect_count.fetch_add(1, Ordering::Relaxed);
+                            eprintln!("[XMPP] Reconnected (session resumed), rejoining MUC");
+                        } else {
+                            eprintln!("[XMPP] Client online");
+                        }
 
-                                    // Parse NWWS message
-                                    if let Some(nwws_msg) = parse_xmpp_message(&message) {
-                                        eprintln!(
-                                            "[XMPP] Received: {} {} {}",
-                                            nwws_msg.office, nwws_msg.ttaaii, nwws_msg.awipsid
-                                        );
-
-                                        // Send to channel
-                                        if tx.send(nwws_msg).is_ok() {
-                                            messages_filtered.fetch_add(1, Ordering::Relaxed);
-                                        } else {
-                                            eprintln!("[XMPP] Channel receiver dropped");
-                                            connection_error = true;
-                                        }
+                        match build_muc_presence(&room_str, &nick) {
+                            Ok(presence) => {
+                                if let Err(e) = client.send_stanza(Stanza::Presence(presence)).await
+                                {
+                                    let msg = format!("Failed to send MUC presence: {}", e);
+                                    eprintln!("[XMPP] {}", msg);
+                                    if let Ok(mut last_err) = last_error.write() {
+                                        *last_err = msg;
                                     }
+                                } else {
+                                    eprintln!("[XMPP] Presence sent to {}/{}", room_str, nick);
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("[XMPP] {}", e);
+                                if let Ok(mut last_err) = last_error.write() {
+                                    *last_err = e;
                                 }
                             }
                         }
-                        Ok(None) => {
-                            eprintln!("[XMPP] Connection closed by server");
-                            connection_error = true;
-                        }
-                        Err(_) => {
-                            // Timeout is normal, keep the connection alive
-                            eprintln!("[XMPP] Heartbeat timeout (expected), continuing...");
+                    }
+                    Event::Stanza(Stanza::Message(message)) => {
+                        messages_received.fetch_add(1, Ordering::Relaxed);
+                        if let Some(nwws_msg) = parse_xmpp_message(&message) {
+                            eprintln!(
+                                "[XMPP] Received: {} {} {}",
+                                nwws_msg.office, nwws_msg.ttaaii, nwws_msg.awipsid
+                            );
+                            if tx.send(nwws_msg).is_ok() {
+                                messages_filtered.fetch_add(1, Ordering::Relaxed);
+                            } else {
+                                // Python side dropped the receiver (nwws_stop);
+                                // tear the task down instead of reconnecting.
+                                eprintln!("[XMPP] Channel receiver dropped, stopping");
+                                is_connected.store(false, Ordering::Relaxed);
+                                return;
+                            }
                         }
                     }
+                    // Presence/IQ traffic and MUC status pings aren't products.
+                    Event::Stanza(_) => {}
+                    Event::Disconnected(e) => {
+                        is_connected.store(false, Ordering::Relaxed);
+                        let msg = format!("Disconnected: {}", e);
+                        eprintln!("[XMPP] {}", msg);
+                        if let Ok(mut last_err) = last_error.write() {
+                            *last_err = msg;
+                        }
+                        // Client autoreconnects internally; keep reading events.
+                    }
+                },
+                Ok(None) => {
+                    eprintln!("[XMPP] Event stream ended; rebuilding client");
+                    break;
                 }
-
-                is_connected.store(false, Ordering::Relaxed);
-                eprintln!("[XMPP] Message loop ended, reconnecting...");
-            }
-            Err(e) => {
-                eprintln!("[XMPP] Connection failed: {}", e);
-                if let Ok(mut last_err) = last_error.write() {
-                    *last_err = e.clone();
+                Err(_) => {
+                    // A 30s read gap is expected during quiet periods.
+                    eprintln!("[XMPP] Heartbeat timeout (expected), continuing...");
                 }
-                reconnect_count.fetch_add(1, Ordering::Relaxed);
             }
         }
 
-        // Exponential backoff
+        is_connected.store(false, Ordering::Relaxed);
         eprintln!("[XMPP] Reconnecting in {}ms...", backoff_ms);
         tokio::time::sleep(tokio::time::Duration::from_millis(backoff_ms)).await;
         backoff_ms = std::cmp::min(backoff_ms * 2, MAX_BACKOFF_MS);
