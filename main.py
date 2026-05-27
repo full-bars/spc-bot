@@ -105,6 +105,7 @@ async def _hydrate_state():
         "posted_product_ids",
         "posted_soundings",
         "sounding_handled_watches",
+        "last_fronts_hash",
     )
     results = await asyncio.gather(
         get_all_hashes("auto"),
@@ -122,6 +123,7 @@ async def _hydrate_state():
         get_posted_product_ids(),
         get_posted_soundings(),
         get_sounding_handled_watches(),
+        get_state("last_fronts_hash"),
         return_exceptions=True,
     )
 
@@ -154,6 +156,7 @@ async def _hydrate_state():
         db_product_ids,
         db_soundings,
         db_handled_watches,
+        last_fronts_hash,
     ) = results
 
     if isinstance(db_product_ids, (set, list)):
@@ -174,6 +177,10 @@ async def _hydrate_state():
             logger.debug(f"[DB] Restored last botstalk seqnum {last_botstalk}")
         except ValueError:
             logger.warning(f"[DB] Invalid botstalk seqnum {last_botstalk!r}, resetting to 0")
+
+    if isinstance(last_fronts_hash, str):
+        bot.state.last_fronts_hash = last_fronts_hash
+        logger.debug(f"[DB] Restored last fronts hash {last_fronts_hash}")
 
     if isinstance(db_warnings, dict):
         bot.state.posted_warnings.update(db_warnings)
