@@ -225,6 +225,7 @@ class BotState:
         # independently from the spcchat seqnum so a stall in one feed
         # can't make us replay the other on restart.
         self.iembot_botstalk_last_seqnum: int = 0
+        self.last_fronts_hash: Optional[str] = None
         self.bot_start_time: Optional[datetime] = None
 
         # Failover & Sync Stats
