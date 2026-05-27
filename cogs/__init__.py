@@ -6,6 +6,7 @@ ALL_EXTENSIONS = [
     "cogs.outlooks",
     "cogs.mesoscale",
     "cogs.watches",
+    "cogs.fronts",
     "cogs.warnings",
     "cogs.status",
     "cogs.radar",
