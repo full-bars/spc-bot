@@ -6,6 +6,11 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [5.34.7] — 2026-05-26
+
+### Added
+- **WPC Surface Fronts command & auto-poster.** New `/fronts` slash command fetches the latest surface fronts map from WPC. Background task automatically posts updates to Weather Chat (channel 1016454846326513876) every 15 minutes using SHA-256 hash-based deduplication to detect image changes. Follows the same dedup pattern as other products. (#474, #475)
+
 ## [5.34.6] — 2026-05-26
 
 ### Fixed
