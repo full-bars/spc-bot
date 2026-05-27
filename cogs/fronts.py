@@ -41,7 +41,7 @@ class FrontsCog(commands.Cog):
 
         await interaction.followup.send(embed=embed)
 
-    @tasks.loop(hours=3)
+    @tasks.loop(minutes=15)
     async def fronts_loop(self):
         try:
             await self.bot.wait_until_ready()
