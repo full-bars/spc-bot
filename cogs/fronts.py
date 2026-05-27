@@ -54,9 +54,13 @@ class FrontsCog(commands.Cog):
                 return
 
             try:
-                image_data = await http_get_bytes(FRONTS_IMAGE_URL, timeout=15)
+                image_data, status = await http_get_bytes(FRONTS_IMAGE_URL, timeout=15)
             except Exception as e:
                 logger.warning(f"Failed to fetch fronts image: {e}")
+                return
+
+            if not image_data:
+                logger.warning(f"Failed to fetch fronts image: HTTP {status}")
                 return
 
             current_hash = hashlib.sha256(image_data).hexdigest()
