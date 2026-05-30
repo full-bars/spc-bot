@@ -72,6 +72,7 @@ class FrontsCog(commands.Cog):
         await interaction.response.defer()
 
         image_url, last_modified = await get_current_fronts_url()
+        logger.info(f"/fronts command: discovered URL={image_url}, modified={last_modified}")
         if not image_url:
             await interaction.followup.send("Failed to fetch WPC surface fronts. Try again later.")
             return
@@ -82,7 +83,9 @@ class FrontsCog(commands.Cog):
             url=FRONTS_PAGE_URL,
             color=discord.Color.blue(),
         )
-        embed.set_image(url=image_url)
+        # Add cache-busting query parameter to force Discord to refetch current image
+        cache_bust_url = f"{image_url}?t={int(last_modified.timestamp())}" if last_modified else image_url
+        embed.set_image(url=cache_bust_url)
         footer_text = f"Source: WPC (wpc.ncep.noaa.gov)"
         if last_modified:
             footer_text += f" • Released {last_modified.strftime('%H:%M UTC')}"
@@ -132,7 +135,9 @@ class FrontsCog(commands.Cog):
                 color=discord.Color.blue(),
                 timestamp=datetime.now(timezone.utc),
             )
-            embed.set_image(url=image_url)
+            # Add cache-busting query parameter to force Discord to refetch current image
+            cache_bust_url = f"{image_url}?t={int(last_modified.timestamp())}" if last_modified else image_url
+            embed.set_image(url=cache_bust_url)
             footer_text = f"Source: WPC (wpc.ncep.noaa.gov)"
             if last_modified:
                 footer_text += f" • Released {last_modified.strftime('%H:%M UTC')}"
