@@ -1,13 +1,13 @@
 # cogs/fronts.py
 import hashlib
 import logging
-import re
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 
 import discord
 from discord.ext import commands, tasks
 
-from utils.http import http_get_bytes, http_get_text
+from utils.http import http_get_bytes, http_head_meta
 from utils.state_store import set_state
 
 logger = logging.getLogger("spc_bot.fronts")
@@ -15,52 +15,46 @@ logger = logging.getLogger("spc_bot.fronts")
 FRONTS_PAGE_URL = "https://www.wpc.ncep.noaa.gov/#page=frt"
 FRONTS_SFC_DIR = "https://www.wpc.ncep.noaa.gov/sfc/"
 WEATHER_CHAT_CHANNEL_ID = 1016454846326513876
+FRONTS_CYCLES = ["00", "03", "06", "09", "12", "15", "18", "21"]  # 3-hourly analysis cycles
 
 
-async def get_current_fronts_url() -> str:
-    """Discover the latest WPC surface fronts analysis by checking modification times.
+async def get_current_fronts_url() -> tuple:
+    """Get the latest WPC surface fronts analysis by checking Last-Modified of all cycles.
 
-    Looks for usfntsfc* files and returns the one with the most recent modification time.
+    Returns: (url, last_modified_datetime) or (None, None) if discovery fails.
     """
     try:
-        page = await http_get_text(FRONTS_SFC_DIR, timeout=10)
-        if not page:
-            logger.warning("Failed to fetch WPC sfc directory listing")
-            return None
+        latest_url = None
+        latest_modified = None
 
-        # Parse HTML directory listing to find usfntsfc files and their mod times
-        # Format: <tr><td>...<a href="usfntsfc00wbg.gif">usfntsfc00wbg.gif</a></td><td>28-May-2026 22:33</td>...
-        pattern = r'<a href="(usfntsfc\d{2}wbg\.gif)">.*?</a></td><td>([^<]+)</td>'
-        matches = re.findall(pattern, page)
-
-        if not matches:
-            logger.warning("No usfntsfc files found in WPC directory")
-            return None
-
-        # Convert mod times to a comparable format and find the latest
-        latest_file = None
-        latest_time = None
-        for filename, mod_time_str in matches:
-            try:
-                # Parse "28-May-2026 22:33" format
-                mod_time = datetime.strptime(mod_time_str.strip(), "%d-%b-%Y %H:%M")
-                if latest_time is None or mod_time > latest_time:
-                    latest_time = mod_time
-                    latest_file = filename
-            except ValueError:
-                # Skip if we can't parse the time
+        for cycle in FRONTS_CYCLES:
+            url = f"{FRONTS_SFC_DIR}usfntsfc{cycle}wbg.gif"
+            meta = await http_head_meta(url, timeout=15)
+            if not meta or not meta.get("last_modified"):
+                logger.debug(f"{cycle}Z: No Last-Modified header or failed HEAD")
                 continue
 
-        if latest_file:
-            url = f"{FRONTS_SFC_DIR}{latest_file}"
-            logger.debug(f"Latest fronts file: {latest_file} ({latest_time})")
-            return url
+            try:
+                # Parse HTTP date header: "Thu, 28 May 2026 22:33:11 GMT"
+                mod_time = parsedate_to_datetime(meta["last_modified"])
+                logger.debug(f"{cycle}Z: Last-Modified={mod_time.isoformat()}")
+                if latest_modified is None or mod_time > latest_modified:
+                    logger.debug(f"{cycle}Z: New latest (was: {latest_modified.isoformat() if latest_modified else 'None'})")
+                    latest_modified = mod_time
+                    latest_url = url
+            except Exception as e:
+                logger.debug(f"Failed to parse Last-Modified for {cycle}Z: {e}")
+                continue
 
-        logger.warning("Could not parse modification times from WPC directory")
-        return None
+        if latest_url:
+            logger.info(f"Latest fronts: {latest_url.split('/')[-1]} (modified {latest_modified.isoformat()})")
+            return latest_url, latest_modified
+
+        logger.warning("No valid fronts cycles found via HEAD requests")
+        return None, None
     except Exception as e:
-        logger.warning(f"Error discovering fronts URL: {e}")
-        return None
+        logger.warning(f"Error discovering current fronts: {e}")
+        return None, None
 
 
 class FrontsCog(commands.Cog):
@@ -77,7 +71,7 @@ class FrontsCog(commands.Cog):
     async def fronts(self, interaction: discord.Interaction):
         await interaction.response.defer()
 
-        image_url = await get_current_fronts_url()
+        image_url, last_modified = await get_current_fronts_url()
         if not image_url:
             await interaction.followup.send("Failed to fetch WPC surface fronts. Try again later.")
             return
@@ -89,7 +83,10 @@ class FrontsCog(commands.Cog):
             color=discord.Color.blue(),
         )
         embed.set_image(url=image_url)
-        embed.set_footer(text="Source: WPC (wpc.ncep.noaa.gov)")
+        footer_text = f"Source: WPC (wpc.ncep.noaa.gov)"
+        if last_modified:
+            footer_text += f" • Released {last_modified.strftime('%H:%M UTC')}"
+        embed.set_footer(text=footer_text)
 
         await interaction.followup.send(embed=embed)
 
@@ -98,6 +95,7 @@ class FrontsCog(commands.Cog):
         try:
             await self.bot.wait_until_ready()
             if not self.bot.state.is_primary:
+                logger.debug("Fronts loop: Not primary, skipping")
                 return
 
             channel = self.bot.get_channel(WEATHER_CHAT_CHANNEL_ID)
@@ -105,7 +103,7 @@ class FrontsCog(commands.Cog):
                 logger.warning("Weather Chat channel not found for fronts_loop")
                 return
 
-            image_url = await get_current_fronts_url()
+            image_url, last_modified = await get_current_fronts_url()
             if not image_url:
                 logger.warning("Failed to discover current fronts product URL")
                 return
@@ -124,7 +122,7 @@ class FrontsCog(commands.Cog):
             last_hash = self.bot.state.last_fronts_hash
 
             if current_hash == last_hash:
-                logger.debug("Fronts image unchanged — skipping post")
+                logger.debug(f"Fronts image unchanged ({image_url.split('/')[-1]}) — skipping post")
                 return
 
             embed = discord.Embed(
@@ -135,7 +133,10 @@ class FrontsCog(commands.Cog):
                 timestamp=datetime.now(timezone.utc),
             )
             embed.set_image(url=image_url)
-            embed.set_footer(text="Source: WPC (wpc.ncep.noaa.gov)")
+            footer_text = f"Source: WPC (wpc.ncep.noaa.gov)"
+            if last_modified:
+                footer_text += f" • Released {last_modified.strftime('%H:%M UTC')}"
+            embed.set_footer(text=footer_text)
 
             await channel.send(embed=embed)
             self.bot.state.last_fronts_hash = current_hash
