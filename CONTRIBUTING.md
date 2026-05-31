@@ -58,6 +58,7 @@ or inline where invoked, not into the configured channels.
 | `/csu` | Show CSU-MLP ML severe weather forecast — choose from Days 1–8, 6-Panel Days 1-2, or 6-Panel Days 3-8 via dropdown |
 | `/wxnext` | Show the latest NCAR WxNext2 Mean AI convective hazard forecast |
 | `/wpc` | Show the latest WPC Day 1–3 rainfall outlooks |
+| `/fronts` | Show the latest WPC surface fronts analysis. Auto-discovers the most recent 3-hourly analysis cycle by `Last-Modified` and also auto-posts to Weather Chat every 15 minutes on change (SHA-256 dedup). |
 
 ### Soundings
 | Command | Description |

@@ -834,6 +834,7 @@ class StatusCog(commands.Cog):
                 "`/wxnext` - NCAR WxNext2 AI forecasts\n"
                 "`/scp` - NIU Supercell Composite\n"
                 "`/wpc` - WPC Flash Flood Outlooks\n"
+                "`/fronts` - WPC Surface Fronts analysis\n"
                 "`/download` <site> - Raw Level 2 Radar data\n"
                 "`/status` - Bot health & circuit status\n"
                 "`/taskmgr` - Live task manager\n"
