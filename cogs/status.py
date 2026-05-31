@@ -669,11 +669,10 @@ class LogView(discord.ui.View):
             logs = ["No logs captured yet..."]
 
         content = "🛰️ **SPCBot Live Console Output**\n"
-        content += "```ansi\n"
-        # Discord supports ANSI color codes in ```ansi blocks
-        # We'll just provide the raw text for now, but in the future we could colorize
+        content += f"*Last {len(logs)} entries (auto-updates every 5s)*\n"
+        content += "```\n"
         content += "\n".join(logs)
-        content += "\n```\n*Refreshing every 5 seconds...*"
+        content += "\n```"
 
         # Truncate to Discord's 2000-character limit
         if len(content) > 2000:
@@ -682,14 +681,24 @@ class LogView(discord.ui.View):
         return content
 
     async def start_auto_update(self):
+        logger.debug("LogView: Starting auto-update task")
+        update_count = 0
         while self.should_update:
             await asyncio.sleep(5)
             if not self.should_update:
                 break
             try:
+                logs = self.bot.log_handler.get_logs() if hasattr(self.bot, "log_handler") else []
                 content = self.build_content()
                 await self.message.edit(content=content, view=self)
-            except Exception:
+                update_count += 1
+                logger.debug(f"LogView: Auto-update #{update_count}, {len(logs)} logs in buffer")
+            except discord.errors.NotFound:
+                logger.debug("LogView: Message was deleted, stopping auto-update")
+                self.should_update = False
+                break
+            except Exception as e:
+                logger.warning(f"LogView: Failed to update message: {e}")
                 self.should_update = False
                 break
 
