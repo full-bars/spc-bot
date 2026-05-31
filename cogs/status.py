@@ -803,9 +803,21 @@ class StatusCog(commands.Cog):
         embed.add_field(
             name="🚨 Watches & Tornadoes",
             value=(
-                "`/watches` - Active SPC watches overview\n"
+                "`/watches` (`/ww`) - Active SPC watches overview\n"
                 "`/recenttornadoes` - List recent confirmed tornadoes\n"
-                "`/sigtor` - List significant (EF2+) tornadoes"
+                "`/sigtor` - List significant (EF2+) tornadoes\n"
+                "`/archive` - Search the forensics archive"
+            ),
+            inline=True,
+        )
+
+        # Warning Routing
+        embed.add_field(
+            name="⚙️ Warning Routing",
+            value=(
+                "`/enablewarnings` - Route a warning type to a channel\n"
+                "`/disablewarnings` - Stop posting a warning type\n"
+                "`/displaysetup` - Show current routing config"
             ),
             inline=True,
         )
@@ -835,7 +847,9 @@ class StatusCog(commands.Cog):
                 "`/scp` - NIU Supercell Composite\n"
                 "`/wpc` - WPC Flash Flood Outlooks\n"
                 "`/fronts` - WPC Surface Fronts analysis\n"
+                "`/wxsummary` - Project WxEye briefing\n"
                 "`/download` <site> - Raw Level 2 Radar data\n"
+                "`/downloaderstatus` - Radar downloader latency\n"
                 "`/status` - Bot health & circuit status\n"
                 "`/taskmgr` - Live task manager\n"
                 "`/logs` - Live log stream"

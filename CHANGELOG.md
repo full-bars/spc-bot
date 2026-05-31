@@ -11,7 +11,7 @@ version numbers follow [SemVer](https://semver.org/).
 - **`/logs` command failing with a generic error.** The owner-only live console viewer could build a message exceeding Discord's 2000-character limit, causing the send to fail and surface "⚠️ An unexpected error occurred." Output is now truncated to fit within the limit. (#478)
 
 ### Documentation
-- **Documented the `/fronts` command.** Added `/fronts` to the `/help` embed, README product list, CONTRIBUTING slash-command reference, and the GitHub Wiki — it shipped in 5.34.7 without these entries.
+- **Backfilled slash-command documentation.** A coverage audit found commands defined in code but missing from user-facing docs. Added `/fronts` (shipped in 5.34.7) and `/wxsummary` (Project WxEye briefing) across the `/help` embed, README, CONTRIBUTING, and the GitHub Wiki. The `/help` embed also gained the previously-omitted `/archive`, `/ww`, `/downloaderstatus`, and the warning-routing commands (`/enablewarnings`, `/disablewarnings`, `/displaysetup`).
 
 ## [5.34.7] — 2026-05-26
 

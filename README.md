@@ -4,7 +4,7 @@ A high-performance severe weather monitoring platform with near-zero latency ale
 
 ## Features
 
-**SPC Products:** Day 1–8 convective outlooks, mesoscale discussions with watch probability detection, SPC watches, WPC rainfall outlooks, WPC surface fronts, SCP, CSU-MLP, and NCAR WxNext2 forecasts.
+**SPC Products:** Day 1–8 convective outlooks, mesoscale discussions with watch probability detection, SPC watches, WPC rainfall outlooks, WPC surface fronts, SCP, CSU-MLP, NCAR WxNext2 forecasts, and Project WxEye briefings.
 
 **Real-Time Alerts:**
 > [!IMPORTANT]  

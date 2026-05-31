@@ -59,6 +59,7 @@ or inline where invoked, not into the configured channels.
 | `/wxnext` | Show the latest NCAR WxNext2 Mean AI convective hazard forecast |
 | `/wpc` | Show the latest WPC Day 1–3 rainfall outlooks |
 | `/fronts` | Show the latest WPC surface fronts analysis. Auto-discovers the most recent 3-hourly analysis cycle by `Last-Modified` and also auto-posts to Weather Chat every 15 minutes on change (SHA-256 dedup). |
+| `/wxsummary` | Show the current weather briefing from Project WxEye (SPC Day 1 risk, WAI, top state, field activity, tags). Source refreshes every 20 minutes. |
 
 ### Soundings
 | Command | Description |
