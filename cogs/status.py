@@ -659,16 +659,31 @@ class LogView(discord.ui.View):
         self.interaction = interaction
         self.message = None
         self.should_update = True
-        self.tail_index = 0  # Track position in log buffer for tailing
+        self.last_shown_hash = None  # Track last log we showed to detect new ones
 
     def build_content(self) -> str:
         logs = []
         if hasattr(self.bot, "log_handler"):
             all_logs = self.bot.log_handler.get_logs()
-            # Show only logs from tail_index onward (new entries since /logs was invoked)
-            logs = all_logs[self.tail_index :]
-            # Update tail index for next refresh
-            self.tail_index = len(all_logs)
+
+            if all_logs:
+                # Find where to start showing logs
+                if self.last_shown_hash is None:
+                    # First call: show all current logs
+                    logs = all_logs
+                else:
+                    # Find the last log we showed in the new buffer
+                    start_idx = 0
+                    for i, log in enumerate(all_logs):
+                        if hash(log) == self.last_shown_hash:
+                            start_idx = i + 1
+                            break
+                    # Show logs after the last one we displayed
+                    logs = all_logs[start_idx:]
+
+                # Update hash of last log for next refresh
+                if all_logs:
+                    self.last_shown_hash = hash(all_logs[-1])
 
         if not logs:
             logs = ["(no new logs yet)"]
