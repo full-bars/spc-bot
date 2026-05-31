@@ -674,6 +674,11 @@ class LogView(discord.ui.View):
         # We'll just provide the raw text for now, but in the future we could colorize
         content += "\n".join(logs)
         content += "\n```\n*Refreshing every 5 seconds...*"
+
+        # Truncate to Discord's 2000-character limit
+        if len(content) > 2000:
+            content = content[:1990] + "\n...*"
+
         return content
 
     async def start_auto_update(self):

@@ -39,7 +39,9 @@ async def get_current_fronts_url() -> tuple:
                 mod_time = parsedate_to_datetime(meta["last_modified"])
                 logger.debug(f"{cycle}Z: Last-Modified={mod_time.isoformat()}")
                 if latest_modified is None or mod_time > latest_modified:
-                    logger.debug(f"{cycle}Z: New latest (was: {latest_modified.isoformat() if latest_modified else 'None'})")
+                    logger.debug(
+                        f"{cycle}Z: New latest (was: {latest_modified.isoformat() if latest_modified else 'None'})"
+                    )
                     latest_modified = mod_time
                     latest_url = url
             except Exception as e:
@@ -47,7 +49,9 @@ async def get_current_fronts_url() -> tuple:
                 continue
 
         if latest_url:
-            logger.info(f"Latest fronts: {latest_url.split('/')[-1]} (modified {latest_modified.isoformat()})")
+            logger.info(
+                f"Latest fronts: {latest_url.split('/')[-1]} (modified {latest_modified.isoformat()})"
+            )
             return latest_url, latest_modified
 
         logger.warning("No valid fronts cycles found via HEAD requests")
@@ -84,7 +88,9 @@ class FrontsCog(commands.Cog):
             color=discord.Color.blue(),
         )
         # Add cache-busting query parameter to force Discord to refetch current image
-        cache_bust_url = f"{image_url}?t={int(last_modified.timestamp())}" if last_modified else image_url
+        cache_bust_url = (
+            f"{image_url}?t={int(last_modified.timestamp())}" if last_modified else image_url
+        )
         embed.set_image(url=cache_bust_url)
         footer_text = f"Source: WPC (wpc.ncep.noaa.gov)"
         if last_modified:
@@ -136,7 +142,9 @@ class FrontsCog(commands.Cog):
                 timestamp=datetime.now(timezone.utc),
             )
             # Add cache-busting query parameter to force Discord to refetch current image
-            cache_bust_url = f"{image_url}?t={int(last_modified.timestamp())}" if last_modified else image_url
+            cache_bust_url = (
+                f"{image_url}?t={int(last_modified.timestamp())}" if last_modified else image_url
+            )
             embed.set_image(url=cache_bust_url)
             footer_text = f"Source: WPC (wpc.ncep.noaa.gov)"
             if last_modified:
