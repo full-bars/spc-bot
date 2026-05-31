@@ -92,7 +92,7 @@ class FrontsCog(commands.Cog):
             f"{image_url}?t={int(last_modified.timestamp())}" if last_modified else image_url
         )
         embed.set_image(url=cache_bust_url)
-        footer_text = f"Source: WPC (wpc.ncep.noaa.gov)"
+        footer_text = "Source: WPC (wpc.ncep.noaa.gov)"
         if last_modified:
             footer_text += f" • Released {last_modified.strftime('%H:%M UTC')}"
         embed.set_footer(text=footer_text)
@@ -146,7 +146,7 @@ class FrontsCog(commands.Cog):
                 f"{image_url}?t={int(last_modified.timestamp())}" if last_modified else image_url
             )
             embed.set_image(url=cache_bust_url)
-            footer_text = f"Source: WPC (wpc.ncep.noaa.gov)"
+            footer_text = "Source: WPC (wpc.ncep.noaa.gov)"
             if last_modified:
                 footer_text += f" • Released {last_modified.strftime('%H:%M UTC')}"
             embed.set_footer(text=footer_text)

@@ -6,6 +6,13 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **`/fronts` discovery timeout and stale Discord images.** WPC surface fronts discovery now applies a 15s per-request HEAD timeout while scanning the 3-hourly analysis cycles, and improved logging makes cycle selection observable. Embeds append a `Last-Modified`-derived cache-busting query parameter (`?t=<epoch>`) so Discord refetches the current analysis instead of serving a stale cached image. (#477)
+- **`/logs` command failing with a generic error.** The owner-only live console viewer could build a message exceeding Discord's 2000-character limit, causing the send to fail and surface "⚠️ An unexpected error occurred." Output is now truncated to fit within the limit. (#478)
+
+### Documentation
+- **Backfilled slash-command documentation.** A coverage audit found commands defined in code but missing from user-facing docs. Added `/fronts` (shipped in 5.34.7) and `/wxsummary` (Project WxEye briefing) across the `/help` embed, README, CONTRIBUTING, and the GitHub Wiki. The `/help` embed also gained the previously-omitted `/archive`, `/ww`, `/downloaderstatus`, and the warning-routing commands (`/enablewarnings`, `/disablewarnings`, `/displaysetup`).
+
 ## [5.34.7] — 2026-05-26
 
 ### Added
