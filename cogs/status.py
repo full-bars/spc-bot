@@ -659,19 +659,24 @@ class LogView(discord.ui.View):
         self.interaction = interaction
         self.message = None
         self.should_update = True
+        self.tail_index = 0  # Track position in log buffer for tailing
 
     def build_content(self) -> str:
         logs = []
         if hasattr(self.bot, "log_handler"):
-            logs = self.bot.log_handler.get_logs()
+            all_logs = self.bot.log_handler.get_logs()
+            # Show only logs from tail_index onward (new entries since /logs was invoked)
+            logs = all_logs[self.tail_index :]
+            # Update tail index for next refresh
+            self.tail_index = len(all_logs)
 
         if not logs:
-            logs = ["No logs captured yet..."]
+            logs = ["(no new logs yet)"]
 
         content = "🛰️ **SPCBot Live Console Output**\n"
-        content += f"*Last {len(logs)} entries (auto-updates every 5s)*\n"
+        content += f"*Streaming live logs (updates every 5s, {len(logs)} new entries)*\n"
         content += "```\n"
-        content += "\n".join(logs)
+        content += "\n".join(logs[-20:])  # Show last 20 new entries
         content += "\n```"
 
         # Truncate to Discord's 2000-character limit
@@ -688,11 +693,10 @@ class LogView(discord.ui.View):
             if not self.should_update:
                 break
             try:
-                logs = self.bot.log_handler.get_logs() if hasattr(self.bot, "log_handler") else []
                 content = self.build_content()
                 await self.message.edit(content=content, view=self)
                 update_count += 1
-                logger.debug(f"LogView: Auto-update #{update_count}, {len(logs)} logs in buffer")
+                logger.debug(f"LogView: Auto-update #{update_count}, tail_index={self.tail_index}")
             except discord.errors.NotFound:
                 logger.debug("LogView: Message was deleted, stopping auto-update")
                 self.should_update = False
@@ -707,8 +711,12 @@ class LogView(discord.ui.View):
         self.should_update = False
         for item in self.children:
             item.disabled = True
-        await interaction.response.edit_message(view=self)
-        self.stop()
+        try:
+            await interaction.response.defer()
+            await self.message.edit(view=self)
+            logger.debug("LogView: Stop button pressed, stream ended")
+        except Exception as e:
+            logger.warning(f"LogView: Failed to handle stop button: {e}")
 
     async def on_timeout(self):
         self.should_update = False
