@@ -1,6 +1,7 @@
 from __future__ import print_function
 
 import logging
+import os
 import re
 import struct
 import zlib
@@ -24,21 +25,37 @@ except ImportError:
     RUST_AVAILABLE = False
     logger.debug("Rust core not available, using pure-python fallback for VWP header search")
 
-_base_url = "https://tgftp.nws.noaa.gov/SL.us008001/DF.of/DC.radar/DS.48vwp/"
-_S3_BUCKET = "unidata-nexrad-level3"
+_base_url = "https://tgftp.nws.noaa.gov/SL.us008001/DF.of/DC.radar/DS.48vwp"
+_S3_BUCKET = os.getenv("VAD_S3_BUCKET", "unidata-nexrad-level3")
 
 def _normalize_nids_bytes(raw_bytes: bytes) -> bytes:
     """
     Ensure the incoming bytes are raw NIDS Product 48, unwrapped and decompressed.
     """
-    # 1. Handle Zlib compression (common on S3)
-    if b"\x78\xda" in raw_bytes[:100]:
+    # 1. Handle Gzip or Zlib compression (common on S3)
+    if raw_bytes.startswith(b"\x1f\x8b"):
         try:
-            offset = raw_bytes.find(b"\x78\xda")
-            raw_bytes = zlib.decompress(raw_bytes[offset:])
-            logger.debug(f"Decompressed payload: {len(raw_bytes)} bytes")
+            import gzip
+            raw_bytes = gzip.decompress(raw_bytes)
+            logger.debug(f"Decompressed Gzip payload: {len(raw_bytes)} bytes")
         except Exception as e:
-            logger.warning(f"Failed to decompress payload: {e}")
+            logger.warning(f"Failed to decompress Gzip payload: {e}")
+    elif any(h in raw_bytes[:100] for h in (b"\x78\xda", b"\x78\x9c")):
+        try:
+            # Find the first occurrence of either header
+            idx_da = raw_bytes.find(b"\x78\xda")
+            idx_9c = raw_bytes.find(b"\x78\x9c")
+            
+            # Determine which one comes first (if both present, very unlikely in first 100)
+            if idx_da != -1 and idx_9c != -1:
+                offset = min(idx_da, idx_9c)
+            else:
+                offset = idx_da if idx_da != -1 else idx_9c
+            
+            raw_bytes = zlib.decompress(raw_bytes[offset:])
+            logger.debug(f"Decompressed Zlib payload: {len(raw_bytes)} bytes")
+        except Exception as e:
+            logger.warning(f"Failed to decompress Zlib payload: {e}")
 
     # 2. Locate the NIDS Message Header (Product Code 48 = 0x0030)
     # We look for 48 (h) at the start of the Product Description Block.
@@ -373,45 +390,48 @@ from botocore.config import Config
 
 async def _list_s3_vad_times(rid: str) -> List[Tuple[str, datetime]]:
     """List recent VAD files from S3 for a site."""
-    # The S3 bucket unidata-nexrad-level3 uses 3-letter ICAO codes (omits leading K/P/T).
-    # e.g. KTLX -> TLX, KICT -> ICT, TDFW -> DFW, PGUM -> GUM.
-    site_id = rid[-3:].upper()
-    
-    # The S3 bucket is alphabetical. We'll try the current day first.
-    now = datetime.now(timezone.utc)
-    prefix = f"{site_id}_NVW_{now.strftime('%Y_%m_%d')}"
+    # Try both 3-letter and 4-letter codes.
+    # unidata-nexrad-level3 primarily uses 3-letter ICAO codes (omits leading K).
+    # e.g. KTLX -> TLX.
+    site_candidates = [rid.upper()]
+    if rid.upper().startswith('K') and len(rid) == 4:
+        site_candidates.append(rid[1:].upper())
 
+    now = datetime.now(timezone.utc)
     session = aioboto3.Session()
+    
     try:
         async with session.client(
             "s3",
             config=Config(signature_version=botocore.UNSIGNED),
             region_name="us-east-1"
         ) as s3:
-            response = await s3.list_objects_v2(Bucket=_S3_BUCKET, Prefix=prefix)
-            if "Contents" not in response:
-                # Try yesterday just in case (UTC day rollover)
-                yesterday = now - timedelta(days=1)
-                prefix_y = f"{site_id}_NVW_{yesterday.strftime('%Y_%m_%d')}"
-                response = await s3.list_objects_v2(Bucket=_S3_BUCKET, Prefix=prefix_y)
-
-            if "Contents" not in response:
-                logger.debug(f"[VAD] No S3 files found for {rid} with prefix {prefix} or {prefix_y}")
-                return []
-
             results = []
-            for obj in response["Contents"]:
-                key = obj["Key"]
-                # Key format: SSS_NVW_YYYY_MM_DD_HH_MM_SS
-                try:
-                    # Verify key starts with SSS_NVW to avoid partial matches
-                    if not key.startswith(f"{site_id}_NVW"):
-                        continue
-                    ts_str = "_".join(key.split("_")[2:])
-                    ts = datetime.strptime(ts_str, "%Y_%m_%d_%H_%M_%S").replace(tzinfo=timezone.utc)
-                    results.append((key, ts))
-                except (ValueError, IndexError):
-                    continue
+            # Check last 3 days
+            for i in range(3):
+                dt = now - timedelta(days=i)
+                date_str = dt.strftime('%Y_%m_%d')
+                
+                for site_id in site_candidates:
+                    prefix = f"{site_id}_NVW_{date_str}"
+                    response = await s3.list_objects_v2(Bucket=_S3_BUCKET, Prefix=prefix)
+                    
+                    if "Contents" in response:
+                        for obj in response["Contents"]:
+                            key = obj["Key"]
+                            try:
+                                # Key format: SSS_NVW_YYYY_MM_DD_HH_MM_SS
+                                if not key.startswith(f"{site_id}_NVW"):
+                                    continue
+                                ts_str = "_".join(key.split("_")[2:])
+                                ts = datetime.strptime(ts_str, "%Y_%m_%d_%H_%M_%S").replace(tzinfo=timezone.utc)
+                                results.append((key, ts))
+                            except (ValueError, IndexError):
+                                continue
+                
+                # If we found data for this day, we can probably stop unless we need more
+                if results and i >= 1: # Found data for at least yesterday
+                    break
 
             # Sort newest first
             return sorted(results, key=lambda x: x[1], reverse=True)
