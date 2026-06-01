@@ -367,8 +367,18 @@ class NWWSCog(commands.Cog):
         """Immediately attempt to connect to NWWS-OI (called by FailoverCog)."""
         if not self._should_be_connected:
             self._should_be_connected = True
-            if not self.monitor_connection.is_running():
-                self.monitor_connection.start()
+
+        if self._use_rust:
+            if not self._drain_rust_nwws.is_running():
+                self._drain_rust_nwws.start()
+            # If Rust is enabled, monitor_connection (legacy) should NOT run.
+            if self.monitor_connection.is_running():
+                self.monitor_connection.cancel()
+            return
+
+        # Legacy fallback path
+        if not self.monitor_connection.is_running():
+            self.monitor_connection.start()
 
         await self.monitor_connection()
 
