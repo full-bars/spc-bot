@@ -14,7 +14,7 @@ _SOUNDING_EXECUTOR: Optional[concurrent.futures.ProcessPoolExecutor] = None
 # Hodographs are fast and memory-light.
 _MAX_HODO_WORKERS = 4
 # Soundings are slow and memory-heavy (SounderPy/MetPy).
-_MAX_SOUNDING_WORKERS = 3
+_MAX_SOUNDING_WORKERS = 4
 
 # Semaphore for sounding queue management (for UI feedback)
 _sounding_semaphore: Optional[asyncio.Semaphore] = None

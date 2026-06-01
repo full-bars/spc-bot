@@ -6,6 +6,10 @@ version numbers follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Performance
+- **Read connection pooling for events database.** Implemented a read-only connection pool (size 5) for `utils/events_db.py`, allowing concurrent slash command reads without blocking background writes.
+- **Expanded sounding worker pool.** Increased the sounding plot worker pool size from 3 to 4 to improve throughput and reduce queue times during high-risk weather events.
+
 ### Fixed
 - **`/fronts` discovery timeout and stale Discord images.** WPC surface fronts discovery now applies a 15s per-request HEAD timeout while scanning the 3-hourly analysis cycles, and improved logging makes cycle selection observable. Embeds append a `Last-Modified`-derived cache-busting query parameter (`?t=<epoch>`) so Discord refetches the current analysis instead of serving a stale cached image. (#477)
 - **`/logs` command failing with a generic error.** The owner-only live console viewer could build a message exceeding Discord's 2000-character limit, causing the send to fail and surface "⚠️ An unexpected error occurred." Output is now truncated to fit within the limit. (#478)

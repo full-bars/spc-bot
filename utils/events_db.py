@@ -32,6 +32,8 @@ _SYNC_DIR = os.getenv("EVENTS_SYNC_DIR", "cache/events_sync")
 _SYNC_PATH = os.path.join(_SYNC_DIR, "events.db")
 
 _db: Optional[aiosqlite.Connection] = None
+_read_pool: asyncio.Queue[aiosqlite.Connection] = asyncio.Queue()
+_READ_POOL_SIZE = 5
 _db_dirty: bool = False
 _LOCK = asyncio.Lock()
 
@@ -49,15 +51,48 @@ async def get_events_db() -> aiosqlite.Connection:
         if _db is not None:
             return _db
         os.makedirs(os.path.dirname(_EVENTS_DB_PATH), exist_ok=True)
-        conn = await aiosqlite.connect(_EVENTS_DB_PATH)
-        conn.row_factory = aiosqlite.Row
-        await conn.execute("PRAGMA journal_mode=WAL")
-        await conn.execute("PRAGMA busy_timeout=5000")
+        conn = await _connect()
+        _db = conn
+
+        # Populate read pool once write connection is established
+        for _ in range(_READ_POOL_SIZE):
+            read_conn = await _connect(read_only=True)
+            await _read_pool.put(read_conn)
+
+        logger.info(f"Connected to {_EVENTS_DB_PATH} (RW)")
+    return _db
+
+
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
+
+
+@asynccontextmanager
+async def get_read_events_db() -> AsyncGenerator[aiosqlite.Connection, None]:
+    """Check out a read-only connection from the events pool."""
+    # Ensure pool is initialized
+    await get_events_db()
+
+    conn = await _read_pool.get()
+    try:
+        yield conn
+    finally:
+        await _read_pool.put(conn)
+
+
+async def _connect(read_only: bool = False) -> aiosqlite.Connection:
+    """Open database connection with safe settings."""
+    # Use URI format for read-only access
+    path = f"file:{_EVENTS_DB_PATH}?mode=ro" if read_only else _EVENTS_DB_PATH
+    conn = await aiosqlite.connect(path, timeout=10, uri=read_only)
+    conn.row_factory = aiosqlite.Row
+    await conn.execute("PRAGMA journal_mode=WAL")
+    await conn.execute("PRAGMA busy_timeout=5000")
+
+    if not read_only:
         await _create_tables(conn)
         await conn.commit()
-        _db = conn
-        logger.info(f"Connected to {_EVENTS_DB_PATH}")
-    return _db
+    return conn
 
 
 async def close_events_db() -> None:
@@ -65,6 +100,9 @@ async def close_events_db() -> None:
     if _db is not None:
         await _db.close()
         _db = None
+    while not _read_pool.empty():
+        conn = await _read_pool.get()
+        await conn.close()
 
 
 async def _create_tables(db: aiosqlite.Connection) -> None:
@@ -158,13 +196,13 @@ async def add_significant_event(
 
 async def get_significant_event_raw_text(event_id: str) -> Optional[str]:
     """Retrieve raw text for a significant event by its ID."""
-    db = await get_events_db()
     try:
-        async with db.execute(
-            "SELECT raw_text FROM significant_events WHERE event_id = ?", (event_id,)
-        ) as cur:
-            row = await cur.fetchone()
-            return row["raw_text"] if row else None
+        async with get_read_events_db() as db:
+            async with db.execute(
+                "SELECT raw_text FROM significant_events WHERE event_id = ?", (event_id,)
+            ) as cur:
+                row = await cur.fetchone()
+                return row["raw_text"] if row else None
     except Exception as e:
         logger.warning(f"get_significant_event_raw_text({event_id}) failed: {e}")
         return None
@@ -172,12 +210,12 @@ async def get_significant_event_raw_text(event_id: str) -> Optional[str]:
 
 async def get_significant_event_by_vtec(vtec_id: str) -> Optional[aiosqlite.Row]:
     """Retrieve a significant event record by its VTEC ID."""
-    db = await get_events_db()
     try:
-        async with db.execute(
-            "SELECT * FROM significant_events WHERE vtec_id = ?", (vtec_id,)
-        ) as cur:
-            return await cur.fetchone()
+        async with get_read_events_db() as db:
+            async with db.execute(
+                "SELECT * FROM significant_events WHERE vtec_id = ?", (vtec_id,)
+            ) as cur:
+                return await cur.fetchone()
     except Exception as e:
         logger.warning(f"get_significant_event_by_vtec({vtec_id}) failed: {e}")
         return None
@@ -543,19 +581,19 @@ async def get_recent_significant_events(
     since_hours: int = 24,
     limit: int = 1000,
 ) -> list:
-    db = await get_events_db()
     try:
-        start_ts = time.time() - (since_hours * 3600)
-        sql = "SELECT * FROM significant_events WHERE timestamp >= ?"
-        params: list = [start_ts]
-        if event_type:
-            sql += " AND event_type = ?"
-            params.append(event_type)
-        sql += " ORDER BY timestamp DESC LIMIT ?"
-        params.append(limit)
-        async with db.execute(sql, tuple(params)) as cur:
-            rows = await cur.fetchall()
-            return [dict(r) for r in rows]
+        async with get_read_events_db() as db:
+            start_ts = time.time() - (since_hours * 3600)
+            sql = "SELECT * FROM significant_events WHERE timestamp >= ?"
+            params: list = [start_ts]
+            if event_type:
+                sql += " AND event_type = ?"
+                params.append(event_type)
+            sql += " ORDER BY timestamp DESC LIMIT ?"
+            params.append(limit)
+            async with db.execute(sql, tuple(params)) as cur:
+                rows = await cur.fetchall()
+                return [dict(r) for r in rows]
     except Exception as e:
         logger.warning(f"get_recent_significant_events failed: {e}")
         return []
@@ -567,31 +605,31 @@ async def find_matching_tornado(
     location_query: str,
     window_hours: float = 12.0,
 ) -> Optional[Tuple[str, Optional[str]]]:
-    db = await get_events_db()
     try:
-        window = window_hours * 3600
-        async with db.execute(
-            """SELECT event_id, vtec_id, location FROM significant_events
-               WHERE event_type = 'Tornado'
-                 AND source = ?
-                 AND timestamp BETWEEN ? AND ?""",
-            (source, timestamp - window, timestamp + window),
-        ) as cur:
-            rows = await cur.fetchall()
-        if not rows:
+        async with get_read_events_db() as db:
+            window = window_hours * 3600
+            async with db.execute(
+                """SELECT event_id, vtec_id, location FROM significant_events
+                   WHERE event_type = 'Tornado'
+                     AND source = ?
+                     AND timestamp BETWEEN ? AND ?""",
+                (source, timestamp - window, timestamp + window),
+            ) as cur:
+                rows = await cur.fetchall()
+            if not rows:
+                return None
+
+            # Location-based matching if multiple
+            query_words = set(re.findall(r"\w+", location_query.upper()))
+            best_row, best_score = None, -1
+            for row in rows:
+                overlap = len(query_words & set(re.findall(r"\w+", row["location"].upper())))
+                if overlap > best_score:
+                    best_score, best_row = overlap, row
+
+            if best_row:
+                return best_row["event_id"], best_row["vtec_id"]
             return None
-
-        # Location-based matching if multiple
-        query_words = set(re.findall(r"\w+", location_query.upper()))
-        best_row, best_score = None, -1
-        for row in rows:
-            overlap = len(query_words & set(re.findall(r"\w+", row["location"].upper())))
-            if overlap > best_score:
-                best_score, best_row = overlap, row
-
-        if best_row:
-            return best_row["event_id"], best_row["vtec_id"]
-        return None
 
     except Exception as e:
         logger.warning(f"find_matching_tornado failed: {e}")
