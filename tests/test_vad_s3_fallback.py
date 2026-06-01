@@ -32,6 +32,7 @@ async def test_download_vad_s3_fallback():
             mock_session.client.return_value.__aenter__.return_value = mock_s3_client
             
             with patch('aioboto3.Session', return_value=mock_session), \
+                 patch('lib.vad_plotter.vad_reader.RUST_AVAILABLE', False), \
                  patch('lib.vad_plotter.vad_reader.VADFile') as mock_vad_file:
                 
                 # Mock VADFile instance
