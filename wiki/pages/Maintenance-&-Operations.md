@@ -94,7 +94,7 @@ Symptoms: slash commands are missing, stale, or return interaction errors.
 ### Sounding Queue Saturation
 Symptom: users see `Plot Queued (Position X)...` instead of an immediate sounding image.
 
-The sounding renderer uses a dedicated `Heavy Sounding` worker pool (separate from the `Fast Hodo` radar pool). When all workers are busy, new requests are queued and users receive a position message. The queue auto-clears as workers finish — no operator action is needed. A 60-second render timeout prevents deadlock; requests that exceed the timeout are discarded and the user sees an error. If queuing is persistent, the server may be under unusually high sounding load.
+The sounding renderer uses a dedicated `Heavy Sounding` worker pool (4 concurrent processes) separate from the `Fast Hodo` radar pool. When all workers are busy, new requests are queued and users receive a position message. The queue auto-clears as workers finish — no operator action is needed. A 60-second render timeout prevents deadlock; requests that exceed the timeout are discarded and the user sees an error. If queuing is persistent, the server may be under unusually high sounding load.
 
 ### Cache Disk Pressure
 Symptoms: large `cache/`, slow image/radar commands, or filesystem warnings.

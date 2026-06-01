@@ -14,7 +14,7 @@ The `/sounding` command plots RAOB (weather balloon) and ACARS (aircraft) data u
 
 ### Queue Management & Caching
 
-Sounding renders run in a dedicated **Heavy Sounding** executor, isolated from hodograph requests so that a slow or queued sounding plot never delays a hodograph update.
+Sounding renders run in a dedicated **Heavy Sounding** executor with 4 concurrent worker processes, isolated from hodograph requests so that a slow or queued sounding plot never delays a hodograph update.
 
 - **Queue position feedback:** When all sounding workers are busy, the bot replies with "Plot Queued (Position X)…" and updates the message as the request advances through the queue. An `asyncio.Semaphore` controls concurrency.
 - **Disk caching with hash dedup:** Rendered sounding images are cached to disk keyed by a hash of location + time + theme. Repeated requests for the same combination return the cached image immediately without re-rendering.
@@ -29,7 +29,9 @@ The bot proactively monitors severe weather and automatically posts soundings:
 ## 🌀 VWP Hodographs (`/hodograph`)
 
 The `/hodograph` command generates a Vertical Wind Profile (VWP) hodograph for any of 200+ NEXRAD or TDWR radar sites.
-- **High-Availability:** Uses **AWS S3** as a primary data source with automatic fallback to **TGFTP**, ensuring reliability during NWS server outages.
+- **High-Availability:** Uses **AWS S3** (`unidata-nexrad-level3`) as a primary data source with automatic fallback to **TGFTP**, ensuring reliability during NWS server outages.
+- **S3 Reliability:** The S3 engine supports Gzip and Zlib decompression and searches back 3 days to handle mirror data gaps.
+- **Rust Acceleration:** Real-time S3 VAD fetching is offloaded to the Rust core using a pooled `reqwest` client, reducing S3 fetch latency from ~750ms to ~250ms.
 - **Real-time Surface Wind:** Automatically fetches the latest ASOS surface observation near the radar to provide an accurate surface-to-1km profile.
 - **Parameter Table:** Includes a comprehensive storm-parameter table (Bunkers motion, SRH, Shear) rendered alongside the plot.
 - **Performance:** Hodograph storm-parameter calculations (Bunkers displacement, Storm-Relative Helicity, Critical Angle) are accelerated using Rust with Python fallback, reducing computation time for large profiles. Hodographs run in a dedicated **Fast Hodo** executor and are never blocked by concurrent sounding renders.
@@ -41,14 +43,13 @@ Introduced in **v5.14.0**, the bot automatically records the wind environment du
 - **Evolution GIFs:** Captures a 1-hour lookback and a 90-minute follow-up window, stitching them into an animated evolution of the vertical wind profile.
 - **Permanent Record:** Calculates the **Peak 0-1km SRH** during the event and archives it in `events.db` along with the GIF.
 
-## ⚙️ Rust-Accelerated VAD Math (Phase 7)
+## ⚙️ Rust-Accelerated VAD & S3 (Phase 9)
 
-Key VAD math routines in `vad_plotter/params.py` are now backed by compiled Rust via try-Rust → fallback-to-Python wrappers:
+Key VAD math routines and data fetching are now backed by compiled Rust via try-Rust → fallback-to-Python wrappers:
+- `fetch_s3_vad_fast` — High-speed pooled S3 listing and object retrieval (via `reqwest`)
 - `compute_shear_mag` — bulk shear magnitude between two pressure levels
 - `compute_sr_flow` — storm-relative flow vectors
 - `clip_profile` — profile clipping to a depth layer
-
-If the Rust extension is unavailable (e.g., unsupported platform), each function transparently falls back to the pure-Python implementation with no user-visible change.
 
 ## 🔬 Scientific Stack
 

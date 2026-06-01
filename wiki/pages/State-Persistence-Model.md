@@ -25,6 +25,7 @@ The `cache/bot_state.db` file acts as the local durability layer. State writes l
 
 Historical weather records are stored in a separate `cache/events.db` file.
 - **Rationale:** This database is excluded from Redis to avoid spending operational state bandwidth on historical records.
+- **Performance:** Optimized for concurrent reads via a **5-connection read pool** with Write-Ahead Logging (WAL), allowing slash command queries to scale without blocking background event ingestion.
 - **Content:** Confirmed tornadoes, EF ratings, lead times, DAT damage survey links, and VAD environmental forensics. Hail and wind are no longer tracked in this archive.
 - **Retention:** A 365-day rolling retention policy is enforced by `cogs/maintenance.py` for tornado events. Operational dedupe sets such as MDs, watches, warnings, and reports are pruned separately by their state-store helpers.
 
