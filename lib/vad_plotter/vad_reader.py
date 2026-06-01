@@ -531,6 +531,26 @@ async def download_vad(
     # Fallback to S3 if TGFTP failed or circuit was open
     if not content:
         logger.info(f"[VAD] Fetching from S3 fallback for {rid}")
+        
+        # Fast path: If asking for latest, use Rust core zero-copy fetcher if available
+        if not time and RUST_AVAILABLE:
+            try:
+                # Rust fetcher returns raw decompressed bytes for the latest VAD
+                # It handles listing, fetching, and gzip/zlib decompression internally
+                raw_bytes = spc_rust_core.fetch_s3_vad_fast(rid)
+                if raw_bytes:
+                    logger.info(f"[VAD] Rust S3 fetcher returned {len(raw_bytes)} bytes for {rid}")
+                    vad = VADFile(raw_bytes)
+                    vad.rid = rid
+                    if cache_path:
+                        iname = build_has_name(rid, vad['time'])
+                        with open("%s/%s" % (cache_path, iname), 'wb') as floc:
+                            floc.write(raw_bytes)
+                    return vad
+            except Exception as e:
+                logger.warning(f"[VAD] Rust S3 fetcher failed: {e}. Falling back to Python S3 engine.")
+
+        # Standard path (historical or fallback)
         s3_times = await _list_s3_vad_times(rid)
         if not s3_times:
             raise ValueError(f"Could not find VAD data for {rid} on TGFTP or S3")
