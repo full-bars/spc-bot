@@ -17,8 +17,9 @@ import os
 import re
 import shutil
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import List, Optional, Tuple
+from typing import AsyncGenerator, List, Optional, Tuple
 
 import aiohttp
 import aiosqlite
@@ -61,10 +62,6 @@ async def get_events_db() -> aiosqlite.Connection:
 
         logger.info(f"Connected to {_EVENTS_DB_PATH} (RW)")
     return _db
-
-
-from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 
 @asynccontextmanager

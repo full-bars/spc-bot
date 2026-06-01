@@ -268,7 +268,7 @@ class FailoverCog(commands.Cog):
         manual = await self._exec("GET", MANUAL_KEY)
         if manual:
             if self._is_our_node(manual):
-                logger.info(f"[FAILOVER] Startup: manual override names us as Primary")
+                logger.info("[FAILOVER] Startup: manual override names us as Primary")
                 if not await self._write_lease():
                     logger.warning(
                         "[FAILOVER] Startup (manual): Redis unreachable — cannot write lease; booting as STANDBY"
