@@ -2069,34 +2069,42 @@ static S3_CLIENT: Lazy<Client> = Lazy::new(|| {
 });
 
 #[pyfunction]
-fn fetch_s3_vad_fast<'py>(py: Python<'py>, rid: &str) -> PyResult<Option<pyo3::Py<pyo3::types::PyBytes>>> {
+fn fetch_s3_vad_fast<'py>(
+    py: Python<'py>,
+    rid: &str,
+) -> PyResult<Option<pyo3::Py<pyo3::types::PyBytes>>> {
     let rid_upper = rid.to_uppercase();
-            
-    let bucket = std::env::var("VAD_S3_BUCKET").unwrap_or_else(|_| "unidata-nexrad-level3".to_string());
+
+    let bucket =
+        std::env::var("VAD_S3_BUCKET").unwrap_or_else(|_| "unidata-nexrad-level3".to_string());
     let now = chrono::Utc::now();
-    
+
     let mut candidates = vec![rid_upper.clone()];
     if rid_upper.starts_with('K') && rid_upper.len() == 4 {
         candidates.push(rid_upper[1..].to_string());
     }
-    
+
     for days_back in 0..3 {
         let date = now - chrono::Duration::try_days(days_back).unwrap_or_default();
         let date_str = date.format("%Y_%m_%d").to_string();
-        
+
         for site_id in &candidates {
             // Predictive fetch: we can guess the exact time, but the minute/second varies.
             // Since we can't reliably guess, we list the bucket.
             let prefix = format!("{}_NVW_{}", site_id, date_str);
-            let url = format!("https://{}.s3.amazonaws.com/?list-type=2&prefix={}", bucket, prefix);
-            
+            let url = format!(
+                "https://{}.s3.amazonaws.com/?list-type=2&prefix={}",
+                bucket, prefix
+            );
+
             if let Ok(resp) = S3_CLIENT.get(&url).send() {
                 if let Ok(text) = resp.text() {
                     if let Ok(root) = text.parse::<minidom::Element>() {
                         let mut latest_key = None;
                         for child in root.children() {
                             if child.name() == "Contents" {
-                                if let Some(key_elem) = child.get_child("Key", child.ns().as_str()) {
+                                if let Some(key_elem) = child.get_child("Key", child.ns().as_str())
+                                {
                                     let key = key_elem.text();
                                     if key.starts_with(&format!("{}_NVW", site_id)) {
                                         latest_key = Some(key);
@@ -2104,7 +2112,7 @@ fn fetch_s3_vad_fast<'py>(py: Python<'py>, rid: &str) -> PyResult<Option<pyo3::P
                                 }
                             }
                         }
-                        
+
                         if let Some(key) = latest_key {
                             let obj_url = format!("https://{}.s3.amazonaws.com/{}", bucket, key);
                             if let Ok(mut obj_resp) = S3_CLIENT.get(&obj_url).send() {
