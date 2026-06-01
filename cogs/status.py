@@ -247,7 +247,7 @@ class StatusView(discord.ui.View):
             return status_text
         except Exception as e:
             logger.debug(f"Could not fetch cluster status: {e}")
-            return f"*(Redis unavailable)*"
+            return "*(Redis unavailable)*"
 
     async def build_embeds(self) -> list:
         now = datetime.now(timezone.utc)
@@ -434,7 +434,7 @@ class StatusView(discord.ui.View):
             )
             warn_line = f"**Active Warnings:** `{warn_total}` — {warn_detail}"
         else:
-            warn_line = f"**Active Warnings:** `0`"
+            warn_line = "**Active Warnings:** `0`"
         env_val += (
             f"**Active MDs:** `{len(self.bot.state.active_mds)}`\n"
             f"**Active Watches:** `{len(self.bot.state.active_watches)}`\n" + warn_line
