@@ -1100,6 +1100,7 @@ class StatusCog(commands.Cog):
             discord.app_commands.Choice(name="Day 4-8", value="48"),
         ],
         product=[
+            discord.app_commands.Choice(name="All (Cat + Hazards)", value="all"),
             discord.app_commands.Choice(name="Categorical", value="categorical"),
             discord.app_commands.Choice(name="Tornado", value="tornado"),
             discord.app_commands.Choice(name="Hail", value="hail"),
@@ -1115,103 +1116,109 @@ class StatusCog(commands.Cog):
         await interaction.response.defer()
         try:
             day_num = int(day)
-            latest_path, previous_path, status_msg = await get_comparison_pair(day_num, product)
 
-            # Fallback: if no archived versions, fetch latest from API
-            if latest_path is None:
-                logger.info(f"/compare fallback: fetching {product} for day{day_num} from API")
-                try:
-                    if day_num == 48:
-                        urls = SPC_URLS.get("48", [])
-                    else:
-                        urls = await get_spc_urls(day_num)
-
-                    # Filter to requested product
-                    product_url = None
-                    for url in urls:
-                        url_lower = url.lower()
-                        if product == "categorical":
-                            if f"day{day_num}otlk" in url_lower or f"day{day_num}prob" in url_lower:
-                                if (
-                                    "_torn" not in url_lower
-                                    and "_wind" not in url_lower
-                                    and "_hail" not in url_lower
-                                ):
-                                    product_url = url
-                                    break
-                        elif product == "tornado" and "_torn" in url_lower:
-                            product_url = url
-                            break
-                        elif product == "wind" and "_wind" in url_lower:
-                            product_url = url
-                            break
-                        elif product == "hail" and "_hail" in url_lower:
-                            product_url = url
-                            break
-
-                    if not product_url:
-                        await interaction.followup.send(
-                            f"❌ Could not find {product} product for day {day}",
-                            ephemeral=True,
-                        )
-                        return
-
-                    # Download the latest
-                    latest_path, _, _ = await download_single_image(
-                        product_url, MANUAL_CACHE_FILE, self.bot.state.manual_cache
-                    )
-                    if not latest_path:
-                        await interaction.followup.send(
-                            f"❌ Failed to fetch latest {product} from API",
-                            ephemeral=True,
-                        )
-                        return
-                except Exception as e:
-                    logger.exception(f"Fallback fetch failed for {product}/day{day_num}: {e}")
+            # Handle "all" product type
+            if product == "all":
+                if day_num == 48:
                     await interaction.followup.send(
-                        f"❌ Failed to fetch {product}: {e}",
-                        ephemeral=True,
+                        "Day 4-8 does not have hazard breakdowns.", ephemeral=True
                     )
                     return
+                products_to_fetch = ["categorical", "tornado", "wind", "hail"]
+            else:
+                products_to_fetch = [product]
 
-            # Build embed with comparison
+            # Fetch all requested products
+            all_files = []
+            for prod in products_to_fetch:
+                latest_path, previous_path, status_msg = await get_comparison_pair(day_num, prod)
+
+                # Fallback: if no archived versions, fetch latest from API
+                if latest_path is None:
+                    logger.info(f"/compare fallback: fetching {prod} for day{day_num} from API")
+                    try:
+                        if day_num == 48:
+                            urls = SPC_URLS.get("48", [])
+                        else:
+                            urls = await get_spc_urls(day_num)
+
+                        # Filter to requested product
+                        product_url = None
+                        for url in urls:
+                            url_lower = url.lower()
+                            if prod == "categorical":
+                                if (
+                                    f"day{day_num}otlk" in url_lower
+                                    or f"day{day_num}prob" in url_lower
+                                ):
+                                    if (
+                                        "_torn" not in url_lower
+                                        and "_wind" not in url_lower
+                                        and "_hail" not in url_lower
+                                    ):
+                                        product_url = url
+                                        break
+                            elif prod == "tornado" and "_torn" in url_lower:
+                                product_url = url
+                                break
+                            elif prod == "wind" and "_wind" in url_lower:
+                                product_url = url
+                                break
+                            elif prod == "hail" and "_hail" in url_lower:
+                                product_url = url
+                                break
+
+                        if not product_url:
+                            continue  # Skip this product for "all" mode
+
+                        # Download the latest
+                        latest_path, _, _ = await download_single_image(
+                            product_url, MANUAL_CACHE_FILE, self.bot.state.manual_cache
+                        )
+                        if latest_path:
+                            all_files.append((prod, latest_path, previous_path))
+                    except Exception as e:
+                        logger.debug(f"Fallback fetch failed for {prod}/day{day_num}: {e}")
+                        continue
+                else:
+                    # Found in archive
+                    all_files.append((prod, latest_path, previous_path))
+
+            # Build response
             day_label = f"Day {day}" if day != "48" else "Day 4-8"
-            product_label = product.capitalize()
-            title = f"{day_label} {product_label} Comparison"
+            if product == "all":
+                title = f"{day_label} All Products Comparison"
+            else:
+                title = f"{day_label} {product.capitalize()} Comparison"
 
-            embed = discord.Embed(
-                title=title,
-                color=discord.Color.blue(),
-            )
+            if not all_files:
+                await interaction.followup.send(
+                    "❌ Could not load any comparison images",
+                    ephemeral=True,
+                )
+                return
 
+            # Send files for each product
             files = []
-            latest_added = False
-            previous_added = False
-
-            if latest_path:
-                try:
-                    files.append(discord.File(latest_path, filename="latest.png"))
-                    latest_added = True
-                except Exception as e:
-                    logger.warning(f"Failed to create File for latest: {e}")
-
-            if previous_path:
-                try:
-                    files.append(discord.File(previous_path, filename="previous.png"))
-                    previous_added = True
-                except Exception as e:
-                    logger.warning(f"Failed to create File for previous: {e}")
-
-            if latest_added and previous_added:
-                embed.description = "**Latest** (top) vs **Previous** (below)"
-                embed.set_image(url="attachment://latest.png")
-                embed.set_thumbnail(url="attachment://previous.png")
-            elif latest_added:
-                embed.description = "Only latest available — no prior version to compare"
-                embed.set_image(url="attachment://latest.png")
+            for idx, (prod, latest_path, previous_path) in enumerate(all_files):
+                if latest_path:
+                    try:
+                        fname = f"{prod}_latest.png"
+                        files.append(discord.File(latest_path, filename=fname))
+                    except Exception as e:
+                        logger.warning(f"Failed to create File: {e}")
 
             if files:
-                await interaction.followup.send(embed=embed, files=files)
+                embed = discord.Embed(
+                    title=title,
+                    color=discord.Color.blue(),
+                )
+                if product == "all":
+                    embed.description = f"**Latest** — {len(all_files)} products"
+                else:
+                    embed.description = "Only latest available — no prior version to compare"
+
+                await interaction.followup.send(embed=embed, files=files[:10])
             else:
                 await interaction.followup.send(
                     "❌ Could not load comparison images",

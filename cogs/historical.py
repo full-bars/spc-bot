@@ -109,6 +109,12 @@ async def _fetch_and_send(
         return
 
     # Day/product validation
+    if product == "all" and day not in (1, 2):
+        await interaction.followup.send(
+            "'All' only available for Day 1 and Day 2 (Day 3 has no hazard breakdown).",
+            ephemeral=True,
+        )
+        return
     if product in ("tornado", "wind", "hail") and day not in (1, 2):
         await interaction.followup.send(
             "Tornado/wind/hail products only available for Day 1 and Day 2.",
@@ -119,27 +125,46 @@ async def _fetch_and_send(
     yyyymmdd = dt.strftime("%Y%m%d")
     year = dt.year
 
-    # Try the requested time
-    urls_to_try = []
-    if hhmm:
-        urls_to_try = [_build_url(year, yyyymmdd, day, product, hhmm)]
+    # Handle "all" product type
+    if product == "all":
+        products_to_fetch = ["categorical", "tornado", "wind", "hail"]
     else:
-        # Default: try canonical times
-        for t in ISSUANCE_TIMES[day]:
-            urls_to_try.append(_build_url(year, yyyymmdd, day, product, t))
+        products_to_fetch = [product]
 
-    # Attempt fetches
+    # Collect all products
     found = []
-    for url in urls_to_try:
-        content, status, _ = await http_get_bytes_conditional(url, retries=1)
-        if status == 200 and content:
-            found.append((url, content))
-            if hhmm:
-                break  # specific time requested — stop at first hit
+    for prod in products_to_fetch:
+        # Try the requested time
+        urls_to_try = []
+        if hhmm:
+            try:
+                urls_to_try = [_build_url(year, yyyymmdd, day, prod, hhmm)]
+            except ValueError:
+                continue  # Skip invalid product combos in "all" mode
+        else:
+            # Default: try canonical times
+            for t in ISSUANCE_TIMES[day]:
+                try:
+                    urls_to_try.append(_build_url(year, yyyymmdd, day, prod, t))
+                except ValueError:
+                    continue
+
+        # Attempt fetches
+        for url in urls_to_try:
+            content, status, _ = await http_get_bytes_conditional(url, retries=1)
+            if status == 200 and content:
+                found.append((url, content))
+                if hhmm:
+                    break  # specific time requested — stop at first hit
 
     if not found:
-        # Requested time not found — discover available and prompt
-        if hhmm:
+        if product == "all":
+            await interaction.followup.send(
+                f"No products found for **{date_str}** Day {day}.",
+                ephemeral=True,
+            )
+        elif hhmm:
+            # Requested time not found — discover available and prompt
             logger.info(f"Requested time {hhmm} not found for {date_str} Day {day} {product}")
             available = await _discover_available_times(yyyymmdd, day, product)
 
@@ -173,7 +198,7 @@ async def _fetch_and_send(
                 f"No Day {day} {product} outlook found for **{date_str}**.",
                 ephemeral=True,
             )
-            return
+        return
 
     # Send response
     files = []
@@ -186,8 +211,12 @@ async def _fetch_and_send(
 
     if files:
         label = f"{hhmm[0:2]}:{hhmm[2:]}z" if hhmm else "latest"
+        if product == "all":
+            title = f"**SPC Day {day} All Products — {date_str} {label}**"
+        else:
+            title = f"**SPC Day {day} {product.capitalize()} Outlook — {date_str} {label}**"
         await interaction.followup.send(
-            f"**SPC Day {day} {product.capitalize()} Outlook — {date_str} {label}**",
+            title,
             files=files,
         )
     else:
@@ -218,6 +247,7 @@ class HistoricalCog(commands.Cog):
             discord.app_commands.Choice(name="Day 3", value=3),
         ],
         product=[
+            discord.app_commands.Choice(name="All (Cat + Hazards)", value="all"),
             discord.app_commands.Choice(name="Categorical", value="categorical"),
             discord.app_commands.Choice(name="Tornado", value="tornado"),
             discord.app_commands.Choice(name="Wind", value="wind"),
