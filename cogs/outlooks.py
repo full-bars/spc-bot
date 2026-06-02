@@ -12,10 +12,26 @@ from utils.cache import (
     check_partial_updates_parallel,
     save_downloaded_images,
 )
+from utils.compare_utils import archive_outlook_version
 from utils.spc_urls import get_spc_urls
 from utils.state_store import set_posted_urls
 
 logger = logging.getLogger("spc_bot.outlooks")
+
+
+def _extract_product_from_url(url: str, day: int) -> str:
+    """Extract product type from URL. Returns 'categorical', 'tornado', 'wind', 'hail', or 'other'."""
+    lower = url.lower()
+    if f"day{day}probotlk" in lower:
+        if "_torn" in lower:
+            return "tornado"
+        elif "_wind" in lower:
+            return "wind"
+        elif "_hail" in lower:
+            return "hail"
+    if f"day{day}otlk" in lower or f"day{day}prob" in lower:
+        return "categorical"
+    return "other"
 
 
 async def check_and_post_day(channel: discord.TextChannel, day: int, state):
@@ -132,6 +148,15 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
                 state.last_posted_urls[day_key] = urls
                 await set_posted_urls(day_key, urls)
                 logger.info(f"[Day {day}] Posted {len(files)} images. URLs: {urls}")
+
+                # Archive versions for /compare command
+                for url, (content, _) in downloaded_data.items():
+                    if content:
+                        product = _extract_product_from_url(url, day)
+                        try:
+                            await archive_outlook_version(day, product, content)
+                        except Exception as e:
+                            logger.debug(f"Failed to archive {product} for day{day}: {e}")
             except Exception as e:
                 logger.exception(f"Failed to send post for Day {day}: {e}")
     finally:
