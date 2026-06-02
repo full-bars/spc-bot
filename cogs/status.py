@@ -24,6 +24,7 @@ from utils.cache import (
     download_single_image,
     format_timedelta,
 )
+from utils.compare_utils import get_comparison_pair
 from utils.db import get_write_failure_count
 from utils.discord_gateway import update_gateway_info
 from utils.spc_outlook import get_current_risk_display, get_high_risk_polygon, peek_active_labels
@@ -1082,6 +1083,96 @@ class StatusCog(commands.Cog):
         msg = await interaction.followup.send(content=content, view=view, ephemeral=True, wait=True)
         view.message = msg
         asyncio.create_task(view.start_auto_update())
+
+    @discord.app_commands.command(
+        name="compare",
+        description="Compare latest outlook with previous version (side-by-side)",
+    )
+    @discord.app_commands.describe(
+        day="Which day product to compare (day1, day2, day3, day48)",
+        product="Which product to compare (categorical, tornado, hail, wind)",
+    )
+    @discord.app_commands.choices(
+        day=[
+            discord.app_commands.Choice(name="Day 1", value="1"),
+            discord.app_commands.Choice(name="Day 2", value="2"),
+            discord.app_commands.Choice(name="Day 3", value="3"),
+            discord.app_commands.Choice(name="Day 4-8", value="48"),
+        ],
+        product=[
+            discord.app_commands.Choice(name="Categorical", value="categorical"),
+            discord.app_commands.Choice(name="Tornado", value="tornado"),
+            discord.app_commands.Choice(name="Hail", value="hail"),
+            discord.app_commands.Choice(name="Wind", value="wind"),
+        ],
+    )
+    async def compare_slash(
+        self,
+        interaction: discord.Interaction,
+        day: str,
+        product: str,
+    ):
+        await interaction.response.defer()
+        try:
+            day_num = int(day)
+            latest_path, previous_path, status_msg = await get_comparison_pair(day_num, product)
+
+            if latest_path is None:
+                await interaction.followup.send(
+                    f"❌ {status_msg}",
+                    ephemeral=True,
+                )
+                return
+
+            # Build embed with comparison
+            day_label = f"Day {day}" if day != "48" else "Day 4-8"
+            product_label = product.capitalize()
+            title = f"{day_label} {product_label} Comparison"
+
+            embed = discord.Embed(
+                title=title,
+                color=discord.Color.blue(),
+            )
+
+            files = []
+            latest_added = False
+            previous_added = False
+
+            if latest_path:
+                try:
+                    files.append(discord.File(latest_path, filename="latest.png"))
+                    latest_added = True
+                except Exception as e:
+                    logger.warning(f"Failed to create File for latest: {e}")
+
+            if previous_path:
+                try:
+                    files.append(discord.File(previous_path, filename="previous.png"))
+                    previous_added = True
+                except Exception as e:
+                    logger.warning(f"Failed to create File for previous: {e}")
+
+            if latest_added and previous_added:
+                embed.description = "**Latest** (top) vs **Previous** (below)"
+                embed.set_image(url="attachment://latest.png")
+                embed.set_thumbnail(url="attachment://previous.png")
+            elif latest_added:
+                embed.description = "Only latest available — no prior version to compare"
+                embed.set_image(url="attachment://latest.png")
+
+            if files:
+                await interaction.followup.send(embed=embed, files=files)
+            else:
+                await interaction.followup.send(
+                    "❌ Could not load comparison images",
+                    ephemeral=True,
+                )
+        except Exception as e:
+            logger.exception(f"Error in /compare: {e}")
+            await interaction.followup.send(
+                f"❌ Failed to fetch comparison: {e}",
+                ephemeral=True,
+            )
 
     # ── Error Handling ───────────────────────────────────────────────────
 
