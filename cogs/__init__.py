@@ -14,6 +14,7 @@ ALL_EXTENSIONS = [
     "cogs.ncar",
     "cogs.sounding",
     "cogs.hodograph",
+    "cogs.historical",
     "cogs.maintenance",
     "cogs.analytics",
     "cogs.recorder",
