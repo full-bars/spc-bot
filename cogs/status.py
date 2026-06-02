@@ -1117,12 +1117,62 @@ class StatusCog(commands.Cog):
             day_num = int(day)
             latest_path, previous_path, status_msg = await get_comparison_pair(day_num, product)
 
+            # Fallback: if no archived versions, fetch latest from API
             if latest_path is None:
-                await interaction.followup.send(
-                    f"❌ {status_msg}",
-                    ephemeral=True,
-                )
-                return
+                logger.info(f"/compare fallback: fetching {product} for day{day_num} from API")
+                try:
+                    if day_num == 48:
+                        urls = SPC_URLS.get("48", [])
+                    else:
+                        urls = await get_spc_urls(day_num)
+
+                    # Filter to requested product
+                    product_url = None
+                    for url in urls:
+                        url_lower = url.lower()
+                        if product == "categorical":
+                            if f"day{day_num}otlk" in url_lower or f"day{day_num}prob" in url_lower:
+                                if (
+                                    "_torn" not in url_lower
+                                    and "_wind" not in url_lower
+                                    and "_hail" not in url_lower
+                                ):
+                                    product_url = url
+                                    break
+                        elif product == "tornado" and "_torn" in url_lower:
+                            product_url = url
+                            break
+                        elif product == "wind" and "_wind" in url_lower:
+                            product_url = url
+                            break
+                        elif product == "hail" and "_hail" in url_lower:
+                            product_url = url
+                            break
+
+                    if not product_url:
+                        await interaction.followup.send(
+                            f"❌ Could not find {product} product for day {day}",
+                            ephemeral=True,
+                        )
+                        return
+
+                    # Download the latest
+                    latest_path, _, _ = await download_single_image(
+                        product_url, MANUAL_CACHE_FILE, self.bot.state.manual_cache
+                    )
+                    if not latest_path:
+                        await interaction.followup.send(
+                            f"❌ Failed to fetch latest {product} from API",
+                            ephemeral=True,
+                        )
+                        return
+                except Exception as e:
+                    logger.exception(f"Fallback fetch failed for {product}/day{day_num}: {e}")
+                    await interaction.followup.send(
+                        f"❌ Failed to fetch {product}: {e}",
+                        ephemeral=True,
+                    )
+                    return
 
             # Build embed with comparison
             day_label = f"Day {day}" if day != "48" else "Day 4-8"
