@@ -198,7 +198,7 @@ async def _fetch_and_send(
                 f"No Day {day} {product} outlook found for **{date_str}**.",
                 ephemeral=True,
             )
-        return
+            return
 
     # Send response
     files = []
