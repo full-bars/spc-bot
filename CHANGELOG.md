@@ -4,18 +4,29 @@ All notable changes to this project will be documented in this file. Format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 version numbers follow [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [5.35.0] — 2026-06-04
+
+### Added
+- **`/compare` Command.** Compare any two SPC convective outlooks (categorical or individual hazard probabilities) side-by-side or calculate differences. Supports Day 1, Day 2, Day 3, and Day 4-8 outlooks, featuring an API fallback for real-time products when no archived version exists, and support for the `'all'` product option. (#490)
+- **`/historical` Command.** Retrieve historical convective outlook images (categorical and hazards) from the SPC archive (2004–present). Allows selecting specific issuance times dynamically from a dropdown menu if the requested time is unavailable, and supports the `'all'` product option to fetch all hazards in one command. (#491)
+- **Rust VAD S3 Fetcher.** Added a high-performance Rust-based VAD (Velocity Azimuth Display) S3 fetcher in `spc_rust_core` using the `reqwest` library. Acts as a fast-path fallback for real-time radar data, bypassing Python's `aioboto3` overhead and reducing S3 fetch latency from ~742ms to ~260ms. (#487)
 
 ### Performance
-- **Read connection pooling for events database.** Implemented a read-only connection pool (size 5) for `utils/events_db.py`, allowing concurrent slash command reads without blocking background writes.
-- **Expanded sounding worker pool.** Increased the sounding plot worker pool size from 3 to 4 to improve throughput and reduce queue times during high-risk weather events.
+- **Read connection pooling for events database.** Implemented a read-only connection pool (size 5) for `utils/events_db.py`, allowing concurrent slash command reads without blocking background writes. (#484)
+- **Expanded sounding worker pool.** Increased the sounding plot worker pool size from 3 to 4 to improve throughput and reduce queue times during high-risk weather events. (#484)
 
 ### Fixed
+- **NWWS Backend Conflict on Promotion.** Resolved a dual NWWS backend conflict in `FailoverCog` promotion logic by prioritizing the Rust NWWS backend and explicitly cancelling the legacy Python loop if Rust is active, preventing redundant XMPP connections. (#485)
+- **VAD Reliability & Decompression.** Enhanced VAD S3 fallback reliability, added Gzip/Zlib decompression for radar products (supporting Gzip `1f8b`, default Zlib `789c`, and level-9 Zlib `78da`), resolved a double-slash bug in the TGFTP URL fallback path, and expanded the S3 search window to 3 days for radar wind profiles. (#486)
+- **`/logs` Virtual Console Enhancements.** Implemented live log tailing with real-time websocket/refresh loops, a functional stop button interface, content hashing rather than line indices to accurately track updates, and immediate display of recent logs upon invocation rather than waiting for new entries. (#480, #481, #482, #483)
 - **`/fronts` discovery timeout and stale Discord images.** WPC surface fronts discovery now applies a 15s per-request HEAD timeout while scanning the 3-hourly analysis cycles, and improved logging makes cycle selection observable. Embeds append a `Last-Modified`-derived cache-busting query parameter (`?t=<epoch>`) so Discord refetches the current analysis instead of serving a stale cached image. (#477)
-- **`/logs` command failing with a generic error.** The owner-only live console viewer could build a message exceeding Discord's 2000-character limit, causing the send to fail and surface "⚠️ An unexpected error occurred." Output is now truncated to fit within the limit. (#478)
+- **`/logs` message size limit.** The owner-only live console viewer could build a message exceeding Discord's 2000-character limit, causing the send to fail and surface "⚠️ An unexpected error occurred." Output is now truncated to fit within the limit. (#478)
 
 ### Documentation
-- **Backfilled slash-command documentation.** A coverage audit found commands defined in code but missing from user-facing docs. Added `/fronts` (shipped in 5.34.7) and `/wxsummary` (Project WxEye briefing) across the `/help` embed, README, CONTRIBUTING, and the GitHub Wiki. The `/help` embed also gained the previously-omitted `/archive`, `/ww`, `/downloaderstatus`, and the warning-routing commands (`/enablewarnings`, `/disablewarnings`, `/displaysetup`).
+- **Backfilled slash-command documentation.** A coverage audit found commands defined in code but missing from user-facing docs. Added `/fronts` (shipped in 5.34.7) and `/wxsummary` (Project WxEye briefing) across the `/help` embed, README, CONTRIBUTING, and the GitHub Wiki. The `/help` embed also gained the previously-omitted `/archive`, `/ww`, `/downloaderstatus`, and the warning-routing commands (`/enablewarnings`, `/disablewarnings`, `/displaysetup`). (#479)
+
+## [Unreleased]
+
 
 ## [5.34.7] — 2026-05-26
 

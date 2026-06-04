@@ -37,6 +37,8 @@ or inline where invoked, not into the configured channels.
 | `/spc2` | Fetch and display the latest SPC Day 2 outlook graphics. Optional `fresh:True` bypasses cache. |
 | `/spc3` | Fetch and display the latest SPC Day 3 outlook graphics. Optional `fresh:True` bypasses cache. |
 | `/spc48` | Fetch and display the latest SPC Day 4–8 outlook graphics |
+| `/compare` | Compare the latest outlook with the previous version side-by-side or calculate differences. Parameters: `day` (Day 1, Day 2, Day 3, Day 4-8) and `product` (All, Categorical, Tornado, Hail, Wind). |
+| `/historical` | Retrieve historical SPC convective outlook graphics from the archive (2004–present). Parameters: `date` (YYYY-MM-DD), `day` (Day 1, Day 2, Day 3), `product` (All, Categorical, Tornado, Wind, Hail), and optional `time` (issuance time). |
 
 ### Watches, Warnings & Mesoscale Discussions
 | Command | Description |
