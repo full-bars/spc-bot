@@ -14,6 +14,8 @@ SPCBot uses Discord Slash Commands for all user interactions. Commands are organ
 | `/spc2` | Get latest Day 2 Convective Outlook images. | `fresh`: Bypass cache |
 | `/spc3` | Get latest Day 3 Convective Outlook images. | `fresh`: Bypass cache |
 | `/spc48` | Get Day 4-8 Convective Probability images. | None |
+| `/compare` | Compare the latest outlook with the previous version side-by-side or calculate differences. | `day`: Day 1, Day 2, Day 3, Day 4-8; `product`: All, Categorical, Tornado, Hail, Wind |
+| `/historical` | Retrieve historical SPC convective outlook graphics from the archive (2004–present). | `date`: YYYY-MM-DD; `day`: Day 1, Day 2, Day 3; `product`: All, Categorical, Tornado, Wind, Hail; `time` (optional): issuance time |
 | `/md` | Show a paginated view of all active Mesoscale Discussions. | None |
 
 ## 🚨 Watches & Tornadoes
