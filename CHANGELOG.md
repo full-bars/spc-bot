@@ -10,6 +10,7 @@ version numbers follow [SemVer](https://semver.org/).
 - **`/compare` Command.** Compare any two SPC convective outlooks (categorical or individual hazard probabilities) side-by-side or calculate differences. Supports Day 1, Day 2, Day 3, and Day 4-8 outlooks, featuring an API fallback for real-time products when no archived version exists, and support for the `'all'` product option. (#490)
 - **`/historical` Command.** Retrieve historical convective outlook images (categorical and hazards) from the SPC archive (2004–present). Allows selecting specific issuance times dynamically from a dropdown menu if the requested time is unavailable, and supports the `'all'` product option to fetch all hazards in one command. (#491)
 - **Rust VAD S3 Fetcher.** Added a high-performance Rust-based VAD (Velocity Azimuth Display) S3 fetcher in `spc_rust_core` using the `reqwest` library. Acts as a fast-path fallback for real-time radar data, bypassing Python's `aioboto3` overhead and reducing S3 fetch latency from ~742ms to ~260ms. (#487)
+- **SURVEYS_CHANNEL_ID Configuration.** Added dedicated channel routing for Damage Survey PNS (tornado rating) posts and DAT toolkit plots via a new `SURVEYS_CHANNEL_ID` environment variable.
 
 ### Performance
 - **Read connection pooling for events database.** Implemented a read-only connection pool (size 5) for `utils/events_db.py`, allowing concurrent slash command reads without blocking background writes. (#484)

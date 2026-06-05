@@ -14,11 +14,12 @@ The following variables are required or optional in `.env`:
 | `GUILD_ID` | The Discord Server (Guild) ID where the bot should register its commands. |
 | `SPC_CHANNEL_ID` | Receives all severe weather alerts — SPC outlooks (Days 1–3), Day 4–8 outlooks, mesoscale discussions, watch alerts and cancellations, and bot health alerts from the watchdog |
 | `MODELS_CHANNEL_ID` | Receives model/forecast graphics — SCP twice-daily posts, CSU-MLP daily forecasts, and NCAR WxNext2 daily forecasts |
-| `WARNINGS_CHANNEL_ID` | (Optional) Receives real-time NWS warning embeds (TOR, SVR, FFW, SPS) and damage survey posts. Defaults to `SPC_CHANNEL_ID` if not set. Overridden by per-type channels if set. |
+| `WARNINGS_CHANNEL_ID` | (Optional) Receives real-time NWS warning embeds (TOR, SVR, FFW, SPS) and local storm reports. Defaults to `SPC_CHANNEL_ID` if not set. Overridden by per-type channels if set. |
 | `TOR_CHANNEL_ID` | (Optional) Tornado warning posts. Defaults to `WARNINGS_CHANNEL_ID` if not set. Configurable at runtime via `/enablewarnings`. |
 | `SVR_CHANNEL_ID` | (Optional) Severe thunderstorm warning posts. Defaults to `WARNINGS_CHANNEL_ID` if not set. Configurable at runtime via `/enablewarnings`. |
 | `FFW_CHANNEL_ID` | (Optional) Flash flood warning posts. Defaults to `WARNINGS_CHANNEL_ID` if not set. Configurable at runtime via `/enablewarnings`. |
 | `SPS_CHANNEL_ID` | (Optional) Special weather statement posts. Defaults to `WARNINGS_CHANNEL_ID` if not set. Configurable at runtime via `/enablewarnings`. |
+| `SURVEYS_CHANNEL_ID` | (Optional) Damage survey and DAT posts (tornado ratings). Defaults to `WARNINGS_CHANNEL_ID` if not set. |
 | `SOUNDING_CHANNEL_ID` | (Optional) Receives auto-posted sounding plots near active watches. Defaults to `SPC_CHANNEL_ID` if not set. |
 | `HEALTH_CHANNEL_ID` | (Optional) Receives bot health alerts (watchdog degraded, task failures). Defaults to `SPC_CHANNEL_ID` if not set. |
 | `DEV_CHANNEL_ID` | (Optional) Receives watchdog probe-degradation alerts (2/3 warning and session-reset confirmation). Defaults to `HEALTH_CHANNEL_ID` if not set. |

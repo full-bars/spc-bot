@@ -35,6 +35,7 @@ Warning products can be routed to dedicated Discord channels based on event type
 | `SVR_CHANNEL_ID` | Severe Thunderstorm Warnings |
 | `FFW_CHANNEL_ID` | Flash Flood Warnings |
 | `SPS_CHANNEL_ID` | Special Weather Statements |
+| `SURVEYS_CHANNEL_ID` | Damage Survey PNS and DAT toolkit plots |
 
 ### Routing Fallback Chain
 

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import discord
 from discord.ext import commands, tasks
 
-from config import WARNINGS_CHANNEL_ID
+from config import WARNINGS_CHANNEL_ID, SURVEYS_CHANNEL_ID
 from utils.http import http_get_bytes
 from utils.state_store import (
     add_significant_event,
@@ -259,7 +259,7 @@ class ReportsCog(commands.Cog):
         if "DAMAGE SURVEY" not in raw_text.upper():
             return
 
-        channel = self.bot.get_channel(WARNINGS_CHANNEL_ID)
+        channel = self.bot.get_channel(SURVEYS_CHANNEL_ID)
         if not channel:
             return
 
@@ -446,7 +446,7 @@ class ReportsCog(commands.Cog):
             if not options:
                 return
 
-            channel = self.bot.get_channel(WARNINGS_CHANNEL_ID)
+            channel = self.bot.get_channel(SURVEYS_CHANNEL_ID)
             if not channel:
                 return
 
