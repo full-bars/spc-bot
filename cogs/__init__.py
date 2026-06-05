@@ -20,4 +20,5 @@ ALL_EXTENSIONS = [
     "cogs.recorder",
     "cogs.warning_channels",
     "cogs.wxsummary",
+    "cogs.ai_summaries",
 ]

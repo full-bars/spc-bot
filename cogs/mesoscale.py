@@ -20,8 +20,39 @@ from utils.cache import (
 from utils.change_detection import get_cache_path_for_url
 from utils.http import http_get_bytes, http_get_text, http_head_meta
 from utils.state_store import get_state, set_state
+from utils.ai import summarize_md
 
 logger = logging.getLogger("spc_bot.mesoscale")
+
+_MD_SUMMARY_CACHE = {}
+
+
+class MDSummaryView(discord.ui.View):
+    def __init__(self, md_num: str, raw_text: str):
+        super().__init__(timeout=None)
+        self.md_num = md_num
+        self.raw_text = raw_text
+
+    @discord.ui.button(label="🪄 TL;DR", style=discord.ButtonStyle.secondary)
+    async def get_tldr(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(thinking=True)
+        if self.md_num in _MD_SUMMARY_CACHE:
+            summary = _MD_SUMMARY_CACHE[self.md_num]
+        else:
+            summary = await summarize_md(self.raw_text)
+            if summary:
+                _MD_SUMMARY_CACHE[self.md_num] = summary
+
+        if not summary:
+            await interaction.followup.send("Failed to generate AI summary.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title=f"🪄 AI Summary (MD #{self.md_num})",
+            description=summary,
+            color=discord.Color.purple(),
+        )
+        await interaction.followup.send(embed=embed)
 
 
 def _log_task_exception(task: asyncio.Task) -> None:
@@ -588,7 +619,8 @@ class MesoscaleCog(commands.Cog):
             )
             text_embed.set_footer(text="SPC MD Monitor")
             try:
-                await message.edit(embeds=[img_embed, text_embed], attachments=files)
+                view = MDSummaryView(md_num=str(md_num), raw_text=full_text or "")
+                await message.edit(embeds=[img_embed, text_embed], attachments=files, view=view)
                 return True
             except Exception:
                 return False
@@ -666,7 +698,8 @@ class MesoscaleCog(commands.Cog):
         )
         text_embed.set_footer(text="SPC MD Monitor")
         try:
-            msg = await channel.send(embeds=[img_embed, text_embed], files=files)
+            view = MDSummaryView(md_num=str(md_num), raw_text=raw_text or "")
+            msg = await channel.send(embeds=[img_embed, text_embed], files=files, view=view)
             self.bot.state.posted_mds.add(md_num)
             self.bot.state.active_mds.add(md_num)
             await self.bot.state.add_posted_md(str(md_num))
@@ -805,7 +838,8 @@ class MesoscaleCog(commands.Cog):
                 )
                 text_embed.set_footer(text="SPC MD Monitor")
                 try:
-                    msg = await channel.send(embeds=[img_embed, text_embed], files=files)
+                    view = MDSummaryView(md_num=str(md_num), raw_text=raw_text or "")
+                    msg = await channel.send(embeds=[img_embed, text_embed], files=files, view=view)
                     if not cache_path or not full_text:
                         t = asyncio.create_task(self._upgrade_md_message(md_num, msg, full_text))
                         self._pending_tasks.add(t)

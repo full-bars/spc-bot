@@ -389,3 +389,44 @@ async def http_get_json(
             circuit_breaker.record_failure(host)
         logger.warning(f"JSON fetch error for {url}: {type(e).__name__}: {e}")
         return None
+
+
+async def http_post_json(
+    url: str, json_data: dict, retries: int = 1, timeout: int = TIMEOUT_STANDARD
+) -> Optional[dict]:
+    """POST JSON to a URL with retries and circuit breaker."""
+    parsed = urlparse(url)
+    host = parsed.netloc
+    if circuit_breaker.is_open(host):
+        return None
+
+    retry_decorator = _get_retry_decorator(retries + 1)
+
+    async def _do_request():
+        session = await ensure_session()
+        async with session.post(
+            url, json=json_data, timeout=aiohttp.ClientTimeout(total=timeout)
+        ) as r:
+            if r.status in (429, 500, 502, 503, 504):
+                raise aiohttp.ClientResponseError(
+                    r.request_info,
+                    r.history,
+                    status=r.status,
+                    message="Server returned retryable error",
+                )
+            if r.status != 200:
+                text = await r.text()
+                logger.warning(f"JSON POST failed for {url}: {r.status} {text}")
+                circuit_breaker.record_failure(host)
+                return None
+            circuit_breaker.record_success(host)
+            return await r.json()
+
+    try:
+        return await retry_decorator(_do_request)()
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        status = getattr(e, "status", None)
+        if status is None or status >= 500 or status == 429:
+            circuit_breaker.record_failure(host)
+        logger.warning(f"JSON POST error for {url}: {type(e).__name__}: {e}")
+        return None
