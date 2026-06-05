@@ -1,8 +1,18 @@
 # Changelog
 
-All notable changes to this project will be documented in this file. Format
-loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
-version numbers follow [SemVer](https://semver.org/).
+All notable changes to this project will be documented in this file.
+
+## [5.36.0] - 2026-06-05
+
+### Added
+- **AI Integration:** Added custom async REST client (`utils/ai.py`) for interacting directly with the Gemini API.
+- **Interactive Outlooks:** Added an "🪄 AI Analysis" button to Day 1, 2, 3, and 4-8 Convective Outlook embeds for structured AI summaries.
+- **Interactive MDs:** Added a "🪄 TL;DR" button to Mesoscale Discussions for quick, on-demand AI summaries.
+- **Slash Commands:** Added `/dailybriefing` command to generate an AI briefing combining the Day 1 Outlook and currently active watches.
+- **Survey Routing:** Added `SURVEYS_CHANNEL_ID` configuration for dedicated routing of PNS and DAT statements.
+
+### Performance
+- **AI Caching:** Implemented in-memory caching for AI-generated summaries to minimize API calls and latency on duplicate requests.
 
 ## [5.35.0] — 2026-06-04
 
