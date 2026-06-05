@@ -98,6 +98,9 @@ CONFIG = {
     "svr_channel_id": _optional_int("SVR_CHANNEL_ID", "WARNINGS_CHANNEL_ID", "SPC_CHANNEL_ID"),
     "ffw_channel_id": _optional_int("FFW_CHANNEL_ID", "WARNINGS_CHANNEL_ID", "SPC_CHANNEL_ID"),
     "sps_channel_id": _optional_int("SPS_CHANNEL_ID", "WARNINGS_CHANNEL_ID", "SPC_CHANNEL_ID"),
+    "surveys_channel_id": _optional_int(
+        "SURVEYS_CHANNEL_ID", "WARNINGS_CHANNEL_ID", "SPC_CHANNEL_ID"
+    ),
     "dev_channel_id": _optional_int("DEV_CHANNEL_ID", "HEALTH_CHANNEL_ID", "SPC_CHANNEL_ID"),
     "manual_cache_file": os.getenv("MANUAL_CACHE_FILE", "posted_records.json"),
     "auto_cache_file": os.getenv("AUTO_CACHE_FILE", "auto_posted_records.json"),
@@ -120,6 +123,7 @@ TOR_CHANNEL_ID = CONFIG["tor_channel_id"]
 SVR_CHANNEL_ID = CONFIG["svr_channel_id"]
 FFW_CHANNEL_ID = CONFIG["ffw_channel_id"]
 SPS_CHANNEL_ID = CONFIG["sps_channel_id"]
+SURVEYS_CHANNEL_ID = CONFIG["surveys_channel_id"]
 DEV_CHANNEL_ID = CONFIG["dev_channel_id"]
 MANUAL_CACHE_FILE = os.path.join(CONFIG["cache_file_dir"], CONFIG["manual_cache_file"])
 AUTO_CACHE_FILE = os.path.join(CONFIG["cache_file_dir"], CONFIG["auto_cache_file"])

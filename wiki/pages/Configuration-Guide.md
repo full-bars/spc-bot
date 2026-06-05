@@ -24,6 +24,7 @@ SPCBot is configured via a `.env` file in the project root. Below is a comprehen
 | `SVR_CHANNEL_ID` | Dedicated channel for Severe Thunderstorm Warning (SVR) posts. | `WARNINGS_CHANNEL_ID` |
 | `FFW_CHANNEL_ID` | Dedicated channel for Flash Flood Warning (FFW) posts. | `WARNINGS_CHANNEL_ID` |
 | `SPS_CHANNEL_ID` | Dedicated channel for Special Weather Statement (SPS) posts. | `WARNINGS_CHANNEL_ID` |
+| `SURVEYS_CHANNEL_ID` | Dedicated channel for Damage Survey PNS (tornado ratings) and DAT plots. | `WARNINGS_CHANNEL_ID` |
 | `HEALTH_CHANNEL_ID` | Channel for health alerts and watchdog notifications. | `SPC_CHANNEL_ID` |
 | `SOUNDING_CHANNEL_ID` | Channel for automated sounding posts. | `SPC_CHANNEL_ID` |
 | `DEV_CHANNEL_ID` | Channel for developer/admin operational alerts. | `HEALTH_CHANNEL_ID`, then `SPC_CHANNEL_ID` |
