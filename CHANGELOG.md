@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.36.1] - 2026-06-05
+
+### Fixed
+- **AI Integration:** Updated the Gemini API endpoint to use `gemini-flash-latest` as `gemini-1.5-flash` was deprecated/unavailable.
+
 ## [5.36.0] - 2026-06-05
 
 ### Added
