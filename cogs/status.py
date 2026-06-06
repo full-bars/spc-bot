@@ -33,7 +33,7 @@ from utils.spc_urls import get_spc_urls
 logger = logging.getLogger("spc_bot")
 
 
-async def send_with_handling(source, content: str, file_paths=None):
+async def send_with_handling(source, content: str, file_paths=None, view=None):
     file_paths = file_paths or []
     files = []
     for fp in file_paths:
@@ -42,10 +42,14 @@ async def send_with_handling(source, content: str, file_paths=None):
         except Exception as e:
             logger.warning(f"Could not create discord.File from {fp}: {e}")
     try:
+        kwargs = {"content": content, "files": files}
+        if view:
+            kwargs["view"] = view
+
         if hasattr(source, "response") and getattr(source, "response", None) is not None:
-            await source.followup.send(content, files=files)
+            await source.followup.send(**kwargs)
         else:
-            await source.send(content, files=files)
+            await source.send(**kwargs)
     except discord.HTTPException as e:
         if e.status == 413:
             logger.exception(f"Discord file size limit exceeded: {e}")
@@ -55,7 +59,9 @@ async def send_with_handling(source, content: str, file_paths=None):
         logger.exception(f"Unexpected error sending message: {e}")
 
 
-async def fetch_and_send_weather_images(source, urls, title: str, state, use_cached: bool = False):
+async def fetch_and_send_weather_images(
+    source, urls, title: str, state, use_cached: bool = False, view=None
+):
     if not await check_all_urls_exist_parallel(urls):
         msg = f"{title.replace('**Latest ', '').replace('**', '')} not currently available."
         try:
@@ -71,7 +77,7 @@ async def fetch_and_send_weather_images(source, urls, title: str, state, use_cac
         urls, MANUAL_CACHE_FILE, state.manual_cache, use_cached=use_cached
     )
     if files:
-        await send_with_handling(source, title, file_paths=files)
+        await send_with_handling(source, title, file_paths=files, view=view)
     else:
         msg = f"No new {title.replace('**Latest ', '').replace('**', '').lower()} available."
         try:
@@ -149,6 +155,17 @@ class MDPaginatorView(discord.ui.View):
         await interaction.response.edit_message(
             content=content, embeds=embeds, attachments=files, view=self
         )
+
+    @discord.ui.button(label="🪄 TL;DR", style=discord.ButtonStyle.primary)
+    async def tldr_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        cog = self.bot.get_cog("AI Summaries")
+        if cog:
+            md_num = self.md_data[self.index]["num"]
+            await cog._handle_md_summary(interaction, str(md_num))
+        else:
+            await interaction.response.send_message(
+                "AI features not currently available.", ephemeral=True
+            )
 
     async def on_timeout(self):
         for item in self.children:
@@ -781,33 +798,57 @@ class StatusCog(commands.Cog):
 
     @commands.command(name="spc1")
     async def spc1_prefix(self, ctx):
+        from cogs.outlooks import OutlookSummaryView
+
         urls = await get_spc_urls(1)
         await fetch_and_send_weather_images(
-            ctx, urls, "**Latest SPC Day 1 Outlooks**", self.bot.state, use_cached=True
+            ctx,
+            urls,
+            "**Latest SPC Day 1 Outlooks**",
+            self.bot.state,
+            use_cached=True,
+            view=OutlookSummaryView("1"),
         )
 
     @commands.command(name="spc2")
     async def spc2_prefix(self, ctx):
+        from cogs.outlooks import OutlookSummaryView
+
         urls = await get_spc_urls(2)
         await fetch_and_send_weather_images(
-            ctx, urls, "**Latest SPC Day 2 Outlooks**", self.bot.state, use_cached=True
+            ctx,
+            urls,
+            "**Latest SPC Day 2 Outlooks**",
+            self.bot.state,
+            use_cached=True,
+            view=OutlookSummaryView("2"),
         )
 
     @commands.command(name="spc3")
     async def spc3_prefix(self, ctx):
+        from cogs.outlooks import OutlookSummaryView
+
         urls = await get_spc_urls(3)
         await fetch_and_send_weather_images(
-            ctx, urls, "**Latest SPC Day 3 Outlooks**", self.bot.state, use_cached=True
+            ctx,
+            urls,
+            "**Latest SPC Day 3 Outlooks**",
+            self.bot.state,
+            use_cached=True,
+            view=OutlookSummaryView("3"),
         )
 
     @commands.command(name="spc48")
     async def spc48_prefix(self, ctx):
+        from cogs.outlooks import OutlookSummaryView
+
         await fetch_and_send_weather_images(
             ctx,
             SPC_URLS["48"],
             "**Latest SPC Day 4-8 Outlook**",
             self.bot.state,
             use_cached=False,
+            view=OutlookSummaryView("48"),
         )
 
     @commands.command(name="wpc")
@@ -926,28 +967,49 @@ class StatusCog(commands.Cog):
     @discord.app_commands.command(name="spc1", description="Get latest SPC Day 1 Outlooks")
     @discord.app_commands.describe(fresh="Bypass cache and fetch the latest images directly")
     async def spc1_slash(self, interaction: discord.Interaction, fresh: Optional[bool] = False):
+        from cogs.outlooks import OutlookSummaryView
+
         await interaction.response.defer()
         urls = await get_spc_urls(1)
         await fetch_and_send_weather_images(
-            interaction, urls, "**Latest SPC Day 1 Outlooks**", self.bot.state, use_cached=not fresh
+            interaction,
+            urls,
+            "**Latest SPC Day 1 Outlooks**",
+            self.bot.state,
+            use_cached=not fresh,
+            view=OutlookSummaryView("1"),
         )
 
     @discord.app_commands.command(name="spc2", description="Get latest SPC Day 2 Outlooks")
     @discord.app_commands.describe(fresh="Bypass cache and fetch the latest images directly")
     async def spc2_slash(self, interaction: discord.Interaction, fresh: Optional[bool] = False):
+        from cogs.outlooks import OutlookSummaryView
+
         await interaction.response.defer()
         urls = await get_spc_urls(2)
         await fetch_and_send_weather_images(
-            interaction, urls, "**Latest SPC Day 2 Outlooks**", self.bot.state, use_cached=not fresh
+            interaction,
+            urls,
+            "**Latest SPC Day 2 Outlooks**",
+            self.bot.state,
+            use_cached=not fresh,
+            view=OutlookSummaryView("2"),
         )
 
     @discord.app_commands.command(name="spc3", description="Get latest SPC Day 3 Outlooks")
     @discord.app_commands.describe(fresh="Bypass cache and fetch the latest images directly")
     async def spc3_slash(self, interaction: discord.Interaction, fresh: Optional[bool] = False):
+        from cogs.outlooks import OutlookSummaryView
+
         await interaction.response.defer()
         urls = await get_spc_urls(3)
         await fetch_and_send_weather_images(
-            interaction, urls, "**Latest SPC Day 3 Outlooks**", self.bot.state, use_cached=not fresh
+            interaction,
+            urls,
+            "**Latest SPC Day 3 Outlooks**",
+            self.bot.state,
+            use_cached=not fresh,
+            view=OutlookSummaryView("3"),
         )
 
     @discord.app_commands.command(name="spc48", description="Get latest SPC Day 4-8 Outlook")
