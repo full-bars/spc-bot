@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.36.2] - 2026-06-05
+
+### Added
+- **AI Metrics:** Added an "AI Subsystem" section to the `/status` command to track Gemini API endpoint connectivity, daily requests, and cache hit rates.
+
+### Fixed
+- **Persistent AI Buttons:** Refactored the `MDSummaryView` and `OutlookSummaryView` buttons to use stateless global listeners, ensuring the "🪄 TL;DR" buttons continue working even after the bot restarts.
+- **AI Summary Recovery:** AI summaries are now cached in Redis (previously in-memory only) so they survive reboots, and the bot will dynamically scrape the NOAA SPC text archives if an MD drops from cache.
+
 ## [5.36.1] - 2026-06-05
 
 ### Fixed

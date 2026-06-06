@@ -15,8 +15,6 @@ from utils.cache import (
 from utils.compare_utils import archive_outlook_version
 from utils.spc_urls import get_spc_urls
 from utils.state_store import set_posted_urls
-from utils.ai import summarize_outlook
-from utils.http import http_get_text
 
 logger = logging.getLogger("spc_bot.outlooks")
 
@@ -24,38 +22,10 @@ logger = logging.getLogger("spc_bot.outlooks")
 class OutlookSummaryView(discord.ui.View):
     def __init__(self, day: str):
         super().__init__(timeout=None)
-        self.day = day
-        self.summary = None
-
-    @discord.ui.button(label="🪄 AI Analysis", style=discord.ButtonStyle.primary)
-    async def get_analysis(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(thinking=True)
-        if self.summary:
-            summary = self.summary
-        else:
-            url = f"https://www.spc.noaa.gov/products/outlook/day{self.day}otlk.html"
-            html = await http_get_text(url)
-            if not html and self.day == "48":
-                url = "https://www.spc.noaa.gov/products/exper/day4-8/"
-                html = await http_get_text(url)
-            if not html:
-                await interaction.followup.send("Failed to fetch outlook text.", ephemeral=True)
-                return
-
-            summary = await summarize_outlook(html)
-            if summary:
-                self.summary = summary
-
-        if not summary:
-            await interaction.followup.send("Failed to generate AI analysis.", ephemeral=True)
-            return
-
-        embed = discord.Embed(
-            title=f"🪄 AI Analysis (Day {'4-8' if self.day == '48' else self.day} Outlook)",
-            description=summary,
-            color=discord.Color.blue(),
+        button = discord.ui.Button(
+            label="🪄 AI Analysis", style=discord.ButtonStyle.primary, custom_id=f"ai_outlook:{day}"
         )
-        await interaction.followup.send(embed=embed)
+        self.add_item(button)
 
 
 def _extract_product_from_url(url: str, day: int) -> str:

@@ -442,6 +442,32 @@ class StatusView(discord.ui.View):
         )
         embed.add_field(name="🌩️ Environment", value=env_val, inline=True)
 
+        # AI Metrics
+        import config
+        from utils.state_store import _get_redis_client
+
+        ai_status = "🔴 DISCONNECTED"
+        if config.GEMINI_API_KEY:
+            ai_status = "🟢 ACTIVE"
+
+        try:
+            redis = _get_redis_client()
+            today_str = now.strftime("%Y%m%d")
+            ai_calls = int((await redis.get(f"ai_api_calls_{today_str}")) or 0)
+            ai_hits = int((await redis.get(f"ai_cache_hits_{today_str}")) or 0)
+        except Exception:
+            ai_calls = 0
+            ai_hits = 0
+
+        total_reqs = ai_calls + ai_hits
+        hit_rate = (ai_hits / total_reqs * 100) if total_reqs > 0 else 0
+        ai_val = (
+            f"**Endpoint:** {ai_status}\n"
+            f"**Daily Calls:** `{ai_calls}`\n"
+            f"**Cache Hits:** `{ai_hits}` (`{hit_rate:.0f}%`)"
+        )
+        embed.add_field(name="🧠 AI Subsystem", value=ai_val, inline=True)
+
         # Cluster status (Primary/Standby nodes)
         cluster_val = await self._get_cluster_status()
         embed.add_field(name="🔗 Cluster Status", value=cluster_val, inline=False)
