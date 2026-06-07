@@ -1,3 +1,4 @@
+import json
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -8,6 +9,59 @@ from utils.ai import generate_morning_briefing
 from utils.http import http_get_text
 
 logger = logging.getLogger("spc_bot.ai_summaries")
+
+
+class RegionalAnalysisView(discord.ui.View):
+    def __init__(self, day: str, regions: list[dict]):
+        super().__init__(timeout=3600)  # 1 hour timeout
+        self.day = day
+        self.regions = regions
+        self.current_page = 0
+        self._update_buttons()
+
+    def _update_buttons(self):
+        self.prev_button.disabled = self.current_page == 0
+        self.next_button.disabled = self.current_page == len(self.regions) - 1
+
+    def _create_embed(self) -> discord.Embed:
+        region_data = self.regions[self.current_page]
+        region_name = region_data.get("region", "Unknown Region")
+
+        embed = discord.Embed(
+            title=f"🪄 AI Analysis (Day {self.day} Outlook)",
+            description=f"**Region {self.current_page + 1} of {len(self.regions)}: {region_name}**",
+            color=discord.Color.blue(),
+        )
+
+        sections = [
+            ("Favorable Factors", "favorable_factors"),
+            ("Fail Modes", "fail_modes"),
+            ("Primary Hazards & Storm Mode", "hazards_mode"),
+            ("Timing", "timing"),
+            ("Geographic Focus & Confidence", "confidence"),
+        ]
+
+        for label, key in sections:
+            val = region_data.get(key, "N/A")
+            # Ensure value doesn't exceed Discord's 1024 char field limit
+            if len(val) > 1024:
+                val = val[:1021] + "..."
+            embed.add_field(name=label, value=val, inline=False)
+
+        embed.set_footer(text="Navigate between regions using the buttons below.")
+        return embed
+
+    @discord.ui.button(label="◀ Previous", style=discord.ButtonStyle.secondary)
+    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page -= 1
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self._create_embed(), view=self)
+
+    @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page += 1
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self._create_embed(), view=self)
 
 
 class AISummariesCog(commands.Cog, name="AI Summaries"):
@@ -99,7 +153,14 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
             today_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d")
 
             cache_key = f"ai_summary_outlook_day{day}"
-            summary = await get_product_cache(cache_key)
+            summary_raw = await get_product_cache(cache_key)
+
+            summary = None
+            if summary_raw:
+                try:
+                    summary = json.loads(summary_raw)
+                except json.JSONDecodeError:
+                    summary = summary_raw
 
             redis = _get_redis_client()
             if summary:
@@ -126,21 +187,26 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
                 if raw_text:
                     from utils.ai import summarize_outlook
 
-                    # Fix: summarize_outlook only takes 1 argument (raw_text)
                     summary = await summarize_outlook(raw_text)
                     if summary:
-                        await set_product_cache(cache_key, summary, ttl=86400)  # 1 day
+                        await set_product_cache(cache_key, json.dumps(summary), ttl=86400)
 
             if not summary:
                 await interaction.followup.send("Failed to generate AI analysis.", ephemeral=True)
                 return
 
-            embed = discord.Embed(
-                title=f"🪄 AI Analysis (Day {day} Outlook)",
-                description=summary,
-                color=discord.Color.blue(),
-            )
-            await interaction.followup.send(embed=embed)
+            if isinstance(summary, list) and len(summary) > 0:
+                # Paginated view
+                view = RegionalAnalysisView(day, summary)
+                await interaction.followup.send(embed=view._create_embed(), view=view)
+            else:
+                # Fallback for old cache or string response
+                embed = discord.Embed(
+                    title=f"🪄 AI Analysis (Day {day} Outlook)",
+                    description=str(summary),
+                    color=discord.Color.blue(),
+                )
+                await interaction.followup.send(embed=embed)
         except Exception as e:
             logger.exception(f"Error in _handle_outlook_summary: {e}")
             try:
