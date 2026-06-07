@@ -8,7 +8,7 @@ use futures::stream::StreamExt;
 use geo::algorithm::contains::Contains;
 use geo::{Coord, Point, Polygon};
 use minidom::Element;
-use nom::bytes::complete::tag_no_case;
+use nom::bytes::complete::{tag, tag_no_case, take};
 use nom::character::complete::{digit1, multispace0, multispace1};
 use nom::error::Error as NomError;
 use nom::Parser as NomParser;
@@ -756,49 +756,83 @@ fn compute_crit_angl(
 
 #[pyfunction]
 fn parse_vtec<'py>(py: Python<'py>, text: &str) -> PyResult<Option<Bound<'py, PyDict>>> {
-    static VTEC_RE: Lazy<Regex> = Lazy::new(|| {
-        let pattern = r"/O\.(NEW|CON|EXP|CAN|UPG|EXA|EXT|ROU)\.([A-Z]{4})\.([A-Z]{2})\.([A-Z])\.(\d{4})\.(\d{6}T\d{4}Z)-(\d{6}T\d{4}Z)/";
-        Regex::new(pattern).unwrap()
-    });
-
     if text.is_empty() {
         return Ok(None);
     }
 
-    if let Some(caps) = VTEC_RE.captures(text) {
-        let action = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-        let office_raw = caps.get(2).map(|m| m.as_str()).unwrap_or("");
-        let phenom = caps.get(3).map(|m| m.as_str()).unwrap_or("");
-        let sig = caps.get(4).map(|m| m.as_str()).unwrap_or("");
-        let etn = caps.get(5).map(|m| m.as_str()).unwrap_or("");
-        let start = caps.get(6).map(|m| m.as_str()).unwrap_or("");
-        let end = caps.get(7).map(|m| m.as_str()).unwrap_or("");
+    // High-performance nom parser for VTEC string (NWS Directive 10-1703):
+    // Example: /O.NEW.KOUN.TO.W.0042.260427T2018Z-260427T2100Z/
+    //
+    // Use tuple to match segments precisely without regex state machine overhead.
+    fn vtec_nom(input: &str) -> nom::IResult<&str, (&str, &str, &str, &str, &str, &str, &str)> {
+        let (input, _) = tag("/O.")(input)?;
+        let (input, action) = take(3usize)(input)?;
+        let (input, _) = tag(".")(input)?;
+        let (input, office) = take(4usize)(input)?;
+        let (input, _) = tag(".")(input)?;
+        let (input, phenom) = take(2usize)(input)?;
+        let (input, _) = tag(".")(input)?;
+        let (input, sig) = take(1usize)(input)?;
+        let (input, _) = tag(".")(input)?;
+        let (input, etn) = take(4usize)(input)?;
+        let (input, _) = tag(".")(input)?;
+        let (input, start) = take(12usize)(input)?; // YYMMDDTHHMMZ
+        let (input, _) = tag("-")(input)?;
+        let (input, end) = take(12usize)(input)?;
+        let (input, _) = tag("/")(input)?;
+        Ok((input, (action, office, phenom, sig, etn, start, end)))
+    }
 
-        // Normalize office: if 3 chars and starts with letter, prepend K
-        let office = if office_raw.len() == 3
-            && office_raw
-                .chars()
-                .next()
-                .unwrap_or('Z')
-                .is_ascii_uppercase()
-        {
-            format!("K{}", office_raw)
-        } else {
-            office_raw.to_string()
-        };
+    // Scan for the "/O." starting marker manually (fast) then attempt the full parse.
+    let mut search_ptr = text;
+    while let Some(pos) = search_ptr.find("/O.") {
+        let candidate = &search_ptr[pos..];
+        if candidate.len() < 47 {
+            // Min VTEC length: /O.NEW.KOUN.TO.W.0042.YYMMDDTHHMMZ-YYMMDDTHHMMZ/ = 47 chars
+            search_ptr = &candidate[3..];
+            continue;
+        }
 
-        let vtec_id = format!("{}.{}.{}.{}", office, phenom, sig, etn);
+        match vtec_nom(candidate) {
+            Ok((_, (action, office_raw, phenom, sig, etn, start, end))) => {
+                // Normalize office: if it's 4 chars, use as-is.
+                // Special case: if it starts with a letter and is 3 chars, prepend K.
+                // However, our take(4usize) already captures the 4-char string.
+                // The Python logic checked if it's 3 chars. In VTEC it's always 4.
+                // Let's mirror the normalization if needed.
+                let office = if office_raw.len() == 3
+                    && office_raw
+                        .chars()
+                        .next()
+                        .unwrap_or('Z')
+                        .is_ascii_uppercase()
+                {
+                    format!("K{}", office_raw)
+                } else if office_raw.starts_with(' ') {
+                    // Handle rare cases where office might be padded
+                    office_raw.trim().to_string()
+                } else {
+                    office_raw.to_string()
+                };
 
-        let result = PyDict::new(py);
-        result.set_item("action", action)?;
-        result.set_item("office", office)?;
-        result.set_item("phenom", phenom)?;
-        result.set_item("sig", sig)?;
-        result.set_item("etn", etn)?;
-        result.set_item("start", start)?;
-        result.set_item("end", end)?;
-        result.set_item("vtec_id", vtec_id)?;
-        return Ok(Some(result));
+                let vtec_id = format!("{}.{}.{}.{}", office, phenom, sig, etn);
+
+                let result = PyDict::new(py);
+                result.set_item("action", action)?;
+                result.set_item("office", office)?;
+                result.set_item("phenom", phenom)?;
+                result.set_item("sig", sig)?;
+                result.set_item("etn", etn)?;
+                result.set_item("start", start)?;
+                result.set_item("end", end)?;
+                result.set_item("vtec_id", vtec_id)?;
+                return Ok(Some(result));
+            }
+            Err(_) => {
+                // Not a valid VTEC here, skip the "/O." and keep looking
+                search_ptr = &candidate[3..];
+            }
+        }
     }
 
     Ok(None)

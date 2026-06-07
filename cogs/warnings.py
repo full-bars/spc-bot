@@ -197,6 +197,63 @@ class WarningsCog(commands.Cog):
                 return None
         return cast(discord.abc.Messageable, channel) if channel else None
 
+    async def _dispatch_subscriptions(self, vtec: dict, raw_text: str, event_title: str):
+        """Check user subscriptions and dispatch DMs."""
+        from utils.db import get_all_user_subscriptions
+        from utils.geo import haversine
+        from lib.vtec_parser import parse_warning_polygon
+
+        subs = await get_all_user_subscriptions()
+        if not subs:
+            return
+
+        poly_coords = parse_warning_polygon(raw_text)
+        if not poly_coords:
+            return
+
+        text_upper = raw_text.upper()
+        matched_users = set()
+
+        for sub in subs:
+            user_id = sub["user_id"]
+            if user_id in matched_users:
+                continue
+
+            if sub["sub_type"] == "state":
+                state = sub["sub_value"].upper()
+                if re.search(rf"\b{state}[CZ]\d{{3}}\b", text_upper):
+                    matched_users.add(user_id)
+            elif sub["sub_type"] == "local":
+                lat, lon = sub["lat"], sub["lon"]
+                radius_km = sub["radius_km"]
+                if lat and lon and radius_km:
+                    for v_lat, v_lon in poly_coords:
+                        dist = haversine(lat, lon, v_lat, v_lon)
+                        # Expand radius by 15km to account for the polygon interior
+                        # (since we are only checking distance to the boundary vertices)
+                        if dist <= (radius_km + 15.0):
+                            matched_users.add(user_id)
+                            break
+
+        if not matched_users:
+            return
+
+        vtec_id = vtec.get("vtec_id", "Unknown")
+        embed = discord.Embed(
+            title=f"🔔 Subscription Alert: {event_title}",
+            description=f"A new warning has been issued in your subscribed area.\n**VTEC**: {vtec_id}",
+            color=discord.Color.red(),
+        )
+        for uid in matched_users:
+            try:
+                user = self.bot.get_user(uid) or await self.bot.fetch_user(uid)
+                if user:
+                    await user.send(embed=embed)
+            except discord.Forbidden:
+                pass
+            except Exception as e:
+                logger.error(f"Failed to DM user {uid}: {e}")
+
     # ── iembot fast-trigger path ───────────────────────────────────────────
     #
     # IEMBotCog calls this when a TOR/SVR/FFW product hits the botstalk
@@ -301,6 +358,10 @@ class WarningsCog(commands.Cog):
         try:
             async with self.bot.state.claim_posted_warning(vtec_id) as claim:
                 self.bot.state.active_warnings[vtec_id] = vtec
+
+                # Dispatch subscriptions for new issuances
+                if not is_update:
+                    asyncio.create_task(self._dispatch_subscriptions(vtec, raw_text, event))
 
                 # Log significant events (tornadoes, hail, wind) to DB
                 event_id = await self._check_and_log_significant_event(event, raw_text, vtec)
@@ -941,6 +1002,10 @@ class WarningsCog(commands.Cog):
             is_update=is_update,
             prev_area=prev_area,
         )
+
+        # Dispatch subscriptions for new issuances
+        if not is_update:
+            asyncio.create_task(self._dispatch_subscriptions(vtec, description, event))
 
         # Log significant events (tornadoes, hail, wind) to DB
         await self._check_and_log_significant_event(event, description, vtec)

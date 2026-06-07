@@ -316,7 +316,7 @@ async def test_post_watch_now_sends_and_marks_posted():
 
     with patch(
         "cogs.watches.fetch_watch_details",
-        AsyncMock(return_value=("http://img.png", "summary", None)),
+        AsyncMock(return_value=("http://img.png", "summary", None, False)),
     ), patch("cogs.watches.download_single_image", AsyncMock(return_value=(None, False, None))):
         await cog.post_watch_now("0102", nws_info)
 
@@ -362,7 +362,7 @@ async def test_post_watch_now_dispatches_to_sounding_cog():
     cog.bot = bot
 
     with patch(
-        "cogs.watches.fetch_watch_details", AsyncMock(return_value=(None, None, None))
+        "cogs.watches.fetch_watch_details", AsyncMock(return_value=(None, None, None, False))
     ), patch("cogs.watches.download_single_image", AsyncMock(return_value=(None, False, None))):
         await cog.post_watch_now("0102", nws_info)
 
@@ -393,7 +393,7 @@ async def test_post_watch_now_concurrent_calls_post_once():
     # either marks posted_watches.
     async def _slow_fetch(_wn):
         await asyncio.sleep(0)
-        return ("http://img.png", "summary", None)
+        return ("http://img.png", "summary", None, False)
 
     nws_info = {"type": "SVR", "expires": None, "affected_zones": []}
 

@@ -57,7 +57,8 @@ class TestWatchesCogIntegration:
         with patch(
             "cogs.watches.fetch_active_watches_nws", new=AsyncMock(return_value=nws_result)
         ), patch(
-            "cogs.watches.fetch_watch_details", new=AsyncMock(return_value=(None, None, None))
+            "cogs.watches.fetch_watch_details",
+            new=AsyncMock(return_value=(None, None, None, False)),
         ), patch(
             "cogs.watches.download_single_image", new=AsyncMock(return_value=(None, False, None))
         ):
@@ -86,7 +87,8 @@ class TestWatchesCogIntegration:
         with patch(
             "cogs.watches.fetch_active_watches_nws", new=AsyncMock(return_value=nws_result)
         ), patch(
-            "cogs.watches.fetch_watch_details", new=AsyncMock(return_value=(None, None, None))
+            "cogs.watches.fetch_watch_details",
+            new=AsyncMock(return_value=(None, None, None, False)),
         ), patch(
             "cogs.watches.download_single_image", new=AsyncMock(return_value=(None, False, None))
         ), patch("cogs.watch_fetch.http_get_bytes", new=AsyncMock(return_value=(None, 404))):

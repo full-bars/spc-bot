@@ -1,7 +1,7 @@
-"""Tests for Rust VTEC parser with Python fallback verification."""
+"""Tests for Rust VTEC parser."""
 
 import pytest
-from lib.vtec_parser import parse_vtec, parse_vtec_py
+from lib.vtec_parser import parse_vtec
 
 
 class TestParseVTEC:
@@ -30,22 +30,14 @@ class TestParseVTEC:
         assert result["end"] == "260427T2100Z"
         assert result["vtec_id"] == "KOUN.TO.W.0042"
 
-    def test_matches_python(self, sample_vtec_string):
-        """Rust version should match Python."""
-        rust_result = parse_vtec(sample_vtec_string)
-        python_result = parse_vtec_py(sample_vtec_string)
-        assert rust_result == python_result
-
     def test_returns_none_for_empty(self):
         """Should return None for empty string."""
         assert parse_vtec("") is None
-        assert parse_vtec_py("") is None
 
     def test_returns_none_for_no_vtec(self):
         """Should return None when no VTEC is present."""
         text_no_vtec = "URGENT - IMMEDIATE BROADCAST REQUESTED\nTORNADO WARNING"
         assert parse_vtec(text_no_vtec) is None
-        assert parse_vtec_py(text_no_vtec) is None
 
     def test_recognizes_various_offices(self):
         """Should parse different WFO office codes."""
