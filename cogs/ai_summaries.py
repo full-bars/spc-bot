@@ -196,6 +196,12 @@ async def ensure_sounding_summary(
                     site = cache_key.split("_")[1]
                     lat, lon, _ = await resolve_location(site)
                     location_name = f"radar site {site}"
+                elif cache_key.startswith("acars_"):
+                    # acars_{airport}_{year}{month}{day}_{acars_hour}
+                    parts = cache_key.split("_")
+                    sid = parts[1]
+                    lat, lon, _ = await resolve_location(sid)
+                    location_name = f"aircraft profile near {sid}"
                 elif "_" in cache_key:
                     # {station_id}_{year}{month}{day}_{hour}
                     sid = cache_key.split("_")[0]

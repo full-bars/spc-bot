@@ -4,6 +4,8 @@
 import asyncio
 import logging
 import os
+import re
+from typing import Optional
 
 import discord
 from discord import ButtonStyle
@@ -76,7 +78,7 @@ async def post_sounding(
                 fallback_note = f" (no data for {orig_label}, showing {time_label})"
 
             # Post immediately!
-            await _send_sounding_embed(
+            await send_sounding_embed(
                 interaction,
                 station_id,
                 label,
@@ -175,7 +177,7 @@ async def post_sounding(
                 pass
         return
 
-    await _send_sounding_embed(
+    await send_sounding_embed(
         interaction,
         station_id,
         label,
@@ -188,18 +190,22 @@ async def post_sounding(
     )
 
 
-async def _send_sounding_embed(
-    interaction: discord.Interaction,
+async def send_sounding_embed(
+    interaction: Optional[discord.Interaction],
     station_id: str,
     label: str,
     time_label: str,
     dark_mode: bool,
     png_path: str,
     fallback_note: str,
-    status_msg: discord.Message = None,
-    clean_data: dict = None,
+    status_msg: Optional[discord.Message] = None,
+    clean_data: Optional[dict] = None,
+    channel: Optional[discord.abc.Messageable] = None,
+    messages_to_delete: Optional[list] = None,
+    is_acars: bool = False,
+    type_label: Optional[str] = None,
 ):
-    """Helper to build and send the final sounding post."""
+    """Helper to build and send the final sounding post with AI Analysis button."""
     mode_label = "🌙 Dark" if dark_mode else "☀️ Light"
 
     # Extract source from clean_data if provided
@@ -213,14 +219,26 @@ async def _send_sounding_embed(
         except (KeyError, AttributeError, TypeError) as e:
             logger.debug(f"Failed to extract sounding source metadata: {e}")
 
-    caption = "**RAOB Sounding \u2014 {}**\nValid: {} | {} mode{}{}".format(
-        label, time_label, mode_label, source_str, fallback_note
+    if not type_label:
+        type_label = "ACARS Aircraft Profile" if is_acars else "RAOB Sounding"
+
+    caption = "**{} \u2014 {}**\nValid: {} | {} mode{}{}".format(
+        type_label, label, time_label, mode_label, source_str, fallback_note
     )
 
     if clean_data:
         qwarn = sounding_quality_warning(clean_data)
         if qwarn:
             caption += f"\n{qwarn}"
+
+    # Resolve target channel
+    target = channel
+    if not target and interaction:
+        target = interaction.channel
+
+    if not target:
+        logger.error(f"[SOUNDING] No target channel for {station_id}")
+        return
 
     try:
         if status_msg:
@@ -229,7 +247,61 @@ async def _send_sounding_embed(
             except discord.HTTPException:
                 pass
 
-        await interaction.channel.send(caption, files=[discord.File(png_path)])
+        if messages_to_delete:
+            for msg in messages_to_delete:
+                try:
+                    await msg.delete()
+                except discord.HTTPException as e:
+                    logger.debug(f"[SOUNDING] Could not delete message: {e}")
+
+        # Build View and trigger proactive AI prefetch
+        view = None
+        if clean_data:
+            fname = os.path.basename(png_path)
+            cache_key = None
+            if is_acars:
+                # acars_{airport}_{year}{month}{day}_{acars_hour}z
+                m = re.search(rf"acars_{re.escape(station_id)}_(\d{{8}})_(\d{{2}})z", fname)
+                if m:
+                    ts_part, hour_part = m.groups()
+                    cache_key = f"acars_{station_id}_{ts_part}_{hour_part}"
+            else:
+                # sounding_{station_id}_{year}{month}{day}_{hour}z
+                m = re.search(rf"sounding_{re.escape(station_id)}_(\d{{8}})_(\d{{2}})z", fname)
+                if m:
+                    ts_part, hour_part = m.groups()
+                    cache_key = f"{station_id}_{ts_part}_{hour_part}"
+
+            if cache_key:
+                view = SoundingPlotView(cache_key)
+
+                # Proactive AI prefetch
+                from cogs.ai_summaries import ensure_sounding_summary
+                from cogs.sounding_utils import get_sounding_params_text
+
+                raw_text = get_sounding_params_text(clean_data)
+                if raw_text:
+                    bot = interaction.client if interaction else None
+                    if not bot and hasattr(target, "guild") and target.guild:
+                        bot = target.guild.me._state.parent
+
+                    t = asyncio.create_task(
+                        ensure_sounding_summary(
+                            cache_key,
+                            raw_text=raw_text,
+                            lat=float(clean_data["site_info"]["site-latlon"][0]),
+                            lon=float(clean_data["site_info"]["site-latlon"][1]),
+                            location_name=f"{label}",
+                            bot=bot,
+                        )
+                    )
+                    t.add_done_callback(
+                        lambda t: logger.debug(
+                            f"[SOUNDING] Proactive AI summary generation finished for {cache_key}"
+                        )
+                    )
+
+        await target.send(caption, files=[discord.File(png_path)], view=view)
         logger.info(f"[SOUNDING] Posted {station_id} {time_label}")
     except Exception as e:
         logger.exception(f"[SOUNDING] Failed to post: {e}")
@@ -726,12 +798,6 @@ async def _post_from_clean_data(
         except discord.HTTPException:
             pass
 
-    # Pre-compute AI summary string
-    raw_text = None
-    from cogs.sounding_utils import get_sounding_params_text
-
-    raw_text = get_sounding_params_text(clean_data)
-
     async with sem:
         logger.info(f"[SOUNDING] Starting plot for {label} (Semaphore acquired)")
         plotting_embed = discord.Embed(
@@ -763,49 +829,16 @@ async def _post_from_clean_data(
             pass
         return
 
-    mode_label = "🌙 Dark" if dark_mode else "☀️ Light"
-    caption = (
-        f"**RAOB Sounding \u2014 {station_name} ({station_id})**\n"
-        f"Valid: {month}-{day}-{year} {hour}z | {mode_label} mode"
+    time_label = f"{month}-{day}-{year} {hour}z"
+    await send_sounding_embed(
+        interaction,
+        station_id,
+        label,
+        time_label,
+        dark_mode,
+        png_path,
+        "",
+        status_msg,
+        clean_data,
+        messages_to_delete=messages_to_delete,
     )
-    qwarn = sounding_quality_warning(clean_data)
-    if qwarn:
-        caption += f"\n{qwarn}"
-    try:
-        await status_msg.delete()
-        if messages_to_delete:
-            for msg in messages_to_delete:
-                try:
-                    await msg.delete()
-                except discord.HTTPException as e:
-                    logger.debug(f"[SOUNDING] Could not delete message: {e}")
-
-        cache_key = f"{station_id}_{year}{month}{day}_{hour}"
-        view = None
-        if raw_text:
-            view = SoundingPlotView(cache_key)
-            from cogs.ai_summaries import ensure_sounding_summary
-
-            t = asyncio.create_task(
-                ensure_sounding_summary(
-                    cache_key,
-                    raw_text=raw_text,
-                    lat=float(clean_data["site_info"]["site-latlon"][0]),
-                    lon=float(clean_data["site_info"]["site-latlon"][1]),
-                    location_name=f"{station_name} ({station_id})",
-                    bot=interaction.client,
-                )
-            )
-            t.add_done_callback(
-                lambda t: logger.debug(
-                    f"[SOUNDING] Proactive AI summary generation finished for {cache_key}"
-                )
-            )
-
-        if view:
-            await interaction.channel.send(caption, files=[discord.File(png_path)], view=view)
-        else:
-            await interaction.channel.send(caption, files=[discord.File(png_path)])
-        logger.info(f"[SOUNDING] Posted {station_id} {year}/{month}/{day} {hour}z")
-    except Exception as e:
-        logger.exception(f"[SOUNDING] Failed to post: {e}")
