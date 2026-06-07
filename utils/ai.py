@@ -86,6 +86,20 @@ async def summarize_outlook(raw_text: str) -> list[dict] | None:
     return await call_gemini(prompt, is_json=True)
 
 
+async def summarize_sounding(raw_text: str) -> str | None:
+    prompt = (
+        "You are an expert severe weather meteorologist. I will provide you with computed "
+        "thermodynamic and kinematic parameters from an atmospheric sounding (or hodograph). "
+        "Provide a concise, 3-4 sentence plain-English summary of the environment. "
+        "Focus on: 1) The primary severe hazard (hail, wind, tornadoes) supported by this environment, "
+        "2) The expected storm mode (e.g., discrete supercells, squall line), and "
+        "3) Any limiting factors (e.g., strong capping/CIN, poor low-level shear). "
+        "Do not list out raw numbers unless they are exceptional. Make it readable for a general audience.\n\n"
+        f"DATA:\n{raw_text}"
+    )
+    return await call_gemini(prompt)
+
+
 async def generate_morning_briefing(outlook_text: str, active_watches_text: str) -> str | None:
     prompt = (
         "You are a friendly, professional severe weather briefer. Based on the provided SPC Day 1 Outlook "

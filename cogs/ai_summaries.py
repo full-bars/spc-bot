@@ -111,6 +111,45 @@ async def ensure_md_summary(md_num: str, raw_text: str = None) -> str | None:
         return None
 
 
+async def ensure_sounding_summary(cache_key: str, raw_text: str = None) -> str | None:
+    """Fetches or generates an AI summary for a sounding/hodograph."""
+    try:
+        from utils.state_store import get_product_cache, set_product_cache, _get_redis_client
+        import datetime
+
+        today_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d")
+
+        # 1. Check Cache
+        summary = await get_product_cache(cache_key)
+        redis = _get_redis_client()
+
+        if summary:
+            if redis:
+                await redis.incr(f"ai_cache_hits_{today_str}")
+            return summary
+
+        # 2. Not cached, generate it.
+        if not raw_text:
+            # We don't have a way to easily reconstruct the raw_text from just the cache_key here.
+            # So if it's not cached and raw_text isn't provided (proactively), we fail.
+            return None
+
+        if redis:
+            await redis.incr(f"ai_api_calls_{today_str}")
+
+        from utils.ai import summarize_sounding
+
+        summary = await summarize_sounding(raw_text)
+        if summary:
+            await set_product_cache(cache_key, summary, ttl=86400)  # 1 day
+            return summary
+
+        return None
+    except Exception as e:
+        logger.error(f"Error in ensure_sounding_summary for {cache_key}: {e}")
+        return None
+
+
 async def ensure_outlook_summary(day: str, raw_text: str = None) -> Any | None:
     """Fetches or generates an AI analysis for an SPC Outlook."""
     try:
@@ -192,6 +231,40 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
         elif custom_id.startswith("ai_outlook:"):
             day_str = custom_id.split(":")[1]
             await self._handle_outlook_summary(interaction, day_str)
+        elif custom_id.startswith("ai_snd:"):
+            cache_key = custom_id.split(":", 1)[1]
+            await self._handle_sounding_summary(interaction, cache_key)
+
+    async def _handle_sounding_summary(self, interaction: discord.Interaction, cache_key: str):
+        try:
+            await interaction.response.defer(thinking=True)
+            summary = await ensure_sounding_summary(cache_key)
+
+            if not summary:
+                await interaction.followup.send(
+                    "Failed to generate AI analysis or data expired.", ephemeral=True
+                )
+                return
+
+            embed = discord.Embed(
+                title="🪄 AI Analysis (Environment)",
+                description=summary,
+                color=discord.Color.teal(),
+            )
+            await interaction.followup.send(embed=embed)
+        except Exception as e:
+            logger.exception(f"Error in _handle_sounding_summary: {e}")
+            try:
+                if interaction.response.is_done():
+                    await interaction.followup.send(
+                        "An error occurred while generating AI analysis.", ephemeral=True
+                    )
+                else:
+                    await interaction.response.send_message(
+                        "An error occurred while generating AI analysis.", ephemeral=True
+                    )
+            except Exception:
+                pass
 
     async def _handle_md_summary(self, interaction: discord.Interaction, md_num: str):
         try:
