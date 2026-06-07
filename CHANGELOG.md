@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.37.0] - 2026-06-07
+
+### Added
+- **Context-Aware AI Analysis Engine:** The "🪄 AI Analysis" system now automatically cross-references local thermodynamic data with the latest SPC thinking. It retrieves and incorporates regional Day 1 Outlook summaries, active Mesoscale Discussions (MDs), and nearby watches into the Gemini prompt to ensure high-accuracy assessments of storm mode and hazards.
+- **Hodograph Thermodynamic Enrichment:** When analyzing a VAD radar hodograph, the bot now automatically finds the nearest RAOB sounding and injects its thermodynamic profile (CAPE, CIN, Lapse Rates) into the analysis context.
+- **Enhanced PDS Watch Styling:** Particularly Dangerous Situation (PDS) watches are now significantly more prominent, featuring a high-impact black embed sidebar (`0x000001`), a `⚠️ PDS` title prefix, and a dedicated `🚨 PARTICULARLY DANGEROUS SITUATION` field at the top of the embed.
+
+### Fixed
+- **AI Mode Accuracy:** Updated the AI meteorologist prompt to be more skeptical of discrete supercell threats in environments where SPC indicates linear/MCS transitions, reducing overstated hail risks in multicellular setups.
+- **Rust Tooling:** Resolved several Rust lint errors (unused imports) that were blocking pre-push CI gates.
+
 ## [5.36.5] - 2026-06-06
 
 ### Added
