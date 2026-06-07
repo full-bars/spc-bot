@@ -16,15 +16,17 @@ async def call_gemini(prompt: str, is_json: bool = False) -> Any | None:
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={GEMINI_API_KEY}"
 
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.2,
-        },
+    generation_config: dict[str, Any] = {
+        "temperature": 0.2,
     }
 
     if is_json:
-        payload["generationConfig"]["response_mime_type"] = "application/json"
+        generation_config["response_mime_type"] = "application/json"
+
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": generation_config,
+    }
 
     response = await http_post_json(url, json_data=payload, retries=2, timeout=25)
 

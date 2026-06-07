@@ -73,7 +73,14 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
         if interaction.type != discord.InteractionType.component:
             return
 
-        custom_id = interaction.data.get("custom_id", "")
+        if not interaction.data:
+            return
+
+        # For component interactions, data is a dict containing custom_id
+        custom_id = interaction.data.get("custom_id")
+        if not isinstance(custom_id, str):
+            return
+
         if custom_id.startswith("ai_md:"):
             md_num = custom_id.split(":")[1]
             await self._handle_md_summary(interaction, md_num)
