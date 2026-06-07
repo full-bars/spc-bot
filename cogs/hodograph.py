@@ -18,6 +18,17 @@ HODO_OUTPUT_DIR = os.path.join("cache", "hodographs")
 VAD_SCRIPT = os.path.join("lib", "vad_plotter", "vad.py")
 
 
+class HodographPlotView(discord.ui.View):
+    def __init__(self, cache_key: str):
+        super().__init__(timeout=None)
+        button = discord.ui.Button(
+            label="🪄 AI Analysis",
+            style=discord.ButtonStyle.secondary,
+            custom_id=f"ai_snd:{cache_key}",
+        )
+        self.add_item(button)
+
+
 async def generate_hodograph(interaction: discord.Interaction, site: str):
     """Run vad.py in a ProcessPoolExecutor and send the resulting image."""
     os.makedirs(HODO_OUTPUT_DIR, exist_ok=True)
@@ -26,7 +37,7 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
     logger.info(f"[HODO] Generating hodograph for {site} in executor pool")
 
     try:
-        await asyncio.wait_for(
+        params = await asyncio.wait_for(
             vad_plotter(
                 site,  # radar_id
                 "right-mover",  # storm_motion
@@ -76,11 +87,41 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
         return
 
     logger.info(f"[HODO] Hodograph generated at {output_path}")
-    try:
-        await interaction.followup.send(
-            content=f"**{site}** VWP Hodograph",
-            file=discord.File(output_path),
+
+    view = None
+    if params:
+        summary = "HODOGRAPH KINEMATIC PARAMETERS:\n\n"
+        summary += f"Storm Motion (Right-Mover): {params.get('storm_motion')}\n"
+        summary += f"Bulk Shear: 0-1km {params.get('shear_mag_1000m')} kts | 0-3km {params.get('shear_mag_3000m')} kts | 0-6km {params.get('shear_mag_6000m')} kts\n"
+        summary += f"SRH: 0-500m {params.get('srh_500m')} | 0-1km {params.get('srh_1000m')} | 0-3km {params.get('srh_3000m')}\n"
+        summary += f"SR Flow: 0-500m {params.get('sr_flow_500m')} kts | 0-1km {params.get('sr_flow_1000m')} kts | 0-3km {params.get('sr_flow_3000m')} kts\n"
+        summary += f"Critical Angle: {params.get('critical')} degrees\n"
+
+        import datetime
+
+        now_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M")
+        cache_key = f"hodo_{site}_{now_str}"
+        view = HodographPlotView(cache_key)
+
+        from cogs.ai_summaries import ensure_sounding_summary
+
+        t = asyncio.create_task(ensure_sounding_summary(cache_key, raw_text=summary))
+        t.add_done_callback(
+            lambda t: logger.debug(
+                f"[HODO] Proactive AI summary generation finished for {cache_key}"
+            )
         )
+
+    try:
+        if view:
+            await interaction.followup.send(
+                content=f"**{site}** VWP Hodograph", file=discord.File(output_path), view=view
+            )
+        else:
+            await interaction.followup.send(
+                content=f"**{site}** VWP Hodograph",
+                file=discord.File(output_path),
+            )
     except discord.NotFound:
         logger.warning(f"[HODO] Failed to send final hodograph for {site}: Interaction expired")
 

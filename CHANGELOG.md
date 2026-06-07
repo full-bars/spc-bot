@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.36.5] - 2026-06-06
+
+### Added
+- **AI Sounding & Hodograph Analysis:** Users can now generate a plain-English, meteorologist-grade summary of the environment when viewing RAOB soundings or VWP hodographs. The bot extracts complex thermodynamic and kinematic parameters (CAPE, SRH, shear, etc.) and uses Gemini to synthesize the primary severe hazard, storm mode, and limiting factors.
+- **Proactive Environmental Caching:** The AI analysis is generated and cached in the background the moment a sounding or hodograph is plotted, ensuring instant delivery when the "🪄 AI Analysis" button is clicked.
+
 ## [5.36.4] - 2026-06-06
 
 ### Performance

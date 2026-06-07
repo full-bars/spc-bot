@@ -30,22 +30,25 @@ Author:     Tim Supinie (tsupinie@ou.edu)
 Modified:   2026 - HTTPS fix, ASOS auto surface wind, extra parameters, spc-bot integration
 """
 
+
 def is_vector(vec_str: str) -> bool:
     return bool(re.match(r"[\d]{3}/[\d]{2}", vec_str))
+
 
 def parse_vector(vec_str: str) -> Tuple[int, int]:
     return tuple(int(v) for v in vec_str.strip().split("/"))
 
+
 def parse_time(time_str: str) -> datetime:
     no_my = False
     now = datetime.now(timezone.utc).replace(tzinfo=None)
-    if '-' not in time_str:
+    if "-" not in time_str:
         no_my = True
         year = now.year
         month = now.month
         time_str = "%d-%d-%s" % (year, month, time_str)
 
-    plot_time = datetime.strptime(time_str, '%Y-%m-%d/%H%M')
+    plot_time = datetime.strptime(time_str, "%Y-%m-%d/%H%M")
 
     if plot_time > now:
         if no_my:
@@ -55,7 +58,7 @@ def parse_time(time_str: str) -> datetime:
             else:
                 month -= 1
             time_str = "%d-%d-%s" % (year, month, time_str)
-            plot_time = datetime.strptime(time_str, '%Y-%m-%d/%H%M')
+            plot_time = datetime.strptime(time_str, "%Y-%m-%d/%H%M")
         else:
             raise ValueError("Time '%s' is in the future." % time_str)
 
@@ -64,7 +67,7 @@ def parse_time(time_str: str) -> datetime:
 
 async def vad_plotter(
     radar_id: str,
-    storm_motion: str = 'right-mover',
+    storm_motion: str = "right-mover",
     sfc_wind: Optional[str] = None,
     time: Optional[str] = None,
     fname: Optional[str] = None,
@@ -72,8 +75,8 @@ async def vad_plotter(
     cache_path: Optional[str] = None,
     web: bool = False,
     fixed: bool = False,
-    executor: Optional[Any] = None
-) -> None:
+    executor: Optional[Any] = None,
+) -> Optional[dict]:
     plot_time = None
     if time:
         plot_time = parse_time(time)
@@ -87,12 +90,17 @@ async def vad_plotter(
         vad = await download_vad(radar_id, time=plot_time, cache_path=cache_path)
     else:
         iname = build_has_name(radar_id, plot_time)
-        vad = VADFile(open("%s/%s" % (local_path, iname), 'rb'))
+        vad = VADFile(open("%s/%s" % (local_path, iname), "rb"))
 
     vad.rid = radar_id
 
-    logger.info("[VAD] Valid time for %s: %s" % (radar_id, vad['time'].strftime("%d %B %Y %H%M UTC")))
-    logger.info("[VAD] Lowest altitude: %.2f km" % (vad['altitude'][0] if len(vad['altitude']) > 0 else np.nan))
+    logger.info(
+        "[VAD] Valid time for %s: %s" % (radar_id, vad["time"].strftime("%d %B %Y %H%M UTC"))
+    )
+    logger.info(
+        "[VAD] Lowest altitude: %.2f km"
+        % (vad["altitude"][0] if len(vad["altitude"]) > 0 else np.nan)
+    )
 
     sfc_wind_str = None
     if sfc_wind:
@@ -103,7 +111,7 @@ async def vad_plotter(
         try:
             radar_lat = vad._radar_latitude
             radar_lon = vad._radar_longitude
-            asos = await get_asos_surface_wind(radar_lat, radar_lon, vwp_time=vad['time'])
+            asos = await get_asos_surface_wind(radar_lat, radar_lon, vwp_time=vad["time"])
             if asos is not None:
                 wdir, wspd, sid = asos
                 vad.add_surface_wind((wdir, wspd))
@@ -115,7 +123,7 @@ async def vad_plotter(
                 logger.warning("Could not fetch ASOS surface wind: %s" % e)
 
     params = compute_parameters(vad, storm_motion)
-    sm_dir, sm_spd = params['storm_motion']
+    sm_dir, sm_spd = params["storm_motion"]
     if not np.isnan(sm_dir) and not np.isnan(sm_spd):
         logger.info("[VAD] Storm motion: %03d/%02d" % (int(sm_dir), int(sm_spd)))
     else:
@@ -126,42 +134,56 @@ async def vad_plotter(
     # creates its own figure and closes it, which is usually okay in a
     # thread as long as it's not the main GUI thread.
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(executor,
-        plot_hodograph, vad, params, fname, web, fixed, (local_path is not None), sfc_wind_str
+    await loop.run_in_executor(
+        executor,
+        plot_hodograph,
+        vad,
+        params,
+        fname,
+        web,
+        fixed,
+        (local_path is not None),
+        sfc_wind_str,
     )
+
+    return params
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('radar_id')
-    ap.add_argument('-m', '--storm-motion', dest='storm_motion', default='right-mover')
-    ap.add_argument('-s', '--sfc-wind', dest='sfc_wind')
-    ap.add_argument('-t', '--time', dest='time')
-    ap.add_argument('-f', '--img-name', dest='img_name')
-    ap.add_argument('-p', '--local-path', dest='local_path')
-    ap.add_argument('-c', '--cache-path', dest='cache_path')
-    ap.add_argument('-w', '--web-mode', dest='web', action='store_true')
-    ap.add_argument('-x', '--fixed-frame', dest='fixed', action='store_true')
+    ap.add_argument("radar_id")
+    ap.add_argument("-m", "--storm-motion", dest="storm_motion", default="right-mover")
+    ap.add_argument("-s", "--sfc-wind", dest="sfc_wind")
+    ap.add_argument("-t", "--time", dest="time")
+    ap.add_argument("-f", "--img-name", dest="img_name")
+    ap.add_argument("-p", "--local-path", dest="local_path")
+    ap.add_argument("-c", "--cache-path", dest="cache_path")
+    ap.add_argument("-w", "--web-mode", dest="web", action="store_true")
+    ap.add_argument("-x", "--fixed-frame", dest="fixed", action="store_true")
     args = ap.parse_args()
 
-    np.seterr(all='ignore')
+    np.seterr(all="ignore")
 
     try:
-        asyncio.run(vad_plotter(args.radar_id,
-            storm_motion=args.storm_motion,
-            sfc_wind=args.sfc_wind,
-            time=args.time,
-            fname=args.img_name,
-            local_path=args.local_path,
-            cache_path=args.cache_path,
-            web=args.web,
-            fixed=args.fixed
-        ))
+        asyncio.run(
+            vad_plotter(
+                args.radar_id,
+                storm_motion=args.storm_motion,
+                sfc_wind=args.sfc_wind,
+                time=args.time,
+                fname=args.img_name,
+                local_path=args.local_path,
+                cache_path=args.cache_path,
+                web=args.web,
+                fixed=args.fixed,
+            )
+        )
     except Exception:
         if args.web:
-            print(json.dumps({'error': 'error'}))
+            print(json.dumps({"error": "error"}))
         else:
             raise
+
 
 if __name__ == "__main__":
     main()
