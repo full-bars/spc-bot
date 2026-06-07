@@ -32,9 +32,8 @@ from cogs.sounding_utils import (
     parse_sounding_time,
     resolve_location,
     set_user_dark_mode,
-    sounding_quality_warning,
 )
-from cogs.sounding_views import CombinedSoundingView, post_sounding
+from cogs.sounding_views import CombinedSoundingView, post_sounding, send_sounding_embed
 from config import CACHE_DIR, SOUNDING_CHANNEL_ID
 from utils.db import get_watch_centroid_cache, set_watch_centroid_cache
 from utils.spc_outlook import get_high_risk_polygon, is_inside_polygon
@@ -329,20 +328,20 @@ class SoundingCog(commands.Cog):
                 # We know there's at least one applicable watch because that's how we found the station
                 watches_frag = self._format_watches_caption(applicable, "0000", "Watch")
 
-                caption = (
-                    f"**Special Sounding — {station['name']} ({sid})**\n"
-                    f"Valid: {mo}-{d}-{y} {h}z | {watches_frag}"
+                time_label = f"{mo}-{d}-{y} {h}z"
+                await send_sounding_embed(
+                    interaction=None,
+                    station_id=sid,
+                    label=station["name"],
+                    time_label=time_label,
+                    dark_mode=False,
+                    png_path=png_path,
+                    fallback_note=f" | {watches_frag}",
+                    clean_data=data,
+                    channel=channel,
+                    type_label="Special Sounding",
                 )
-                qwarn = sounding_quality_warning(data)
-                if qwarn:
-                    caption += f"\n{qwarn}"
-
-                try:
-                    await channel.send(caption, files=[discord.File(png_path)])
-                    logger.info(f"Posted special release {sid} {h}z")
-                    self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
-                except Exception as e:
-                    logger.exception(f"Failed to post {sid}: {e}")
+                self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
 
     @tasks.loop(minutes=15)
     async def monitor_high_risk_soundings(self):
@@ -497,19 +496,21 @@ class SoundingCog(commands.Cog):
                     png_path = opath + ".png"
                     if not success or not os.path.exists(png_path):
                         continue
-                    caption = (
-                        f"**{caption_prefix} Sounding — {station['name']} ({sid})**\n"
-                        f"Valid: {mo}-{d}-{y} {h}z | Inside SPC Day 1 {labels_str} risk area"
+
+                    time_label = f"{mo}-{d}-{y} {h}z"
+                    await send_sounding_embed(
+                        interaction=None,
+                        station_id=sid,
+                        label=station["name"],
+                        time_label=time_label,
+                        dark_mode=False,
+                        png_path=png_path,
+                        fallback_note=f" | Inside SPC Day 1 {labels_str} risk area",
+                        clean_data=data,
+                        channel=channel,
+                        type_label=f"{caption_prefix} Sounding",
                     )
-                    qwarn = sounding_quality_warning(data)
-                    if qwarn:
-                        caption += f"\n{qwarn}"
-                    try:
-                        await channel.send(caption, files=[discord.File(png_path)])
-                        logger.info(f"Posted {sid} {h}z ({labels_str})")
-                        self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
-                    except Exception as e:
-                        logger.exception(f"Failed to post {sid}: {e}")
+                    self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
 
         # ── ACARS sweep ───────────────────────────────────────────────────
         try:
@@ -563,16 +564,21 @@ class SoundingCog(commands.Cog):
                     png_path = opath + ".png"
                     if not success or not os.path.exists(png_path):
                         continue
-                    caption = (
-                        f"**{caption_prefix} ACARS — {p['airport']}**\n"
-                        f"Valid: {p['time_label']} | Inside SPC Day 1 {labels_str} risk area"
+
+                    await send_sounding_embed(
+                        interaction=None,
+                        station_id=p["airport"],
+                        label=p["airport"],
+                        time_label=p["time_label"],
+                        dark_mode=False,
+                        png_path=png_path,
+                        fallback_note=f" | Inside SPC Day 1 {labels_str} risk area",
+                        clean_data=data,
+                        channel=channel,
+                        is_acars=True,
+                        type_label=f"{caption_prefix} ACARS",
                     )
-                    try:
-                        await channel.send(caption, files=[discord.File(png_path)])
-                        logger.info(f"Posted ACARS {p['airport']} ({labels_str})")
-                        self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
-                    except Exception as e:
-                        logger.exception(f"Failed to post ACARS {p['airport']}: {e}")
+                    self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
 
     @monitor_high_risk_soundings.after_loop
     async def after_high_risk_loop(self):
@@ -717,19 +723,21 @@ class SoundingCog(commands.Cog):
                 continue
             applicable = await self._watches_near(station["lat"], station["lon"])
             watches_frag = self._format_watches_caption(applicable, watch_num, watch_label)
-            caption = (
-                f"**Auto Sounding — {station['name']} ({sid})**\n"
-                f"Valid: {mo}-{d}-{y} {h}z | {watches_frag}"
+
+            time_label = f"{mo}-{d}-{y} {h}z"
+            await send_sounding_embed(
+                interaction=None,
+                station_id=sid,
+                label=station["name"],
+                time_label=time_label,
+                dark_mode=False,
+                png_path=png_path,
+                fallback_note=f" | {watches_frag}",
+                clean_data=data,
+                channel=target_channel,
+                type_label="Auto Sounding",
             )
-            qwarn = sounding_quality_warning(data)
-            if qwarn:
-                caption += f"\n{qwarn}"
-            try:
-                await target_channel.send(caption, files=[discord.File(png_path)])
-                logger.info(f"Posted {sid} for watch #{watch_num}")
-                self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
-            except Exception as e:
-                logger.exception(f"Failed to post {sid}: {e}")
+            self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
 
         acars_profiles = await get_acars_profiles_near(lat, lon, max_dist_km=300, hours_back=1)
         acars_eligible = []
@@ -768,17 +776,21 @@ class SoundingCog(commands.Cog):
                 continue
             applicable = await self._watches_near(p["lat"], p["lon"])
             watches_frag = self._format_watches_caption(applicable, watch_num, watch_label)
-            caption = f"**Auto ACARS — {p['airport']}**\nValid: {p['time_label']} | {watches_frag}"
-            try:
-                # ACARS must post to the observed-soundings channel, same as
-                # the RAOB posts above. Prior versions used the passed-in
-                # `channel` (the watches-announcement channel), which
-                # caused ACARS soundings to land in #weather-chat.
-                await target_channel.send(caption, files=[discord.File(png_path)])
-                logger.info(f"Posted ACARS {p['airport']} for watch #{watch_num}")
-                self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
-            except Exception as e:
-                logger.exception(f"Failed to post ACARS: {e}")
+
+            await send_sounding_embed(
+                interaction=None,
+                station_id=p["airport"],
+                label=p["airport"],
+                time_label=p["time_label"],
+                dark_mode=False,
+                png_path=png_path,
+                fallback_note=f" | {watches_frag}",
+                clean_data=data,
+                channel=target_channel,
+                is_acars=True,
+                type_label="Auto ACARS",
+            )
+            self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
 
     @tasks.loop(minutes=30)
     async def auto_sounding_watches(self):
@@ -881,19 +893,21 @@ class SoundingCog(commands.Cog):
                     continue
                 applicable = await self._watches_near(station["lat"], station["lon"])
                 watches_frag = self._format_watches_caption(applicable, watch_num, watch_label)
-                caption = (
-                    f"**Auto Sounding — {station['name']} ({sid})**\n"
-                    f"Valid: {month}-{day}-{year} {sounding_time}z | {watches_frag}"
+
+                time_label = f"{month}-{day}-{year} {sounding_time}z"
+                await send_sounding_embed(
+                    interaction=None,
+                    station_id=sid,
+                    label=station["name"],
+                    time_label=time_label,
+                    dark_mode=False,
+                    png_path=png_path,
+                    fallback_note=f" | {watches_frag}",
+                    clean_data=data,
+                    channel=channel,
+                    type_label="Auto Sounding",
                 )
-                qwarn = sounding_quality_warning(data)
-                if qwarn:
-                    caption += f"\n{qwarn}"
-                try:
-                    await channel.send(caption, files=[discord.File(png_path)])
-                    logger.info(f"Posted {sid} for watch #{watch_num}")
-                    self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
-                except Exception as e:
-                    logger.exception(f"Failed to post: {e}")
+                self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
 
             # ── ACARS auto-posting ────────────────────────────────────────────
             acars_profiles = await get_acars_profiles_near(lat, lon, max_dist_km=300, hours_back=1)
@@ -933,16 +947,21 @@ class SoundingCog(commands.Cog):
                     continue
                 applicable = await self._watches_near(p["lat"], p["lon"])
                 watches_frag = self._format_watches_caption(applicable, watch_num, watch_label)
-                caption = (
-                    f"**Auto ACARS \u2014 {p['airport']}**\n"
-                    f"Valid: {p['time_label']} | {watches_frag}"
+
+                await send_sounding_embed(
+                    interaction=None,
+                    station_id=p["airport"],
+                    label=p["airport"],
+                    time_label=p["time_label"],
+                    dark_mode=False,
+                    png_path=png_path,
+                    fallback_note=f" | {watches_frag}",
+                    clean_data=data,
+                    channel=channel,
+                    is_acars=True,
+                    type_label="Auto ACARS",
                 )
-                try:
-                    await channel.send(caption, files=[discord.File(png_path)])
-                    logger.info(f"Posted ACARS {p['airport']} for watch #{watch_num}")
-                    self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
-                except Exception as e:
-                    logger.exception(f"Failed to post ACARS: {e}")
+                self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
 
     @discord.app_commands.command(
         name="sounding",
