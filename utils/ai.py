@@ -100,6 +100,54 @@ async def summarize_sounding(raw_text: str) -> str | None:
     return await call_gemini(prompt)
 
 
+async def summarize_sounding_enhanced(
+    raw_text: str,
+    location_name: str = "Unknown",
+    outlook_context: list[dict] = None,
+    md_context: list[str] = None,
+    watch_context: list[str] = None,
+    sounding_context: str = None,
+) -> str | None:
+    """Generates a high-accuracy environmental analysis by cross-referencing
+    computed parameters with SPC products and nearby sounding data."""
+
+    context_str = ""
+    if outlook_context:
+        context_str += "\n### SPC DAY 1 OUTLOOK REGIONAL SUMMARIES:\n"
+        for reg in outlook_context:
+            context_str += f"- {reg.get('region')}: {reg.get('hazards_mode')}. {reg.get('favorable_factors')}\n"
+
+    if md_context:
+        context_str += "\n### ACTIVE NEARBY MESOSCALE DISCUSSIONS:\n"
+        context_str += "\n".join(md_context) + "\n"
+
+    if watch_context:
+        context_str += "\n### ACTIVE NEARBY WATCHES:\n"
+        context_str += "\n".join(watch_context) + "\n"
+
+    if sounding_context:
+        context_str += f"\n### NEARBY SOUNDING THERMODYNAMICS:\n{sounding_context}\n"
+
+    prompt = (
+        "You are a Senior Severe Storms Meteorologist. Analyze the provided local data "
+        f"for {location_name} and cross-reference it with the latest SPC thinking.\n\n"
+        "GOAL: Provide a highly accurate, 4-5 sentence plain-English environmental summary.\n"
+        "PRIORITY: Identify the primary severe hazard and expected storm mode. "
+        "DO NOT overstate hail risk if deep-layer shear is organized but storm mode is "
+        "expected to be multicellular/MCS. Be skeptical of discrete supercell threats "
+        "if SPC mentions linear transitions or cold-pool organization.\n\n"
+        "STRUCTURE:\n"
+        "1. Identify the primary hazard (Wind vs. Hail vs. Tornado) and peak magnitude.\n"
+        "2. Identify the expected storm mode (Discrete Supercells, QLCS, Multicellular/MCS).\n"
+        "3. Highlight limiting factors or 'fail modes' (e.g., capping, poor low-level spin).\n"
+        "4. Note any discrepancies between local data and broad SPC products if relevant.\n\n"
+        f"### LOCAL KINEMATIC/THERMODYNAMIC DATA:\n{raw_text}\n"
+        f"{context_str}\n"
+        "FINAL SUMMARY (Be concise, avoid raw numbers unless extreme):"
+    )
+    return await call_gemini(prompt)
+
+
 async def generate_morning_briefing(outlook_text: str, active_watches_text: str) -> str | None:
     prompt = (
         "You are a friendly, professional severe weather briefer. Based on the provided SPC Day 1 Outlook "

@@ -93,6 +93,48 @@ async def get_raob_stations() -> pd.DataFrame:
     return _station_cache
 
 
+def get_sounding_params_text(clean_data: dict) -> Optional[str]:
+    """Extract thermodynamic and kinematic parameters for AI analysis context."""
+    try:
+        import sounderpy as spy
+        import os
+
+        # SounderPy/SHARPPy can be noisy on stdout
+        old_stdout = sys.stdout
+        sys.stdout = open(os.devnull, "w")
+        try:
+            params = spy.sounding_params(clean_data).calc()
+        finally:
+            sys.stdout.close()
+            sys.stdout = old_stdout
+
+        thermo = params[1]
+        kinematics = params[2]
+
+        summary = "SOUNDING PARAMETERS:\n\n"
+        summary += "--- THERMODYNAMICS ---\n"
+        summary += f"SBCAPE: {thermo.get('sbcape')} | MUCAPE: {thermo.get('mucape')} | MLCAPE: {thermo.get('mlcape')}\n"
+        summary += f"SBCIN: {thermo.get('sbcin')} | MUCIN: {thermo.get('mucin')}\n"
+        summary += (
+            f"0-3km CAPE (SB): {thermo.get('sb3cape')} | 0-3km CAPE (MU): {thermo.get('mu3cape')}\n"
+        )
+        summary += f"DCAPE: {thermo.get('dcape')} | MUECAPE: {thermo.get('mu_ecape')}\n"
+        summary += f"Lapse Rates: 0-3km {thermo.get('lr_03km')} | 3-6km {thermo.get('lr_36km')}\n"
+        summary += f"SB LCL: {thermo.get('sb_lcl_z')} | SB LFC: {thermo.get('sb_lfc_z')}\n\n"
+
+        summary += "--- KINEMATICS ---\n"
+        summary += f"Effective Inflow Layer (EIL): {kinematics.get('eil_z')}\n"
+        summary += f"Bulk Shear: 0-1km {kinematics.get('shear_0_to_1000')} | 0-6km {kinematics.get('shear_0_to_6000')}\n"
+        summary += f"SRH: 0-1km {kinematics.get('srh_0_to_1000')} | 0-3km {kinematics.get('srh_0_to_3000')}\n"
+        summary += (
+            f"STP (Effective): {kinematics.get('eil_stp')} | SCP: {kinematics.get('eil_scp')}\n"
+        )
+        return summary
+    except Exception as e:
+        logger.debug(f"[SOUNDING] Failed to compute parameters for AI: {e}")
+        return None
+
+
 def _fetch_stations() -> pd.DataFrame:
     df = pd.read_csv(
         RAOB_STATIONS_URL,

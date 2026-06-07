@@ -728,43 +728,9 @@ async def _post_from_clean_data(
 
     # Pre-compute AI summary string
     raw_text = None
-    try:
-        import sounderpy as spy
-        import sys
-        import os
+    from cogs.sounding_utils import get_sounding_params_text
 
-        old_stdout = sys.stdout
-        sys.stdout = open(os.devnull, "w")
-        try:
-            params = spy.sounding_params(clean_data).calc()
-        finally:
-            sys.stdout.close()
-            sys.stdout = old_stdout
-
-        thermo = params[1]
-        kinematics = params[2]
-
-        summary = "SOUNDING PARAMETERS:\n\n"
-        summary += "--- THERMODYNAMICS ---\n"
-        summary += f"SBCAPE: {thermo.get('sbcape')} | MUCAPE: {thermo.get('mucape')} | MLCAPE: {thermo.get('mlcape')}\n"
-        summary += f"SBCIN: {thermo.get('sbcin')} | MUCIN: {thermo.get('mucin')}\n"
-        summary += (
-            f"0-3km CAPE (SB): {thermo.get('sb3cape')} | 0-3km CAPE (MU): {thermo.get('mu3cape')}\n"
-        )
-        summary += f"DCAPE: {thermo.get('dcape')} | MUECAPE: {thermo.get('mu_ecape')}\n"
-        summary += f"Lapse Rates: 0-3km {thermo.get('lr_03km')} | 3-6km {thermo.get('lr_36km')}\n"
-        summary += f"SB LCL: {thermo.get('sb_lcl_z')} | SB LFC: {thermo.get('sb_lfc_z')}\n\n"
-
-        summary += "--- KINEMATICS ---\n"
-        summary += f"Effective Inflow Layer (EIL): {kinematics.get('eil_z')}\n"
-        summary += f"Bulk Shear: 0-1km {kinematics.get('shear_0_to_1000')} | 0-6km {kinematics.get('shear_0_to_6000')}\n"
-        summary += f"SRH: 0-1km {kinematics.get('srh_0_to_1000')} | 0-3km {kinematics.get('srh_0_to_3000')}\n"
-        summary += (
-            f"STP (Effective): {kinematics.get('eil_stp')} | SCP: {kinematics.get('eil_scp')}\n"
-        )
-        raw_text = summary
-    except Exception as e:
-        logger.debug(f"[SOUNDING] Failed to compute parameters for AI: {e}")
+    raw_text = get_sounding_params_text(clean_data)
 
     async with sem:
         logger.info(f"[SOUNDING] Starting plot for {label} (Semaphore acquired)")
@@ -820,7 +786,16 @@ async def _post_from_clean_data(
             view = SoundingPlotView(cache_key)
             from cogs.ai_summaries import ensure_sounding_summary
 
-            t = asyncio.create_task(ensure_sounding_summary(cache_key, raw_text=raw_text))
+            t = asyncio.create_task(
+                ensure_sounding_summary(
+                    cache_key,
+                    raw_text=raw_text,
+                    lat=float(clean_data["site_info"]["site-latlon"][0]),
+                    lon=float(clean_data["site_info"]["site-latlon"][1]),
+                    location_name=f"{station_name} ({station_id})",
+                    bot=interaction.client,
+                )
+            )
             t.add_done_callback(
                 lambda t: logger.debug(
                     f"[SOUNDING] Proactive AI summary generation finished for {cache_key}"

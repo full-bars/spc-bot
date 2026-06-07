@@ -104,8 +104,20 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
         view = HodographPlotView(cache_key)
 
         from cogs.ai_summaries import ensure_sounding_summary
+        from lib.vad_plotter.radar_coords import RADAR_COORDS
 
-        t = asyncio.create_task(ensure_sounding_summary(cache_key, raw_text=summary))
+        lat, lon = RADAR_COORDS.get(site, (None, None))
+
+        t = asyncio.create_task(
+            ensure_sounding_summary(
+                cache_key,
+                raw_text=summary,
+                lat=lat,
+                lon=lon,
+                location_name=f"radar site {site}",
+                bot=interaction.client,
+            )
+        )
         t.add_done_callback(
             lambda t: logger.debug(
                 f"[HODO] Proactive AI summary generation finished for {cache_key}"
