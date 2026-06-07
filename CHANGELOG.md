@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.37.1] - 2026-06-07
+
+### Added
+- **Persistent Sounding AI Buttons:** The "🪄 AI Analysis" button is now automatically attached to all sounding posts, including RAOB and ACARS auto-posts. These buttons are stateless and persistent, ensuring they remain functional across bot restarts.
+- **Proactive Sounding Prefetch:** The bot now proactively triggers the environmental AI analysis the moment a sounding is posted (manually or via background monitor), ensuring the summary is pre-cached and ready for instant viewing.
+
 ## [5.37.0] - 2026-06-07
 
 ### Added
