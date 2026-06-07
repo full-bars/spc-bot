@@ -184,18 +184,19 @@ async def fetch_latest_watch_numbers() -> List[Tuple[str, str]]:
 
 async def fetch_watch_details_iem(
     watch_number: str,
-) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+) -> Tuple[Optional[str], Optional[str], Optional[str], bool]:
     """
     Fallback: fetch watch details from IEM watches API when SPC is unreachable.
     Uses mesonet.agron.iastate.edu/json/watches.py which has structured data
     including states, probabilities, hail size, and wind gusts.
-    Returns (text_summary, image_url, probs).
+    Returns (text_summary, image_url, probs, is_pds).
     """
     num_int = int(watch_number)
     year = datetime.now(timezone.utc).year
 
     text_summary = None
     probs = None
+    is_pds = False
     try:
         url = f"https://mesonet.agron.iastate.edu/json/watches.py?year={year}"
         content, status = await http_get_bytes(url, retries=2, timeout=15)
@@ -237,13 +238,13 @@ async def fetch_watch_details_iem(
         logger.warning(f"IEM watches API failed for #{watch_number}: {e}")
 
     # No image available from IEM — SPC image will be retried separately
-    return text_summary, None, probs
+    return text_summary, None, probs, is_pds
 
 
 async def fetch_watch_details(
     watch_number: str,
-) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    """Fetch an individual watch page and return (image_url, text_summary, probs).
+) -> Tuple[Optional[str], Optional[str], Optional[str], bool]:
+    """Fetch an individual watch page and return (image_url, text_summary, probs, is_pds).
     Races SPC and IEM page fetches simultaneously — whichever returns first wins.
     """
     page_url = f"https://www.spc.noaa.gov/products/watch/ww{watch_number}.html"
@@ -278,7 +279,11 @@ async def fetch_watch_details(
             image_url = f"https://www.spc.noaa.gov/products/watch/ww{watch_number}_overview.gif"
 
     text_summary = None
+    is_pds = False
     if html:
+        if "PARTICULARLY DANGEROUS SITUATION" in html.upper():
+            is_pds = True
+
         text_blocks = re.findall(r"<pre[^>]*>(.*?)</pre>", html, re.DOTALL | re.IGNORECASE)
         for block in text_blocks:
             clean = re.sub(r"<[^>]+>", "", block).strip()
@@ -401,11 +406,13 @@ async def fetch_watch_details(
     if cached_text and not text_summary:
         text_summary = cached_text
         logger.info(f"Got text from iembot cache for #{watch_number}")
+        if "PARTICULARLY DANGEROUS SITUATION" in cached_text.upper():
+            is_pds = True
 
     # IEM fallback: if SPC page was unreachable, try IEM watches API
     if not html:
         logger.warning(f"SPC unreachable for #{watch_number} — using IEM data")
-        iem_summary, iem_img, iem_probs = await fetch_watch_details_iem(watch_number)
+        iem_summary, iem_img, iem_probs, iem_pds = await fetch_watch_details_iem(watch_number)
         if iem_summary and not text_summary:
             text_summary = iem_summary
             logger.info(f"Got text from IEM for #{watch_number}")
@@ -415,5 +422,7 @@ async def fetch_watch_details(
         if iem_probs and not probs:
             probs = iem_probs
             logger.info(f"Got preliminary probs from IEM for #{watch_number}")
+        if iem_pds:
+            is_pds = True
 
-    return image_url, text_summary, probs
+    return image_url, text_summary, probs, is_pds

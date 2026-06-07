@@ -46,9 +46,15 @@ class WatchPaginatorView(discord.ui.View):
         self.next_btn.disabled = self.index >= len(self.watch_data) - 1
 
     def build_embed(self):
-        watch_num, nws_info, image_url, text_summary, probs, cache_path = self.watch_data[
-            self.index
-        ]
+        (
+            watch_num,
+            nws_info,
+            image_url,
+            text_summary,
+            probs,
+            cache_path,
+            is_pds,
+        ) = self.watch_data[self.index]
         wtype = nws_info.get("type", "SVR") if isinstance(nws_info, dict) else nws_info
         expires = nws_info.get("expires") if isinstance(nws_info, dict) else None
         is_tornado = wtype == "TORNADO"
@@ -63,10 +69,11 @@ class WatchPaginatorView(discord.ui.View):
             probs=probs,
             cache_path=cache_path,
             paginator_index=(self.index, len(self.watch_data)),
+            is_pds=is_pds,
         )
 
     def build_files(self):
-        watch_num, _, _, _, _, cache_path = self.watch_data[self.index]
+        watch_num, _, _, _, _, cache_path, _ = self.watch_data[self.index]
         return _watch_files(watch_num, cache_path)
 
     @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary)
@@ -128,13 +135,13 @@ async def _execute_watches(interaction: discord.Interaction, bot: commands.Bot):
             overview_path = None
 
     async def _hydrate(watch_num: str, nws_info: dict):
-        image_url, text_summary, probs = await fetch_watch_details(watch_num)
+        image_url, text_summary, probs, is_pds = await fetch_watch_details(watch_num)
         cache_path = None
         if image_url:
             cache_path, _, _ = await download_single_image(
                 image_url, MANUAL_CACHE_FILE, bot.state.manual_cache
             )
-        return (watch_num, nws_info, image_url, text_summary, probs, cache_path)
+        return (watch_num, nws_info, image_url, text_summary, probs, cache_path, is_pds)
 
     watch_data = list(
         await asyncio.gather(*[_hydrate(num, info) for num, info in nws_watches.items()])
@@ -188,7 +195,7 @@ class WatchesCog(commands.Cog):
         for attempt in range(20):
             await asyncio.sleep(_WATCH_FAST_POLL_INTERVAL_SEC)
             try:
-                image_url, text_summary, probs = await fetch_watch_details(watch_num)
+                image_url, text_summary, probs, is_pds = await fetch_watch_details(watch_num)
                 has_real_probs = probs and "preliminary" not in probs
 
                 cache_path = None
@@ -215,6 +222,7 @@ class WatchesCog(commands.Cog):
                         text_summary=text_summary,
                         probs=probs,
                         cache_path=cache_path,
+                        is_pds=is_pds,
                     )
                     files = _watch_files(watch_num, cache_path)
                     await message.edit(embed=embed, attachments=files)
@@ -234,6 +242,7 @@ class WatchesCog(commands.Cog):
                         text_summary=text_summary,
                         probs=probs,
                         cache_path=cache_path if not image_missing else None,
+                        is_pds=is_pds,
                     )
                     files = _watch_files(watch_num, cache_path) if not image_missing else []
                     await message.edit(embed=embed, attachments=files)
@@ -260,7 +269,7 @@ class WatchesCog(commands.Cog):
             await asyncio.sleep(_WATCH_SLOW_POLL_INTERVAL_SEC)
             try:
                 # We only care about the image now
-                image_url, text_summary, probs = await fetch_watch_details(watch_num)
+                image_url, text_summary, probs, is_pds = await fetch_watch_details(watch_num)
                 if not image_url:
                     continue
 
@@ -287,6 +296,7 @@ class WatchesCog(commands.Cog):
                     text_summary=text_summary,
                     probs=probs,
                     cache_path=cache_path,
+                    is_pds=is_pds,
                 )
                 files = _watch_files(watch_num, cache_path)
                 await message.edit(embed=embed, attachments=files)
@@ -332,7 +342,7 @@ class WatchesCog(commands.Cog):
         now_utc = datetime.now(timezone.utc)
 
         logger.info(f"iembot-triggered post for #{watch_num} ({wtype})")
-        image_url, text_summary, probs = await fetch_watch_details(watch_num)
+        image_url, text_summary, probs, is_pds = await fetch_watch_details(watch_num)
         cache_path = None
         if image_url:
             cache_path, _, _ = await download_single_image(
@@ -349,6 +359,7 @@ class WatchesCog(commands.Cog):
             text_summary=text_summary,
             probs=probs,
             cache_path=cache_path,
+            is_pds=is_pds,
         )
 
         try:
@@ -451,7 +462,7 @@ class WatchesCog(commands.Cog):
                 color = discord.Color.red() if is_tornado else discord.Color.orange()
 
                 logger.info(f"New watch detected: #{watch_num} ({wtype})")
-                image_url, text_summary, probs = await fetch_watch_details(watch_num)
+                image_url, text_summary, probs, is_pds = await fetch_watch_details(watch_num)
                 cache_path = None
                 if image_url:
                     cache_path, _, _ = await download_single_image(
@@ -468,6 +479,7 @@ class WatchesCog(commands.Cog):
                     text_summary=text_summary,
                     probs=probs,
                     cache_path=cache_path,
+                    is_pds=is_pds,
                 )
 
                 try:

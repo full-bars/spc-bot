@@ -234,6 +234,16 @@ async def _create_tables(db: aiosqlite.Connection):
             retry_count   INTEGER NOT NULL DEFAULT 0,
             quarantined   REAL NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS user_subscriptions (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id    INTEGER NOT NULL,
+            sub_type   TEXT NOT NULL,
+            sub_value  TEXT NOT NULL,
+            lat        REAL,
+            lon        REAL,
+            radius_km  REAL
+        );
     """)
 
     # Migrations: add columns if they don't exist
@@ -1112,4 +1122,69 @@ async def delete_dirty_writes_batch(ids: list[int]):
         "DELETE FROM dirty_writes WHERE id = ?",
         [(i,) for i in ids],
         "delete_dirty_writes_batch",
+    )
+
+
+# ── User Subscriptions ───────────────────────────────────────────────────────
+
+
+async def get_all_user_subscriptions() -> list[dict]:
+    """Retrieve all user subscriptions."""
+    try:
+        async with get_read_db() as db:
+            async with db.execute(
+                "SELECT id, user_id, sub_type, sub_value, lat, lon, radius_km "
+                "FROM user_subscriptions"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
+    except Exception as e:
+        logger.warning(f"get_all_user_subscriptions failed: {e}")
+        return []
+
+
+async def get_user_subscriptions(user_id: int) -> list[dict]:
+    """Retrieve all subscriptions for a specific user."""
+    try:
+        async with get_read_db() as db:
+            async with db.execute(
+                "SELECT id, user_id, sub_type, sub_value, lat, lon, radius_km "
+                "FROM user_subscriptions WHERE user_id = ?",
+                (user_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
+    except Exception as e:
+        logger.warning(f"get_user_subscriptions failed: {e}")
+        return []
+
+
+async def add_user_subscription(
+    user_id: int,
+    sub_type: str,
+    sub_value: str,
+    lat: Optional[float] = None,
+    lon: Optional[float] = None,
+    radius_km: Optional[float] = None,
+) -> None:
+    """Add a new user subscription."""
+    # First delete any existing exact match to avoid dupes
+    await _write(
+        "DELETE FROM user_subscriptions WHERE user_id = ? AND sub_type = ? AND sub_value = ?",
+        (user_id, sub_type, sub_value),
+        "delete_duplicate_subscription",
+    )
+    await _write(
+        "INSERT INTO user_subscriptions (user_id, sub_type, sub_value, lat, lon, radius_km) VALUES (?, ?, ?, ?, ?, ?)",
+        (user_id, sub_type, sub_value, lat, lon, radius_km),
+        "add_user_subscription",
+    )
+
+
+async def remove_user_subscription(user_id: int, sub_type: str, sub_value: str) -> None:
+    """Remove a specific user subscription."""
+    await _write(
+        "DELETE FROM user_subscriptions WHERE user_id = ? AND sub_type = ? AND sub_value = ?",
+        (user_id, sub_type, sub_value),
+        "remove_user_subscription",
     )

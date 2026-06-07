@@ -18,17 +18,17 @@ import pytest
 class TestFetchWatchDetailsRace:
     @pytest.mark.asyncio
     async def test_returns_tuple_of_three(self):
-        """fetch_watch_details always returns a 3-tuple regardless of outcome."""
+        """fetch_watch_details always returns a 4-tuple regardless of outcome."""
         with patch("utils.cache.fetch_with_validators", new_callable=AsyncMock) as mv, patch(
             "cogs.watch_fetch.fetch_watch_details_iem", new_callable=AsyncMock
         ) as mi:
             mv.return_value = (None, 404)
-            mi.return_value = (None, None, None)
+            mi.return_value = (None, None, None, False)
             from cogs.watches import fetch_watch_details
 
             result = await fetch_watch_details("0102")
         assert isinstance(result, tuple)
-        assert len(result) == 3
+        assert len(result) == 4
 
     @pytest.mark.asyncio
     async def test_iem_text_used_when_spc_fails(self):
@@ -37,10 +37,10 @@ class TestFetchWatchDetailsRace:
             "cogs.watch_fetch.fetch_watch_details_iem", new_callable=AsyncMock
         ) as mi:
             mv.return_value = (None, 404)
-            mi.return_value = ("IEM summary", "http://iem.example/img.png", None)
+            mi.return_value = ("IEM summary", "http://iem.example/img.png", None, False)
             from cogs.watches import fetch_watch_details
 
-            image_url, text_summary, probs = await fetch_watch_details("0102")
+            image_url, text_summary, probs, is_pds = await fetch_watch_details("0102")
         assert text_summary == "IEM summary"
 
     @pytest.mark.asyncio
@@ -50,11 +50,11 @@ class TestFetchWatchDetailsRace:
             "cogs.watch_fetch.fetch_watch_details_iem", new_callable=AsyncMock
         ) as mi:
             mv.return_value = (None, 404)
-            mi.return_value = (None, None, None)
+            mi.return_value = (None, None, None, False)
             from cogs.watches import fetch_watch_details
 
             result = await fetch_watch_details("0102")
-        assert result == (None, None, None)
+        assert result == (None, None, None, False)
 
 
 # ── fetch_md_details race ────────────────────────────────────────────────────
@@ -204,7 +204,8 @@ class TestPostSoundingsForWatch:
         with patch(
             "cogs.watches.fetch_active_watches_nws", new=AsyncMock(return_value=nws_result)
         ), patch(
-            "cogs.watches.fetch_watch_details", new=AsyncMock(return_value=(None, None, None))
+            "cogs.watches.fetch_watch_details",
+            new=AsyncMock(return_value=(None, None, None, False)),
         ), patch(
             "cogs.watches.download_single_image", new=AsyncMock(return_value=(None, False, None))
         ):

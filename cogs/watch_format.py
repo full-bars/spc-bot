@@ -20,14 +20,28 @@ def _build_watch_embed(
     cache_path: Optional[str] = None,
     footer: str = "SPC Watch Monitor",
     paginator_index: Optional[Tuple[int, int]] = None,
+    is_pds: bool = False,
 ) -> discord.Embed:
     """Canonical watch embed used by paginator, auto-post, iembot fast-path,
     and the upgrade-edit. One place to fix styling drift."""
+    display_label = watch_label
+    display_color = color
+    if is_pds:
+        display_label = f"⚠️ PDS {watch_label}"
+        display_color = discord.Color(0x000001)  # High-impact black
+
     embed = discord.Embed(
-        title=(f"{'🌪️' if is_tornado else '⛈️'}  {watch_label} #{int(watch_num)}"),
-        color=color,
+        title=(f"{'🌪️' if is_tornado else '⛈️'}  {display_label} #{int(watch_num)}"),
+        color=display_color,
         timestamp=timestamp,
     )
+    if is_pds:
+        embed.add_field(
+            name="🚨 PARTICULARLY DANGEROUS SITUATION",
+            value="This watch represents a significant threat to life and property.",
+            inline=False,
+        )
+
     if expires:
         embed.add_field(
             name="Expires",
