@@ -1,4 +1,5 @@
 import json
+from typing import Any
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -64,6 +65,110 @@ class RegionalAnalysisView(discord.ui.View):
         await interaction.response.edit_message(embed=self._create_embed(), view=self)
 
 
+async def ensure_md_summary(md_num: str, raw_text: str = None) -> str | None:
+    """Fetches or generates an AI summary for a Mesoscale Discussion (MD)."""
+    try:
+        from utils.state_store import get_product_cache, set_product_cache, _get_redis_client
+        import datetime
+
+        today_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d")
+        cache_key = f"ai_summary_md_{md_num}"
+
+        # 1. Check Cache
+        summary = await get_product_cache(cache_key)
+        redis = _get_redis_client()
+
+        if summary:
+            if redis:
+                await redis.incr(f"ai_cache_hits_{today_str}")
+            return summary
+
+        # 2. Not cached, generate it.
+        if redis:
+            await redis.incr(f"ai_api_calls_{today_str}")
+
+        if not raw_text:
+            # Check if we have the raw text cached
+            raw_text = await get_product_cache(f"md_{str(md_num).zfill(4)}")
+            if not raw_text:
+                # Fallback to fetching from SPC
+                url = f"https://www.spc.noaa.gov/products/md/md{str(md_num).zfill(4)}.html"
+                html = await http_get_text(url)
+                if html and "<pre>" in html:
+                    raw_text = html.split("<pre>")[1].split("</pre>")[0]
+
+        if raw_text:
+            from utils.ai import summarize_md
+
+            summary = await summarize_md(raw_text)
+            if summary:
+                await set_product_cache(cache_key, summary, ttl=86400 * 3)  # 3 days
+                return summary
+
+        return None
+    except Exception as e:
+        logger.error(f"Error in ensure_md_summary for MD {md_num}: {e}")
+        return None
+
+
+async def ensure_outlook_summary(day: str, raw_text: str = None) -> Any | None:
+    """Fetches or generates an AI analysis for an SPC Outlook."""
+    try:
+        from utils.state_store import get_product_cache, set_product_cache, _get_redis_client
+        from utils.change_detection import calculate_hash_bytes
+        import datetime
+
+        today_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d")
+
+        # 1. Fetch raw text if not provided (to determine cache key)
+        if not raw_text:
+            url_map = {
+                "1": "https://www.spc.noaa.gov/products/outlook/day1otlk.html",
+                "2": "https://www.spc.noaa.gov/products/outlook/day2otlk.html",
+                "3": "https://www.spc.noaa.gov/products/outlook/day3otlk.html",
+                "48": "https://www.spc.noaa.gov/products/exper/day4-8/day48prob.html",
+            }
+            url = url_map.get(day)
+            if not url:
+                return None
+            raw_text = await http_get_text(url)
+
+        if not raw_text:
+            return None
+
+        # 2. Version the cache key based on content hash
+        text_hash = calculate_hash_bytes(raw_text.encode())
+        cache_key = f"ai_summary_outlook_day{day}_{text_hash[:16]}"
+
+        summary_raw = await get_product_cache(cache_key)
+        redis = _get_redis_client()
+
+        if summary_raw:
+            if redis:
+                await redis.incr(f"ai_cache_hits_{today_str}")
+            try:
+                return json.loads(summary_raw)
+            except json.JSONDecodeError:
+                return summary_raw
+
+        # 3. Not cached, generate it
+        if redis:
+            await redis.incr(f"ai_api_calls_{today_str}")
+
+        from utils.ai import summarize_outlook
+
+        summary = await summarize_outlook(raw_text)
+        if summary:
+            # Store with long TTL, it's content-addressed
+            await set_product_cache(cache_key, json.dumps(summary), ttl=86400 * 7)
+            return summary
+
+        return None
+    except Exception as e:
+        logger.error(f"Error in ensure_outlook_summary for Day {day}: {e}")
+        return None
+
+
 class AISummariesCog(commands.Cog, name="AI Summaries"):
     def __init__(self, bot):
         self.bot = bot
@@ -91,40 +196,7 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
     async def _handle_md_summary(self, interaction: discord.Interaction, md_num: str):
         try:
             await interaction.response.defer(thinking=True)
-
-            # Check Redis cache first
-            from utils.state_store import get_product_cache, set_product_cache, _get_redis_client
-            import datetime
-
-            today_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d")
-
-            cache_key = f"ai_summary_md_{md_num}"
-            summary = await get_product_cache(cache_key)
-
-            redis = _get_redis_client()
-            if summary:
-                if redis:
-                    await redis.incr(f"ai_cache_hits_{today_str}")
-            else:
-                if redis:
-                    await redis.incr(f"ai_api_calls_{today_str}")
-                # Not cached, we need to generate it. Check if we have the raw text cached
-                raw_text = await get_product_cache(f"md_{str(md_num).zfill(4)}")
-                if not raw_text:
-                    # Fallback to fetching from SPC
-                    url = f"https://www.spc.noaa.gov/products/md/md{str(md_num).zfill(4)}.html"
-                    from utils.http import http_get_text
-
-                    html = await http_get_text(url)
-                    if html and "<pre>" in html:
-                        raw_text = html.split("<pre>")[1].split("</pre>")[0]
-
-                if raw_text:
-                    from utils.ai import summarize_md
-
-                    summary = await summarize_md(raw_text)
-                    if summary:
-                        await set_product_cache(cache_key, summary, ttl=86400 * 3)  # 3 days
+            summary = await ensure_md_summary(md_num)
 
             if not summary:
                 await interaction.followup.send("Failed to generate AI summary.", ephemeral=True)
@@ -153,59 +225,7 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
     async def _handle_outlook_summary(self, interaction: discord.Interaction, day: str):
         try:
             await interaction.response.defer(thinking=True)
-
-            from utils.state_store import get_product_cache, set_product_cache, _get_redis_client
-            from utils.change_detection import calculate_hash_bytes
-            import datetime
-
-            today_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d")
-
-            # Need to fetch raw text first to determine cache key (versioning)
-            url_map = {
-                "1": "https://www.spc.noaa.gov/products/outlook/day1otlk.html",
-                "2": "https://www.spc.noaa.gov/products/outlook/day2otlk.html",
-                "3": "https://www.spc.noaa.gov/products/outlook/day3otlk.html",
-                "48": "https://www.spc.noaa.gov/products/exper/day4-8/day48prob.html",
-            }
-            url = url_map.get(day)
-            if not url:
-                await interaction.followup.send("Invalid outlook day.", ephemeral=True)
-                return
-
-            from utils.http import http_get_text
-
-            raw_text = await http_get_text(url)
-            if not raw_text:
-                await interaction.followup.send("Failed to fetch outlook text.", ephemeral=True)
-                return
-
-            # Version the cache key based on content hash
-            text_hash = calculate_hash_bytes(raw_text.encode())
-            cache_key = f"ai_summary_outlook_day{day}_{text_hash[:16]}"
-
-            summary_raw = await get_product_cache(cache_key)
-
-            summary = None
-            if summary_raw:
-                try:
-                    summary = json.loads(summary_raw)
-                except json.JSONDecodeError:
-                    summary = summary_raw
-
-            redis = _get_redis_client()
-            if summary:
-                if redis:
-                    await redis.incr(f"ai_cache_hits_{today_str}")
-            else:
-                if redis:
-                    await redis.incr(f"ai_api_calls_{today_str}")
-
-                from utils.ai import summarize_outlook
-
-                summary = await summarize_outlook(raw_text)
-                if summary:
-                    # Store with long TTL, it's content-addressed
-                    await set_product_cache(cache_key, json.dumps(summary), ttl=86400 * 7)
+            summary = await ensure_outlook_summary(day)
 
             if not summary:
                 await interaction.followup.send("Failed to generate AI analysis.", ephemeral=True)

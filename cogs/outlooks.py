@@ -160,6 +160,14 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
                 await set_posted_urls(day_key, urls)
                 logger.info(f"[Day {day}] Posted {len(files)} images. URLs: {urls}")
 
+                # Proactively trigger AI summary generation so it's ready when the button is clicked
+                from cogs.ai_summaries import ensure_outlook_summary
+
+                t = asyncio.create_task(ensure_outlook_summary(str(day)))
+                t.add_done_callback(
+                    lambda t: logger.debug(f"[Day {day}] Proactive AI summary generation finished")
+                )
+
                 # Archive versions for /compare command
                 for url, (content, _) in downloaded_data.items():
                     if content:
