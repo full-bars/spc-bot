@@ -111,7 +111,58 @@ async def ensure_md_summary(md_num: str, raw_text: str = None) -> str | None:
         return None
 
 
-async def ensure_sounding_summary(cache_key: str, raw_text: str = None) -> str | None:
+async def _get_environmental_context(lat: float, lon: float, bot: commands.Bot) -> dict:
+    """Gather SPC products and regional context near a specific location."""
+    context = {}
+    from utils.state_store import get_product_cache
+    from cogs.sounding_utils import haversine
+
+    # 1. Outlook
+    outlook_raw = await get_product_cache("ai_summary_outlook_day1")
+    if outlook_raw:
+        try:
+            context["day1_outlook"] = json.loads(outlook_raw)
+        except Exception:
+            pass
+
+    # 2. Active MDs
+    active_mds = []
+    for md_num in list(bot.state.active_mds):
+        # MDs are typically large enough that we can just include the AI summary if it exists
+        summary = await get_product_cache(f"ai_summary_md_{md_num}")
+        if summary:
+            active_mds.append(f"MD #{md_num}: {summary}")
+    if active_mds:
+        context["active_mds"] = active_mds
+
+    # 3. Active Watches
+    applicable_watches = []
+    from utils.db import get_watch_centroid_cache
+
+    for watch_num, info in list(bot.state.active_watches.items()):
+        centroid = await get_watch_centroid_cache(watch_num)
+        if centroid:
+            dist = haversine(lat, lon, centroid[0], centroid[1])
+            if dist < 500:  # 500km radius
+                watch_summary = await get_product_cache(f"watch_{watch_num.zfill(4)}")
+                if watch_summary:
+                    # Clean up the watch summary for the prompt
+                    clean_ws = watch_summary.replace("**", "").split("Threats:")[0].strip()
+                    applicable_watches.append(f"Watch #{watch_num}: {clean_ws}")
+    if applicable_watches:
+        context["active_watches"] = applicable_watches
+
+    return context
+
+
+async def ensure_sounding_summary(
+    cache_key: str,
+    raw_text: str = None,
+    lat: float = None,
+    lon: float = None,
+    location_name: str = "Unknown",
+    bot: commands.Bot = None,
+) -> str | None:
     """Fetches or generates an AI summary for a sounding/hodograph."""
     try:
         from utils.state_store import get_product_cache, set_product_cache, _get_redis_client
@@ -130,16 +181,85 @@ async def ensure_sounding_summary(cache_key: str, raw_text: str = None) -> str |
 
         # 2. Not cached, generate it.
         if not raw_text:
-            # We don't have a way to easily reconstruct the raw_text from just the cache_key here.
-            # So if it's not cached and raw_text isn't provided (proactively), we fail.
             return None
 
         if redis:
             await redis.incr(f"ai_api_calls_{today_str}")
 
-        from utils.ai import summarize_sounding
+        # Attempt to resolve lat/lon from cache_key if missing
+        if lat is None or lon is None:
+            try:
+                from cogs.sounding_utils import resolve_location
 
-        summary = await summarize_sounding(raw_text)
+                if cache_key.startswith("hodo_"):
+                    # hodo_{site}_{now_str}
+                    site = cache_key.split("_")[1]
+                    lat, lon, _ = await resolve_location(site)
+                    location_name = f"radar site {site}"
+                elif "_" in cache_key:
+                    # {station_id}_{year}{month}{day}_{hour}
+                    sid = cache_key.split("_")[0]
+                    lat, lon, _ = await resolve_location(sid)
+                    location_name = sid
+            except Exception:
+                pass
+
+        outlook_context = None
+        md_context = None
+        watch_context = None
+        sounding_context = None
+
+        if lat is not None and lon is not None and bot is not None:
+            ctx_data = await _get_environmental_context(lat, lon, bot)
+            outlook_context = ctx_data.get("day1_outlook")
+            md_context = ctx_data.get("active_mds")
+            watch_context = ctx_data.get("active_watches")
+
+            # If this is a radar hodograph, attempt to fetch nearby sounding thermodynamics
+            if cache_key.startswith("hodo_"):
+                try:
+                    from cogs.sounding_utils import (
+                        get_raob_stations,
+                        find_nearest_stations,
+                        get_available_sounding_times,
+                        fetch_sounding,
+                        get_sounding_params_text,
+                    )
+
+                    stations_df = await get_raob_stations()
+                    nearest = find_nearest_stations(lat, lon, stations_df, n=3)
+                    nearest = [s for s in nearest if s.get("icao") or s.get("wmo")]
+
+                    for station in nearest:
+                        sid = station.get("icao") or station.get("wmo")
+                        avail = await get_available_sounding_times(sid, hours_back=12)
+                        if avail:
+                            y, mo, d, h = avail[0]
+                            data = await fetch_sounding(sid, y, mo, d, h)
+                            if data:
+                                sounding_context = get_sounding_params_text(data)
+                                if sounding_context:
+                                    sounding_context = (
+                                        f"Station: {station['name']} ({sid})\n{sounding_context}"
+                                    )
+                                    break
+                except Exception as e:
+                    logger.debug(f"Failed to fetch nearby sounding for hodo context: {e}")
+
+        from utils.ai import summarize_sounding, summarize_sounding_enhanced
+
+        if any([outlook_context, md_context, watch_context, sounding_context]):
+            summary = await summarize_sounding_enhanced(
+                raw_text,
+                location_name=location_name,
+                outlook_context=outlook_context,
+                md_context=md_context,
+                watch_context=watch_context,
+                sounding_context=sounding_context,
+            )
+        else:
+            summary = await summarize_sounding(raw_text)
+
         if summary:
             await set_product_cache(cache_key, summary, ttl=86400)  # 1 day
             return summary
@@ -238,7 +358,7 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
     async def _handle_sounding_summary(self, interaction: discord.Interaction, cache_key: str):
         try:
             await interaction.response.defer(thinking=True)
-            summary = await ensure_sounding_summary(cache_key)
+            summary = await ensure_sounding_summary(cache_key, bot=self.bot)
 
             if not summary:
                 await interaction.followup.send(
