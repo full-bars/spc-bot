@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.36.3] - 2026-06-06
+
+### Fixed
+- **AI Outlook Caching:** Implemented content-based cache invalidation for SPC outlook summaries. The bot now versions its AI analysis cache based on the hash of the outlook text, ensuring that new outlook issuances at the same URL (e.g., Day 1 updates) immediately trigger a fresh analysis instead of serving stale cached data.
+
 ## [5.36.2] - 2026-06-05
 
 ### Added
