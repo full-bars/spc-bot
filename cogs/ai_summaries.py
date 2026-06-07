@@ -155,11 +155,34 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
             await interaction.response.defer(thinking=True)
 
             from utils.state_store import get_product_cache, set_product_cache, _get_redis_client
+            from utils.change_detection import calculate_hash_bytes
             import datetime
 
             today_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d")
 
-            cache_key = f"ai_summary_outlook_day{day}"
+            # Need to fetch raw text first to determine cache key (versioning)
+            url_map = {
+                "1": "https://www.spc.noaa.gov/products/outlook/day1otlk.html",
+                "2": "https://www.spc.noaa.gov/products/outlook/day2otlk.html",
+                "3": "https://www.spc.noaa.gov/products/outlook/day3otlk.html",
+                "48": "https://www.spc.noaa.gov/products/exper/day4-8/day48prob.html",
+            }
+            url = url_map.get(day)
+            if not url:
+                await interaction.followup.send("Invalid outlook day.", ephemeral=True)
+                return
+
+            from utils.http import http_get_text
+
+            raw_text = await http_get_text(url)
+            if not raw_text:
+                await interaction.followup.send("Failed to fetch outlook text.", ephemeral=True)
+                return
+
+            # Version the cache key based on content hash
+            text_hash = calculate_hash_bytes(raw_text.encode())
+            cache_key = f"ai_summary_outlook_day{day}_{text_hash[:16]}"
+
             summary_raw = await get_product_cache(cache_key)
 
             summary = None
@@ -176,27 +199,13 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
             else:
                 if redis:
                     await redis.incr(f"ai_api_calls_{today_str}")
-                # Need to generate it
-                url_map = {
-                    "1": "https://www.spc.noaa.gov/products/outlook/day1otlk.html",
-                    "2": "https://www.spc.noaa.gov/products/outlook/day2otlk.html",
-                    "3": "https://www.spc.noaa.gov/products/outlook/day3otlk.html",
-                    "48": "https://www.spc.noaa.gov/products/exper/day4-8/day48prob.html",
-                }
-                url = url_map.get(day)
-                if not url:
-                    await interaction.followup.send("Invalid outlook day.", ephemeral=True)
-                    return
 
-                from utils.http import http_get_text
+                from utils.ai import summarize_outlook
 
-                raw_text = await http_get_text(url)
-                if raw_text:
-                    from utils.ai import summarize_outlook
-
-                    summary = await summarize_outlook(raw_text)
-                    if summary:
-                        await set_product_cache(cache_key, json.dumps(summary), ttl=86400)
+                summary = await summarize_outlook(raw_text)
+                if summary:
+                    # Store with long TTL, it's content-addressed
+                    await set_product_cache(cache_key, json.dumps(summary), ttl=86400 * 7)
 
             if not summary:
                 await interaction.followup.send("Failed to generate AI analysis.", ephemeral=True)
