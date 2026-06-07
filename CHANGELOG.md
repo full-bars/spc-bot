@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.36.4] - 2026-06-06
+
+### Performance
+- **Proactive AI Generation:** The bot now proactively triggers AI analysis generation for SPC outlooks and Mesoscale Discussions (MDs) immediately after they are posted. This pre-caches the results so they are available instantly when a user clicks the "AI Analysis" buttons, eliminating the previous 10-second generation delay.
+
+### Refactored
+- **UI Consistency:** Renamed the "🪄 TL;DR" button for Mesoscale Discussions to "🪄 AI Analysis" to maintain consistency with the convective outlook UI.
+
 ## [5.36.3] - 2026-06-06
 
 ### Fixed

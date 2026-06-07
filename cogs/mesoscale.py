@@ -30,7 +30,7 @@ class MDSummaryView(discord.ui.View):
     def __init__(self, md_num: str, raw_text: str = ""):
         super().__init__(timeout=None)
         button = discord.ui.Button(
-            label="🪄 TL;DR", style=discord.ButtonStyle.secondary, custom_id=f"ai_md:{md_num}"
+            label="🪄 AI Analysis", style=discord.ButtonStyle.secondary, custom_id=f"ai_md:{md_num}"
         )
         self.add_item(button)
 
@@ -680,6 +680,13 @@ class MesoscaleCog(commands.Cog):
         try:
             view = MDSummaryView(md_num=str(md_num), raw_text=raw_text or "")
             msg = await channel.send(embeds=[img_embed, text_embed], files=files, view=view)
+
+            # Proactively trigger AI summary generation so it's ready when the button is clicked
+            from cogs.ai_summaries import ensure_md_summary
+
+            t = asyncio.create_task(ensure_md_summary(str(md_num), raw_text=raw_text))
+            t.add_done_callback(_log_task_exception)
+
             self.bot.state.posted_mds.add(md_num)
             self.bot.state.active_mds.add(md_num)
             await self.bot.state.add_posted_md(str(md_num))
