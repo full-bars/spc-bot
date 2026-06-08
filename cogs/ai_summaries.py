@@ -291,12 +291,16 @@ async def ensure_outlook_summary(day: str, raw_text: str = None) -> Any | None:
                 "1": "https://www.spc.noaa.gov/products/outlook/day1otlk.html",
                 "2": "https://www.spc.noaa.gov/products/outlook/day2otlk.html",
                 "3": "https://www.spc.noaa.gov/products/outlook/day3otlk.html",
-                "48": "https://www.spc.noaa.gov/products/exper/day4-8/day48prob.html",
+                "48": "https://www.spc.noaa.gov/products/exper/day4-8/",
             }
             url = url_map.get(day)
             if not url:
                 return None
-            raw_text = await http_get_text(url)
+            html = await http_get_text(url)
+            if html and "<pre>" in html:
+                raw_text = html.split("<pre>")[1].split("</pre>")[0]
+            else:
+                raw_text = html
 
         if not raw_text:
             return None

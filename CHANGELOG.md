@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.37.2] - 2026-06-08
+
+### Fixed
+- **Day 4-8 AI Analysis:** Fixed a 404 error when fetching the Day 4-8 outlook text by updating the source URL to the correct directory index. Added HTML tag stripping for cleaner AI prompt construction.
+
 ## [5.37.1] - 2026-06-07
 
 ### Added
