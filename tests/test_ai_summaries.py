@@ -65,3 +65,52 @@ async def test_handle_outlook_summary_caching():
         expected_key2 = f"ai_summary_outlook_day1_{hash2}"
         assert expected_key2 in cache
         assert json.loads(cache[expected_key2]) == "Summary V2"
+
+
+@pytest.mark.asyncio
+async def test_ensure_outlook_summary_day3_txt():
+    """Verify Day 3 uses .txt URL and strips HTML tags."""
+    with patch("cogs.ai_summaries.http_get_text", new_callable=AsyncMock) as mock_get_text, patch(
+        "utils.ai.summarize_outlook", new_callable=AsyncMock
+    ) as mock_summarize, patch("utils.state_store.get_product_cache", return_value=None), patch(
+        "utils.state_store.set_product_cache", new_callable=AsyncMock
+    ), patch("utils.state_store._get_redis_client", return_value=None):
+        from cogs.ai_summaries import ensure_outlook_summary
+
+        # Mock Day 3 .txt content (no HTML)
+        txt_content = "ZCZC SPCSWODY3 ALL\n...TEXT...\n$$"
+        mock_get_text.return_value = txt_content
+        mock_summarize.return_value = [{"region": "Test", "hazards_mode": "None"}]
+
+        summary = await ensure_outlook_summary("3")
+
+        # Verify it called the .txt URL
+        mock_get_text.assert_called_with("https://www.spc.noaa.gov/products/outlook/day3otlk.txt")
+        # Verify summarize_outlook was called with the raw text
+        mock_summarize.assert_called_with("ZCZC SPCSWODY3 ALL\n...TEXT...\n$$")
+        assert summary[0]["region"] == "Test"
+
+
+@pytest.mark.asyncio
+async def test_ensure_outlook_summary_html_stripping():
+    """Verify HTML stripping for HTML products like Day 4-8."""
+    with patch("cogs.ai_summaries.http_get_text", new_callable=AsyncMock) as mock_get_text, patch(
+        "utils.ai.summarize_outlook", new_callable=AsyncMock
+    ) as mock_summarize, patch("utils.state_store.get_product_cache", return_value=None), patch(
+        "utils.state_store.set_product_cache", new_callable=AsyncMock
+    ), patch("utils.state_store._get_redis_client", return_value=None):
+        from cogs.ai_summaries import ensure_outlook_summary
+
+        # Mock Day 4-8 HTML content
+        html_content = "<html><pre>ZCZC ALL\n...TEXT...<a href='link'>ARCHIVE</a></pre></html>"
+        mock_get_text.return_value = html_content
+        mock_summarize.return_value = [{"region": "Test", "hazards_mode": "None"}]
+
+        await ensure_outlook_summary("48")
+
+        # Verify it called the directory URL
+        mock_get_text.assert_called_with("https://www.spc.noaa.gov/products/exper/day4-8/")
+        # Verify summarize_outlook was called with STRIPPED text
+        # Splitting by <pre> gives "ZCZC ALL\n...TEXT...<a href='link'>ARCHIVE</a>"
+        # Stripping tags gives "ZCZC ALL\n...TEXT...ARCHIVE"
+        mock_summarize.assert_called_with("ZCZC ALL\n...TEXT...ARCHIVE")

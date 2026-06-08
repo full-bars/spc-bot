@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.37.3] - 2026-06-08
+
+### Fixed
+- **AI Summary Reliability:** Improved AI summary generation for SPC Outlooks (Days 1-3) by switching to plain-text sources, bypassing HTML-only cache busters and ensuring cleaner input for the Gemini model. Implemented robust HTML tag stripping and case-insensitive `<pre>` tag handling for all scraped weather products.
+
 ## [5.37.2] - 2026-06-08
 
 ### Fixed

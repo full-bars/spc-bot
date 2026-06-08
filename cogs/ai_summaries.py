@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Any
 import discord
 from discord import app_commands
@@ -94,10 +95,18 @@ async def ensure_md_summary(md_num: str, raw_text: str = None) -> str | None:
                 # Fallback to fetching from SPC
                 url = f"https://www.spc.noaa.gov/products/md/md{str(md_num).zfill(4)}.html"
                 html = await http_get_text(url)
-                if html and "<pre>" in html:
-                    raw_text = html.split("<pre>")[1].split("</pre>")[0]
+                if html:
+                    if "<pre>" in html.lower():
+                        parts = re.split(r"<pre[^>]*>", html, flags=re.IGNORECASE)
+                        if len(parts) > 1:
+                            raw_text = parts[1].split("</pre>")[0]
+                        else:
+                            raw_text = html
+                    else:
+                        raw_text = html
 
         if raw_text:
+            raw_text = re.sub(r"<[^>]*>", "", raw_text).strip()
             from utils.ai import summarize_md
 
             summary = await summarize_md(raw_text)
@@ -288,22 +297,35 @@ async def ensure_outlook_summary(day: str, raw_text: str = None) -> Any | None:
         # 1. Fetch raw text if not provided (to determine cache key)
         if not raw_text:
             url_map = {
-                "1": "https://www.spc.noaa.gov/products/outlook/day1otlk.html",
-                "2": "https://www.spc.noaa.gov/products/outlook/day2otlk.html",
-                "3": "https://www.spc.noaa.gov/products/outlook/day3otlk.html",
+                "1": "https://www.spc.noaa.gov/products/outlook/day1otlk.txt",
+                "2": "https://www.spc.noaa.gov/products/outlook/day2otlk.txt",
+                "3": "https://www.spc.noaa.gov/products/outlook/day3otlk.txt",
                 "48": "https://www.spc.noaa.gov/products/exper/day4-8/",
             }
             url = url_map.get(day)
             if not url:
                 return None
             html = await http_get_text(url)
-            if html and "<pre>" in html:
-                raw_text = html.split("<pre>")[1].split("</pre>")[0]
+            if not html:
+                return None
+
+            if url.endswith(".txt"):
+                raw_text = html
+            elif "<pre>" in html.lower():
+                # Case-insensitive split for <pre>
+                parts = re.split(r"<pre[^>]*>", html, flags=re.IGNORECASE)
+                if len(parts) > 1:
+                    raw_text = parts[1].split("</pre>")[0]
+                else:
+                    raw_text = html
             else:
                 raw_text = html
 
         if not raw_text:
             return None
+
+        # Strip remaining HTML tags for cleaner AI input
+        raw_text = re.sub(r"<[^>]*>", "", raw_text).strip()
 
         # 2. Version the cache key based on content hash
         text_hash = calculate_hash_bytes(raw_text.encode())
