@@ -275,6 +275,7 @@ async def send_sounding_embed(
             if cache_key:
                 view = SoundingPlotView(cache_key)
 
+                # Proactive AI prefetch
                 from cogs.ai_summaries import ensure_sounding_summary
                 from cogs.sounding_utils import get_sounding_params_text
 

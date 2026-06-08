@@ -14,7 +14,7 @@ async def call_gemini(prompt: str, is_json: bool = False) -> Any | None:
         logger.warning("GEMINI_API_KEY is not set. Cannot call AI.")
         return None
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={GEMINI_API_KEY}"
 
     generation_config: dict[str, Any] = {
         "temperature": 0.2,
