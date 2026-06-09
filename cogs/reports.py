@@ -53,9 +53,26 @@ class PNSView(discord.ui.View):
         from utils.events_db import get_significant_event_raw_text
 
         raw_text = await get_significant_event_raw_text(f"IEM:PNS:{product_id}")
+
+        # If not in database, try fetching from IEM archive (for retroactive support)
+        if not raw_text:
+            from cogs.iembot import _fetch_product_text
+
+            raw_text = await _fetch_product_text(product_id)
+            if raw_text:
+                # Cache it for future use
+                from utils.state_store import add_significant_event
+
+                await add_significant_event(
+                    event_id=f"IEM:PNS:{product_id}",
+                    event_type="PNS",
+                    location="",
+                    raw_text=raw_text,
+                )
+
         if not raw_text:
             await interaction.response.send_message(
-                "Raw text not found in database for this event.", ephemeral=True
+                "Raw text not found in database or IEM archive for this event.", ephemeral=True
             )
             return
 
@@ -379,44 +396,36 @@ class ReportsCog(commands.Cog):
 
         from utils.state_store import find_matching_tornado
 
-        match = await find_matching_tornado(office, event_ts, event_name)
-
-        # Only log to significant events if it's a Tornado survey
-        # (check event_name and rating)
+        # Determine if this is a tornado survey
         is_tornado = "TORNADO" in event_name.upper() or rating_str.startswith("EF")
 
-        if is_tornado:
-            if match:
-                event_id, vtec_id = match
-                logger.info(
-                    f"[REPORTS] Found matching tornado {event_id} for survey, updating rating to {rating_str}"
-                )
-                # Update existing row by using the same event_id
-                await add_significant_event(
-                    event_id=event_id,
-                    event_type="Tornado",
-                    location=event_name,
-                    magnitude=rating_str,
-                    coords=coords,
-                    timestamp=event_ts,
-                    source=office,
-                    raw_text=raw_text,
-                )
-            else:
-                # Log as a new survey event
-                await add_significant_event(
-                    event_id=f"IEM:PNS:{product_id}",
-                    event_type="Tornado",  # Log as Tornado so it shows in /recenttornadoes
-                    location=event_name,
-                    magnitude=rating_str,
-                    coords=coords,
-                    timestamp=event_ts,
-                    source=office,
-                    raw_text=raw_text,
-                )
-        else:
+        if is_tornado and (match := await find_matching_tornado(office, event_ts, event_name)):
+            event_id, vtec_id = match
             logger.info(
-                f"[REPORTS] Skipping SignificantEvent log for non-tornado PNS: {event_name}"
+                f"[REPORTS] Found matching tornado {event_id} for survey, updating rating to {rating_str}"
+            )
+            # Update existing tornado entry with survey details
+            await add_significant_event(
+                event_id=event_id,
+                event_type="Tornado",
+                location=event_name,
+                magnitude=rating_str,
+                coords=coords,
+                timestamp=event_ts,
+                source=office,
+                raw_text=raw_text,
+            )
+        else:
+            # Log all PNS reports (tornado or not) so the "View Full Text" button works
+            await add_significant_event(
+                event_id=f"IEM:PNS:{product_id}",
+                event_type="Tornado" if is_tornado else "PNS",
+                location=event_name,
+                magnitude=rating_str,
+                coords=coords,
+                timestamp=event_ts,
+                source=office,
+                raw_text=raw_text,
             )
 
         if event_date:
