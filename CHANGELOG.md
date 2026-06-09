@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.37.4] - 2026-06-08
+
+### Added
+- **AI Model Upgrade:** Upgraded from `gemini-flash-latest` (Gemini 3 Flash) to `gemini-3.1-flash-lite` to leverage a significantly higher daily request quota (500 RPD).
+- **Proactive Prefetching Restored:** Re-enabled proactive AI prefetching for outlooks and soundings to ensure analysis is ready when requested, now supported by the higher request quota.
+
 ## [5.37.3] - 2026-06-08
 
 ### Fixed
