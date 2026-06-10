@@ -858,4 +858,5 @@ async def _post_from_clean_data(
         status_msg,
         clean_data,
         messages_to_delete=messages_to_delete,
+        autopost_summary=True,
     )
