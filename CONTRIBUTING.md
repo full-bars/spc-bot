@@ -34,10 +34,10 @@ or inline where invoked, not into the configured channels.
 ### SPC Outlooks
 | Command | Description |
 |---|---|
-| `/spc1` | Fetch and display the latest SPC Day 1 outlook graphics. Optional `fresh:True` bypasses cache. |
-| `/spc2` | Fetch and display the latest SPC Day 2 outlook graphics. Optional `fresh:True` bypasses cache. |
-| `/spc3` | Fetch and display the latest SPC Day 3 outlook graphics. Optional `fresh:True` bypasses cache. |
-| `/spc48` | Fetch and display the latest SPC Day 4–8 outlook graphics |
+| `/spc1` | Fetch and display the latest SPC Day 1 outlook graphics. Includes "🪄 AI Analysis" button for context-aware Gemini summary. Optional `fresh:True` bypasses cache. |
+| `/spc2` | Fetch and display the latest SPC Day 2 outlook graphics. Includes "🪄 AI Analysis" button for context-aware Gemini summary. Optional `fresh:True` bypasses cache. |
+| `/spc3` | Fetch and display the latest SPC Day 3 outlook graphics. Includes "🪄 AI Analysis" button for context-aware Gemini summary. Optional `fresh:True` bypasses cache. |
+| `/spc48` | Fetch and display the latest SPC Day 4–8 outlook graphics. Includes "🪄 AI Analysis" button for context-aware Gemini summary. |
 | `/compare` | Compare the latest outlook with the previous version side-by-side or calculate differences. Parameters: `day` (Day 1, Day 2, Day 3, Day 4-8) and `product` (All, Categorical, Tornado, Hail, Wind). |
 | `/historical` | Retrieve historical SPC convective outlook graphics from the archive (2004–present). Parameters: `date` (YYYY-MM-DD), `day` (Day 1, Day 2, Day 3), `product` (All, Categorical, Tornado, Wind, Hail), and optional `time` (issuance time). |
 
@@ -46,7 +46,7 @@ or inline where invoked, not into the configured channels.
 |---|---|
 | `/watches` | Show all currently active SPC watches with details and probabilities |
 | `/ww` | Alias for `/watches` |
-| `/md` | Show a paginated view of all active SPC mesoscale discussions |
+| `/md` | Show a paginated view of all active SPC mesoscale discussions. Each MD includes a "🪄 AI Analysis" button for a plain-English summary of threats, timing, and limiting factors. |
 | `/recenttornadoes` | List confirmed tornadoes via an interactive, chronological calendar-style dashboard |
 | `/sigtor` | List significant (EF2+) tornadoes via the interactive dashboard |
 | `/archive` | Search the tornado environmental forensics archive by radar and/or date |
@@ -67,14 +67,14 @@ or inline where invoked, not into the configured channels.
 ### Soundings
 | Command | Description |
 |---|---|
-| `/sounding` | Plot an observed sounding — accepts city names, radar site codes (e.g. `KTLX`), or RAOB station IDs. Optional `time` (MM-DD-YYYY HHz, any hour supported via IEM) and `dark` (saves preference) parameters. Shows nearest RAOB stations with available times discovered via IEM, plus nearby ACARS aircraft profiles. |
+| `/sounding` | Plot an observed sounding — accepts city names, radar site codes (e.g. `KTLX`), or RAOB station IDs. Includes persistent "🪄 AI Analysis" button for meteorologist-grade environmental summary. Optional `time` (MM-DD-YYYY HHz, any hour supported via IEM) and `dark` (saves preference) parameters. Shows nearest RAOB stations with available times discovered via IEM, plus nearby ACARS aircraft profiles. |
 
 ### Radar & Hodograph
 | Command | Description |
 |---|---|
 | `/download` | Open the NEXRAD Level 2 radar downloader UI. Optional `sites` (space or comma separated codes e.g. `KICT KUEX`), `time` (Last 1h/2h/3h/4h), and `count` (number of most recent files) for quick-start without interactive flow. |
 | `/downloaderstatus` | Check AWS downloader and S3 latency |
-| `/hodograph` | Generate a VWP hodograph for any NEXRAD or TDWR site. Accepts a 4-letter site ID (e.g. `KTLX`). Includes auto ASOS surface wind and storm parameter table. |
+| `/hodograph` | Generate a VWP hodograph for any NEXRAD or TDWR site. Accepts a 4-letter site ID (e.g. `KTLX`). Includes auto ASOS surface wind, storm parameter table, and persistent "🪄 AI Analysis" button for context-aware environmental assessment. |
 
 ### Analytics
 These commands expose IEM Autoplot or IEM Cow data. They are useful for operations and experimentation, but some are still being hardened for production workflows.

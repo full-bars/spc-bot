@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.37.6] - 2026-06-10
+
+### Added
+- **AI Summary Autoposting:** Outlooks (Days 1-3 and 4-8), mesoscale discussions, and soundings now automatically post Gemini-generated AI summaries as Discord follow-ups. Outlook summaries include regional pagination (Previous/Next buttons) when multiple risk areas are detected.
+- **Better Autopost Error Visibility:** Added warning logs when AI summary generation fails (API errors, failed text fetches, token limits) so failures are visible in bot logs without breaking the main product post.
+
+### Changed
+- **Dependency Updates:** Ruff 0.15.16, Fakeredis 2.36.1 (development). Rust crates: regex 1.12.4 (performance), chrono 0.4.45.
+- **CI/CD Hardening:** Added CodeQL security scanning for Python and Rust with scheduled weekly scans. Fixed Dependabot PR concurrency to prevent cancellation conflicts.
+
 ## [5.37.5] - 2026-06-09
 
 ### Fixed
