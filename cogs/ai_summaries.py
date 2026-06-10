@@ -416,6 +416,7 @@ async def autopost_sounding_summary(
     """Wait for sounding summary to be ready and post it as a follow-up message."""
     try:
         import asyncio
+        from utils.state_store import set_product_cache
 
         await asyncio.sleep(delay)
         summary = await ensure_sounding_summary(cache_key)
@@ -430,7 +431,9 @@ async def autopost_sounding_summary(
             description=summary,
             color=discord.Color.teal(),
         )
-        await channel.send(embed=embed)
+        msg = await channel.send(embed=embed)
+        # Store message ID so button clicks know it was already posted
+        await set_product_cache(f"sounding_summary_message_{cache_key}", str(msg.id))
     except Exception as e:
         logger.exception(f"Error autoposting sounding summary for {cache_key}: {e}")
 
@@ -464,7 +467,24 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
 
     async def _handle_sounding_summary(self, interaction: discord.Interaction, cache_key: str):
         try:
+            from utils.state_store import get_product_cache
+
             await interaction.response.defer(thinking=True)
+
+            # Check if summary was already auto-posted
+            message_id_str = await get_product_cache(f"sounding_summary_message_{cache_key}")
+            if message_id_str:
+                try:
+                    message_id = int(message_id_str)
+                    msg_link = f"https://discord.com/channels/{interaction.guild_id}/{interaction.channel_id}/{message_id}"
+                    await interaction.followup.send(
+                        f"AI analysis already posted! [View it here]({msg_link})",
+                        ephemeral=True,
+                    )
+                    return
+                except (ValueError, AttributeError):
+                    pass
+
             summary = await ensure_sounding_summary(cache_key, bot=self.bot)
 
             if not summary:
