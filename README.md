@@ -4,7 +4,7 @@ A high-performance severe weather monitoring platform with near-zero latency ale
 
 ## Features
 
-**SPC Products:** Day 1–8 convective outlooks, side-by-side outlook `/compare` tool, searchable `/historical` outlook archive (categorical and individual hazards), mesoscale discussions with watch probability detection, SPC watches, WPC rainfall outlooks, WPC surface fronts, SCP, CSU-MLP, NCAR WxNext2 forecasts, and Project WxEye briefings.
+**SPC Products:** Day 1–8 convective outlooks (with automatic Gemini AI summary follow-ups), side-by-side outlook `/compare` tool, searchable `/historical` outlook archive (categorical and individual hazards), mesoscale discussions with watch probability detection (auto-summarized), SPC watches, WPC rainfall outlooks, WPC surface fronts, SCP, CSU-MLP, NCAR WxNext2 forecasts, and Project WxEye briefings.
 
 **Real-Time Alerts:**
 > [!IMPORTANT]  
@@ -12,7 +12,7 @@ A high-performance severe weather monitoring platform with near-zero latency ale
 
 NWWS-OI fast path, IEMBot fallback, NWS API polling, SPC watch alerts with deduplication, NWS warnings (TOR/SVR/FFW/SPS) routable to dedicated per-type channels with runtime configuration via `/enablewarnings`, lifecycle tracking (CON/EXT/EXA), damage survey detection with DAT integration and photo carousels, automated 2.5h environmental evolution GIFs for observed tornadoes.
 
-**Scientific Tools:** Interactive RAOB/ACARS sounding plots (auto-posted near active watches and MDT/HIGH risk areas), VWP hodographs, **Context-Aware AI Analysis** (Gemini-powered environmental synthesis cross-referenced with SPC products), searchable tornado forensics archive, NEXRAD Level 2 downloader, and IEM-based tornado analytics.
+**Scientific Tools:** Interactive RAOB/ACARS sounding plots (auto-posted near active watches and MDT/HIGH risk areas, with automatic AI environmental analysis), VWP hodographs (with AI-powered analysis buttons), **Context-Aware AI Analysis** (Gemini-powered environmental synthesis cross-referenced with SPC products, Day 1 outlooks, active MDs, and nearby watches), searchable tornado forensics archive, NEXRAD Level 2 downloader, and IEM-based tornado analytics.
 
 **System:** Real-time `/status` dashboard, owner-only `/taskmgr` and `/logs` monitoring, dual-endpoint watchdog, leader-election failover with self-hosted Redis (via Tailscale), SQLite durability, optional Syncthing event archive replication, and a Rust hybrid core (Phases 1–9) that accelerates VAD hodograph math, S3 VAD data fetching, VTEC parsing, XXH3 image hashing, NWWS product ID normalization, haversine distance queries, VAD storm-mode calculations (`shear_mag`, `sr_flow`, `clip_profile`), and batch spatial joins (`find_nearest_stations_batch`, `points_in_polygon_counts`). All Rust paths fall back to pure Python if the extension is unavailable.
 
