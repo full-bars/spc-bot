@@ -510,6 +510,7 @@ class SoundingCog(commands.Cog):
                         clean_data=data,
                         channel=channel,
                         type_label=f"{caption_prefix} Sounding",
+                        autopost_summary=True,
                     )
                     self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
 
@@ -578,6 +579,7 @@ class SoundingCog(commands.Cog):
                         channel=channel,
                         is_acars=True,
                         type_label=f"{caption_prefix} ACARS",
+                        autopost_summary=True,
                     )
                     self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
 
@@ -737,6 +739,7 @@ class SoundingCog(commands.Cog):
                 clean_data=data,
                 channel=target_channel,
                 type_label="Auto Sounding",
+                autopost_summary=True,
             )
             self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
 
@@ -790,6 +793,7 @@ class SoundingCog(commands.Cog):
                 channel=target_channel,
                 is_acars=True,
                 type_label="Auto ACARS",
+                autopost_summary=True,
             )
             self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
 
@@ -907,6 +911,7 @@ class SoundingCog(commands.Cog):
                     clean_data=data,
                     channel=channel,
                     type_label="Auto Sounding",
+                    autopost_summary=True,
                 )
                 self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
 
@@ -961,6 +966,7 @@ class SoundingCog(commands.Cog):
                     channel=channel,
                     is_acars=True,
                     type_label="Auto ACARS",
+                    autopost_summary=True,
                 )
                 self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
 
