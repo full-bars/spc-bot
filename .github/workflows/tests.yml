@@ -10,6 +10,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -47,7 +51,7 @@ jobs:
           python -m pytest tests/ -n auto \
             --cov=cogs --cov=utils --cov=config --cov=main \
             --cov-report=term-missing --cov-report=xml \
-            --cov-fail-under=20 -v
+            --cov-fail-under=40 -v
       - name: Upload coverage artifact
         if: always() && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
@@ -84,10 +88,8 @@ jobs:
         run: cargo fmt --all -- --check
       - name: cargo clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
-      # cargo test is deferred: the crate uses pyo3 with `extension-module`
-      # unconditionally, so test binaries fail to link against libpython.
-      # Re-enable once the crate is restructured to gate `extension-module`
-      # behind an optional feature so `cargo test --no-default-features` works.
+      - name: cargo test
+        run: cargo test --no-default-features
 
   docker-build:
     # Verify the image builds on all pushes and PRs.

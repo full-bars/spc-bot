@@ -10,7 +10,7 @@ path = "src_rust/lib.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.28.3", features = ["extension-module"] }
+pyo3 = { version = "0.28.3" }
 xxhash-rust = { version = "0.8.12", features = ["xxh3", "const_xxh3"] }
 nom = "8.0.0"
 serde = { version = "1.0.200", features = ["derive"] }
@@ -25,3 +25,7 @@ futures = "0.3"
 minidom = "0.16"
 reqwest = { version = "0.13.4", features = ["blocking"] }
 chrono = "0.4.44"
+
+[features]
+extension-module = ["pyo3/extension-module"]
+default = ["extension-module"]
