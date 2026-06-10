@@ -204,6 +204,7 @@ async def send_sounding_embed(
     messages_to_delete: Optional[list] = None,
     is_acars: bool = False,
     type_label: Optional[str] = None,
+    autopost_summary: bool = False,
 ):
     """Helper to build and send the final sounding post with AI Analysis button."""
     mode_label = "🌙 Dark" if dark_mode else "☀️ Light"
@@ -301,6 +302,24 @@ async def send_sounding_embed(
 
         await target.send(caption, files=[discord.File(png_path)], view=view)
         logger.info(f"[SOUNDING] Posted {station_id} {time_label}")
+
+        # Autopost AI summary if enabled and cache_key was available
+        if autopost_summary and cache_key and clean_data:
+            from cogs.ai_summaries import autopost_sounding_summary
+
+            raw_text = get_sounding_params_text(clean_data)
+            if raw_text:
+                t = asyncio.create_task(autopost_sounding_summary(target, cache_key))
+                t.add_done_callback(
+                    lambda t: (
+                        logger.debug(f"[SOUNDING] AI summary autopost finished for {cache_key}")
+                        if not t.exception()
+                        else logger.exception(
+                            f"[SOUNDING] AI summary autopost failed for {cache_key}",
+                            exc_info=t.exception(),
+                        )
+                    )
+                )
     except Exception as e:
         logger.exception(f"[SOUNDING] Failed to post: {e}")
 
