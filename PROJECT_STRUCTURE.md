@@ -32,18 +32,26 @@ spc-bot/
 │   │                        # separate from bot_state.db, never synced to Redis
 │   ├── spc_urls.py          # SPC outlook URL resolution
 │   ├── spc_outlook.py       # SPC Day 1 categorical polygon (MDT/HIGH) with geodesic buffer
-├── backoff.py           # Exponential backoff tracker for task loops
-├── worker_pool.py       # Two separate ProcessPoolExecutors: "Fast Hodo" (hodograph/VAD rendering) and "Heavy Sounding" (SounderPy plot generation)
-└── db.py                # Async SQLite backend used internally by state_store as the durable mirror; also home of http_validators
+│   ├── ai.py                # Gemini API integration for AI summaries (outlook, MD, sounding analysis)
+│   ├── compare_utils.py     # Outlook version comparison and historical archive utilities
+│   ├── dat_api.py           # Direct Access Tornado (DAT) API integration for survey links and photo galleries
+│   ├── discord_gateway.py   # Discord WebSocket gateway heartbeat monitoring
+│   ├── geo.py               # Rust-accelerated geospatial queries: haversine distance, R*-tree nearest stations, polygon queries
+│   ├── map_utils.py         # Map rendering and geographic visualization utilities
+├── backoff.py               # Exponential backoff tracker for task loops
+├── worker_pool.py           # Two separate ProcessPoolExecutors: "Fast Hodo" (hodograph/VAD rendering) and "Heavy Sounding" (SounderPy plot generation)
+└── db.py                    # Async SQLite backend used internally by state_store as the durable mirror; also home of http_validators
 
 ├── cogs/
 │   ├── nwws.py              # NWWS-OI XMPP firehose; routes immediate warning/watch/MD triggers
 │   ├── analytics.py         # IEM analytics slash commands (/topstats, /verify, /riskmap, etc.)
 │   ├── recorder.py          # VAD forensics recorder and /archive search
-│   ├── outlooks.py          # SPC Day 1-3 and Day 4-8 auto-posting
-│   ├── mesoscale.py         # SPC MD monitoring with watch probability detection and IEM fallbacks
+│   ├── outlooks.py          # SPC Day 1-3 and Day 4-8 auto-posting with AI summary autoposting
+│   ├── mesoscale.py         # SPC MD monitoring with watch probability detection, IEM fallbacks, AI summary autoposting
 │   ├── iembot.py            # IEM iembot feed poller with persistent text-product caching
 │   ├── watches.py           # SPC watch monitoring via NWS API (stores affected_zones)
+│   ├── watch_fetch.py       # Watch data fetching and zone parsing
+│   ├── watch_format.py      # Watch formatting utilities
 │   ├── warnings.py          # NWS VTEC warning monitoring (SVR, TOR, FFW) — polling & deduplication logic
 │   ├── warning_channels.py  # Slash commands for per-type warning channel routing (/enablewarnings, /displaysetup, /disablewarnings)
 │   ├── warning_format.py    # Warning styling, narrative extraction, URL generation (decoupled from warnings.py)
@@ -52,18 +60,18 @@ spc-bot/
 │   ├── scp.py               # NIU/Gensini SCP graphics, twice daily
 │   ├── csu_mlp.py           # CSU-MLP consolidated /csu command with Choice dropdown
 │   ├── ncar.py              # NCAR WxNext2 AI severe weather forecast
-│   ├── sounding.py          # RAOB+ACARS sounding plots; auto-posts near active watches; asyncio.Semaphore queue with position feedback
+│   ├── sounding.py          # RAOB+ACARS sounding plots; auto-posts near active watches with AI summary autoposting; asyncio.Semaphore queue with position feedback
 │   ├── sounding_utils.py    # Location resolution, IEM fetch (all hours), ACARS fetch, plot generation; disk-caches plots with hash-based dedup
 │   ├── sounding_views.py    # Discord UI: CombinedSoundingView, IEMTimeSelectionView, ACARS views
 │   ├── hodograph.py         # VWP hodograph generation via /hodograph
 │   ├── failover.py          # Leader election via a self-hosted Redis lease (no HTTP tunnel — v5+)
 │   ├── wxsummary.py         # /wxsummary: Project WxEye live weather briefing embed
 │   ├── status.py            # Bot status and manual slash commands
-│   └── radar/
-│       ├── __init__.py      # Radar cog: /download with quick-start site+time+count params
-│       ├── s3.py            # S3 client, file listing, time parsing
-│       ├── downloads.py     # Download orchestration, zipping, progress
-│       └── views.py         # Discord UI views and modals
+│   ├── ai_summaries.py      # AI-powered summaries for outlooks, MDs, soundings; context-aware synthesis with Gemini
+│   ├── historical.py        # Historical outlook archive and /compare tool
+│   ├── fronts.py            # WPC surface fronts monitoring and posting
+│   ├── maintenance.py       # Administrative utilities and maintenance commands
+│   └── subscriptions.py     # User subscription management and preferences
 ├── config/
 │   └── logrotate.conf       # Optional external logrotate config: 50 MB files, 12-file retention, gzip -9 compression
 ├── src_rust/
@@ -130,6 +138,15 @@ High-performance Rust core via PyO3 with Python fallback for all operations:
 - **Batch Spatial Joins** (Phase 8): `find_nearest_stations_batch`, `points_in_polygon_counts`, `points_in_polygon_lookup` in `utils/geo`; `find_nearest_stations` uses Rust fast-path via rstar R*-tree
 
 All Rust functions maintain pure-Python fallback implementations. FFI detection at runtime gracefully downgrades to Python if Rust extension is unavailable.
+
+### AI Summary Autoposting (v5.37.6+)
+Context-aware AI-powered summaries for weather products, powered by Google Gemini:
+- **Outlook Summaries** (cogs/ai_summaries.py → ensure_outlook_summary): Regional analysis by geographic area, paginated across Previous/Next buttons when multiple risk zones detected
+- **Mesoscale Discussion Summaries**: Concise plain-English summaries of MD threats, timing, and limiting factors
+- **Sounding Summaries**: Enhanced environmental analysis synthesizing local thermodynamic/kinematic data with cross-referenced SPC products (Day 1 outlook + active MDs + nearby watches)
+- **Auto-Posting**: Non-blocking background tasks (asyncio.create_task) post summaries as Discord follow-ups immediately after the main product post
+- **Error Resilience**: Full try-catch blocks with warning logs ensure API failures (token limits, network errors, missing text) don't break product posts
+- **Caching**: 3-day Redis TTL per summary; re-use cached analysis if available before API call
 
 ### Modular Refactoring (v5.16.0+)
 Large feature modules are split into focused, reusable components:
