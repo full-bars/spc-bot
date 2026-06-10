@@ -103,10 +103,10 @@ async def summarize_sounding(raw_text: str) -> str | None:
 async def summarize_sounding_enhanced(
     raw_text: str,
     location_name: str = "Unknown",
-    outlook_context: list[dict] = None,
-    md_context: list[str] = None,
-    watch_context: list[str] = None,
-    sounding_context: str = None,
+    outlook_context: list[dict] | None = None,
+    md_context: list[str] | None = None,
+    watch_context: list[str] | None = None,
+    sounding_context: str | None = None,
 ) -> str | None:
     """Generates a high-accuracy environmental analysis by cross-referencing
     computed parameters with SPC products and nearby sounding data."""
