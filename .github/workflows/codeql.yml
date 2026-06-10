@@ -10,8 +10,8 @@ on:
     - cron: '0 2 * * 2'
 
 concurrency:
-  group: codeql-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.event_name == 'schedule' && 'codeql-scheduled' || format('codeql-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
 jobs:
   analyze:
@@ -29,11 +29,11 @@ jobs:
           - language: python
             build-mode: none
           - language: rust
-            build-mode: none
+            build-mode: manual
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
@@ -55,12 +55,11 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Build Rust extensions
+      - name: Build Rust extension (CodeQL extraction)
         if: matrix.language == 'rust'
         run: |
           pip install maturin
-          maturin build --release --out dist
-          pip install dist/*.whl
+          maturin develop --release
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
