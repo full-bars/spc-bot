@@ -681,10 +681,10 @@ class MesoscaleCog(commands.Cog):
             view = MDSummaryView(md_num=str(md_num), raw_text=raw_text or "")
             msg = await channel.send(embeds=[img_embed, text_embed], files=files, view=view)
 
-            # Proactively trigger AI summary generation so it's ready when the button is clicked
-            from cogs.ai_summaries import ensure_md_summary
+            # Proactively trigger AI summary generation and autopost it
+            from cogs.ai_summaries import autopost_md_summary
 
-            t = asyncio.create_task(ensure_md_summary(str(md_num), raw_text=raw_text))
+            t = asyncio.create_task(autopost_md_summary(channel, str(md_num)))
             t.add_done_callback(_log_task_exception)
 
             self.bot.state.posted_mds.add(md_num)
@@ -836,6 +836,20 @@ class MesoscaleCog(commands.Cog):
                     self.bot.state.active_mds.add(md_num)
                     await self.bot.state.add_posted_md(str(md_num))
                     self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
+
+                    # Autopost AI summary
+                    from cogs.ai_summaries import autopost_md_summary
+
+                    t = asyncio.create_task(autopost_md_summary(channel, str(md_num)))
+                    t.add_done_callback(
+                        lambda t: (
+                            logger.debug(f"[MD {md_num}] AI summary autopost finished")
+                            if not t.exception()
+                            else logger.exception(
+                                f"[MD {md_num}] AI summary autopost failed", exc_info=t.exception()
+                            )
+                        )
+                    )
                     logger.info(f"Posted MD #{md_num}")
                 except Exception as e:
                     logger.exception(f"auto_post_md send failed for #{md_num}: {e}")

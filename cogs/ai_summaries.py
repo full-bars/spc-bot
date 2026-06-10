@@ -360,6 +360,72 @@ async def ensure_outlook_summary(day: str, raw_text: str = None) -> Any | None:
         return None
 
 
+async def autopost_outlook_summary(channel: discord.abc.Messageable, day: str, delay: float = 0.5):
+    """Wait for outlook summary to be ready and post it as a follow-up message."""
+    try:
+        import asyncio
+
+        await asyncio.sleep(delay)
+        summary = await ensure_outlook_summary(day)
+        if not summary:
+            return
+
+        if isinstance(summary, list) and len(summary) > 0:
+            view = RegionalAnalysisView(day, summary)
+            await channel.send(embed=view._create_embed(), view=view)
+        else:
+            embed = discord.Embed(
+                title=f"🪄 AI Analysis (Day {day} Outlook)",
+                description=str(summary),
+                color=discord.Color.blue(),
+            )
+            await channel.send(embed=embed)
+    except Exception as e:
+        logger.exception(f"Error autoposting outlook summary for Day {day}: {e}")
+
+
+async def autopost_md_summary(channel: discord.abc.Messageable, md_num: str, delay: float = 0.5):
+    """Wait for MD summary to be ready and post it as a follow-up message."""
+    try:
+        import asyncio
+
+        await asyncio.sleep(delay)
+        summary = await ensure_md_summary(md_num)
+        if not summary:
+            return
+
+        embed = discord.Embed(
+            title=f"🪄 AI Summary (MD #{md_num})",
+            description=summary,
+            color=discord.Color.purple(),
+        )
+        await channel.send(embed=embed)
+    except Exception as e:
+        logger.exception(f"Error autoposting MD summary for MD {md_num}: {e}")
+
+
+async def autopost_sounding_summary(
+    channel: discord.abc.Messageable, cache_key: str, delay: float = 0.5
+):
+    """Wait for sounding summary to be ready and post it as a follow-up message."""
+    try:
+        import asyncio
+
+        await asyncio.sleep(delay)
+        summary = await ensure_sounding_summary(cache_key)
+        if not summary:
+            return
+
+        embed = discord.Embed(
+            title="🪄 AI Analysis (Environment)",
+            description=summary,
+            color=discord.Color.teal(),
+        )
+        await channel.send(embed=embed)
+    except Exception as e:
+        logger.exception(f"Error autoposting sounding summary for {cache_key}: {e}")
+
+
 class AISummariesCog(commands.Cog, name="AI Summaries"):
     def __init__(self, bot):
         self.bot = bot

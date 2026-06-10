@@ -340,6 +340,7 @@ class SoundingCog(commands.Cog):
                     clean_data=data,
                     channel=channel,
                     type_label="Special Sounding",
+                    autopost_summary=True,
                 )
                 self.bot.state.last_post_times["sounding"] = datetime.now(timezone.utc)
 

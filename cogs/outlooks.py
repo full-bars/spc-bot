@@ -160,12 +160,18 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
                 await set_posted_urls(day_key, urls)
                 logger.info(f"[Day {day}] Posted {len(files)} images. URLs: {urls}")
 
-                # Proactively trigger AI summary generation so it's ready when the button is clicked
-                from cogs.ai_summaries import ensure_outlook_summary
+                # Proactively trigger AI summary generation and autopost it
+                from cogs.ai_summaries import autopost_outlook_summary
 
-                t = asyncio.create_task(ensure_outlook_summary(str(day)))
+                t = asyncio.create_task(autopost_outlook_summary(channel, str(day)))
                 t.add_done_callback(
-                    lambda t: logger.debug(f"[Day {day}] Proactive AI summary generation finished")
+                    lambda t: (
+                        logger.debug(f"[Day {day}] AI summary autopost finished")
+                        if not t.exception()
+                        else logger.exception(
+                            f"[Day {day}] AI summary autopost failed", exc_info=t.exception()
+                        )
+                    )
                 )
 
                 # Archive versions for /compare command
@@ -275,6 +281,20 @@ class OutlooksCog(commands.Cog):
                     self.bot.state.last_post_times["day48"] = datetime.now(timezone.utc)
                     self.bot.state.last_posted_urls["day48"] = urls
                     await set_posted_urls("day48", urls)
+
+                    # Autopost AI summary
+                    from cogs.ai_summaries import autopost_outlook_summary
+
+                    t = asyncio.create_task(autopost_outlook_summary(channel, "48"))
+                    t.add_done_callback(
+                        lambda t: (
+                            logger.debug("[Day 48] AI summary autopost finished")
+                            if not t.exception()
+                            else logger.exception(
+                                "[Day 48] AI summary autopost failed", exc_info=t.exception()
+                            )
+                        )
+                    )
                 except Exception as e:
                     logger.exception(f"Failed to send SPC48 post: {e}")
 
