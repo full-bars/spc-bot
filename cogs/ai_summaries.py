@@ -368,6 +368,7 @@ async def autopost_outlook_summary(channel: discord.abc.Messageable, day: str, d
         await asyncio.sleep(delay)
         summary = await ensure_outlook_summary(day)
         if not summary:
+            logger.warning(f"[Day {day}] AI summary returned None (text fetch or API call failed)")
             return
 
         if isinstance(summary, list) and len(summary) > 0:
@@ -392,6 +393,11 @@ async def autopost_md_summary(channel: discord.abc.Messageable, md_num: str, del
         await asyncio.sleep(delay)
         summary = await ensure_md_summary(md_num)
         if not summary:
+            logger.warning(
+                f"[MD #{md_num}] AI summary returned None (text fetch or API call failed)"
+            )
+            return
+        if not summary:
             return
 
         embed = discord.Embed(
@@ -414,6 +420,9 @@ async def autopost_sounding_summary(
         await asyncio.sleep(delay)
         summary = await ensure_sounding_summary(cache_key)
         if not summary:
+            logger.warning(
+                f"[Sounding {cache_key}] AI summary returned None (text fetch or API call failed)"
+            )
             return
 
         embed = discord.Embed(
