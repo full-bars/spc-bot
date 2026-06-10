@@ -1,0 +1,42 @@
+name: Copilot Autoreview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+concurrency:
+  group: copilot-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+jobs:
+  copilot-review:
+    name: Copilot Code Review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Copilot PR Review
+        id: copilot-review
+        uses: github/copilot-review-action@v1
+        with:
+          language: python,rust
+          model: gpt-4-turbo
+          instructions: |
+            Review this pull request for:
+            - Code quality and best practices
+            - Security vulnerabilities
+            - Performance issues
+            - Maintainability concerns
+            - Type safety and error handling
+          autofix: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

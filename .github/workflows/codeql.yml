@@ -20,6 +20,8 @@ jobs:
     timeout-minutes: 360
     permissions:
       security-events: write
+      pull-requests: write
+      contents: read
 
     strategy:
       fail-fast: false
@@ -52,3 +54,11 @@ jobs:
         with:
           category: "/language:${{ matrix.language }}"
           upload: true
+
+      - name: Enable CodeQL Autofix Suggestions
+        uses: github/codeql-action/analyze@v3
+        if: github.event_name == 'pull_request'
+        with:
+          category: "/language:${{ matrix.language }}"
+          autofix: true
+          autofix-comment: true
