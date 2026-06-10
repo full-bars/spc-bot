@@ -282,8 +282,6 @@ async def send_sounding_embed(
                 raw_text = get_sounding_params_text(clean_data)
                 if raw_text:
                     bot = interaction.client if interaction else None
-                    if not bot and hasattr(target, "guild") and target.guild:
-                        bot = target.guild.me._state.parent
 
                     t = asyncio.create_task(
                         ensure_sounding_summary(
