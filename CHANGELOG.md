@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.37.5] - 2026-06-09
+
+### Fixed
+- **Soundings Posting:** Fixed an AttributeError that prevented soundings from posting due to invalid bot state access in the proactive AI prefetch routine.
+
 ## [5.37.4] - 2026-06-08
 
 ### Added
