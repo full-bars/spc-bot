@@ -29,7 +29,7 @@ jobs:
           - language: python
             build-mode: none
           - language: rust
-            build-mode: manual
+            build-mode: none
 
     steps:
       - name: Checkout repository
@@ -41,25 +41,11 @@ jobs:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
 
-      - name: Set up Rust (for Rust analysis)
-        if: matrix.language == 'rust'
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build artifacts
-        if: matrix.language == 'rust'
-        uses: Swatinem/rust-cache@v2
-
       - name: Set up Python
         if: matrix.language == 'python'
         uses: actions/setup-python@v6
         with:
           python-version: '3.13'
-
-      - name: Build Rust extension (CodeQL extraction)
-        if: matrix.language == 'rust'
-        run: |
-          pip install maturin
-          maturin develop --release
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
