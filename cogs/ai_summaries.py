@@ -411,9 +411,9 @@ async def autopost_md_summary(channel: discord.abc.Messageable, md_num: str, del
 
 
 async def autopost_sounding_summary(
-    channel: discord.abc.Messageable, cache_key: str, delay: float = 0.5
+    sounding_msg: discord.Message, cache_key: str, sounding_label: str = None, delay: float = 0.5
 ):
-    """Wait for sounding summary to be ready and post it as a follow-up message."""
+    """Wait for sounding summary to be ready and post it as a reply to the sounding message."""
     try:
         import asyncio
         from utils.state_store import set_product_cache
@@ -426,12 +426,16 @@ async def autopost_sounding_summary(
             )
             return
 
+        title = "🪄 AI Analysis (Environment)"
+        if sounding_label:
+            title = f"{title}\n{sounding_label}"
+
         embed = discord.Embed(
-            title="🪄 AI Analysis (Environment)",
+            title=title,
             description=summary,
             color=discord.Color.teal(),
         )
-        msg = await channel.send(embed=embed)
+        msg = await sounding_msg.reply(embed=embed)
         # Store message ID so button clicks know it was already posted
         await set_product_cache(f"sounding_summary_message_{cache_key}", str(msg.id))
     except Exception as e:
