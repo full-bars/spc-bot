@@ -19,10 +19,10 @@ once_cell = "1.19.0"
 geo = "0.33.1"
 regex = "1.12"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
-tokio-xmpp = "4"
-xmpp-parsers = "0.21"
+tokio-xmpp = { git = "https://gitlab.com/xmpp-rs/xmpp-rs", rev = "09640de5" }
+xmpp-parsers = { git = "https://gitlab.com/xmpp-rs/xmpp-rs", rev = "09640de5" }
 futures = "0.3"
-minidom = "0.16"
+minidom = { git = "https://gitlab.com/xmpp-rs/xmpp-rs", rev = "09640de5" }
 reqwest = { version = "0.13.4", features = ["blocking"] }
 chrono = "0.4.45"
 

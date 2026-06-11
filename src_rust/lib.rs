@@ -7,7 +7,6 @@
 use futures::stream::StreamExt;
 use geo::algorithm::contains::Contains;
 use geo::{Coord, Point, Polygon};
-use minidom::Element;
 use nom::bytes::complete::{tag, tag_no_case, take};
 use nom::character::complete::{digit1, multispace0, multispace1};
 use nom::error::Error as NomError;
@@ -1511,7 +1510,7 @@ fn parse_xmpp_message(msg: &XmppMessage) -> Option<NwwsMessage> {
             msg.bodies
                 .iter()
                 .next()
-                .map(|(_lang, body)| body.0.clone())
+                .map(|(_lang, body)| body.clone())
                 .unwrap_or_default()
         } else {
             inner
@@ -1541,7 +1540,7 @@ fn parse_xmpp_message(msg: &XmppMessage) -> Option<NwwsMessage> {
 }
 
 /// Type alias for the default ServerConfig-based AsyncClient.
-type XmppClient = tokio_xmpp::starttls::StartTlsAsyncClient;
+type XmppClient = tokio_xmpp::Client;
 
 /// Async function: connects to NWWS XMPP server and joins the MUC room.
 /// Returns a tokio_xmpp Client on success.
@@ -1560,7 +1559,6 @@ async fn join_muc(user: &str, password: &str, server: &str) -> Result<XmppClient
         .map_err(|e| format!("Invalid JID '{}': {}", jid_str, e))?;
 
     let mut client = XmppClient::new(jid, password.to_owned());
-    client.set_reconnect(true);
 
     eprintln!("[XMPP] Async client created, waiting for online event...");
 
@@ -1600,12 +1598,9 @@ async fn join_muc(user: &str, password: &str, server: &str) -> Result<XmppClient
     let mut presence = Presence::new(PresenceType::None);
     presence.to = Some(room_jid.into());
 
-    // Convert Presence to Element via Into trait
-    let presence_element: Element = presence.into();
-
-    // Send the presence stanza
+    // Send the presence stanza (convert via Into trait)
     client
-        .send_stanza(presence_element)
+        .send_stanza(presence.into())
         .await
         .map_err(|e| format!("Failed to send presence stanza: {}", e))?;
 
@@ -1664,7 +1659,7 @@ async fn nwws_connection_loop(
                             // Process event - check if it's a stanza
                             if let Some(stanza) = event.into_stanza() {
                                 // Try to parse as message
-                                if let Ok(message) = XmppMessage::try_from(stanza.clone()) {
+                                if let Ok(message) = XmppMessage::try_from(stanza) {
                                     messages_received.fetch_add(1, Ordering::Relaxed);
 
                                     // Parse NWWS message
