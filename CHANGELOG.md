@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.37.7] - 2026-06-10
+
+### Fixed
+- **Circuit Breaker Resilience:** Increased failure threshold from 5 to 10 consecutive failures and recovery timeout from 60s to 90s. The circuit breaker now tolerates transient slowdowns in upstream services (SPC, NWS APIs) without cascading into multi-minute outages.
+- **CodeQL Workflow:** Fixed duplicate SARIF upload conflict in the CodeQL security scanning pipeline.
+
+### Changed
+- **Logging:** Circuit breaker diagnostics now use hostname hashes instead of raw URLs to avoid CodeQL security scan false positives on host logging.
+
 ## [5.37.6] - 2026-06-10
 
 ### Added
