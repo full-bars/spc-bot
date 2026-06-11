@@ -206,7 +206,9 @@ class WatchesCog(commands.Cog):
                 if has_real_probs and not probs_arrival_time:
                     probs_arrival_time = datetime.now(timezone.utc)
                     elapsed = (probs_arrival_time - issuance_time).total_seconds()
-                    logger.info(f"[WATCH-TIMING] #{watch_num} probs available after {elapsed:.1f}s (attempt {attempt + 1})")
+                    logger.info(
+                        f"[WATCH-TIMING] #{watch_num} probs available after {elapsed:.1f}s (attempt {attempt + 1})"
+                    )
 
                 cache_path = None
                 if image_url:
