@@ -118,7 +118,7 @@ class CircuitBreaker:
 
         if self.failures[host] >= self.failure_threshold:
             if prev_state == self._STATE_CLOSED:
-                logger.warning(
+                logger.warning(  # lgtm [py/clear-text-logging-sensitive-data]
                     f"{host} reached {self.failure_threshold} failures. Circuit OPEN. "
                     f"Will retry in {self.recovery_timeout}s."
                 )
@@ -130,7 +130,7 @@ class CircuitBreaker:
         else:
             # Log progress toward circuit opening so we can see problems building
             remaining = self.failure_threshold - self.failures[host]
-            logger.debug(
+            logger.debug(  # lgtm [py/clear-text-logging-sensitive-data]
                 f"{host} failure #{self.failures[host]}/{self.failure_threshold}, {remaining} remaining before circuit opens"
             )
 
