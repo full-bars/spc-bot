@@ -300,7 +300,7 @@ async def send_sounding_embed(
                         )
                     )
 
-        await target.send(caption, files=[discord.File(png_path)], view=view)
+        sounding_msg = await target.send(caption, files=[discord.File(png_path)], view=view)
         logger.info(f"[SOUNDING] Posted {station_id} {time_label}")
 
         # Autopost AI summary if enabled and cache_key was available
@@ -309,7 +309,10 @@ async def send_sounding_embed(
 
             raw_text = get_sounding_params_text(clean_data)
             if raw_text:
-                t = asyncio.create_task(autopost_sounding_summary(target, cache_key))
+                sounding_label = f"{label} — {time_label}"
+                t = asyncio.create_task(
+                    autopost_sounding_summary(sounding_msg, cache_key, sounding_label)
+                )
                 t.add_done_callback(
                     lambda t: (
                         logger.debug(f"[SOUNDING] AI summary autopost finished for {cache_key}")
