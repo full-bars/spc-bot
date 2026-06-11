@@ -111,28 +111,34 @@ def get_sounding_params_text(clean_data: dict) -> Optional[str]:
         thermo = params[1]
         kinematics = params[2]
 
-        # DEBUG: Log what we're getting for ACARS profiles
-        sbcape = thermo.get("sbcape")
-        mu3cape = thermo.get("mu3cape")
-        sb3cape = thermo.get("sb3cape")
-        is_masked = (
-            sbcape is None or str(sbcape) == "--" or (hasattr(sbcape, "mask") and sbcape.mask)
-        )
-        if is_masked:
-            logger.debug(
-                f"[SOUNDING-PARAMS] CAPE masked: sbcape={sbcape}, sb3cape={sb3cape}, "
-                f"mu3cape={mu3cape}. clean_data keys: {list(clean_data.keys())}"
-            )
+        def _fmt_cape(val, unit="J/kg"):
+            """Format CAPE value, handling masked/missing cases."""
+            if val is None or (hasattr(val, "mask") and val.mask) or str(val) == "--":
+                return "N/A (profile too shallow)"
+            try:
+                return f"{float(val):.0f} {unit}"
+            except (ValueError, TypeError):
+                return "N/A"
+
+        sbcape = _fmt_cape(thermo.get("sbcape"))
+        mucape = _fmt_cape(thermo.get("mucape"))
+        mlcape = _fmt_cape(thermo.get("mlcape"))
+        sb3cape = _fmt_cape(thermo.get("sb3cape"))
+        mu3cape = _fmt_cape(thermo.get("mu3cape"))
+
+        # Check if all CAPE values are unavailable (ACARS profile too shallow)
+        cape_unavailable = all("too shallow" in str(v) for v in [sbcape, mu3cape, sb3cape])
 
         summary = "SOUNDING PARAMETERS:\n\n"
+        if cape_unavailable:
+            summary += (
+                "⚠️ WARNING: ACARS profile too shallow to compute full CAPE. "
+                "Instability assessment limited.\n\n"
+            )
         summary += "--- THERMODYNAMICS ---\n"
-        summary += (
-            f"SBCAPE: {sbcape} | MUCAPE: {thermo.get('mucape')} | MLCAPE: {thermo.get('mlcape')}\n"
-        )
+        summary += f"SBCAPE: {sbcape} | MUCAPE: {mucape} | MLCAPE: {mlcape}\n"
         summary += f"SBCIN: {thermo.get('sbcin')} | MUCIN: {thermo.get('mucin')}\n"
-        summary += (
-            f"0-3km CAPE (SB): {thermo.get('sb3cape')} | 0-3km CAPE (MU): {thermo.get('mu3cape')}\n"
-        )
+        summary += f"0-3km CAPE (SB): {sb3cape} | 0-3km CAPE (MU): {mu3cape}\n"
         summary += f"DCAPE: {thermo.get('dcape')} | MUECAPE: {thermo.get('mu_ecape')}\n"
         summary += f"Lapse Rates: 0-3km {thermo.get('lr_03km')} | 3-6km {thermo.get('lr_36km')}\n"
         summary += f"SB LCL: {thermo.get('sb_lcl_z')} | SB LFC: {thermo.get('sb_lfc_z')}\n\n"
