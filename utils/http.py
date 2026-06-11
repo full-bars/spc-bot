@@ -118,20 +118,21 @@ class CircuitBreaker:
 
         if self.failures[host] >= self.failure_threshold:
             if prev_state == self._STATE_CLOSED:
-                logger.warning(  # lgtm [py/clear-text-logging-sensitive-data]
-                    f"{host} reached {self.failure_threshold} failures. Circuit OPEN. "
-                    f"Will retry in {self.recovery_timeout}s."
+                logger.warning(
+                    f"Host reached {self.failure_threshold} failures. Circuit OPEN. "
+                    f"Will retry in {self.recovery_timeout}s. (Host: {host})"
                 )
             elif prev_state == self._STATE_HALF_OPEN:
                 # Trial request failed — back to OPEN without re-logging the
                 # original threshold warning (already noisy enough).
-                logger.info(f"{host} half-open trial failed. Circuit returning to OPEN.")
+                logger.info(f"Half-open trial failed. Circuit returning to OPEN. (Host: {host})")
             self._state[host] = self._STATE_OPEN
         else:
             # Log progress toward circuit opening so we can see problems building
             remaining = self.failure_threshold - self.failures[host]
-            logger.debug(  # lgtm [py/clear-text-logging-sensitive-data]
-                f"{host} failure #{self.failures[host]}/{self.failure_threshold}, {remaining} remaining before circuit opens"
+            logger.debug(
+                f"Failure #{self.failures[host]}/{self.failure_threshold}, "
+                f"{remaining} remaining before circuit opens. (Host: {host})"
             )
 
     def is_open(self, host: str) -> bool:
