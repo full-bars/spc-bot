@@ -62,7 +62,7 @@ async def check_iem_api(watch_num):
                 if str(event.get("sel")) == watch_num:
                     has_probs = "prob_tornado" in event or event.get("prob_tornado_txt")
                     break
-        except Exception as e:
+        except Exception:
             pass
 
     return {
@@ -113,7 +113,7 @@ async def main():
         probs = "✓ Yes" if r["has_probabilities"] else "✗ No"
         print(f"{r['source']:<20} {r['elapsed_sec']:<15.2f} {probs:<12} {r['status']:<10}")
 
-    print(f"\n🎯 Fastest source with probabilities:")
+    print("\n🎯 Fastest source with probabilities:")
     with_probs = [r for r in results if r["has_probabilities"]]
     if with_probs:
         fastest = min(with_probs, key=lambda x: x["elapsed_sec"])
