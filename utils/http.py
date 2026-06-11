@@ -52,8 +52,8 @@ TIMEOUT_STANDARD = 15  # Most JSON endpoints
 TIMEOUT_SLOW = 30  # Larger content, general GET
 
 # Circuit breaker tuning — adjust these to change trip sensitivity globally
-_CB_FAILURE_THRESHOLD = 5
-_CB_RECOVERY_TIMEOUT = 60.0
+_CB_FAILURE_THRESHOLD = 10  # Require more proof of unavailability before tripping
+_CB_RECOVERY_TIMEOUT = 90.0  # Give servers more time to recover before retry
 
 _latency_callback = None
 
@@ -106,7 +106,8 @@ class CircuitBreaker:
     def record_success(self, host: str):
         prev_state = self._get_state(host)
         if prev_state != self._STATE_CLOSED:
-            logger.info(f"{host} recovered. Closing circuit (was {prev_state}).")
+            host_hash = hash(host) % 10000
+            logger.info(f"Host recovered (#{host_hash}). Closing circuit (was {prev_state}).")
         self.failures.pop(host, None)
         self.last_failure_time.pop(host, None)
         self._state.pop(host, None)
@@ -115,15 +116,26 @@ class CircuitBreaker:
         self.failures[host] = self.failures.get(host, 0) + 1
         self.last_failure_time[host] = time.time()
         prev_state = self._get_state(host)
+        host_hash = hash(host) % 10000
 
         if self.failures[host] >= self.failure_threshold:
             if prev_state == self._STATE_CLOSED:
-                logger.warning(f"{host} reached {self.failure_threshold} failures. Circuit OPEN.")
+                logger.warning(
+                    f"Host #{host_hash} reached {self.failure_threshold} failures. Circuit OPEN. "
+                    f"Will retry in {self.recovery_timeout}s."
+                )
             elif prev_state == self._STATE_HALF_OPEN:
                 # Trial request failed — back to OPEN without re-logging the
                 # original threshold warning (already noisy enough).
-                logger.info(f"{host} half-open trial failed. Circuit returning to OPEN.")
+                logger.info(f"Host #{host_hash} half-open trial failed. Circuit returning to OPEN.")
             self._state[host] = self._STATE_OPEN
+        else:
+            # Log progress toward circuit opening so we can see problems building
+            remaining = self.failure_threshold - self.failures[host]
+            logger.debug(
+                f"Host #{host_hash} failure #{self.failures[host]}/{self.failure_threshold}, "
+                f"{remaining} remaining before circuit opens"
+            )
 
     def is_open(self, host: str) -> bool:
         state = self._get_state(host)
@@ -135,7 +147,8 @@ class CircuitBreaker:
             return True
         # OPEN: check if recovery timeout has elapsed.
         if time.time() - self.last_failure_time.get(host, 0) > self.recovery_timeout:
-            logger.info(f"{host} recovery timeout elapsed. Half-open circuit.")
+            host_hash = hash(host) % 10000
+            logger.info(f"Host #{host_hash} recovery timeout elapsed. Half-open circuit.")
             self._state[host] = self._STATE_HALF_OPEN
             return False
         return True

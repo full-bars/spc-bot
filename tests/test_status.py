@@ -88,11 +88,9 @@ async def test_status_output_shows_open_circuits():
 
     from utils.http import circuit_breaker
 
-    circuit_breaker.record_failure("test.host")
-    circuit_breaker.record_failure("test.host")
-    circuit_breaker.record_failure("test.host")
-    circuit_breaker.record_failure("test.host")
-    circuit_breaker.record_failure("test.host")  # 5 failures = Open
+    # Trigger circuit open (threshold is 10 failures)
+    for _ in range(10):
+        circuit_breaker.record_failure("test.host")
 
     try:
         with patch("socket.socket") as mock_socket:
