@@ -52,8 +52,8 @@ TIMEOUT_STANDARD = 15  # Most JSON endpoints
 TIMEOUT_SLOW = 30  # Larger content, general GET
 
 # Circuit breaker tuning — adjust these to change trip sensitivity globally
-_CB_FAILURE_THRESHOLD = 5
-_CB_RECOVERY_TIMEOUT = 60.0
+_CB_FAILURE_THRESHOLD = 10  # Require more proof of unavailability before tripping
+_CB_RECOVERY_TIMEOUT = 90.0  # Give servers more time to recover before retry
 
 _latency_callback = None
 
@@ -118,12 +118,21 @@ class CircuitBreaker:
 
         if self.failures[host] >= self.failure_threshold:
             if prev_state == self._STATE_CLOSED:
-                logger.warning(f"{host} reached {self.failure_threshold} failures. Circuit OPEN.")
+                logger.warning(
+                    f"{host} reached {self.failure_threshold} failures. Circuit OPEN. "
+                    f"Will retry in {self.recovery_timeout}s."
+                )
             elif prev_state == self._STATE_HALF_OPEN:
                 # Trial request failed — back to OPEN without re-logging the
                 # original threshold warning (already noisy enough).
                 logger.info(f"{host} half-open trial failed. Circuit returning to OPEN.")
             self._state[host] = self._STATE_OPEN
+        else:
+            # Log progress toward circuit opening so we can see problems building
+            remaining = self.failure_threshold - self.failures[host]
+            logger.debug(
+                f"{host} failure #{self.failures[host]}/{self.failure_threshold}, {remaining} remaining before circuit opens"
+            )
 
     def is_open(self, host: str) -> bool:
         state = self._get_state(host)
