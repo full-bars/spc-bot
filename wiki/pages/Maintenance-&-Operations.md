@@ -56,6 +56,27 @@ For users running via `deploy.sh`, the `spcupdate` alias:
 2. Checks for new dependencies (`pip install -r requirements.txt`).
 3. Restarts the systemd service.
 
+## 🔌 HTTP Resilience & Circuit Breaker
+
+SPCBot includes an automatic **circuit breaker** to prevent cascading failures when upstream services (SPC, NWS APIs, IEM Autoplot) become temporarily unavailable.
+
+### How It Works
+- **Failure Threshold:** After 10 consecutive request failures to a host, the circuit breaker **opens** and starts rejecting all new requests to that host immediately (fail-fast).
+- **Recovery Window:** The breaker waits 90 seconds, then allows a single trial request through. If it succeeds, the circuit closes and normal traffic resumes. If it fails, the circuit reopens for another 90 seconds.
+- **Self-Healing:** No manual intervention required—the bot automatically retries after 90 seconds.
+
+### What You'll See
+- **Open Circuit:** Check `/logs` for messages like `www.spc.noaa.gov reached 10 failures. Circuit OPEN.`
+- **Recovery:** Logs show `www.spc.noaa.gov recovery timeout elapsed. Half-open circuit.` when the trial begins.
+- **Recovered:** Once upstream is healthy again, logs confirm `Host recovered. Closing circuit.`
+
+### Operational Notes
+- Transient slowdowns (brief API timeouts, intermittent 5xx errors) are now tolerated—only sustained unavailability triggers the breaker.
+- API posts use fallback images when SPC is unavailable, so outlook/watch posts won't fail completely.
+- If you see the circuit open for over 5 minutes, investigate the upstream service (e.g., check https://www.spc.noaa.gov/products/).
+
+---
+
 ## 🚨 Incident Runbooks
 
 ### NWWS-OI Disconnected
