@@ -191,12 +191,22 @@ class WatchesCog(commands.Cog):
         Stage 1: Fast poll (30s) for up to 10 minutes.
         Stage 2: Slow poll (60s) for up to 20 minutes more (image only).
         """
+        # Instrumentation: track when probabilities become available
+        issuance_time = datetime.now(timezone.utc)
+        probs_arrival_time = None
+
         # ── Stage 1: Fast poll for Probs + Image ───────────────────────────
         for attempt in range(20):
             await asyncio.sleep(_WATCH_FAST_POLL_INTERVAL_SEC)
             try:
                 image_url, text_summary, probs, is_pds = await fetch_watch_details(watch_num)
                 has_real_probs = probs and "preliminary" not in probs
+
+                # Instrumentation: log when probs first become available
+                if has_real_probs and not probs_arrival_time:
+                    probs_arrival_time = datetime.now(timezone.utc)
+                    elapsed = (probs_arrival_time - issuance_time).total_seconds()
+                    logger.info(f"[WATCH-TIMING] #{watch_num} probs available after {elapsed:.1f}s (attempt {attempt + 1})")
 
                 cache_path = None
                 if image_url:
@@ -340,6 +350,15 @@ class WatchesCog(commands.Cog):
         watch_label = "Tornado Watch" if is_tornado else "Severe Thunderstorm Watch"
         color = discord.Color.red() if is_tornado else discord.Color.orange()
         now_utc = datetime.now(timezone.utc)
+
+        # Instrumentation: log timing of probability availability from each source
+        issuance_time = now_utc
+        logger.info(f"[WATCH-TIMING] #{watch_num} detected at {issuance_time.isoformat()}")
+
+        # Run diagnostic to test all sources
+        from cogs.watch_fetch import log_watch_source_timing
+
+        asyncio.create_task(log_watch_source_timing(watch_num))
 
         logger.info(f"iembot-triggered post for #{watch_num} ({wtype})")
         image_url, text_summary, probs, is_pds = await fetch_watch_details(watch_num)

@@ -241,6 +241,67 @@ async def fetch_watch_details_iem(
     return text_summary, None, probs, is_pds
 
 
+async def log_watch_source_timing(watch_number: str):
+    """Diagnostic: log timing and data availability from all watch sources."""
+    try:
+        import time
+        from cogs.iembot import get_cached_watch_text
+
+        watch_num = str(watch_number).zfill(4)
+        logger.info(f"[WATCH-DIAG] Testing all sources for #{watch_num}...")
+
+        # Test SPC Main
+        page_url = f"https://www.spc.noaa.gov/products/watch/ww{watch_num}.html"
+        start = time.time()
+        from utils.cache import fetch_with_validators
+
+        c, s = await fetch_with_validators(page_url)
+        spc_main_html = c.decode("utf-8", errors="ignore") if c and s == 200 else None
+        spc_main_elapsed = time.time() - start
+        spc_main_has_probs = "Probability" in spc_main_html if spc_main_html else False
+        logger.info(f"[WATCH-DIAG] SPC Main: {spc_main_elapsed:.2f}s, probs={spc_main_has_probs}")
+
+        # Test SPC Prob
+        prob_url = f"https://www.spc.noaa.gov/products/watch/ww{watch_num}_prob.html"
+        start = time.time()
+        c, s = await fetch_with_validators(prob_url)
+        spc_prob_html = c.decode("utf-8", errors="ignore") if c and s == 200 else None
+        spc_prob_elapsed = time.time() - start
+        spc_prob_has_probs = "Probability" in spc_prob_html if spc_prob_html else False
+        logger.info(f"[WATCH-DIAG] SPC Prob: {spc_prob_elapsed:.2f}s, probs={spc_prob_has_probs}")
+
+        # Test NWWS (cached)
+        start = time.time()
+        nwws_text = await get_cached_watch_text(watch_num)
+        nwws_elapsed = time.time() - start
+        nwws_has_probs = "Probability" in nwws_text if nwws_text else False
+        logger.info(f"[WATCH-DIAG] NWWS: {nwws_elapsed:.2f}s, probs={nwws_has_probs}")
+
+        # Test IEM
+        year = datetime.now(timezone.utc).year
+        start = time.time()
+        url = f"https://mesonet.agron.iastate.edu/json/watches.py?year={year}"
+        content, status = await http_get_bytes(url, retries=1, timeout=10)
+        iem_elapsed = time.time() - start
+        iem_has_probs = False
+        if content and status == 200:
+            try:
+                data = _json.loads(content)
+                for event in data.get("events", []):
+                    if str(event.get("num")) == watch_num:
+                        iem_has_probs = any(
+                            event.get(k, 0) > 0
+                            for k in ["tornadoes_1m_strong", "hail_1m_2inch", "max_wind_gust_knots"]
+                        )
+                        break
+            except Exception:
+                pass
+        logger.info(f"[WATCH-DIAG] IEM API: {iem_elapsed:.2f}s, probs={iem_has_probs}")
+
+    except Exception as e:
+        logger.exception(f"[WATCH-DIAG] Error during source timing test: {e}")
+
+
 async def fetch_watch_details(
     watch_number: str,
 ) -> Tuple[Optional[str], Optional[str], Optional[str], bool]:
@@ -251,16 +312,21 @@ async def fetch_watch_details(
     prob_url = f"https://www.spc.noaa.gov/products/watch/ww{watch_number}_prob.html"
 
     from utils.cache import fetch_with_validators
+    import time
 
-    async def _get_text_with_val(u):
+    async def _get_text_with_val(u, label=None):
+        start = time.time()
         c, s = await fetch_with_validators(u)
-        if c and s == 200:
-            return c.decode("utf-8", errors="ignore")
-        return None
+        elapsed = time.time() - start
+        result = c.decode("utf-8", errors="ignore") if c and s == 200 else None
+        if label and result:
+            has_prob = "Probability" in result
+            logger.debug(f"[WATCH-SOURCE] {label}: {elapsed:.2f}s, has_probs={has_prob}")
+        return result
 
     html, prob_html = await asyncio.gather(
-        _get_text_with_val(page_url),
-        _get_text_with_val(prob_url),
+        _get_text_with_val(page_url, "SPC Main"),
+        _get_text_with_val(prob_url, "SPC Prob Page"),
     )
 
     image_url = None
