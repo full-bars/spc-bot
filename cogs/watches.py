@@ -28,7 +28,9 @@ from utils.http import http_get_bytes
 
 logger = logging.getLogger("spc_bot")
 
-_WATCH_FAST_POLL_INTERVAL_SEC = 30  # Stage 1: poll every 30s for image + probs
+_WATCH_FAST_POLL_INTERVAL_SEC = (
+    5  # Stage 1: poll every 5s for image + probs (aggressive for probabilities)
+)
 _WATCH_SLOW_POLL_INTERVAL_SEC = 60  # Stage 2: poll every 60s for image only
 
 
@@ -197,7 +199,9 @@ class WatchesCog(commands.Cog):
 
         # ── Stage 1: Fast poll for Probs + Image ───────────────────────────
         for attempt in range(20):
-            await asyncio.sleep(_WATCH_FAST_POLL_INTERVAL_SEC)
+            # First check is immediate (no sleep), then poll at intervals
+            if attempt > 0:
+                await asyncio.sleep(_WATCH_FAST_POLL_INTERVAL_SEC)
             try:
                 image_url, text_summary, probs, is_pds = await fetch_watch_details(watch_num)
                 has_real_probs = probs and "preliminary" not in probs
