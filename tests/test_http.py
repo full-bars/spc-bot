@@ -224,21 +224,17 @@ class TestCircuitBreakerStateMachine:
         cb = self._make_breaker()
         import logging
 
-        # Disambiguate this test's host name so leftover records from any
-        # other test that happens to use "h" can't bleed into the count.
         host = "test_open_does_not_relog.example"
         with caplog.at_level(logging.WARNING, logger="spc_bot"):
             for _ in range(3):
                 cb.record_failure(host)
-            warning_count_after_trip = sum(
-                1 for r in caplog.records if "Circuit OPEN" in r.message and host in r.message
-            )
+            warning_count_after_trip = sum(1 for r in caplog.records if "Circuit OPEN" in r.message)
             assert warning_count_after_trip == 1, "should log once on threshold edge"
             # Further failures while already OPEN must NOT re-log the threshold.
             for _ in range(10):
                 cb.record_failure(host)
             assert (
-                sum(1 for r in caplog.records if "Circuit OPEN" in r.message and host in r.message)
+                sum(1 for r in caplog.records if "Circuit OPEN" in r.message)
                 == warning_count_after_trip
             )
 
