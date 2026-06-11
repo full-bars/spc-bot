@@ -111,9 +111,24 @@ def get_sounding_params_text(clean_data: dict) -> Optional[str]:
         thermo = params[1]
         kinematics = params[2]
 
+        # DEBUG: Log what we're getting for ACARS profiles
+        sbcape = thermo.get("sbcape")
+        mu3cape = thermo.get("mu3cape")
+        sb3cape = thermo.get("sb3cape")
+        is_masked = (
+            sbcape is None or str(sbcape) == "--" or (hasattr(sbcape, "mask") and sbcape.mask)
+        )
+        if is_masked:
+            logger.debug(
+                f"[SOUNDING-PARAMS] CAPE masked: sbcape={sbcape}, sb3cape={sb3cape}, "
+                f"mu3cape={mu3cape}. clean_data keys: {list(clean_data.keys())}"
+            )
+
         summary = "SOUNDING PARAMETERS:\n\n"
         summary += "--- THERMODYNAMICS ---\n"
-        summary += f"SBCAPE: {thermo.get('sbcape')} | MUCAPE: {thermo.get('mucape')} | MLCAPE: {thermo.get('mlcape')}\n"
+        summary += (
+            f"SBCAPE: {sbcape} | MUCAPE: {thermo.get('mucape')} | MLCAPE: {thermo.get('mlcape')}\n"
+        )
         summary += f"SBCIN: {thermo.get('sbcin')} | MUCIN: {thermo.get('mucin')}\n"
         summary += (
             f"0-3km CAPE (SB): {thermo.get('sb3cape')} | 0-3km CAPE (MU): {thermo.get('mu3cape')}\n"
