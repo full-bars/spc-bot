@@ -94,7 +94,7 @@ async def get_raob_stations() -> pd.DataFrame:
 
 
 def get_sounding_params_text(clean_data: dict) -> Optional[str]:
-    """Extract thermodynamic and kinematic parameters for AI analysis context."""
+    """Extract all computed thermodynamic and kinematic parameters for AI analysis."""
     try:
         import sounderpy as spy
         import os
@@ -111,45 +111,58 @@ def get_sounding_params_text(clean_data: dict) -> Optional[str]:
         thermo = params[1]
         kinematics = params[2]
 
-        def _fmt_cape(val, unit="J/kg"):
-            """Format CAPE value, handling masked/missing cases."""
-            if val is None or (hasattr(val, "mask") and val.mask) or str(val) == "--":
-                return "N/A (profile too shallow)"
+        def _fmt_val(val, unit=""):
+            """Format any value, handling masked/missing cases. Show actual values, not filters."""
+            if val is None:
+                return "N/A"
+            if hasattr(val, "mask") and val.mask:
+                return "N/A"
+            if str(val) == "--":
+                return "N/A"
             try:
-                return f"{float(val):.0f} {unit}"
+                if isinstance(val, (int, float)):
+                    return f"{float(val):.0f}" + (f" {unit}" if unit else "")
+                return str(val)
             except (ValueError, TypeError):
                 return "N/A"
 
-        sbcape = _fmt_cape(thermo.get("sbcape"))
-        mucape = _fmt_cape(thermo.get("mucape"))
-        mlcape = _fmt_cape(thermo.get("mlcape"))
-        sb3cape = _fmt_cape(thermo.get("sb3cape"))
-        mu3cape = _fmt_cape(thermo.get("mu3cape"))
-
-        # Check if all CAPE values are unavailable (ACARS profile too shallow)
-        cape_unavailable = all("too shallow" in str(v) for v in [sbcape, mu3cape, sb3cape])
-
         summary = "SOUNDING PARAMETERS:\n\n"
-        if cape_unavailable:
-            summary += (
-                "⚠️ WARNING: ACARS profile too shallow to compute full CAPE. "
-                "Instability assessment limited.\n\n"
-            )
         summary += "--- THERMODYNAMICS ---\n"
-        summary += f"SBCAPE: {sbcape} | MUCAPE: {mucape} | MLCAPE: {mlcape}\n"
-        summary += f"SBCIN: {thermo.get('sbcin')} | MUCIN: {thermo.get('mucin')}\n"
-        summary += f"0-3km CAPE (SB): {sb3cape} | 0-3km CAPE (MU): {mu3cape}\n"
-        summary += f"DCAPE: {thermo.get('dcape')} | MUECAPE: {thermo.get('mu_ecape')}\n"
-        summary += f"Lapse Rates: 0-3km {thermo.get('lr_03km')} | 3-6km {thermo.get('lr_36km')}\n"
-        summary += f"SB LCL: {thermo.get('sb_lcl_z')} | SB LFC: {thermo.get('sb_lfc_z')}\n\n"
+
+        # Include all CAPE variants (some may be N/A, but show everything)
+        summary += f"SBCAPE: {_fmt_val(thermo.get('sbcape'), 'J/kg')} | "
+        summary += f"MUCAPE: {_fmt_val(thermo.get('mucape'), 'J/kg')} | "
+        summary += f"MLCAPE: {_fmt_val(thermo.get('mlcape'), 'J/kg')}\n"
+
+        # Low-level CAPE (critical for incomplete profiles)
+        summary += f"SB 0-3km CAPE: {_fmt_val(thermo.get('sb3cape'), 'J/kg')} | "
+        summary += f"MU 0-3km CAPE: {_fmt_val(thermo.get('mu3cape'), 'J/kg')}\n"
+
+        # CIN measures
+        summary += f"SBCIN: {_fmt_val(thermo.get('sbcin'), 'J/kg')} | "
+        summary += f"MUCIN: {_fmt_val(thermo.get('mucin'), 'J/kg')}\n"
+
+        # Downdraft and elevated convection
+        summary += f"DCAPE: {_fmt_val(thermo.get('dcape'), 'J/kg')} | "
+        summary += f"MUECAPE: {_fmt_val(thermo.get('mu_ecape'), 'J/kg')}\n"
+
+        # LCL/LFC heights
+        summary += f"SB LCL Height: {_fmt_val(thermo.get('sb_lcl_z'), 'mb')} | "
+        summary += f"SB LFC Height: {_fmt_val(thermo.get('sb_lfc_z'), 'mb')}\n"
+
+        # Lapse rates
+        summary += f"Lapse Rate (0-3km): {_fmt_val(thermo.get('lr_03km'), 'K/km')} | "
+        summary += f"Lapse Rate (3-6km): {_fmt_val(thermo.get('lr_36km'), 'K/km')}\n\n"
 
         summary += "--- KINEMATICS ---\n"
-        summary += f"Effective Inflow Layer (EIL): {kinematics.get('eil_z')}\n"
-        summary += f"Bulk Shear: 0-1km {kinematics.get('shear_0_to_1000')} | 0-6km {kinematics.get('shear_0_to_6000')}\n"
-        summary += f"SRH: 0-1km {kinematics.get('srh_0_to_1000')} | 0-3km {kinematics.get('srh_0_to_3000')}\n"
-        summary += (
-            f"STP (Effective): {kinematics.get('eil_stp')} | SCP: {kinematics.get('eil_scp')}\n"
-        )
+        summary += f"Effective Inflow Layer (EIL): {_fmt_val(kinematics.get('eil_z'), 'mb')}\n"
+        summary += f"Bulk Shear (0-1km): {_fmt_val(kinematics.get('shear_0_to_1000'), 'kts')} | "
+        summary += f"Bulk Shear (0-6km): {_fmt_val(kinematics.get('shear_0_to_6000'), 'kts')}\n"
+        summary += f"SRH (0-1km): {_fmt_val(kinematics.get('srh_0_to_1000'), 'm²/s²')} | "
+        summary += f"SRH (0-3km): {_fmt_val(kinematics.get('srh_0_to_3000'), 'm²/s²')}\n"
+        summary += f"STP (Effective): {_fmt_val(kinematics.get('eil_stp'))} | "
+        summary += f"SCP: {_fmt_val(kinematics.get('eil_scp'))}\n"
+
         return summary
     except Exception as e:
         logger.debug(f"[SOUNDING] Failed to compute parameters for AI: {e}")
