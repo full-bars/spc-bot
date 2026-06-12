@@ -314,9 +314,11 @@ async def fetch_watch_details(
     from utils.cache import fetch_with_validators
     import time
 
-    async def _get_text_with_val(u, label=None):
+    async def _get_text_with_val(u, label=None, retry_on_404=False):
         start = time.time()
-        c, s = await fetch_with_validators(u)
+        retries = 15 if retry_on_404 else 1
+        retry_statuses = [404] if retry_on_404 else None
+        c, s = await fetch_with_validators(u, retries=retries, retry_statuses=retry_statuses)
         elapsed = time.time() - start
         result = c.decode("utf-8", errors="ignore") if c and s == 200 else None
         if label and result:
@@ -326,7 +328,7 @@ async def fetch_watch_details(
 
     html, prob_html = await asyncio.gather(
         _get_text_with_val(page_url, "SPC Main"),
-        _get_text_with_val(prob_url, "SPC Prob Page"),
+        _get_text_with_val(prob_url, "SPC Prob Page", retry_on_404=True),
     )
 
     image_url = None

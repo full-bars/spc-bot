@@ -146,9 +146,9 @@ def get_sounding_params_text(clean_data: dict) -> Optional[str]:
         summary += f"DCAPE: {_fmt_val(thermo.get('dcape'), 'J/kg')} | "
         summary += f"MUECAPE: {_fmt_val(thermo.get('mu_ecape'), 'J/kg')}\n"
 
-        # LCL/LFC heights
-        summary += f"SB LCL Height: {_fmt_val(thermo.get('sb_lcl_z'), 'mb')} | "
-        summary += f"SB LFC Height: {_fmt_val(thermo.get('sb_lfc_z'), 'mb')}\n"
+        # LCL/LFC heights (in pressure coordinates - lower pressure = higher altitude)
+        summary += f"SB LCL Pressure: {_fmt_val(thermo.get('sb_lcl_z'), 'hPa')} | "
+        summary += f"SB LFC Pressure: {_fmt_val(thermo.get('sb_lfc_z'), 'hPa')}\n"
 
         # Lapse rates
         summary += f"Lapse Rate (0-3km): {_fmt_val(thermo.get('lr_03km'), 'K/km')} | "
