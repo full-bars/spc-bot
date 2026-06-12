@@ -157,7 +157,7 @@ async def summarize_sounding_enhanced(
         "EVALUATING INCOMPLETE PROFILES (ACARS, limited-depth data):\n"
         "• Assess ALL available instability signals: SB 0-3km CAPE, MU 0-3km CAPE, lapse rates, LCL, CIN, and low-level SRH\n"
         "• If full-column CAPE is N/A but low-level CAPE is strong, the environment IS unstable\n"
-        "• Cross-reference shallow-layer indices: if 0-3km CAPE >500 J/kg + SRH 0-1km >100 m²/s² + LCL <1000m, "
+        "• Cross-reference shallow-layer indices: if 0-3km CAPE >100 J/kg + SRH 0-1km >100 m²/s² + LCL <1000m, "
         "significant convection is supported\n"
         "• Lapse rate steepness is critical—a steep 0-3km lapse rate (>8 K/km) indicates instability even without full-column CAPE\n"
         "• Never conclude weak instability based on missing CAPE variants; synthesize ALL available parameters\n\n"
