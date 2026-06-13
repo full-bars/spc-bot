@@ -310,8 +310,18 @@ async def send_sounding_embed(
             raw_text = get_sounding_params_text(clean_data)
             if raw_text:
                 sounding_label = f"{label} — {time_label}"
+                lat = float(clean_data["site_info"]["site-latlon"][0])
+                lon = float(clean_data["site_info"]["site-latlon"][1])
                 t = asyncio.create_task(
-                    autopost_sounding_summary(sounding_msg, cache_key, sounding_label)
+                    autopost_sounding_summary(
+                        sounding_msg,
+                        cache_key,
+                        sounding_label,
+                        raw_text=raw_text,
+                        lat=lat,
+                        lon=lon,
+                        location_name=label,
+                    )
                 )
                 t.add_done_callback(
                     lambda t: (
