@@ -411,7 +411,14 @@ async def autopost_md_summary(channel: discord.abc.Messageable, md_num: str, del
 
 
 async def autopost_sounding_summary(
-    sounding_msg: discord.Message, cache_key: str, sounding_label: str = None, delay: float = 0.5
+    sounding_msg: discord.Message,
+    cache_key: str,
+    sounding_label: str = None,
+    delay: float = 0.5,
+    raw_text: str = None,
+    lat: float = None,
+    lon: float = None,
+    location_name: str = "Unknown",
 ):
     """Wait for sounding summary to be ready and post it as a reply to the sounding message."""
     try:
@@ -419,7 +426,13 @@ async def autopost_sounding_summary(
         from utils.state_store import set_product_cache
 
         await asyncio.sleep(delay)
-        summary = await ensure_sounding_summary(cache_key)
+        summary = await ensure_sounding_summary(
+            cache_key,
+            raw_text=raw_text,
+            lat=lat,
+            lon=lon,
+            location_name=location_name,
+        )
         if not summary:
             logger.warning(
                 f"[Sounding {cache_key}] AI summary returned None (text fetch or API call failed)"
