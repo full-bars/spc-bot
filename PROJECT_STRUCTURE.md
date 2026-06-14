@@ -14,6 +14,8 @@ spc-bot/
 ├── requirements-dev.txt     # Runtime + pytest/pytest-asyncio/pytest-cov/ruff for development & CI
 ├── .env.example             # Template for required environment variables
 ├── CREDITS.md               # Third-party attributions
+├── PRIVACY_POLICY.md        # Data collection and usage policies
+├── TERMS_OF_SERVICE.md      # Usage terms and situational awareness disclaimer
 ├── scripts/
 │   ├── backfill_dat.py               # DAT enrichment utility for tornado events
 │   ├── benchmark_hashing.py          # Python/Rust image hashing benchmark

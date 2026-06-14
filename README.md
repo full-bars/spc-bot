@@ -82,6 +82,8 @@ The bot automatically manages folder modes (send-only on Primary, receive-only o
 - **[docs/testing.md](docs/testing.md)** — Focused test-running guide for local development and CI troubleshooting
 - **[GitHub Wiki](https://github.com/full-bars/spc-bot/wiki)** — Feature guides (Alerting Authority, Warning Lifecycle, Soundings, Maintenance)
 - **[CHANGELOG.md](CHANGELOG.md)** — Release history and version-by-version improvements
+- **[PRIVACY_POLICY.md](PRIVACY_POLICY.md)** — Data collection and usage policies
+- **[TERMS_OF_SERVICE.md](TERMS_OF_SERVICE.md)** — Usage terms and situational awareness disclaimer
 
 ## Status
 
