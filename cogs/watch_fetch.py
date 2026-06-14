@@ -33,6 +33,17 @@ _TORNADO_WATCH_RE = re.compile(r"Tornado Watch Number", re.IGNORECASE)
 _nws_last_parsed: Optional[Dict[str, dict]] = None
 
 
+async def get_spc_active_watch_numbers() -> Optional[set]:
+    """Scrapes the SPC watch index to get a set of authoritative active watch numbers."""
+    spc_html = await http_get_text(SPC_WATCH_INDEX_URL)
+    if not spc_html:
+        return None
+    valid_etns = set()
+    for wm in _WW_HREF_RE.finditer(spc_html):
+        valid_etns.add(wm.group(1).zfill(4))
+    return valid_etns
+
+
 async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
     """
     Fetch active SPC watches from the NWS Alerts API.

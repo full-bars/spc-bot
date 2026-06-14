@@ -435,6 +435,7 @@ class WatchesCog(commands.Cog):
             now_utc = datetime.now(timezone.utc)
 
             # ── Cancellations ──────────────────────────────────────────────
+            spc_active_watches = None
             for watch_num, info in list(self.bot.state.active_watches.items()):
                 wtype = info["type"] if isinstance(info, dict) else info
                 expires = info.get("expires") if isinstance(info, dict) else None
@@ -444,6 +445,19 @@ class WatchesCog(commands.Cog):
 
                 if not (expired_by_time or (missing_from_api and nws_watches)):
                     continue
+
+                # Double check SPC website to prevent NWS API glitch cancellations
+                if missing_from_api and not expired_by_time:
+                    if spc_active_watches is None:
+                        from cogs.watch_fetch import get_spc_active_watch_numbers
+
+                        spc_active_watches = await get_spc_active_watch_numbers()
+
+                    if spc_active_watches is not None and watch_num in spc_active_watches:
+                        logger.warning(
+                            f"NWS API dropped watch #{watch_num} but it is still active on SPC. Ignoring NWS glitch."
+                        )
+                        continue
 
                 self.bot.state.active_watches.pop(watch_num, None)
                 reason = "expired" if expired_by_time else "no longer active"
