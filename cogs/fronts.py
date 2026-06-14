@@ -81,23 +81,32 @@ class FrontsCog(commands.Cog):
             await interaction.followup.send("Failed to fetch WPC surface fronts. Try again later.")
             return
 
+        image_data, status = await http_get_bytes(image_url, timeout=15)
+        if not image_data:
+            logger.warning(
+                f"/fronts command: Failed to download image from {image_url} (HTTP {status})"
+            )
+            await interaction.followup.send(
+                "Failed to download WPC surface fronts image. Try again later."
+            )
+            return
+
         embed = discord.Embed(
             title="WPC Surface Fronts",
             description="Latest surface fronts analysis from the Weather Prediction Center",
             url=FRONTS_PAGE_URL,
             color=discord.Color.blue(),
         )
-        # Add cache-busting query parameter to force Discord to refetch current image
-        cache_bust_url = (
-            f"{image_url}?t={int(last_modified.timestamp())}" if last_modified else image_url
-        )
-        embed.set_image(url=cache_bust_url)
+        import io
+
+        file = discord.File(io.BytesIO(image_data), filename="fronts.gif")
+        embed.set_image(url="attachment://fronts.gif")
         footer_text = "Source: WPC (wpc.ncep.noaa.gov)"
         if last_modified:
             footer_text += f" • Released {last_modified.strftime('%H:%M UTC')}"
         embed.set_footer(text=footer_text)
 
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, file=file)
 
     @tasks.loop(minutes=15)
     async def fronts_loop(self):
@@ -141,17 +150,16 @@ class FrontsCog(commands.Cog):
                 color=discord.Color.blue(),
                 timestamp=datetime.now(timezone.utc),
             )
-            # Add cache-busting query parameter to force Discord to refetch current image
-            cache_bust_url = (
-                f"{image_url}?t={int(last_modified.timestamp())}" if last_modified else image_url
-            )
-            embed.set_image(url=cache_bust_url)
+            import io
+
+            file = discord.File(io.BytesIO(image_data), filename="fronts.gif")
+            embed.set_image(url="attachment://fronts.gif")
             footer_text = "Source: WPC (wpc.ncep.noaa.gov)"
             if last_modified:
                 footer_text += f" • Released {last_modified.strftime('%H:%M UTC')}"
             embed.set_footer(text=footer_text)
 
-            await channel.send(embed=embed)
+            await channel.send(embed=embed, file=file)
             self.bot.state.last_fronts_hash = current_hash
             await set_state("last_fronts_hash", current_hash)
             logger.info("Posted updated WPC surface fronts")
