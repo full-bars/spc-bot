@@ -288,6 +288,7 @@ async def test_post_watch_now_dedup_skips_already_posted():
     cog._pending_tasks = set()
     cog._watch_inflight = set()
     cog.bot = bot
+    cog._watches_backoff = MagicMock()
 
     await cog.post_watch_now("0102", {"type": "SVR", "expires": None, "affected_zones": []})
 
@@ -304,6 +305,7 @@ async def test_post_watch_now_sends_and_marks_posted():
     cog._pending_tasks = set()
     cog._watch_inflight = set()
     cog.bot = bot
+    cog._watches_backoff = MagicMock()
 
     # Configure the mock state to actually add to the set when add_posted_watch is called
     # to maintain the behavior of the existing test assertion.
@@ -336,6 +338,7 @@ async def test_post_watch_now_no_channel_returns_early():
     cog._pending_tasks = set()
     cog._watch_inflight = set()
     cog.bot = bot
+    cog._watches_backoff = MagicMock()
 
     await cog.post_watch_now("0102", {"type": "SVR", "expires": None, "affected_zones": []})
 
@@ -360,6 +363,7 @@ async def test_post_watch_now_dispatches_to_sounding_cog():
     cog._pending_tasks = set()
     cog._watch_inflight = set()
     cog.bot = bot
+    cog._watches_backoff = MagicMock()
 
     with patch(
         "cogs.watches.fetch_watch_details", AsyncMock(return_value=(None, None, None, False))
@@ -382,6 +386,7 @@ async def test_post_watch_now_concurrent_calls_post_once():
     cog._pending_tasks = set()
     cog._watch_inflight = set()
     cog.bot = bot
+    cog._watches_backoff = MagicMock()
 
     async def _mock_add(wn):
         bot.state.posted_watches.add(wn)
@@ -405,3 +410,60 @@ async def test_post_watch_now_concurrent_calls_post_once():
         )
 
     channel.send.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_auto_post_watches_fallback_keeps_glitched_watch_alive():
+    """If NWS API drops an active watch but returns others, it checks SPC. If SPC has it, it doesn't cancel."""
+    from cogs.watches import WatchesCog
+
+    bot, channel = _make_watch_bot()
+    bot.state.is_primary = True
+    bot.state.active_watches = {"0336": {"type": "TORNADO", "expires": None, "affected_zones": []}}
+    bot.state.posted_watches = {"0337"}  # so it doesn't try to post a new one
+
+    cog = WatchesCog.__new__(WatchesCog)
+    cog._pending_tasks = set()
+    cog._watch_inflight = set()
+    cog.bot = bot
+    cog._watches_backoff = MagicMock()
+
+    # NWS API returns 0337 but drops 0336
+    nws_mock = {"0337": {"type": "SVR", "expires": None, "affected_zones": []}}
+
+    with patch("cogs.watches.fetch_active_watches_nws", AsyncMock(return_value=nws_mock)), patch(
+        "cogs.watch_fetch.get_spc_active_watch_numbers", AsyncMock(return_value={"0336", "0337"})
+    ):
+        await WatchesCog.auto_post_watches.coro(cog)
+
+    # Should STILL be in active watches!
+    assert "0336" in bot.state.active_watches
+    channel.send.assert_not_called()  # No cancellation message sent
+
+
+@pytest.mark.asyncio
+async def test_auto_post_watches_cancels_when_missing_from_both():
+    """If NWS API drops a watch AND it's missing from SPC, it cancels."""
+    from cogs.watches import WatchesCog
+
+    bot, channel = _make_watch_bot()
+    bot.state.is_primary = True
+    bot.state.active_watches = {"0336": {"type": "TORNADO", "expires": None, "affected_zones": []}}
+    bot.state.posted_watches = {"0337"}  # so it doesn't try to post a new one
+
+    cog = WatchesCog.__new__(WatchesCog)
+    cog._pending_tasks = set()
+    cog._watch_inflight = set()
+    cog.bot = bot
+    cog._watches_backoff = MagicMock()
+
+    nws_mock = {"0337": {"type": "SVR", "expires": None, "affected_zones": []}}
+
+    with patch("cogs.watches.fetch_active_watches_nws", AsyncMock(return_value=nws_mock)), patch(
+        "cogs.watch_fetch.get_spc_active_watch_numbers", AsyncMock(return_value={"0337"})
+    ):  # 0336 missing
+        await WatchesCog.auto_post_watches.coro(cog)
+
+    # Should be REMOVED from active watches!
+    assert "0336" not in bot.state.active_watches
+    channel.send.assert_called_once()  # Cancellation message sent
