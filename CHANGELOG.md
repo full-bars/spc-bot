@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.37.9] - 2026-06-14
+
+### Added
+- **Privacy Policy**: Introduced a formal `PRIVACY_POLICY.md` detailing data collection practices and AI integration specifics.
+- **Terms of Service**: Added `TERMS_OF_SERVICE.md` with explicit life-safety disclaimers and limitations of liability.
+
+### Fixed
+- **Sounding Summaries**: Resolved a race condition that could cause automated sounding summaries to fail to post.
+- **LCL Extraction**: Fixed an issue with Lifted Condensation Level (LCL) extraction and parsing during environmental analysis.
+
+### Changed
+- **Dependencies**: Bumped `pyo3` from 0.28.3 to 0.29.0.
+
 ## [5.37.7] - 2026-06-10
 
 ### Fixed
