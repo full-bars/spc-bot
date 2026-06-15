@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.37.10] - 2026-06-14
+
+### Added
+- **Unit Testing**: Massively expanded test coverage for warning channels, UI views, sounding math, NWWS ingestion, and radar download components.
+
+### Fixed
+- **Watch Cancellations**: Added an SPC active watch index fallback to ensure cancelled watches accurately clear.
+- **WPC Fronts Images**: Bypassed Discord crawler caches by downloading fronts images and uploading them as raw file attachments.
+
 ## [5.37.9] - 2026-06-14
 
 ### Added
