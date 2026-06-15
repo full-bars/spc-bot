@@ -1,0 +1,15 @@
+## Description
+<!-- Provide a brief, clear description of the changes made in this PR. -->
+
+## Changes Made
+-
+-
+
+## Project Checklist
+<!-- Please check all that apply to ensure the PR meets the project's engineering mandates. -->
+- [ ] I have read `CONTRIBUTING.md` and the agent guidelines (`GEMINI.md`/`CLAUDE.md`).
+- [ ] I have **NOT** included any AI/Gemini/Claude attribution in the code, commit messages, or PR body.
+- [ ] I have updated the `CHANGELOG.md` with a summary of these changes.
+- [ ] I have updated relevant documentation (e.g., `README.md`, `.wiki/`, `.env.example`).
+- [ ] My code passes all CI checks (Ruff linting, Pytest, Rust formatting/clippy).
+- [ ] I have tested these changes locally to ensure they are swift and efficient.
