@@ -68,7 +68,7 @@ async def test_environmental_view_success(mock_interaction):
 
     with patch("utils.events_db.get_events_db", new=AsyncMock(return_value=mock_db)):
         with patch("cogs.warning_ui.os.path.exists", return_value=True):
-            with patch("cogs.warning_ui.discord.File") as MockFile:
+            with patch("cogs.warning_ui.discord.File"):
                 await view.children[0].callback(mock_interaction)
                 mock_interaction.followup.send.assert_called_once()
                 kwargs = mock_interaction.followup.send.call_args.kwargs

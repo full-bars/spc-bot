@@ -1,4 +1,3 @@
-import pytest
 from cogs.nwws import (
     normalize_product_id_py,
     parse_md_number_py,

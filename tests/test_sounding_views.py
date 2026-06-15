@@ -1,16 +1,13 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 import discord
-import os
 
 from cogs.sounding_views import (
     _plot_path,
     post_sounding,
-    send_sounding_embed,
     TimeSelectionView,
     StationSelectionView,
     CombinedSoundingView,
-    IEMTimeSelectionView,
     SoundingPlotView,
 )
 
@@ -86,7 +83,7 @@ async def test_combined_sounding_view(mock_interaction):
     with patch("cogs.sounding_views.set_user_dark_mode", new=AsyncMock()):
         toggle_btn = view.children[-1]
         await toggle_btn.callback(mock_interaction)
-        assert view.dark_mode == True
+        assert view.dark_mode is True
         mock_interaction.response.edit_message.assert_called_once()
 
 

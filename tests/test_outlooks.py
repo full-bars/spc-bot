@@ -1,4 +1,3 @@
-import pytest
 from cogs.outlooks import _extract_product_from_url
 
 

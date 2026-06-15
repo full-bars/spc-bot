@@ -2,7 +2,7 @@ import pytest
 import os
 import time
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 import discord
 from datetime import datetime, timezone, timedelta
 
@@ -14,7 +14,6 @@ from cogs.radar.downloads import (
     split_and_zip_files,
     send_error,
     run_download,
-    download_and_zip,
 )
 
 
