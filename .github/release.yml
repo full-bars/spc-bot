@@ -3,29 +3,29 @@ changelog:
     labels:
       - ignore-for-release
   categories:
-    - title: 🏗️ Features & Capabilities
+    - title: 🌤️ Features & Capabilities
       labels:
         - feature
         - enhancement
-    - title: 🩹 Fixes & Patches
+    - title: ☔ Fixes & Patches
       labels:
         - fix
         - bug
-    - title: 🏎️ Performance Tuning
+    - title: 🌪️ Performance Tuning
       labels:
         - performance
         - optimization
-    - title: 📜 Documentation
+    - title: 🧭 Documentation
       labels:
         - docs
         - documentation
-    - title: 🧹 Chores & Maintenance
+    - title: ☁️ Chores & Maintenance
       labels:
         - chore
         - maintenance
         - refactor
         - dependencies
-    - title: 🔬 Testing & Coverage
+    - title: 📡 Testing & Coverage
       labels:
         - test
         - testing
