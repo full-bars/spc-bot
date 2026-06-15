@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> **Engineering Mandates:** Please ensure this Pull Request strictly adheres to the project guidelines, avoids AI attribution, and passes all required CI checks before requesting a review.
+
 ## Description
 <!-- Provide a brief, clear description of the changes made in this PR. -->
 
