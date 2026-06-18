@@ -479,7 +479,7 @@ class WatchesCog(commands.Cog):
             # ── New watches ────────────────────────────────────────────────
             for watch_num, nws_info in nws_watches.items():
                 self.bot.state.active_watches[watch_num] = nws_info
-                if watch_num in self.bot.state.posted_watches:
+                if watch_num in self.bot.state.posted_watches or watch_num in self._watch_inflight:
                     # Notify SoundingCog only if it hasn't handled this watch yet —
                     # avoids accumulating hundreds of no-op tasks over a long watch.
                     sounding_cog = self.bot.cogs.get("SoundingCog")

@@ -26,7 +26,21 @@ BONUS_TIMES = {"0600", "1800"}
 
 
 def _build_url(year: int, yyyymmdd: str, day: int, product: str, hhmm: str) -> str:
-    """Construct archive image URL."""
+    """Construct archive image URL.
+
+    SPC changed archive format on March 3, 2026 from .gif to .html/.geojson.
+    For dates before that, use legacy .gif URLs.
+    For dates on/after that, archive no longer has image files — return None to trigger fallback.
+    """
+    # March 3, 2026 is when SPC switched formats
+    cutoff = 20260303
+    yyyymmdd_int = int(yyyymmdd)
+
+    if yyyymmdd_int >= cutoff:
+        # Archive no longer has image files for post-March-3-2026 dates
+        return None
+
+    # Legacy .gif URLs for pre-March-3-2026
     if day in (1, 2) and product == "categorical":
         return f"{ARCHIVE_BASE}/{year}/day{day}otlk_{yyyymmdd}_{hhmm}.gif"
     elif day in (1, 2) and product in ("tornado", "wind", "hail"):
@@ -138,14 +152,18 @@ async def _fetch_and_send(
         urls_to_try = []
         if hhmm:
             try:
-                urls_to_try = [_build_url(year, yyyymmdd, day, prod, hhmm)]
+                url = _build_url(year, yyyymmdd, day, prod, hhmm)
+                if url:
+                    urls_to_try = [url]
             except ValueError:
                 continue  # Skip invalid product combos in "all" mode
         else:
             # Default: try canonical times
             for t in ISSUANCE_TIMES[day]:
                 try:
-                    urls_to_try.append(_build_url(year, yyyymmdd, day, prod, t))
+                    url = _build_url(year, yyyymmdd, day, prod, t)
+                    if url:
+                        urls_to_try.append(url)
                 except ValueError:
                     continue
 
