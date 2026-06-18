@@ -24,7 +24,6 @@ from utils.cache import (
     download_single_image,
     format_timedelta,
 )
-from utils.compare_utils import get_comparison_pair
 from utils.db import get_write_failure_count
 from utils.discord_gateway import update_gateway_info
 from utils.spc_outlook import get_current_risk_display, get_high_risk_polygon, peek_active_labels
@@ -1174,11 +1173,11 @@ class StatusCog(commands.Cog):
 
     @discord.app_commands.command(
         name="compare",
-        description="Compare latest outlook with previous version (side-by-side)",
+        description="Show the last 4 issuances of a product to track SPC trends",
     )
     @discord.app_commands.describe(
-        day="Which day product to compare (day1, day2, day3, day48)",
-        product="Which product to compare (categorical, tornado, hail, wind)",
+        day="Which day product (day1, day2, day3, day48)",
+        product="Which product (categorical, tornado, hail, wind)",
     )
     @discord.app_commands.choices(
         day=[
@@ -1216,14 +1215,21 @@ class StatusCog(commands.Cog):
             else:
                 products_to_fetch = [product]
 
-            # Fetch all requested products
+            # Fetch last 4 issuances for each product
             all_files = []
             for prod in products_to_fetch:
-                latest_path, previous_path, status_msg = await get_comparison_pair(day_num, prod)
+                # Get all archived versions, newest first
+                from utils.compare_utils import _get_all_versions_for_product, _get_product_key
 
-                # Fallback: if no archived versions, fetch latest from API
-                if latest_path is None:
+                product_key = _get_product_key(day_num, prod)
+                versions = _get_all_versions_for_product(product_key)
+
+                # Take up to 4 most recent versions
+                recent_versions = versions[:4]
+
+                if not recent_versions:
                     logger.info(f"/compare fallback: fetching {prod} for day{day_num} from API")
+                    # Fallback: fetch latest from API
                     try:
                         if day_num == 48:
                             urls = SPC_URLS.get("48", [])
@@ -1264,35 +1270,37 @@ class StatusCog(commands.Cog):
                             product_url, MANUAL_CACHE_FILE, self.bot.state.manual_cache
                         )
                         if latest_path:
-                            all_files.append((prod, latest_path, previous_path))
+                            recent_versions = [latest_path]
                     except Exception as e:
                         logger.debug(f"Fallback fetch failed for {prod}/day{day_num}: {e}")
                         continue
-                else:
-                    # Found in archive
-                    all_files.append((prod, latest_path, previous_path))
+
+                # Add all recent versions to files
+                for version_path in recent_versions:
+                    all_files.append((prod, version_path))
 
             # Build response
             day_label = f"Day {day}" if day != "48" else "Day 4-8"
             if product == "all":
-                title = f"{day_label} All Products Comparison"
+                title = f"{day_label} All Products — Last 4 Issuances"
             else:
-                title = f"{day_label} {product.capitalize()} Comparison"
+                title = f"{day_label} {product.capitalize()} — Last 4 Issuances"
 
             if not all_files:
                 await interaction.followup.send(
-                    "❌ Could not load any comparison images",
+                    "❌ Could not load any images",
                     ephemeral=True,
                 )
                 return
 
-            # Send files for each product
+            # Send files
             files = []
-            for idx, (prod, latest_path, previous_path) in enumerate(all_files):
-                if latest_path:
+            for prod, version_path in all_files:
+                if version_path:
                     try:
-                        fname = f"{prod}_latest.png"
-                        files.append(discord.File(latest_path, filename=fname))
+                        # Extract timestamp from filename for ordering
+                        fname = version_path.split("/")[-1]
+                        files.append(discord.File(version_path, filename=fname))
                     except Exception as e:
                         logger.warning(f"Failed to create File: {e}")
 
@@ -1301,11 +1309,7 @@ class StatusCog(commands.Cog):
                     title=title,
                     color=discord.Color.blue(),
                 )
-                if product == "all":
-                    embed.description = f"**Latest** — {len(all_files)} products"
-                else:
-                    embed.description = "Only latest available — no prior version to compare"
-
+                embed.description = f"Showing {len(files)} most recent issuances (newest first)"
                 await interaction.followup.send(embed=embed, files=files[:10])
             else:
                 await interaction.followup.send(
