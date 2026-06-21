@@ -40,6 +40,21 @@ class TestChangeDetection:
         assert is_placeholder_image(b"x" * 2048) is False
         assert is_placeholder_image(b"x" * 50000) is False
 
+    def test_is_placeholder_image_gif_truncation(self):
+        from utils.change_detection import is_placeholder_image
+
+        # Truncated GIF: valid header but missing trailer byte (0x3B)
+        truncated_gif = b"GIF89a" + b"\x00" * 6000  # valid header, no trailer
+        assert is_placeholder_image(truncated_gif) is True
+
+        # Valid-looking GIF: header present and trailer byte at the end
+        valid_gif = b"GIF87a" + b"\x00" * 6000 + b"\x3b"
+        assert is_placeholder_image(valid_gif) is False
+
+        # Non-GIF content with 0x3B at end (should not falsely trigger)
+        non_gif = b"PNG123" + b"\x00" * 3000 + b"\x3b"
+        assert is_placeholder_image(non_gif) is False
+
     def test_get_cache_path_for_url(self):
         from utils.change_detection import get_cache_path_for_url
 

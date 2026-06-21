@@ -60,12 +60,19 @@ def is_placeholder_image(content: bytes) -> bool:
     """
     Detect placeholder / stub images from SPC.
 
-    Checks file size (< 2048 bytes is almost certainly a placeholder) and
-    optionally compares against known placeholder hashes.
+    Checks file size (< 2048 bytes is almost certainly a placeholder),
+    GIF truncation (missing 0x3B trailer byte), and optionally compares
+    against known placeholder hashes.
     """
     if not content:
         return True
     if len(content) < 2048:
+        return True
+    if content[:3] == b"GIF" and len(content) >= 6 and content[-1] != 0x3B:
+        logger.warning(
+            f"Truncated GIF detected: {len(content)} bytes, missing trailer byte (0x3B), "
+            f"treating as placeholder"
+        )
         return True
     if _KNOWN_PLACEHOLDER_HASHES:
         h = calculate_hash_bytes(content)
