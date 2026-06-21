@@ -150,38 +150,36 @@ async def fetch_md_details_iem(
     padded = md_number.zfill(4)
     num_int = int(md_number)
 
-    # IEM mirrors SPC MCD PNGs
     iem_img_url = f"https://mesonet.agron.iastate.edu/pickup/mcd/mcd{padded}.png"
-    img_bytes, img_status = await http_get_bytes(iem_img_url, retries=2, timeout=15)
-    iem_image_url = (
-        iem_img_url if (img_bytes and img_status == 200 and len(img_bytes) > 2048) else None
-    )
 
-    # IEM nwstext API for MCD text
-    summary = None
-    raw_text = None
-    try:
-        url = "https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=SWOMCD&limit=10"
-        text = await http_get_text(url, retries=2, timeout=15)
-        if text:
-            # The text block contains multiple MCDs; find the one we want
-            # Split by the WMO header (ACUS11 KWNS) which precedes each MD
-            products = re.split(r"(?m)^ACUS11 KWNS\s+\d{6}", text)
-            for p in products:
-                if (
-                    f"MESOSCALE DISCUSSION {num_int}" in p.upper()
-                    or f"MESOSCALE DISCUSSION {padded}" in p
-                ):
-                    raw_text = p
-                    concerning = _CONCERNING_RE.search(p)
-                    if concerning:
-                        summary = concerning.group(1).strip()
-                    else:
-                        lines = [ln.strip() for ln in p.splitlines() if ln.strip()]
-                        summary = " ".join(lines[:3])[:200]
-                    break
-    except Exception as e:
-        logger.warning(f"IEM text fallback failed for #{md_number}: {e}")
+    async def _fetch_img():
+        img_bytes, img_status = await http_get_bytes(iem_img_url, retries=2, timeout=15)
+        return iem_img_url if (img_bytes and img_status == 200 and len(img_bytes) > 2048) else None
+
+    async def _fetch_text():
+        try:
+            url = "https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=SWOMCD&limit=10"
+            text = await http_get_text(url, retries=2, timeout=15)
+            if text:
+                products = re.split(r"(?m)^ACUS11 KWNS\s+\d{6}", text)
+                for p in products:
+                    if (
+                        f"MESOSCALE DISCUSSION {num_int}" in p.upper()
+                        or f"MESOSCALE DISCUSSION {padded}" in p
+                    ):
+                        concerning = _CONCERNING_RE.search(p)
+                        s = concerning.group(1).strip() if concerning else None
+                        if not s:
+                            lines = [ln.strip() for ln in p.splitlines() if ln.strip()]
+                            s = " ".join(lines[:3])[:200]
+                        return p, s
+        except Exception as e:
+            logger.warning(f"IEM text fallback failed for #{md_number}: {e}")
+        return None, None
+
+    img_task = asyncio.create_task(_fetch_img())
+    text_task = asyncio.create_task(_fetch_text())
+    iem_image_url, (raw_text, summary) = await asyncio.gather(img_task, text_task)
 
     return iem_image_url, summary, raw_text
 
@@ -576,7 +574,8 @@ class MesoscaleCog(commands.Cog):
         message: discord.Message,
         full_text: Optional[str],
     ):
-        image_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.png"
+        spc_image_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.png"
+        iem_image_url = f"https://mesonet.agron.iastate.edu/pickup/mcd/mcd{md_num.zfill(4)}.png"
         filename = f"md_{md_num}.png"
         cache_path: Optional[str] = None
 
@@ -606,7 +605,8 @@ class MesoscaleCog(commands.Cog):
                 return False
 
         for attempt in range(20):
-            await asyncio.sleep(30)
+            delay = 10 if attempt < 6 else 30
+            await asyncio.sleep(delay)
             changed = False
             if not full_text:
                 _, _, _, raw = await fetch_md_details(md_num)
@@ -616,13 +616,28 @@ class MesoscaleCog(commands.Cog):
                     changed = True
                     logger.info(f"Recovered text for #{md_num}")
             if not cache_path:
-                cp, _, _ = await download_single_image(
-                    image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
+
+                async def _try_dl(url):
+                    cp, _, _ = await download_single_image(
+                        url, AUTO_CACHE_FILE, self.bot.state.auto_cache, retries=2
+                    )
+                    return cp
+
+                spc_task = asyncio.create_task(_try_dl(spc_image_url))
+                iem_task = asyncio.create_task(_try_dl(iem_image_url))
+                done, pending = await asyncio.wait(
+                    [spc_task, iem_task],
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
-                if cp:
-                    cache_path = cp
-                    changed = True
-                    logger.info(f"Recovered image for #{md_num}")
+                for t in pending:
+                    t.cancel()
+                for t in done:
+                    cp = t.result()
+                    if cp:
+                        cache_path = cp
+                        changed = True
+                        logger.info(f"Recovered image for #{md_num}")
+                        break
             if changed:
                 await _push_edit()
             if cache_path and full_text:
