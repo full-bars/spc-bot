@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.37.12] - 2026-06-18
+
+### Fixed
+- **`/compare` Command**: Redesigned to show the last 4 issuances of a product, allowing users to track SPC forecast trends throughout the day. Updated fallback logic to properly handle cases with no archived versions.
+- **`/historical` Command**: Added detection for SPC's March 3, 2026 archive format change (gif → html/geojson). For pre-cutoff dates, uses legacy .gif URLs; for post-cutoff dates, returns None to trigger fallback. Fixed URL building to check for None returns before adding to fetch queue.
+
 ## [5.37.10] - 2026-06-14
 
 ### Added
