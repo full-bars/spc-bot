@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.37.13] - 2026-06-20
+
+### Fixed
+- **MD Image Upgrade Loop**: Now races SPC and IEM mirrors simultaneously for the image instead of trying SPC alone, cutting recovery time when IEM publishes earlier.
+- **Dynamic Polling**: Upgrade loop polls every 10s for the first 60s (instead of a fixed 30s), then backs off to 30s.
+- **IEM Fetch Parallelization**: Image and text fetches in `fetch_md_details_iem` now run concurrently instead of sequentially, saving ~15s on the initial post path when SPC is down.
+
 ## [5.37.12] - 2026-06-18
 
 ### Fixed
