@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.37.14] - 2026-06-20
+
+### Changed
+- **Dependencies**: Bumped `ruff` dev dependency to 0.15.17 and `github/codeql-action` CI action to v4.
+
 ## [5.37.13] - 2026-06-20
 
 ### Fixed
