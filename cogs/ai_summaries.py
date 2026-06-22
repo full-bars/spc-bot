@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 from typing import Any
@@ -164,6 +165,10 @@ async def _get_environmental_context(lat: float, lon: float, bot: commands.Bot) 
     return context
 
 
+# Inflight lock to prevent duplicate AI calls for the same cache_key
+_sounding_inflight: dict[str, asyncio.Event] = {}
+
+
 async def ensure_sounding_summary(
     cache_key: str,
     raw_text: str = None,
@@ -188,7 +193,21 @@ async def ensure_sounding_summary(
                 await redis.incr(f"ai_cache_hits_{today_str}")
             return summary
 
-        # 2. Not cached, generate it.
+        # 2. Inflight dedup — if another task is already generating for this
+        #    cache_key, wait for it instead of making a duplicate AI call.
+        event = _sounding_inflight.get(cache_key)
+        if event:
+            await event.wait()
+            summary = await get_product_cache(cache_key)
+            if summary:
+                if redis:
+                    await redis.incr(f"ai_cache_hits_{today_str}")
+                return summary
+        else:
+            event = asyncio.Event()
+            _sounding_inflight[cache_key] = event
+
+        # 3. Not cached, generate it.
         if not raw_text:
             # Try fetching raw_text from cache (e.g., stored by hodograph/sounding creation)
             raw_text = await get_product_cache(f"raw_text_{cache_key}")
@@ -286,6 +305,10 @@ async def ensure_sounding_summary(
     except Exception as e:
         logger.error(f"Error in ensure_sounding_summary for {cache_key}: {e}")
         return None
+    finally:
+        if cache_key in _sounding_inflight:
+            _sounding_inflight[cache_key].set()
+            del _sounding_inflight[cache_key]
 
 
 async def ensure_outlook_summary(day: str, raw_text: str = None) -> Any | None:
