@@ -913,9 +913,22 @@ async def backfill_warning_severity(days: int = 7):
             if not html:
                 continue
 
-            text_match = re.search(r"<pre[^>]*>(.*?)</pre>", html, re.DOTALL | re.IGNORECASE)
-            raw_text = text_match.group(1) if text_match else ""
-            if not raw_text:
+            text_match = re.search(r"<pre>(\S+)</pre>", html)
+            product_id = text_match.group(1).strip() if text_match else ""
+            if not product_id:
+                continue
+
+            text_html = await http_get_text(
+                f"https://mesonet.agron.iastate.edu/p.php?pid={product_id}",
+                retries=1,
+                timeout=10,
+            )
+            if not text_html:
+                continue
+
+            text_match2 = re.search(r"<pre[^>]*>(.*?)</pre>", text_html, re.DOTALL | re.IGNORECASE)
+            raw_text = text_match2.group(1) if text_match2 else ""
+            if not raw_text or len(raw_text) < 50:
                 continue
 
             ed = {
