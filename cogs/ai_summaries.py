@@ -540,12 +540,26 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
                     if raw_text:
                         from utils.ai import call_gemini
 
-                        gemini_result = await call_gemini(
-                            "You are an expert severe weather meteorologist. "
-                            "Provide a concise 3-4 sentence plain-English summary "
-                            "of this atmospheric environment.\n\n"
-                            f"DATA:\n{raw_text}"
-                        )
+                        is_hodo = cache_key.startswith("hodo_")
+                        if is_hodo:
+                            prompt = (
+                                "You are an expert severe weather meteorologist analyzing a radar-derived "
+                                "VAD wind profile (hodograph). This data ONLY contains kinematic (wind) "
+                                "information — no thermodynamic data (no CAPE, no CIN, no lapse rates).\n\n"
+                                "Base your analysis ENTIRELY on the wind data provided. Discuss the "
+                                "wind shear profile, low-level shear/SRH, and storm motion. "
+                                "Do NOT mention CAPE, instability, or thunderstorm development.\n\n"
+                                f"DATA:\n{raw_text}"
+                            )
+                        else:
+                            prompt = (
+                                "You are an expert severe weather meteorologist. "
+                                "Provide a concise 3-4 sentence plain-English summary "
+                                "of this atmospheric environment.\n\n"
+                                f"DATA:\n{raw_text}"
+                            )
+
+                        gemini_result = await call_gemini(prompt)
                         if gemini_result:
                             from utils.state_store import set_product_cache
 

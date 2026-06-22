@@ -19,7 +19,9 @@ VAD_SCRIPT = os.path.join("lib", "vad_plotter", "vad.py")
 
 
 async def _prefetch_hodo_summary(cache_key: str, raw_text: str, site: str):
-    """Prefetch AI analysis using Gemini (fast) so button responds instantly."""
+    """Prefetch AI analysis using Gemini (fast) so button responds instantly.
+    Hodographs only contain wind shear data — never speculate about CAPE,
+    instability, or thunderstorm potential."""
     try:
         from utils.state_store import get_product_cache, set_product_cache
         from utils.ai import call_gemini
@@ -29,9 +31,21 @@ async def _prefetch_hodo_summary(cache_key: str, raw_text: str, site: str):
             return
 
         result = await call_gemini(
-            "You are an expert severe weather meteorologist. "
-            "Provide a concise 3-4 sentence plain-English summary "
-            f"of this hodograph environment for radar site {site}.\n\n"
+            "You are an expert severe weather meteorologist. You are given wind "
+            "shear parameters from a radar-derived VAD wind profile (hodograph) "
+            f"at {site}. This data ONLY contains kinematic (wind) information — "
+            "there is NO thermodynamic data (no CAPE, no CIN, no lapse rates, "
+            "no instability).\n\n"
+            "Base your analysis ENTIRELY on the wind data provided. Discuss:\n"
+            "1. The wind shear profile and its implications for storm organization "
+            "(e.g., does it support supercells? multicells? disorganized?)\n"
+            "2. The low-level shear and SRH and what they suggest about "
+            "tornadic potential (if anything is elevated)\n"
+            "3. The storm motion and how it relates to the shear profile\n"
+            "4. Any notable features (e.g., backed low-level flow, veered profile)\n\n"
+            "CRITICAL: Do NOT mention CAPE, instability, thunderstorm development "
+            "likelihood, or any thermodynamic variables. State clearly that you "
+            "are analyzing only the wind shear environment. Limit to 3 sentences.\n\n"
             f"DATA:\n{raw_text}"
         )
         if result:
