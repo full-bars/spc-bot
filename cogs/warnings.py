@@ -437,6 +437,7 @@ class WarningsCog(commands.Cog):
                         tornado_confidence=tornado_confidence,
                         tornado_severity=tornado_severity,
                         severity=severity,
+                        raw_text=raw_text,
                     )
                 except discord.Forbidden as e:
                     await self._notify_channel_error(channel, ["send_messages (403 Forbidden)"])
@@ -908,6 +909,7 @@ class WarningsCog(commands.Cog):
                                     tornado_confidence=tornado_confidence,
                                     tornado_severity=tornado_severity,
                                     severity=severity,
+                                    raw_text=description,
                                 )
                             finally:
                                 self._in_flight_vtecs.discard(issuance_id)
@@ -981,6 +983,7 @@ class WarningsCog(commands.Cog):
                             tornado_confidence=tornado_confidence,
                             tornado_severity=tornado_severity,
                             severity=severity,
+                            raw_text=description,
                         )
                     except Exception as e:
                         logger.warning(f"Failed to persist {issuance_id}: {e}")

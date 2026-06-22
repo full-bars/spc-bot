@@ -252,6 +252,7 @@ async def _create_tables(db: aiosqlite.Connection):
         "ALTER TABLE posted_warnings ADD COLUMN tornado_confidence TEXT",
         "ALTER TABLE posted_warnings ADD COLUMN tornado_severity TEXT",
         "ALTER TABLE posted_warnings ADD COLUMN severity TEXT",
+        "ALTER TABLE posted_warnings ADD COLUMN raw_text TEXT",
         "ALTER TABLE dirty_writes ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0",
     ):
         try:
@@ -780,6 +781,7 @@ async def add_posted_warning(
     tornado_confidence: Optional[str] = None,
     tornado_severity: Optional[str] = None,
     severity: Optional[str] = None,
+    raw_text: Optional[str] = None,
 ):
     """Mark a warning as posted. ``vtec_id`` is the VTEC event identity
     (office.phenom.sig.etn), which stays stable across the warning's
@@ -794,15 +796,16 @@ async def add_posted_warning(
     flash flood → 'standard'|'emergency'
     """
     await _write(
-        """INSERT INTO posted_warnings (vtec_id, message_id, channel_id, posted_at, area, tornado_confidence, tornado_severity, severity)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """INSERT INTO posted_warnings (vtec_id, message_id, channel_id, posted_at, area, tornado_confidence, tornado_severity, severity, raw_text)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(vtec_id) DO UPDATE SET
              message_id=excluded.message_id,
              channel_id=excluded.channel_id,
              area=excluded.area,
              tornado_confidence=excluded.tornado_confidence,
              tornado_severity=excluded.tornado_severity,
-             severity=excluded.severity""",
+             severity=excluded.severity,
+             raw_text=excluded.raw_text""",
         (
             vtec_id,
             message_id,
@@ -812,6 +815,7 @@ async def add_posted_warning(
             tornado_confidence,
             tornado_severity,
             severity,
+            raw_text,
         ),
         f"add_posted_warning({vtec_id})",
     )
@@ -840,6 +844,90 @@ async def prune_posted_warnings(max_size: int = 500):
         (max_size,),
         "prune_posted_warnings",
     )
+
+
+async def backfill_warning_severity(days: int = 7):
+    """Fetch expired warnings from NWS API and backfill severity + raw_text for
+    rows where raw_text is NULL. Runs once on startup."""
+    from cogs.warning_format import get_warning_severity
+    from utils.http import http_get_bytes
+
+    try:
+        async with get_read_db() as db:
+            rows = await db.execute_fetchall(
+                "SELECT vtec_id FROM posted_warnings WHERE raw_text IS NULL",
+            )
+    except Exception:
+        logger.warning("[BACKFILL] Could not query posted_warnings (migrating?)")
+        return
+
+    vtec_ids = {r[0] for r in rows}
+    if not vtec_ids:
+        logger.info("[BACKFILL] No warnings need backfill")
+        return
+
+    logger.info(f"[BACKFILL] {len(vtec_ids)} warnings need severity backfill")
+
+    import json
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    start = (now - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    end = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    base_url = (
+        "https://api.weather.gov/alerts?"
+        f"status=expired&event=Tornado%20Warning,Severe%20Thunderstorm%20Warning,Flash%20Flood%20Warning"
+        f"&limit=500&start={start}&end={end}"
+    )
+
+    url = base_url
+    updated = 0
+
+    while url and vtec_ids:
+        content, status = await http_get_bytes(url, retries=2, timeout=30)
+        if not content or status != 200:
+            logger.warning(f"[BACKFILL] NWS API returned {status}")
+            break
+
+        data = json.loads(content)
+        features = data.get("features", [])
+        logger.info(f"[BACKFILL] Processing {len(features)} warnings (pagination)...")
+
+        for f in features:
+            props = f.get("properties", {})
+            params = (props.get("parameters") or {}) or {}
+            vtec_list = params.get("VTEC") or []
+            if not vtec_list:
+                continue
+
+            # VTEC: /O.{action}.{office}.{phenom}.{sig}.{etn}
+            parts = vtec_list[0].split(".")
+            if len(parts) < 6:
+                continue
+            vtec_id = f"{parts[2]}.{parts[3]}.{parts[4]}.{parts[5]}"
+
+            if vtec_id not in vtec_ids:
+                continue
+
+            event = props.get("event", "")
+            description = props.get("description", "") or ""
+            severity = get_warning_severity(event, description, params)
+            if event:
+                await _write(
+                    "UPDATE posted_warnings SET severity = ?, raw_text = ? WHERE vtec_id = ?",
+                    (severity, description[:5000], vtec_id),
+                    f"backfill({vtec_id})",
+                )
+                updated += 1
+                vtec_ids.discard(vtec_id)
+
+        # Next page (NWS API uses pagination.next in response)
+        url = data.get("pagination", {}).get("next")
+
+    logger.info(f"[BACKFILL] Updated {updated} warnings with severity")
+    if vtec_ids:
+        logger.info(f"[BACKFILL] {len(vtec_ids)} warnings unmatched in NWS response")
 
 
 # ── Soundings ─────────────────────────────────────────────────────────────────
