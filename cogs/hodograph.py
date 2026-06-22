@@ -103,6 +103,11 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
         cache_key = f"hodo_{site}_{now_str}"
         view = HodographPlotView(cache_key)
 
+        # Cache raw_text so button handler can retrieve it later
+        from utils.state_store import set_product_cache
+
+        await set_product_cache(f"raw_text_{cache_key}", summary, ttl=3600)
+
         from cogs.ai_summaries import ensure_sounding_summary
         from lib.vad_plotter.radar_coords import RADAR_COORDS
 

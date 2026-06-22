@@ -282,6 +282,9 @@ async def send_sounding_embed(
 
                 raw_text = get_sounding_params_text(clean_data)
                 if raw_text:
+                    from utils.state_store import set_product_cache as _cache_raw
+
+                    await _cache_raw(f"raw_text_{cache_key}", raw_text, ttl=3600)
                     bot = interaction.client if interaction else None
 
                     t = asyncio.create_task(

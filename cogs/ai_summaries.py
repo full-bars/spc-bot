@@ -190,7 +190,10 @@ async def ensure_sounding_summary(
 
         # 2. Not cached, generate it.
         if not raw_text:
-            return None
+            # Try fetching raw_text from cache (e.g., stored by hodograph/sounding creation)
+            raw_text = await get_product_cache(f"raw_text_{cache_key}")
+            if not raw_text:
+                return None
 
         if redis:
             await redis.incr(f"ai_api_calls_{today_str}")
