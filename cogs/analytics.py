@@ -6,6 +6,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from utils.db import get_warning_stats
+
 logger = logging.getLogger("spc_bot")
 
 
@@ -292,6 +294,82 @@ class AnalyticsCog(commands.Cog):
         embed.add_field(name="Verified", value=f"{stats.get('events_verified', 0)}", inline=True)
 
         embed.set_footer(text=f"IEM Cow | Interval: {sts} to {ets}")
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(
+        name="howmany",
+        description="Show warning counts by type and severity (tornado, severe, flash flood)",
+    )
+    @app_commands.describe(
+        period="Time period to count (default: 24h)",
+    )
+    @app_commands.choices(
+        period=[
+            app_commands.Choice(name="Last 24 hours", value="24h"),
+            app_commands.Choice(name="Last 7 days", value="7d"),
+            app_commands.Choice(name="Last 30 days", value="30d"),
+            app_commands.Choice(name="All time", value="all"),
+        ]
+    )
+    async def how_many(self, interaction: discord.Interaction, period: str = "24h"):
+        await interaction.response.defer()
+
+        now = datetime.now(timezone.utc)
+        since_map = {
+            "24h": now - timedelta(hours=24),
+            "7d": now - timedelta(days=7),
+            "30d": now - timedelta(days=30),
+            "all": None,
+        }
+        since = since_map[period]
+        since_ts = since.timestamp() if since else None
+
+        stats = await get_warning_stats(since=since_ts)
+        if not stats:
+            await interaction.followup.send("No warning data available.")
+            return
+
+        tor = stats["tor"]
+        svr = stats["svr"]
+        ffw = stats["ffw"]
+
+        period_label = {"24h": "24h", "7d": "7 days", "30d": "30 days", "all": "all time"}[period]
+
+        embed = discord.Embed(
+            title=f"📊 Warning Counts — Last {period_label}",
+            color=discord.Color.blue(),
+            timestamp=now,
+        )
+
+        # Tornado
+        tor_val = (
+            f"**Total:** {tor['total']}\n"
+            f"🚨 Emergencies: {tor['emergency']}\n"
+            f"⚠️ PDS: {tor['pds']}\n"
+            f"Standard: {tor['standard']}\n"
+            f"\n🔴 Observed/Confirmed: {tor['observed']}\n"
+            f"📡 Radar Indicated: {tor['radar_indicated']}"
+        )
+        embed.add_field(name="🌪️ Tornado Warnings", value=tor_val, inline=True)
+
+        # Severe Tstorm
+        svr_val = (
+            f"**Total:** {svr['total']}\n"
+            f"🚨 Destructive: {svr['destructive']}\n"
+            f"⚠️ Considerable: {svr['considerable']}\n"
+            f"Standard: {svr['standard']}"
+        )
+        embed.add_field(name="⛈️ Severe Tstorm Warnings", value=svr_val, inline=True)
+
+        # Flash Flood
+        ffw_val = (
+            f"**Total:** {ffw['total']}\n"
+            f"🚨 Emergencies: {ffw['emergency']}\n"
+            f"Standard: {ffw['standard']}"
+        )
+        embed.add_field(name="🌊 Flash Flood Warnings", value=ffw_val, inline=True)
+
+        embed.set_footer(text="SPC Bot Warning Tracker")
         await interaction.followup.send(embed=embed)
 
 

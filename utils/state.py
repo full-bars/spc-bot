@@ -329,6 +329,7 @@ class BotState:
         area: str = "",
         tornado_confidence: Optional[str] = None,
         tornado_severity: Optional[str] = None,
+        severity: Optional[str] = None,
     ) -> None:
         from utils import state_store
 
@@ -338,7 +339,14 @@ class BotState:
             "area": area,
         }
         await state_store.add_posted_warning(
-            vtec_id, message_id, channel_id, posted_at, area, tornado_confidence, tornado_severity
+            vtec_id,
+            message_id,
+            channel_id,
+            posted_at,
+            area,
+            tornado_confidence,
+            tornado_severity,
+            severity,
         )
 
     async def add_posted_sounding(self, pkey: str) -> None:
@@ -566,6 +574,7 @@ class PostedWarningClaim:
         area: str = "",
         tornado_confidence: Optional[str] = None,
         tornado_severity: Optional[str] = None,
+        severity: Optional[str] = None,
     ) -> None:
         """Persist the real entry across memory + SQLite + Redis. After
         this call the claim will not roll back on context exit."""
@@ -577,6 +586,7 @@ class PostedWarningClaim:
             area,
             tornado_confidence,
             tornado_severity,
+            severity,
         )
         self._confirmed = True
 
