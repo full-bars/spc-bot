@@ -6,7 +6,7 @@ from discord import app_commands
 from discord.ext import commands
 import logging
 
-from config import GEMINI_API_KEY
+from config import GEMINI_API_KEY, OPENCODE_API_KEY
 from utils.ai import generate_morning_briefing
 from utils.http import http_get_text
 
@@ -599,7 +599,7 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
     )
     async def daily_briefing(self, interaction: discord.Interaction):
         try:
-            if not GEMINI_API_KEY:
+            if not GEMINI_API_KEY and not OPENCODE_API_KEY:
                 await interaction.response.send_message(
                     "AI features are not configured.", ephemeral=True
                 )

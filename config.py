@@ -103,6 +103,8 @@ CONFIG = {
     ),
     "dev_channel_id": _optional_int("DEV_CHANNEL_ID", "HEALTH_CHANNEL_ID", "SPC_CHANNEL_ID"),
     "gemini_api_key": os.getenv("GEMINI_API_KEY", ""),
+    "opencode_api_key": os.getenv("OPENCODE_API_KEY", ""),
+    "ai_model": os.getenv("AI_MODEL", "deepseek-v4-pro"),
     "manual_cache_file": os.getenv("MANUAL_CACHE_FILE", "posted_records.json"),
     "auto_cache_file": os.getenv("AUTO_CACHE_FILE", "auto_posted_records.json"),
     "guild_id": _require_int("GUILD_ID"),
@@ -127,6 +129,8 @@ SPS_CHANNEL_ID = CONFIG["sps_channel_id"]
 SURVEYS_CHANNEL_ID = CONFIG["surveys_channel_id"]
 DEV_CHANNEL_ID = CONFIG["dev_channel_id"]
 GEMINI_API_KEY = CONFIG["gemini_api_key"]
+OPENCODE_API_KEY = CONFIG["opencode_api_key"]
+AI_MODEL = CONFIG["ai_model"]
 MANUAL_CACHE_FILE = os.path.join(CONFIG["cache_file_dir"], CONFIG["manual_cache_file"])
 AUTO_CACHE_FILE = os.path.join(CONFIG["cache_file_dir"], CONFIG["auto_cache_file"])
 NWWS_FIREHOSE_LOG = os.path.join(CONFIG["cache_file_dir"], CONFIG["nwws_firehose_log"])

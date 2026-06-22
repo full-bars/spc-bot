@@ -463,7 +463,7 @@ class StatusView(discord.ui.View):
         from utils.state_store import _get_redis_client
 
         ai_status = "🔴 DISCONNECTED"
-        if config.GEMINI_API_KEY:
+        if config.OPENCODE_API_KEY or config.GEMINI_API_KEY:
             ai_status = "🟢 ACTIVE"
 
         try:

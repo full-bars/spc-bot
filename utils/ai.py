@@ -2,14 +2,16 @@
 import json
 import logging
 from typing import Any
-from config import GEMINI_API_KEY
+from config import AI_MODEL, GEMINI_API_KEY, OPENCODE_API_KEY
 from utils.http import http_post_json
 
 logger = logging.getLogger("spc_bot.ai")
 
+_OPENCODE_BASE = "https://opencode.ai/zen/v1/chat/completions"
+
 
 async def call_gemini(prompt: str, is_json: bool = False) -> Any | None:
-    """Calls Gemini 1.5 Flash via REST API to generate a text or JSON response."""
+    """Calls Gemini 3.1 Flash Lite via REST API to generate a text or JSON response."""
     if not GEMINI_API_KEY:
         logger.warning("GEMINI_API_KEY is not set. Cannot call AI.")
         return None
@@ -58,6 +60,83 @@ async def call_gemini(prompt: str, is_json: bool = False) -> Any | None:
         return None
 
 
+async def call_openai_compatible(
+    prompt: str,
+    is_json: bool = False,
+    system_prompt: str = "You are an expert severe weather meteorologist.",
+) -> Any | None:
+    """Calls an OpenAI-compatible chat completions endpoint via OpenCode Zen."""
+    if not OPENCODE_API_KEY:
+        logger.warning("OPENCODE_API_KEY is not set. Cannot call AI.")
+        return None
+
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": prompt},
+    ]
+
+    payload: dict[str, Any] = {
+        "model": AI_MODEL,
+        "messages": messages,
+        "temperature": 0.2,
+    }
+
+    if is_json:
+        payload["response_format"] = {"type": "json_object"}
+
+    headers = {"Authorization": f"Bearer {OPENCODE_API_KEY}"}
+    response = await http_post_json(
+        _OPENCODE_BASE,
+        json_data=payload,
+        retries=2,
+        timeout=45,
+        extra_headers=headers,
+    )
+
+    if not response:
+        return None
+
+    try:
+        choices = response.get("choices", [])
+        if not choices:
+            logger.warning("OpenCode API returned no choices")
+            return None
+
+        content = choices[0].get("message", {}).get("content", "")
+        if not content:
+            return None
+
+        if is_json:
+            # Strip markdown code fences if present
+            content = content.strip()
+            if content.startswith("```"):
+                lines = content.split("\n")
+                if len(lines) >= 2:
+                    content = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+            try:
+                return json.loads(content)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse AI JSON: {e}\nTEXT: {content[:500]}")
+                return None
+        return content
+    except Exception as e:
+        logger.error(f"Failed to parse AI response: {e}")
+        return None
+
+
+async def call_ai(prompt: str, is_json: bool = False) -> Any | None:
+    """Dispatches to OpenCode Zen (DeepSeek) first, falling back to Gemini."""
+    if OPENCODE_API_KEY:
+        result = await call_openai_compatible(prompt, is_json=is_json)
+        if result is not None:
+            return result
+        logger.info("OpenCode AI call returned no result; falling back to Gemini")
+    if GEMINI_API_KEY:
+        return await call_gemini(prompt, is_json=is_json)
+    logger.warning("No AI API key configured (set OPENCODE_API_KEY or GEMINI_API_KEY).")
+    return None
+
+
 async def summarize_md(raw_text: str) -> str | None:
     prompt = (
         "You are a meteorologist translating technical weather data for the general public. "
@@ -66,7 +145,7 @@ async def summarize_md(raw_text: str) -> str | None:
         "What is the threat, where is it located, and when is it happening.\n\n"
         f"TEXT:\n{raw_text}"
     )
-    return await call_gemini(prompt)
+    return await call_ai(prompt)
 
 
 async def summarize_outlook(raw_text: str) -> list[dict] | None:
@@ -83,7 +162,7 @@ async def summarize_outlook(raw_text: str) -> list[dict] | None:
         "5. confidence: SPC confidence level and specific focus cities.\n\n"
         f"TEXT:\n{raw_text}"
     )
-    return await call_gemini(prompt, is_json=True)
+    return await call_ai(prompt, is_json=True)
 
 
 async def summarize_sounding(raw_text: str) -> str | None:
@@ -112,7 +191,7 @@ async def summarize_sounding(raw_text: str) -> str | None:
         "• Never conclude weak convection based solely on missing full-column CAPE; synthesize available layers\n\n"
         f"DATA:\n{raw_text}"
     )
-    return await call_gemini(prompt)
+    return await call_ai(prompt)
 
 
 async def summarize_sounding_enhanced(
@@ -177,7 +256,7 @@ async def summarize_sounding_enhanced(
         f"{context_str}\n"
         "FINAL SUMMARY (Be concise, avoid raw numbers unless extreme):"
     )
-    return await call_gemini(prompt)
+    return await call_ai(prompt)
 
 
 async def generate_morning_briefing(outlook_text: str, active_watches_text: str) -> str | None:
@@ -188,4 +267,4 @@ async def generate_morning_briefing(outlook_text: str, active_watches_text: str)
         f"ACTIVE WATCHES:\n{active_watches_text}\n\n"
         f"DAY 1 OUTLOOK TEXT:\n{outlook_text}"
     )
-    return await call_gemini(prompt)
+    return await call_ai(prompt)

@@ -405,7 +405,11 @@ async def http_get_json(
 
 
 async def http_post_json(
-    url: str, json_data: dict, retries: int = 1, timeout: int = TIMEOUT_STANDARD
+    url: str,
+    json_data: dict,
+    retries: int = 1,
+    timeout: int = TIMEOUT_STANDARD,
+    extra_headers: Optional[Dict[str, str]] = None,
 ) -> Optional[dict]:
     """POST JSON to a URL with retries and circuit breaker."""
     parsed = urlparse(url)
@@ -418,7 +422,10 @@ async def http_post_json(
     async def _do_request():
         session = await ensure_session()
         async with session.post(
-            url, json=json_data, timeout=aiohttp.ClientTimeout(total=timeout)
+            url,
+            json=json_data,
+            timeout=aiohttp.ClientTimeout(total=timeout),
+            headers=extra_headers or None,
         ) as r:
             if r.status in (429, 500, 502, 503, 504):
                 raise aiohttp.ClientResponseError(
