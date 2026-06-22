@@ -783,6 +783,7 @@ async def add_posted_warning(
     tornado_confidence: Optional[str] = None,
     tornado_severity: Optional[str] = None,
     severity: Optional[str] = None,
+    raw_text: Optional[str] = None,
 ) -> None:
     _cache_invalidate("posted_warnings")
     await sqlite_backend.add_posted_warning(
@@ -794,6 +795,7 @@ async def add_posted_warning(
         tornado_confidence,
         tornado_severity,
         severity,
+        raw_text,
     )
     data = {
         "message_id": message_id,
