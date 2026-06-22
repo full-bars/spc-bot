@@ -908,9 +908,7 @@ async def backfill_warning_severity(days: int = 7):
             if vtec_id not in vtec_ids:
                 continue
 
-            vtec_url = (
-                f"https://mesonet.agron.iastate.edu/vtec/f/{y}/{ev_wfo}/{phen}/W/{int(ev_id):04d}"
-            )
+            vtec_url = f"https://mesonet.agron.iastate.edu/vtec/f/{y}-O-NEW-K{ev_wfo}-{phen}-W-{int(ev_id):04d}"
             html = await http_get_text(vtec_url, retries=1, timeout=10)
             if not html:
                 continue
