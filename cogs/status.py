@@ -491,11 +491,11 @@ class StatusView(discord.ui.View):
             stats = await get_warning_stats(since=(now - timedelta(hours=6)).timestamp())
             t, s, f = stats.get("tor", {}), stats.get("svr", {}), stats.get("ffw", {})
             sev_val = (
-                f"🌪️ {t.get('total', 0)}w"
+                f"🌪️ **{t.get('total', 0)}** tor"
                 f" · {t.get('emergency', 0)}E {t.get('pds', 0)}PDS {t.get('observed', 0)}🔴 {t.get('radar_indicated', 0)}📡\n"
-                f"⛈️ {s.get('total', 0)}w"
+                f"⛈️ **{s.get('total', 0)}** svr"
                 f" · {s.get('destructive', 0)}D {s.get('considerable', 0)}C\n"
-                f"🌊 {f.get('total', 0)}w"
+                f"🌊 **{f.get('total', 0)}** ffw"
                 f" · {f.get('emergency', 0)}E {f.get('considerable', 0)}C"
             )
         except Exception as e:
