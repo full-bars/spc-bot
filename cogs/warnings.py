@@ -425,8 +425,10 @@ class WarningsCog(commands.Cog):
                     area_m = re.search(r"for (.+?) till", concise_text)
                     area_desc = area_m.group(1) if area_m else "affected area"
 
-                    tornado_confidence, tornado_severity = get_tornado_attributes(event, raw_text)
-                    severity = get_warning_severity(event, raw_text)
+                    tornado_confidence, tornado_severity = get_tornado_attributes(
+                        display_event, raw_text
+                    )
+                    severity = get_warning_severity(display_event, raw_text)
                     await claim.confirm(
                         msg.id,
                         msg.channel.id,
@@ -889,10 +891,15 @@ class WarningsCog(commands.Cog):
                                 # Update stored area so we don't spam updates for every poll
                                 description = props.description or ""
                                 params = props.parameters.model_dump() if props.parameters else {}
-                                tornado_confidence, tornado_severity = get_tornado_attributes(
-                                    event, description, params
+                                _, corrected_event, _, _ = get_warning_style(
+                                    event, description, params, vtec=vtec_dict
                                 )
-                                severity = get_warning_severity(event, description, params)
+                                tornado_confidence, tornado_severity = get_tornado_attributes(
+                                    corrected_event, description, params
+                                )
+                                severity = get_warning_severity(
+                                    corrected_event, description, params
+                                )
                                 await self.bot.state.add_posted_warning(
                                     issuance_id,
                                     stored_info["message_id"],
@@ -958,10 +965,14 @@ class WarningsCog(commands.Cog):
                     try:
                         description = props.description or ""
                         params = props.parameters.model_dump() if props.parameters else {}
-                        tornado_confidence, tornado_severity = get_tornado_attributes(
-                            event, description, params
+                        # Use VTEC-corrected event for severity detection
+                        _, corrected_event, _, _ = get_warning_style(
+                            event, description, params, vtec=vtec_dict
                         )
-                        severity = get_warning_severity(event, description, params)
+                        tornado_confidence, tornado_severity = get_tornado_attributes(
+                            corrected_event, description, params
+                        )
+                        severity = get_warning_severity(corrected_event, description, params)
                         await claim.confirm(
                             msg.id,
                             msg.channel.id,

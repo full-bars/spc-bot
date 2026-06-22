@@ -21,5 +21,6 @@ ALL_EXTENSIONS = [
     "cogs.warning_channels",
     "cogs.wxsummary",
     "cogs.ai_summaries",
+    "cogs.verification",
     "cogs.subscriptions",
 ]
