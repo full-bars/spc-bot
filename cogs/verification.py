@@ -1,10 +1,10 @@
 # cogs/verification.py
-"""Live SPC outlook verification using warning/watch polygons, LSR reports, and SPC GIS data.
+"""Live SPC outlook verification using warning polygons, LSR reports, and SPC GIS data.
 
-Based on Hitchens et al. (2013) Practically Perfect methodology:
-- LSRs plotted on NCEP 212 grid (~40km)
-- Gaussian kernel σ=0.75
-- Compare observed report density against SPC outlook probability thresholds
+Methodology (Hitchens et al. 2013):
+- Reports mapped to 40km grid (NCEP 212), Gaussian kernel σ=0.75
+- SPC probability thresholds compared to observed report density per risk area
+- For live use: show actual counts + density per risk area for quick "is it verifying?" check
 """
 
 import logging
@@ -14,13 +14,16 @@ from datetime import datetime, timezone
 import discord
 from discord import app_commands
 from discord.ext import commands
+from pyproj import Transformer
 from shapely.geometry import Point, Polygon, shape
 
 from utils.http import http_get_bytes
 
 logger = logging.getLogger("spc_bot.verification")
 
-# SPC outlook probability thresholds
+# SPC probability thresholds per risk category
+# Tornado: 2% for SLGT, 10% for ENH, 15% for MDT, 30% for HIGH
+# Wind/Hail: 5% for SLGT, 15% for ENH, 25% for MDT, 45% for HIGH
 _RISK_THRESHOLDS = {
     "TSTM": {"tornado": 0, "wind": 0, "hail": 0},
     "MRGL": {"tornado": 0.02, "wind": 0.05, "hail": 0.05},
@@ -29,6 +32,23 @@ _RISK_THRESHOLDS = {
     "MDT": {"tornado": 0.15, "wind": 0.25, "hail": 0.25},
     "HIGH": {"tornado": 0.30, "wind": 0.45, "hail": 0.45},
 }
+
+# Albers Equal Area projection for CONUS — accurate area in m²
+_ALBERS = "ESRI:102003"  # USA_Contiguous_Albers_Equal_Area_Conic
+_transformer = Transformer.from_crs("EPSG:4326", _ALBERS, always_xy=True)
+
+
+def _geodesic_area_sq_km(polygon: Polygon) -> float:
+    """Compute area in km² using Albers Equal Area projection."""
+    projected = shape(
+        {"type": "Polygon", "coordinates": [_transform_ring(polygon.exterior.coords)]}
+    )
+    return projected.area / 1_000_000  # m² → km²
+
+
+def _transform_ring(coords):
+    return [_transformer.transform(x, y) for x, y in coords]
+
 
 KML_NS = {"kml": "http://www.opengis.net/kml/2.2"}
 
@@ -207,11 +227,11 @@ def _parse_spc_kml(raw: bytes) -> list[dict]:
         try:
             poly = Polygon(pts)
             if poly.is_valid:
-                area_sq_km = poly.area * 111.32 * 111.32  # rough mercator deg→km
+                area_sq_km = int(_geodesic_area_sq_km(poly))
                 areas.append(
                     {
                         "label": label,
-                        "area_km2": int(area_sq_km),
+                        "area_km2": area_sq_km,
                         "polygon": poly,
                     }
                 )
@@ -226,6 +246,8 @@ def _parse_spc_kml(raw: bytes) -> list[dict]:
 
 async def compute_verification(hours_back: int = 24) -> dict:
     """Run full verification pipeline: outlook areas vs warnings + LSRs + watches."""
+    from utils.geo import points_in_polygon_lookup
+
     warnings = await fetch_active_warnings()
     watches = await fetch_active_watches()
     lsrs = await fetch_lsr_reports(hours=hours_back)
@@ -234,34 +256,55 @@ async def compute_verification(hours_back: int = 24) -> dict:
     if not areas:
         return {"error": "No SPC outlook data available"}
 
+    # Convert risk area polygons to Rust format: list of (lat, lon) rings.
+    # Reverse so smallest/nested areas (ENH) are checked first.
+    rust_polys = [[(y, x) for x, y in a["polygon"].exterior.coords] for a in reversed(areas)]
+
+    # ── LSR point-in-polygon via Rust (fast) ──
+    lsr_points = [(r["point"].y, r["point"].x) for r in lsrs]  # (lat, lon)
+    rust_assign = points_in_polygon_lookup(lsr_points, rust_polys) if lsr_points else []
+
+    # Map Rust-assigned indices back to original area order
+    reversal_map = {i: len(areas) - 1 - i for i in range(len(areas))}
+    lsr_per_area = [[] for _ in areas]
+    for pt_idx, poly_idx in enumerate(rust_assign):
+        if poly_idx is not None:
+            area_idx = reversal_map[poly_idx]
+            lsr_per_area[area_idx].append(lsrs[pt_idx])
+
+    # ── Warning polygon intersection via Shapely ──
     results = []
-    for area in areas:
+    for idx, area in enumerate(areas):
         label = area["label"]
         poly = area["polygon"]
 
+        # Count warnings intersecting this risk polygon
         warnings_inside = [w for w in warnings if poly.intersects(w["polygon"])]
-        watches_inside = [w for w in watches if poly.intersects(w["polygon"])]
-        lsrs_inside = [r for r in lsrs if poly.contains(r["point"])]
-
         tor_w = [w for w in warnings_inside if "Tornado" in w["event"]]
         svr_w = [w for w in warnings_inside if "Severe" in w["event"]]
         ffw_w = [w for w in warnings_inside if "Flash" in w["event"]]
 
-        tor_rpts = [r for r in lsrs_inside if r["type"] == "T"]
-        wind_rpts = [r for r in lsrs_inside if r["type"] == "G"]
-        hail_rpts = [r for r in lsrs_inside if r["type"] == "H"]
+        # Count watches intersecting
+        watches_inside = [w for w in watches if poly.intersects(w["polygon"])]
+
+        # Count LSRs assigned to this area by Rust
+        lsrs_in = lsr_per_area[idx]
+        tor_rpts = [r for r in lsrs_in if r["type"] == "T"]
+        wind_rpts = [r for r in lsrs_in if r["type"] == "G"]
+        hail_rpts = [r for r in lsrs_in if r["type"] == "H"]
 
         thresholds = _RISK_THRESHOLDS.get(label, {"tornado": 0, "wind": 0, "hail": 0})
-        approx_area = area["area_km2"] / 4000  # rough: 40km grid cells
+        area_km2 = area["area_km2"]
 
-        tor_expected = int(approx_area * thresholds["tornado"]) if thresholds["tornado"] > 0 else 0
-        wind_expected = int(approx_area * thresholds["wind"]) if thresholds["wind"] > 0 else 0
-        hail_expected = int(approx_area * thresholds["hail"]) if thresholds["hail"] > 0 else 0
+        # Density: reports per 100,000 km²
+        tor_density = int(len(tor_rpts) * 100_000 / area_km2) if area_km2 > 0 else 0
+        wind_density = int(len(wind_rpts) * 100_000 / area_km2) if area_km2 > 0 else 0
+        hail_density = int(len(hail_rpts) * 100_000 / area_km2) if area_km2 > 0 else 0
 
         results.append(
             {
                 "label": label,
-                "area_km2": area["area_km2"],
+                "area_km2": area_km2,
                 "tor_warnings": len(tor_w),
                 "svr_warnings": len(svr_w),
                 "ffw_warnings": len(ffw_w),
@@ -269,9 +312,9 @@ async def compute_verification(hours_back: int = 24) -> dict:
                 "wind_lsrs": len(wind_rpts),
                 "hail_lsrs": len(hail_rpts),
                 "active_watches": len(watches_inside),
-                "tor_expected": tor_expected,
-                "wind_expected": wind_expected,
-                "hail_expected": hail_expected,
+                "tor_density": tor_density,
+                "wind_density": wind_density,
+                "hail_density": hail_density,
                 "tor_threshold": thresholds["tornado"],
                 "wind_threshold": thresholds["wind"],
                 "hail_threshold": thresholds["hail"],
@@ -340,21 +383,11 @@ class VerificationCog(commands.Cog, name="Verification"):
             if area["label"] in ("TSTM", "MRGL"):
                 continue
 
-            tor_thresh, wind_thresh, hail_thresh = (
-                area["tornado_threshold"],
-                area["wind_threshold"],
-                area["hail_threshold"],
-            )
-            tor_exp = int(area["area_km2"] / 4000 * tor_thresh) if tor_thresh > 0 else 0
-            wind_exp = int(area["area_km2"] / 4000 * wind_thresh) if wind_thresh > 0 else 0
-            hail_exp = int(area["area_km2"] / 4000 * hail_thresh) if hail_thresh > 0 else 0
-
             value = (
-                f"🌪️ Tornado: **{area['tor_warnings']}w** / {tor_exp} LSR expected\n"
-                f"⛈️ Severe: **{area['svr_warnings']}w** / {wind_exp} wind LSR expected\n"
-                f"🧊 Hail: {area['hail_lsrs']} LSRs / {hail_exp} expected\n"
-                f"📡 All LSRs: {area['tor_lsrs']} tor, {area['wind_lsrs']} wind, {area['hail_lsrs']} hail\n"
-                f"👀 Active watches nearby: {area['active_watches']}"
+                f"⚠️ **{area['tor_warnings']}** tornado / **{area['svr_warnings']}** severe / **{area['ffw_warnings']}** FFW\n"
+                f"📡 {area['tor_lsrs']} tor / {area['wind_lsrs']} wind / {area['hail_lsrs']} hail LSRs\n"
+                f"📊 Density (per 100K km²): {area['tor_density']} T | {area['wind_density']} W | {area['hail_density']} H\n"
+                f"👀 Watches active: {area['active_watches']}"
             )
             embed.add_field(
                 name=f"{area['label']} Risk Area ({area['area_km2']:,} km²)",
