@@ -292,6 +292,53 @@ def get_tornado_attributes(
     return confidence, severity
 
 
+def get_warning_severity(event: str, text: str, params: dict = None) -> Optional[str]:
+    """Return the generic severity label for any warning type.
+
+    tornado → 'standard' | 'pds' | 'emergency'
+    severe  → 'standard' | 'considerable' | 'destructive'
+    flash flood → 'standard' | 'emergency'
+    """
+    text_upper = (text or "").upper()
+
+    if event == "Tornado Warning":
+        if "TORNADO EMERGENCY" in text_upper:
+            return "emergency"
+        if "PARTICULARLY DANGEROUS SITUATION" in text_upper:
+            return "pds"
+        if params:
+            t_threat = params.get("tornadoDamageThreat") or []
+            if "CATASTROPHIC" in t_threat:
+                return "emergency"
+            if "CONSIDERABLE" in t_threat:
+                return "pds"
+        return "standard"
+
+    if event == "Severe Thunderstorm Warning":
+        if "THUNDERSTORM DAMAGE THREAT...DESTRUCTIVE" in text_upper:
+            return "destructive"
+        if "THUNDERSTORM DAMAGE THREAT...CONSIDERABLE" in text_upper:
+            return "considerable"
+        if params:
+            s_threat = params.get("thunderstormDamageThreat") or []
+            if "DESTRUCTIVE" in s_threat:
+                return "destructive"
+            if "CONSIDERABLE" in s_threat:
+                return "considerable"
+        return "standard"
+
+    if event == "Flash Flood Warning":
+        if "FLASH FLOOD EMERGENCY" in text_upper:
+            return "emergency"
+        if params:
+            f_threat = params.get("flashFloodDamageThreat") or []
+            if "CATASTROPHIC" in f_threat:
+                return "emergency"
+        return "standard"
+
+    return None
+
+
 def iem_autoplot_url(vtec: dict, valid_time: Optional[str] = None) -> str:
     """Return the IEM Autoplot URL (#208 for VTEC, #217 for SPS)."""
     office = vtec["office"]

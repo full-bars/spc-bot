@@ -782,10 +782,18 @@ async def add_posted_warning(
     area: str = "",
     tornado_confidence: Optional[str] = None,
     tornado_severity: Optional[str] = None,
+    severity: Optional[str] = None,
 ) -> None:
     _cache_invalidate("posted_warnings")
     await sqlite_backend.add_posted_warning(
-        vtec_id, message_id, channel_id, posted_at, area, tornado_confidence, tornado_severity
+        vtec_id,
+        message_id,
+        channel_id,
+        posted_at,
+        area,
+        tornado_confidence,
+        tornado_severity,
+        severity,
     )
     data = {
         "message_id": message_id,
@@ -793,6 +801,7 @@ async def add_posted_warning(
         "area": area,
         "tornado_confidence": tornado_confidence,
         "tornado_severity": tornado_severity,
+        "severity": severity,
     }
     try:
         await _redis_cmd("HSET", _k_posted_warnings(), vtec_id, json.dumps(data))

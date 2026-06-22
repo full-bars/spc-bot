@@ -251,6 +251,7 @@ async def _create_tables(db: aiosqlite.Connection):
         "ALTER TABLE posted_warnings ADD COLUMN area TEXT",
         "ALTER TABLE posted_warnings ADD COLUMN tornado_confidence TEXT",
         "ALTER TABLE posted_warnings ADD COLUMN tornado_severity TEXT",
+        "ALTER TABLE posted_warnings ADD COLUMN severity TEXT",
         "ALTER TABLE dirty_writes ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0",
     ):
         try:
@@ -640,6 +641,91 @@ async def get_all_posted_warnings() -> dict:
         return {}
 
 
+async def get_warning_stats(
+    since: Optional[float] = None,
+) -> dict:
+    """Aggregate posted warning counts by VTEC phenom and severity.
+
+    Returns::
+        {
+            "tor": {"total": N, "emergency": N, "pds": N, "standard": N,
+                    "observed": N, "radar_indicated": N},
+            "svr": {"total": N, "destructive": N, "considerable": N, "standard": N},
+            "ffw": {"total": N, "emergency": N, "standard": N},
+        }
+    """
+    try:
+        async with get_read_db() as db:
+            if since:
+                rows = await db.execute_fetchall(
+                    "SELECT vtec_id, tornado_confidence, tornado_severity, severity "
+                    "FROM posted_warnings WHERE posted_at >= ?",
+                    (since,),
+                )
+            else:
+                rows = await db.execute_fetchall(
+                    "SELECT vtec_id, tornado_confidence, tornado_severity, severity "
+                    "FROM posted_warnings"
+                )
+
+            stats = {
+                "tor": {
+                    "total": 0,
+                    "emergency": 0,
+                    "pds": 0,
+                    "standard": 0,
+                    "observed": 0,
+                    "radar_indicated": 0,
+                },
+                "svr": {"total": 0, "destructive": 0, "considerable": 0, "standard": 0},
+                "ffw": {"total": 0, "emergency": 0, "standard": 0},
+            }
+
+            for row in rows:
+                vtec = row[0]
+                confidence = row[1]
+                tor_severity = row[2]
+                severity = row[3]
+
+                parts = vtec.split(".")
+                phenom = parts[1] if len(parts) >= 2 else ""
+
+                if phenom == "TO":
+                    stats["tor"]["total"] += 1
+                    s = severity or tor_severity
+                    if s == "emergency":
+                        stats["tor"]["emergency"] += 1
+                    elif s == "pds":
+                        stats["tor"]["pds"] += 1
+                    else:
+                        stats["tor"]["standard"] += 1
+                    if confidence == "observed":
+                        stats["tor"]["observed"] += 1
+                    elif confidence == "radar_indicated":
+                        stats["tor"]["radar_indicated"] += 1
+
+                elif phenom == "SV":
+                    stats["svr"]["total"] += 1
+                    if severity == "destructive":
+                        stats["svr"]["destructive"] += 1
+                    elif severity == "considerable":
+                        stats["svr"]["considerable"] += 1
+                    else:
+                        stats["svr"]["standard"] += 1
+
+                elif phenom == "FF":
+                    stats["ffw"]["total"] += 1
+                    if severity == "emergency":
+                        stats["ffw"]["emergency"] += 1
+                    else:
+                        stats["ffw"]["standard"] += 1
+
+            return stats
+    except Exception as e:
+        logger.warning(f"get_warning_stats failed: {e}")
+        return {}
+
+
 async def get_posted_warning_timestamp(vtec_id: str) -> Optional[float]:
     """Get the posted_at timestamp for a specific VTEC ID."""
     try:
@@ -693,6 +779,7 @@ async def add_posted_warning(
     area: str = "",
     tornado_confidence: Optional[str] = None,
     tornado_severity: Optional[str] = None,
+    severity: Optional[str] = None,
 ):
     """Mark a warning as posted. ``vtec_id`` is the VTEC event identity
     (office.phenom.sig.etn), which stays stable across the warning's
@@ -700,17 +787,32 @@ async def add_posted_warning(
 
     For tornado warnings, ``tornado_confidence`` is 'observed' or 'radar_indicated',
     and ``tornado_severity`` is 'standard', 'pds', or 'emergency'.
+
+    ``severity`` stores the generic severity for any warning type:
+    tornado → 'standard'|'pds'|'emergency'
+    severe  → 'standard'|'considerable'|'destructive'
+    flash flood → 'standard'|'emergency'
     """
     await _write(
-        """INSERT INTO posted_warnings (vtec_id, message_id, channel_id, posted_at, area, tornado_confidence, tornado_severity)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
+        """INSERT INTO posted_warnings (vtec_id, message_id, channel_id, posted_at, area, tornado_confidence, tornado_severity, severity)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(vtec_id) DO UPDATE SET
              message_id=excluded.message_id,
              channel_id=excluded.channel_id,
              area=excluded.area,
              tornado_confidence=excluded.tornado_confidence,
-             tornado_severity=excluded.tornado_severity""",
-        (vtec_id, message_id, channel_id, posted_at, area, tornado_confidence, tornado_severity),
+             tornado_severity=excluded.tornado_severity,
+             severity=excluded.severity""",
+        (
+            vtec_id,
+            message_id,
+            channel_id,
+            posted_at,
+            area,
+            tornado_confidence,
+            tornado_severity,
+            severity,
+        ),
         f"add_posted_warning({vtec_id})",
     )
 

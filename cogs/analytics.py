@@ -6,6 +6,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from utils.db import get_warning_stats
+
 logger = logging.getLogger("spc_bot")
 
 
@@ -295,96 +297,80 @@ class AnalyticsCog(commands.Cog):
         await interaction.followup.send(embed=embed)
 
     @app_commands.command(
-        name="verifyoutlook",
-        description="Practically Perfect hindcast verification — compare SPC outlook vs what happened",
+        name="howmany",
+        description="Show warning counts by type and severity (tornado, severe, flash flood)",
     )
     @app_commands.describe(
-        date="Date to verify in YYYY-MM-DD format (default: yesterday)",
+        period="Time period to count (default: 24h)",
     )
-    async def verify_outlook(self, interaction: discord.Interaction, date: Optional[str] = None):
+    @app_commands.choices(
+        period=[
+            app_commands.Choice(name="Last 24 hours", value="24h"),
+            app_commands.Choice(name="Last 7 days", value="7d"),
+            app_commands.Choice(name="Last 30 days", value="30d"),
+            app_commands.Choice(name="All time", value="all"),
+        ]
+    )
+    async def how_many(self, interaction: discord.Interaction, period: str = "24h"):
         await interaction.response.defer()
 
-        if not date:
-            yesterday = datetime.now(timezone.utc) - timedelta(days=1)
-            date = yesterday.strftime("%Y-%m-%d")
-        else:
-            try:
-                datetime.strptime(date, "%Y-%m-%d")
-            except ValueError:
-                await interaction.followup.send(
-                    "Invalid date format. Use YYYY-MM-DD.", ephemeral=True
-                )
-                return
+        now = datetime.now(timezone.utc)
+        since_map = {
+            "24h": now - timedelta(hours=24),
+            "7d": now - timedelta(days=7),
+            "30d": now - timedelta(days=30),
+            "all": None,
+        }
+        since = since_map[period]
+        since_ts = since.timestamp() if since else None
 
-        dt = datetime.strptime(date, "%Y-%m-%d")
-        dt = dt.replace(tzinfo=timezone.utc)
+        stats = await get_warning_stats(since=since_ts)
+        if not stats:
+            await interaction.followup.send("No warning data available.")
+            return
 
-        # Date components for URL building
-        year = dt.strftime("%Y")
-        ymd = dt.strftime("%Y%m%d")
-        yymmdd = dt.strftime("%y%m%d")
+        tor = stats["tor"]
+        svr = stats["svr"]
+        ffw = stats["ffw"]
 
-        # NIU PP Hindcast images (produced at 13z next day, 96h LSR lag)
-        niu_base = "https://atlas.niu.edu/pperfect/archive"
-        pp_tor = f"{niu_base}/{yymmdd}_tor.png"
-        pp_hail = f"{niu_base}/{yymmdd}_hail.png"
-        pp_wind = f"{niu_base}/{yymmdd}_wind.png"
+        period_label = {"24h": "24h", "7d": "7 days", "30d": "30 days", "all": "all time"}[period]
 
-        # SPC 1630Z Day 1 outlook probability images
-        spc_base = f"https://www.spc.noaa.gov/products/outlook/archive/{year}"
-        spc_tor = f"{spc_base}/day1probotlk_v_{ymd}_1630_torn_prt.png"
-        spc_hail = f"{spc_base}/day1probotlk_v_{ymd}_1630_hail_prt.png"
-        spc_wind = f"{spc_base}/day1probotlk_v_{ymd}_1630_wind_prt.png"
-
-        # Query our own warning counts for this date
-        from utils.db import get_warning_counts_for_date
-
-        day_start = dt.replace(hour=0, minute=0, second=0)
-        day_end = day_start + timedelta(days=1)
-        counts = await get_warning_counts_for_date(day_start.timestamp(), day_end.timestamp())
-
-        tor_total = counts.get("tor", 0)
-        svr_total = counts.get("svr", 0)
-        ffw_total = counts.get("ffw", 0)
-
-        tor_observed = counts.get("tor_observed", 0)
-        tor_radar = tor_total - tor_observed if tor_total else 0
-
-        # Build embed
         embed = discord.Embed(
-            title=f"🔬 Outlook Verification — {date}",
-            description=(
-                "**Practically Perfect Hindcast (left)** vs **SPC 1630Z Outlook (right)**\n"
-                "PP Hindcast maps by Dr. Victor Gensini / NIU — Hitchens et al. 2013\n"
-                "SPC images archived at SPC outlook archive"
-            ),
-            color=discord.Color.dark_purple(),
-            timestamp=datetime.now(timezone.utc),
+            title=f"📊 Warning Counts — Last {period_label}",
+            color=discord.Color.blue(),
+            timestamp=now,
         )
 
-        # Warning counts from our system
-        counts_str = (
-            f"🌪️ Tornado: **{tor_total}** ({tor_radar} radar, {tor_observed} confirmed)\n"
-            f"⛈️ Severe Tstorm: **{svr_total}**\n"
-            f"🌊 Flash Flood: **{ffw_total}**"
+        # Tornado
+        tor_val = (
+            f"**Total:** {tor['total']}\n"
+            f"🚨 Emergencies: {tor['emergency']}\n"
+            f"⚠️ PDS: {tor['pds']}\n"
+            f"Standard: {tor['standard']}\n"
+            f"\n🔴 Observed/Confirmed: {tor['observed']}\n"
+            f"📡 Radar Indicated: {tor['radar_indicated']}"
         )
-        embed.add_field(name="📊 Warning Counts (this bot)", value=counts_str, inline=False)
+        embed.add_field(name="🌪️ Tornado Warnings", value=tor_val, inline=True)
 
-        embed.set_image(url=pp_tor)
-        embed.set_thumbnail(url=spc_tor)
-
-        embed.set_footer(
-            text="PP images: atlas.niu.edu/pperfect | SPC: spc.noaa.gov | All times UTC"
+        # Severe Tstorm
+        svr_val = (
+            f"**Total:** {svr['total']}\n"
+            f"🚨 Destructive: {svr['destructive']}\n"
+            f"⚠️ Considerable: {svr['considerable']}\n"
+            f"Standard: {svr['standard']}"
         )
+        embed.add_field(name="⛈️ Severe Tstorm Warnings", value=svr_val, inline=True)
 
-        await interaction.followup.send(
-            content=(
-                f"**Tornado** — PP Hindcast (main) vs SPC Outlook (corner):\n"
-                f"**Hail**: [PP]({pp_hail}) vs [SPC]({spc_hail})\n"
-                f"**Wind**: [PP]({pp_wind}) vs [SPC]({spc_wind})"
-            ),
-            embed=embed,
+        # Flash Flood
+        ffw_val = (
+            f"**Total:** {ffw['total']}\n"
+            f"🚨 Emergencies: {ffw['emergency']}\n"
+            f"Standard: {ffw['standard']}"
         )
+        embed.add_field(name="🌊 Flash Flood Warnings", value=ffw_val, inline=True)
+
+        embed.set_footer(text="SPC Bot Warning Tracker")
+        await interaction.followup.send(embed=embed)
 
 
 async def setup(bot: commands.Bot):

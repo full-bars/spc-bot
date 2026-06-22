@@ -35,6 +35,7 @@ from cogs.warning_format import (
     _vtec_url,
     build_concise_warning_text,
     get_tornado_attributes,
+    get_warning_severity,
     get_warning_style,
     iem_autoplot_url,
 )
@@ -425,6 +426,7 @@ class WarningsCog(commands.Cog):
                     area_desc = area_m.group(1) if area_m else "affected area"
 
                     tornado_confidence, tornado_severity = get_tornado_attributes(event, raw_text)
+                    severity = get_warning_severity(event, raw_text)
                     await claim.confirm(
                         msg.id,
                         msg.channel.id,
@@ -432,6 +434,7 @@ class WarningsCog(commands.Cog):
                         area=area_desc,
                         tornado_confidence=tornado_confidence,
                         tornado_severity=tornado_severity,
+                        severity=severity,
                     )
                 except discord.Forbidden as e:
                     await self._notify_channel_error(channel, ["send_messages (403 Forbidden)"])
@@ -889,6 +892,7 @@ class WarningsCog(commands.Cog):
                                 tornado_confidence, tornado_severity = get_tornado_attributes(
                                     event, description, params
                                 )
+                                severity = get_warning_severity(event, description, params)
                                 await self.bot.state.add_posted_warning(
                                     issuance_id,
                                     stored_info["message_id"],
@@ -896,6 +900,7 @@ class WarningsCog(commands.Cog):
                                     area=curr_area,
                                     tornado_confidence=tornado_confidence,
                                     tornado_severity=tornado_severity,
+                                    severity=severity,
                                 )
                             finally:
                                 self._in_flight_vtecs.discard(issuance_id)
@@ -956,6 +961,7 @@ class WarningsCog(commands.Cog):
                         tornado_confidence, tornado_severity = get_tornado_attributes(
                             event, description, params
                         )
+                        severity = get_warning_severity(event, description, params)
                         await claim.confirm(
                             msg.id,
                             msg.channel.id,
@@ -963,6 +969,7 @@ class WarningsCog(commands.Cog):
                             area=area_desc,
                             tornado_confidence=tornado_confidence,
                             tornado_severity=tornado_severity,
+                            severity=severity,
                         )
                     except Exception as e:
                         logger.warning(f"Failed to persist {issuance_id}: {e}")
