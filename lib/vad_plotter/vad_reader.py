@@ -410,10 +410,10 @@ from botocore.config import Config
 async def _list_s3_vad_times(rid: str) -> List[Tuple[str, datetime]]:
     """List recent VAD files from S3 for a site."""
     # Try both 3-letter and 4-letter codes.
-    # unidata-nexrad-level3 primarily uses 3-letter ICAO codes (omits leading K).
-    # e.g. KTLX -> TLX.
+    # unidata-nexrad-level3 primarily uses 3-letter ICAO codes (omits leading K/T).
+    # e.g. KTLX -> TLX, TOKC -> OKC.
     site_candidates = [rid.upper()]
-    if rid.upper().startswith("K") and len(rid) == 4:
+    if len(rid) == 4 and rid.upper()[0] in ("K", "T"):
         site_candidates.append(rid[1:].upper())
 
     now = datetime.now(timezone.utc)
@@ -535,13 +535,13 @@ async def download_vad(
             tgftp_task = asyncio.create_task(_fetch_tgftp_sn_last(rid))
 
         if RUST_AVAILABLE:
-            s3_task = asyncio.create_task(
-                asyncio.to_thread(spc_rust_core.fetch_s3_vad_fast, rid)
-            )
+            s3_task = asyncio.create_task(asyncio.to_thread(spc_rust_core.fetch_s3_vad_fast, rid))
 
         if tgftp_task or s3_task:
             tasks = [t for t in (tgftp_task, s3_task) if t is not None]
-            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED, timeout=5)
+            done, pending = await asyncio.wait(
+                tasks, return_when=asyncio.FIRST_COMPLETED, timeout=5
+            )
 
             for task in pending:
                 task.cancel()
@@ -603,9 +603,7 @@ async def download_vad(
     elif time is not None:
         file_name = ""
         times = await find_file_times(rid)
-        tgftp_times = [
-            (fn, ft) for fn, ft in times if isinstance(fn, str) and fn.startswith("sn.")
-        ]
+        tgftp_times = [(fn, ft) for fn, ft in times if isinstance(fn, str) and fn.startswith("sn.")]
         for fn, ft in tgftp_times:
             ft_naive = ft.replace(tzinfo=None) if ft.tzinfo else ft
             time_naive = time.replace(tzinfo=None) if time.tzinfo else time
