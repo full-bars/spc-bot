@@ -366,7 +366,7 @@ class VerificationCog(commands.Cog, name="Verification"):
     @app_commands.describe(
         hours="Hours of LSR data to include (default: 24)",
     )
-    async def verify_outlook(self, interaction: discord.Interaction, hours: int = 24):
+    async def verify_outlook(self, interaction: discord.Interaction, hours: int = 6):
         await interaction.response.defer()
 
         try:
