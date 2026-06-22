@@ -285,23 +285,27 @@ async def send_sounding_embed(
                     from utils.state_store import set_product_cache as _cache_raw
 
                     await _cache_raw(f"raw_text_{cache_key}", raw_text, ttl=3600)
-                    bot = interaction.client if interaction else None
 
-                    t = asyncio.create_task(
-                        ensure_sounding_summary(
-                            cache_key,
-                            raw_text=raw_text,
-                            lat=float(clean_data["site_info"]["site-latlon"][0]),
-                            lon=float(clean_data["site_info"]["site-latlon"][1]),
-                            location_name=f"{label}",
-                            bot=bot,
+                    # Only prefetch proactively for interactive soundings.
+                    # For auto-posts, the autopost handles it sequentially to avoid
+                    # rate-limiting the AI API with concurrent calls.
+                    if not autopost_summary:
+                        bot = interaction.client if interaction else None
+                        t = asyncio.create_task(
+                            ensure_sounding_summary(
+                                cache_key,
+                                raw_text=raw_text,
+                                lat=float(clean_data["site_info"]["site-latlon"][0]),
+                                lon=float(clean_data["site_info"]["site-latlon"][1]),
+                                location_name=f"{label}",
+                                bot=bot,
+                            )
                         )
-                    )
-                    t.add_done_callback(
-                        lambda t: logger.debug(
-                            f"[SOUNDING] Proactive AI summary generation finished for {cache_key}"
+                        t.add_done_callback(
+                            lambda t: logger.debug(
+                                f"[SOUNDING] Proactive AI summary generation finished for {cache_key}"
+                            )
                         )
-                    )
 
         sounding_msg = await target.send(caption, files=[discord.File(png_path)], view=view)
         logger.info(f"[SOUNDING] Posted {station_id} {time_label}")
