@@ -740,6 +740,37 @@ async def get_posted_warning_timestamp(vtec_id: str) -> Optional[float]:
         return None
 
 
+async def get_warning_counts_for_date(since: float, until: float) -> dict:
+    """Count posted warnings in a time range, grouped by VTEC phenom."""
+    try:
+        async with get_read_db() as db:
+            async with db.execute(
+                "SELECT vtec_id, tornado_confidence FROM posted_warnings "
+                "WHERE posted_at >= ? AND posted_at < ?",
+                (since, until),
+            ) as cursor:
+                rows = await cursor.fetchall()
+
+        counts = {"tor": 0, "svr": 0, "ffw": 0, "tor_observed": 0}
+        for row in rows:
+            vtec = row["vtec_id"]
+            confidence = row["tornado_confidence"]
+            parts = vtec.split(".")
+            phenom = parts[1] if len(parts) >= 2 else ""
+            if phenom == "TO":
+                counts["tor"] += 1
+                if confidence == "observed":
+                    counts["tor_observed"] += 1
+            elif phenom == "SV":
+                counts["svr"] += 1
+            elif phenom == "FF":
+                counts["ffw"] += 1
+        return counts
+    except Exception as e:
+        logger.warning(f"get_warning_counts_for_date failed: {e}")
+        return {}
+
+
 async def add_posted_warning(
     vtec_id: str,
     message_id: int,
