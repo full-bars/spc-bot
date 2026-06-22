@@ -556,7 +556,7 @@ async def download_vad(
                         elif task is s3_task:
                             content = result
                         break
-                except Exception:
+                except BaseException:
                     pass
 
             # If neither succeeded, try the remaining (not cancelled)
@@ -568,7 +568,7 @@ async def download_vad(
                             if result:
                                 content = result
                                 break
-                        except Exception:
+                        except BaseException:
                             pass
 
             # Mark circuit failure only if TGFTP was in the race and lost
@@ -576,7 +576,7 @@ async def download_vad(
                 try:
                     if tgftp_task.result() is None:
                         circuit_breaker.record_failure(host)
-                except Exception:
+                except BaseException:
                     circuit_breaker.record_failure(host)
         else:
             circuit_breaker.record_failure(host)
