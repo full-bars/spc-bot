@@ -652,7 +652,7 @@ async def get_warning_stats(
             "tor": {"total": N, "emergency": N, "pds": N, "standard": N,
                     "observed": N, "radar_indicated": N},
             "svr": {"total": N, "destructive": N, "considerable": N, "standard": N},
-            "ffw": {"total": N, "emergency": N, "standard": N},
+            "ffw": {"total": N, "emergency": N, "considerable": N, "standard": N},
         }
     """
     try:
@@ -679,7 +679,7 @@ async def get_warning_stats(
                     "radar_indicated": 0,
                 },
                 "svr": {"total": 0, "destructive": 0, "considerable": 0, "standard": 0},
-                "ffw": {"total": 0, "emergency": 0, "standard": 0},
+                "ffw": {"total": 0, "emergency": 0, "considerable": 0, "standard": 0},
             }
 
             for row in rows:
@@ -718,6 +718,8 @@ async def get_warning_stats(
                     stats["ffw"]["total"] += 1
                     if severity == "emergency":
                         stats["ffw"]["emergency"] += 1
+                    elif severity == "considerable":
+                        stats["ffw"]["considerable"] += 1
                     else:
                         stats["ffw"]["standard"] += 1
 

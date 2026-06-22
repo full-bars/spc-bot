@@ -341,42 +341,33 @@ class AnalyticsCog(commands.Cog):
             timestamp=now,
         )
 
-        # Tornado — severity and confidence combined into one compact block
+        # Tornado
         tor_val = (
-            f"**Total:** {tor['total']}\n"
-            f"**Severity:** {tor['emergency']}🚨 / {tor['pds']}⚠️ PDS / {tor['standard']} std\n"
-            f"**Confidence:** {tor['observed']}🔴 obs / {tor['radar_indicated']}📡 RI"
+            f"**{tor['total']}** total\n"
+            f"🚨 TOR E: {tor['emergency']}\n"
+            f"⚠️ PDS: {tor['pds']}\n"
+            f"🔴 Confirmed: {tor['observed']}\n"
+            f"📡 Radar Indicated: {tor['radar_indicated']}\n"
+            f"Baseline: {tor['standard']}"
         )
         embed.add_field(name="🌪️ Tornado Warnings", value=tor_val, inline=True)
 
         # Severe Tstorm
-        def _tag(n: int, emoji: str, label: str) -> str:
-            return f"{n}{emoji} {label}" if n > 0 else ""
-
-        svr_tags = " · ".join(
-            filter(
-                None,
-                [
-                    _tag(svr["destructive"], "🚨", "dest"),
-                    _tag(svr["considerable"], "⚠️", "cons"),
-                    f"{svr['standard']} std",
-                ],
-            )
+        svr_val = (
+            f"**{svr['total']}** total\n"
+            f"🚨 SVR D: {svr['destructive']}\n"
+            f"⚠️ SVR C: {svr['considerable']}\n"
+            f"Baseline: {svr['standard']}"
         )
-        svr_val = f"**Total:** {svr['total']}\n**Tag:** {svr_tags}"
         embed.add_field(name="⛈️ Severe Tstorm", value=svr_val, inline=True)
 
         # Flash Flood
-        ffw_tags = " · ".join(
-            filter(
-                None,
-                [
-                    _tag(ffw["emergency"], "🚨", "emerg"),
-                    f"{ffw['standard']} std",
-                ],
-            )
+        ffw_val = (
+            f"**{ffw['total']}** total\n"
+            f"🚨 FFE: {ffw['emergency']}\n"
+            f"⚠️ FFW-C: {ffw['considerable']}\n"
+            f"Baseline: {ffw['standard']}"
         )
-        ffw_val = f"**Total:** {ffw['total']}\n**Tag:** {ffw_tags}"
         embed.add_field(name="🌊 Flash Flood", value=ffw_val, inline=True)
 
         embed.set_footer(text="SPC Bot Warning Tracker")

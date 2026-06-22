@@ -343,6 +343,8 @@ def get_warning_severity(event: str, text: str, params: dict = None) -> Optional
             f_threat = params.get("flashFloodDamageThreat") or []
             if "CATASTROPHIC" in f_threat:
                 return "emergency"
+            if "CONSIDERABLE" in f_threat:
+                return "considerable"
         return "standard"
 
     return None
