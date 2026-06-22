@@ -198,7 +198,7 @@ async def ensure_sounding_summary(
         event = _sounding_inflight.get(cache_key)
         if event:
             try:
-                await asyncio.wait_for(event.wait(), timeout=10)
+                await asyncio.wait_for(event.wait(), timeout=60)
             except asyncio.TimeoutError:
                 return None
             summary = await get_product_cache(cache_key)
