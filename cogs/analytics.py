@@ -355,8 +355,8 @@ class AnalyticsCog(commands.Cog):
         # Severe Tstorm
         svr_val = (
             f"**{svr['total']}** total\n"
-            f"🚨 SVR D: {svr['destructive']}\n"
-            f"⚠️ SVR C: {svr['considerable']}\n"
+            f"🚨 SVRD: {svr['destructive']}\n"
+            f"⚠️ SVRC: {svr['considerable']}\n"
             f"SVR: {svr['standard']}"
         )
         embed.add_field(name="⛈️ Severe Tstorm", value=svr_val, inline=True)

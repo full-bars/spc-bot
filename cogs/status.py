@@ -494,9 +494,9 @@ class StatusView(discord.ui.View):
                 f"🌪️ **{t.get('total', 0)}** tor"
                 f" · {t.get('emergency', 0)}TORE {t.get('pds', 0)}TORP {t.get('observed', 0)}✅ {t.get('radar_indicated', 0)}📡\n"
                 f"⛈️ **{s.get('total', 0)}** svr"
-                f" · {s.get('destructive', 0)}D {s.get('considerable', 0)}C\n"
+                f" · {s.get('destructive', 0)}SVRD {s.get('considerable', 0)}SVRC\n"
                 f"🌊 **{f.get('total', 0)}** ffw"
-                f" · {f.get('emergency', 0)}E {f.get('considerable', 0)}C"
+                f" · {f.get('emergency', 0)}FFE {f.get('considerable', 0)}FFW-C"
             )
         except Exception as e:
             sev_val = f"⚠️ Error: {e}"
