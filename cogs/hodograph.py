@@ -18,41 +18,33 @@ HODO_OUTPUT_DIR = os.path.join("cache", "hodographs")
 VAD_SCRIPT = os.path.join("lib", "vad_plotter", "vad.py")
 
 
-async def _prefetch_hodo_summary(cache_key: str, raw_text: str, site: str):
-    """Prefetch AI analysis using Gemini (fast) so button responds instantly.
-    Hodographs only contain wind shear data — never speculate about CAPE,
-    instability, or thunderstorm potential."""
+async def _background_cache_hodo(cache_key: str, raw_text: str, site: str):
+    """Fire-and-forget: cache raw_text + prefetch AI analysis using Gemini."""
     try:
         from utils.state_store import get_product_cache, set_product_cache
         from utils.ai import call_gemini
 
+        # Cache raw_text for button handler
+        await set_product_cache(f"raw_text_{cache_key}", raw_text, ttl=3600)
+
+        # Prefetch AI summary
         existing = await get_product_cache(cache_key)
         if existing:
             return
 
         result = await call_gemini(
-            "You are an expert severe weather meteorologist. You are given wind "
-            "shear parameters from a radar-derived VAD wind profile (hodograph) "
-            f"at {site}. This data ONLY contains kinematic (wind) information — "
-            "there is NO thermodynamic data (no CAPE, no CIN, no lapse rates, "
-            "no instability).\n\n"
-            "Base your analysis ENTIRELY on the wind data provided. Discuss:\n"
-            "1. The wind shear profile and its implications for storm organization "
-            "(e.g., does it support supercells? multicells? disorganized?)\n"
-            "2. The low-level shear and SRH and what they suggest about "
-            "tornadic potential (if anything is elevated)\n"
-            "3. The storm motion and how it relates to the shear profile\n"
-            "4. Any notable features (e.g., backed low-level flow, veered profile)\n\n"
-            "CRITICAL: Do NOT mention CAPE, instability, thunderstorm development "
-            "likelihood, or any thermodynamic variables. State clearly that you "
-            "are analyzing only the wind shear environment. Limit to 3 sentences.\n\n"
+            "You are an expert severe weather meteorologist. Analyze this "
+            f"radar-derived VAD wind profile (hodograph) at {site}. "
+            "Discuss the wind shear profile, low-level shear/SRH, and what "
+            "they imply about storm organization and potential for rotation. "
+            "Limit to 3 sentences.\n\n"
             f"DATA:\n{raw_text}"
         )
         if result:
             await set_product_cache(cache_key, result, ttl=86400)
             logger.debug(f"[HODO] AI summary cached for {cache_key}")
     except Exception as e:
-        logger.debug(f"[HODO] AI prefetch failed for {cache_key}: {e}")
+        logger.debug(f"[HODO] Background cache failed for {cache_key}: {e}")
 
 
 class HodographPlotView(discord.ui.View):
@@ -140,14 +132,6 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
         cache_key = f"hodo_{site}_{now_str}"
         view = HodographPlotView(cache_key)
 
-        # Cache raw_text so button handler can retrieve it later
-        from utils.state_store import set_product_cache
-
-        await set_product_cache(f"raw_text_{cache_key}", summary, ttl=3600)
-
-        # Prefetch AI summary using Gemini (fast) for immediate button response
-        asyncio.create_task(_prefetch_hodo_summary(cache_key, summary, site))
-
     try:
         if view:
             await interaction.followup.send(
@@ -158,6 +142,10 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
                 content=f"**{site}** VWP Hodograph",
                 file=discord.File(output_path),
             )
+
+        # Fire-and-forget: cache raw_text + prefetch AI summary
+        if params and cache_key:
+            asyncio.create_task(_background_cache_hodo(cache_key, summary, site))
     except discord.NotFound:
         logger.warning(f"[HODO] Failed to send final hodograph for {site}: Interaction expired")
 

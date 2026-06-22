@@ -543,12 +543,10 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
                         is_hodo = cache_key.startswith("hodo_")
                         if is_hodo:
                             prompt = (
-                                "You are an expert severe weather meteorologist analyzing a radar-derived "
-                                "VAD wind profile (hodograph). This data ONLY contains kinematic (wind) "
-                                "information — no thermodynamic data (no CAPE, no CIN, no lapse rates).\n\n"
-                                "Base your analysis ENTIRELY on the wind data provided. Discuss the "
-                                "wind shear profile, low-level shear/SRH, and storm motion. "
-                                "Do NOT mention CAPE, instability, or thunderstorm development.\n\n"
+                                "You are an expert severe weather meteorologist analyzing a "
+                                f"radar-derived VAD wind profile (hodograph). "
+                                "Discuss the wind shear profile, low-level shear/SRH, and "
+                                "what they imply about storm organization. Limit to 3 sentences.\n\n"
                                 f"DATA:\n{raw_text}"
                             )
                         else:
