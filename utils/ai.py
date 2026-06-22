@@ -126,12 +126,15 @@ async def call_openai_compatible(
 
 async def call_ai(prompt: str, is_json: bool = False) -> Any | None:
     """Dispatches to OpenCode Zen (DeepSeek) first, falling back to Gemini."""
+    tag = prompt.split("\n")[0][:60]  # first line of prompt as a short tag
     if OPENCODE_API_KEY:
+        logger.info(f"AI [{AI_MODEL}]: {tag}")
         result = await call_openai_compatible(prompt, is_json=is_json)
         if result is not None:
             return result
-        logger.info("OpenCode AI call returned no result; falling back to Gemini")
+        logger.info(f"AI fallback to Gemini: {tag}")
     if GEMINI_API_KEY:
+        logger.info(f"AI [Gemini 3.1 Flash Lite]: {tag}")
         return await call_gemini(prompt, is_json=is_json)
     logger.warning("No AI API key configured (set OPENCODE_API_KEY or GEMINI_API_KEY).")
     return None
