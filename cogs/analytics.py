@@ -294,6 +294,98 @@ class AnalyticsCog(commands.Cog):
         embed.set_footer(text=f"IEM Cow | Interval: {sts} to {ets}")
         await interaction.followup.send(embed=embed)
 
+    @app_commands.command(
+        name="verifyoutlook",
+        description="Practically Perfect hindcast verification — compare SPC outlook vs what happened",
+    )
+    @app_commands.describe(
+        date="Date to verify in YYYY-MM-DD format (default: yesterday)",
+    )
+    async def verify_outlook(self, interaction: discord.Interaction, date: Optional[str] = None):
+        await interaction.response.defer()
+
+        if not date:
+            yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+            date = yesterday.strftime("%Y-%m-%d")
+        else:
+            try:
+                datetime.strptime(date, "%Y-%m-%d")
+            except ValueError:
+                await interaction.followup.send(
+                    "Invalid date format. Use YYYY-MM-DD.", ephemeral=True
+                )
+                return
+
+        dt = datetime.strptime(date, "%Y-%m-%d")
+        dt = dt.replace(tzinfo=timezone.utc)
+
+        # Date components for URL building
+        year = dt.strftime("%Y")
+        ymd = dt.strftime("%Y%m%d")
+        yymmdd = dt.strftime("%y%m%d")
+
+        # NIU PP Hindcast images (produced at 13z next day, 96h LSR lag)
+        niu_base = "https://atlas.niu.edu/pperfect/archive"
+        pp_tor = f"{niu_base}/{yymmdd}_tor.png"
+        pp_hail = f"{niu_base}/{yymmdd}_hail.png"
+        pp_wind = f"{niu_base}/{yymmdd}_wind.png"
+
+        # SPC 1630Z Day 1 outlook probability images
+        spc_base = f"https://www.spc.noaa.gov/products/outlook/archive/{year}"
+        spc_tor = f"{spc_base}/day1probotlk_v_{ymd}_1630_torn_prt.png"
+        spc_hail = f"{spc_base}/day1probotlk_v_{ymd}_1630_hail_prt.png"
+        spc_wind = f"{spc_base}/day1probotlk_v_{ymd}_1630_wind_prt.png"
+
+        # Query our own warning counts for this date
+        from utils.db import get_warning_counts_for_date
+
+        day_start = dt.replace(hour=0, minute=0, second=0)
+        day_end = day_start + timedelta(days=1)
+        counts = await get_warning_counts_for_date(day_start.timestamp(), day_end.timestamp())
+
+        tor_total = counts.get("tor", 0)
+        svr_total = counts.get("svr", 0)
+        ffw_total = counts.get("ffw", 0)
+
+        tor_observed = counts.get("tor_observed", 0)
+        tor_radar = tor_total - tor_observed if tor_total else 0
+
+        # Build embed
+        embed = discord.Embed(
+            title=f"🔬 Outlook Verification — {date}",
+            description=(
+                "**Practically Perfect Hindcast (left)** vs **SPC 1630Z Outlook (right)**\n"
+                "PP Hindcast maps by Dr. Victor Gensini / NIU — Hitchens et al. 2013\n"
+                "SPC images archived at SPC outlook archive"
+            ),
+            color=discord.Color.dark_purple(),
+            timestamp=datetime.now(timezone.utc),
+        )
+
+        # Warning counts from our system
+        counts_str = (
+            f"🌪️ Tornado: **{tor_total}** ({tor_radar} radar, {tor_observed} confirmed)\n"
+            f"⛈️ Severe Tstorm: **{svr_total}**\n"
+            f"🌊 Flash Flood: **{ffw_total}**"
+        )
+        embed.add_field(name="📊 Warning Counts (this bot)", value=counts_str, inline=False)
+
+        embed.set_image(url=pp_tor)
+        embed.set_thumbnail(url=spc_tor)
+
+        embed.set_footer(
+            text="PP images: atlas.niu.edu/pperfect | SPC: spc.noaa.gov | All times UTC"
+        )
+
+        await interaction.followup.send(
+            content=(
+                f"**Tornado** — PP Hindcast (main) vs SPC Outlook (corner):\n"
+                f"**Hail**: [PP]({pp_hail}) vs [SPC]({spc_hail})\n"
+                f"**Wind**: [PP]({pp_wind}) vs [SPC]({spc_wind})"
+            ),
+            embed=embed,
+        )
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(AnalyticsCog(bot))
