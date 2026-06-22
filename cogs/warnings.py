@@ -70,7 +70,7 @@ class WarningsCog(commands.Cog):
         ("prune_posted_warnings_loop", "prune_posted_warnings_loop"),
     ]
 
-    POSTED_WARNINGS_MAX = 500
+    POSTED_WARNINGS_MAX = 5000
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot

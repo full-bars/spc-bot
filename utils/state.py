@@ -363,7 +363,7 @@ class BotState:
         self.sounding_handled_watches.add(watch_number)
         await state_store.add_sounding_handled_watch(watch_number)
 
-    async def prune_posted_warnings(self, max_size: int = 500) -> int:
+    async def prune_posted_warnings(self, max_size: int = 5000) -> int:
         """Trim posted_warnings to the most recent ``max_size`` entries across
         SQLite, Redis, and the in-memory dict.
 

@@ -831,7 +831,7 @@ async def remove_posted_warning(vtec_id: str):
     )
 
 
-async def prune_posted_warnings(max_size: int = 500):
+async def prune_posted_warnings(max_size: int = 5000):
     """Keep only the most recently-posted warnings. Warnings churn far
     faster than watches, so the default cap is higher."""
     await _write(
