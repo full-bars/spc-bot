@@ -245,14 +245,20 @@ def _parse_spc_kml(raw: bytes) -> list[dict]:
 # ── Verification logic ────────────────────────────────────────────────────────
 
 
-async def compute_verification(hours_back: int = 24) -> dict:
-    """Run full verification pipeline: outlook areas vs warnings + LSRs + watches."""
+async def compute_verification(
+    hours_back: int = 24,
+    date_str: str = None,
+) -> dict:
+    """Run full verification pipeline: outlook areas vs warnings + LSRs + watches.
+
+    If date_str is set (YYYY-MM-DD), fetches SPC outlook for that date.
+    hours_back controls the LSR window."""
     from utils.geo import points_in_polygon_lookup
 
     warnings = await fetch_active_warnings()
     watches = await fetch_active_watches()
     lsrs = await fetch_lsr_reports(hours=hours_back)
-    areas = await fetch_spc_outlook_areas()
+    areas = await fetch_spc_outlook_areas(date_str=date_str)
 
     if not areas:
         return {"error": "No SPC outlook data available"}
@@ -348,7 +354,7 @@ async def compute_verification(hours_back: int = 24) -> dict:
         "total_warnings": len(warnings),
         "total_watches": len(watches),
         "total_lsrs": len(lsrs),
-        "hours_back": hours_back,
+        "label": f"last {hours_back}h" if not date_str else date_str,
     }
 
 
@@ -361,16 +367,24 @@ class VerificationCog(commands.Cog, name="Verification"):
 
     @app_commands.command(
         name="verifyoutlook",
-        description="Live verification — compare active warnings against SPC outlook risk areas",
+        description="Compare active warnings against SPC outlook risk areas",
     )
     @app_commands.describe(
-        hours="Hours of LSR data to include (default: 24)",
+        date="Date in YYYY-MM-DD (UTC). Default: today.",
+        hours="Hours of LSR data (default: 6, ignored if date set)",
     )
-    async def verify_outlook(self, interaction: discord.Interaction, hours: int = 6):
+    async def verify_outlook(
+        self, interaction: discord.Interaction, date: str = None, hours: int = 6
+    ):
         await interaction.response.defer()
 
         try:
-            result = await compute_verification(hours_back=hours)
+            if date:
+                result = await compute_verification(date_str=date, hours_back=hours)
+                label = f"for {date} (LSRs: {hours}h)"
+            else:
+                result = await compute_verification(hours_back=hours)
+                label = f"(LSRs: {hours}h)"
         except Exception as e:
             logger.exception(f"verifyoutlook failed: {e}")
             await interaction.followup.send(
@@ -386,7 +400,7 @@ class VerificationCog(commands.Cog, name="Verification"):
         now = datetime.now(timezone.utc)
 
         embed = discord.Embed(
-            title=f"🔬 Live Outlook Verification — {now.strftime('%Y-%m-%d %H:%M')}Z",
+            title=f"🔬 Live Outlook Verification {label}",
             color=discord.Color.dark_purple(),
             timestamp=now,
         )

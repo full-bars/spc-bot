@@ -847,106 +847,100 @@ async def prune_posted_warnings(max_size: int = 500):
 
 
 async def backfill_warning_severity(days: int = 7):
-    """Query IEM VTEC events API for recent warnings and backfill severity + raw_text
-    for rows where raw_text is NULL."""
+    """Query IEM VTEC events API PER WFO for recent warnings and backfill severity +
+    raw_text for rows where raw_text is NULL."""
     from cogs.warning_format import get_warning_severity
     from utils.http import http_get_bytes, http_get_text
     import json
+    import re
     from datetime import datetime, timezone
 
     try:
         async with get_read_db() as db:
             rows = await db.execute_fetchall(
-                "SELECT vtec_id FROM posted_warnings WHERE raw_text IS NULL",
+                "SELECT vtec_id FROM posted_warnings WHERE raw_text IS NULL "
+                "AND vtec_id GLOB 'K???.*.W.*'",
             )
     except Exception:
         logger.warning("[BACKFILL] Could not query posted_warnings (migrating?)")
         return
 
-    missing = {r[0] for r in rows}
-    if not missing:
+    pending = {r[0] for r in rows}
+    if not pending:
         logger.info("[BACKFILL] No warnings need backfill")
         return
 
-    # Build set of expected VTEC IDs: K{wfo}.{phen}.{sig}.{etn:04d}
-    # so we can match IEM events quickly
-    logger.info(f"[BACKFILL] {len(missing)} warnings need backfill from IEM")
+    logger.info(f"[BACKFILL] {len(pending)} warnings need backfill")
 
-    updated = 0
+    wfo_map: dict[str, set] = {}
+    for v in pending:
+        parts = v.split(".")
+        if len(parts) < 4:
+            continue
+        wfo = parts[0]
+        phen = parts[1]
+        key = f"{wfo}.{phen}"
+        wfo_map.setdefault(key, set()).add(v)
+
     now = datetime.now(timezone.utc)
-    for months_back in range(3):  # check up to 3 months
-        y = now.year
-        mo = now.month - months_back
-        if mo < 1:
-            mo += 12
-            y -= 1
+    y, mo = now.year, now.month
+    updated = 0
 
-        for phen in ("TO", "SV", "FF"):
-            url = (
-                f"https://mesonet.agron.iastate.edu/json/vtec_events.py"
-                f"?phenomena={phen}&significance=W&year={y}&month={mo}&limit=500"
+    for key, vtec_ids in wfo_map.items():
+        wfo, phen = key.split(".")
+        iem_wfo = wfo[1:] if wfo.startswith("K") else wfo
+
+        url = (
+            f"https://mesonet.agron.iastate.edu/json/vtec_events.py"
+            f"?phenomena={phen}&significance=W&year={y}&month={mo}&wfo={iem_wfo}&limit=500"
+        )
+        content, status = await http_get_bytes(url, retries=2, timeout=15)
+        if not content or status != 200:
+            continue
+
+        data = json.loads(content)
+        for ev in data.get("events", []):
+            ev_wfo = ev.get("wfo", "")
+            ev_id = ev.get("eventid")
+            if ev_id is None:
+                continue
+            vtec_id = f"K{ev_wfo}.{phen}.W.{int(ev_id):04d}"
+            if vtec_id not in vtec_ids:
+                continue
+
+            vtec_url = (
+                f"https://mesonet.agron.iastate.edu/vtec/f/{y}/{ev_wfo}/{phen}/W/{int(ev_id):04d}"
             )
-            content, status = await http_get_bytes(url, retries=2, timeout=20)
-            if not content or status != 200:
+            html = await http_get_text(vtec_url, retries=1, timeout=10)
+            if not html:
                 continue
 
-            data = json.loads(content)
-            events = data.get("events", [])
-            if not events:
+            text_match = re.search(r"<pre[^>]*>(.*?)</pre>", html, re.DOTALL | re.IGNORECASE)
+            raw_text = text_match.group(1) if text_match else ""
+            if not raw_text:
                 continue
 
-            for ev in events:
-                wfo = ev.get("wfo", "")
-                eventid = ev.get("eventid")
-                if not wfo or eventid is None:
-                    continue
-                vtec_id = f"K{wfo}.{phen}.W.{int(eventid):04d}"
-                if vtec_id not in missing:
-                    continue
+            ed = {
+                "TO": "Tornado Warning",
+                "SV": "Severe Thunderstorm Warning",
+                "FF": "Flash Flood Warning",
+            }.get(phen, "")
+            severity = get_warning_severity(ed, raw_text) if ed else None
+            if severity:
+                await _write(
+                    "UPDATE posted_warnings SET severity = ?, raw_text = ? WHERE vtec_id = ?",
+                    (severity, raw_text[:5000], vtec_id),
+                    f"backfill({vtec_id})",
+                )
+                updated += 1
+                vtec_ids.discard(vtec_id)
 
-                # Fetch product text from IEM VTEC page
-                vtec_url = f"https://mesonet.agron.iastate.edu/vtec/f/{y}/{wfo}/{phen}/W/{int(eventid):04d}"
-                html = await http_get_text(vtec_url, retries=1, timeout=15)
-                if not html:
-                    continue
-
-                # Extract the raw product text from the IEM page
-                import re
-
-                text_match = re.search(r"<pre[^>]*>(.*?)</pre>", html, re.DOTALL | re.IGNORECASE)
-                raw_text = text_match.group(1) if text_match else ""
-
-                if not raw_text:
-                    continue
-
-                # Determine severity from the event type + text
-                event_display = ""
-                if phen == "TO":
-                    event_display = "Tornado Warning"
-                elif phen == "SV":
-                    event_display = "Severe Thunderstorm Warning"
-                elif phen == "FF":
-                    event_display = "Flash Flood Warning"
-
-                severity = get_warning_severity(event_display, raw_text)
-                if severity:
-                    await _write(
-                        "UPDATE posted_warnings SET severity = ?, raw_text = ? WHERE vtec_id = ?",
-                        (severity, raw_text[:5000], vtec_id),
-                        f"backfill({vtec_id})",
-                    )
-                    updated += 1
-                    missing.discard(vtec_id)
-
-                    if updated % 50 == 0:
-                        logger.info(f"[BACKFILL] {updated} warnings updated so far...")
+                if updated % 50 == 0:
+                    logger.info(f"[BACKFILL] {updated} warnings updated...")
 
     logger.info(f"[BACKFILL] Updated {updated} warnings with severity")
-    if missing:
-        logger.info(f"[BACKFILL] {len(missing)} warnings still unmatched")
-
-
-# ── Soundings ─────────────────────────────────────────────────────────────────
+    if pending:
+        logger.info(f"[BACKFILL] {len(pending)} warnings still unmatched")
 
 
 async def get_posted_soundings() -> set[str]:
