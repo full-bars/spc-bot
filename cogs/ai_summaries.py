@@ -534,6 +534,27 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
             summary = await ensure_sounding_summary(cache_key, bot=self.bot)
 
             if not summary:
+                # Try Gemini directly (fast) as fallback
+                try:
+                    raw_text = await get_product_cache(f"raw_text_{cache_key}")
+                    if raw_text:
+                        from utils.ai import call_gemini
+
+                        gemini_result = await call_gemini(
+                            "You are an expert severe weather meteorologist. "
+                            "Provide a concise 3-4 sentence plain-English summary "
+                            "of this atmospheric environment.\n\n"
+                            f"DATA:\n{raw_text}"
+                        )
+                        if gemini_result:
+                            from utils.state_store import set_product_cache
+
+                            summary = gemini_result
+                            await set_product_cache(cache_key, summary, ttl=86400)
+                except Exception as e:
+                    logger.debug(f"Gemini fallback failed for {cache_key}: {e}")
+
+            if not summary:
                 await interaction.followup.send(
                     "AI analysis is still being generated. Click the button again in a moment.",
                     ephemeral=True,

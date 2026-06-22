@@ -18,6 +18,29 @@ HODO_OUTPUT_DIR = os.path.join("cache", "hodographs")
 VAD_SCRIPT = os.path.join("lib", "vad_plotter", "vad.py")
 
 
+async def _prefetch_hodo_summary(cache_key: str, raw_text: str, site: str):
+    """Prefetch AI analysis using Gemini (fast) so button responds instantly."""
+    try:
+        from utils.state_store import get_product_cache, set_product_cache
+        from utils.ai import call_gemini
+
+        existing = await get_product_cache(cache_key)
+        if existing:
+            return
+
+        result = await call_gemini(
+            "You are an expert severe weather meteorologist. "
+            "Provide a concise 3-4 sentence plain-English summary "
+            f"of this hodograph environment for radar site {site}.\n\n"
+            f"DATA:\n{raw_text}"
+        )
+        if result:
+            await set_product_cache(cache_key, result, ttl=86400)
+            logger.debug(f"[HODO] AI summary cached for {cache_key}")
+    except Exception as e:
+        logger.debug(f"[HODO] AI prefetch failed for {cache_key}: {e}")
+
+
 class HodographPlotView(discord.ui.View):
     def __init__(self, cache_key: str):
         super().__init__(timeout=None)
@@ -108,26 +131,8 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
 
         await set_product_cache(f"raw_text_{cache_key}", summary, ttl=3600)
 
-        from cogs.ai_summaries import ensure_sounding_summary
-        from lib.vad_plotter.radar_coords import RADAR_COORDS
-
-        lat, lon = RADAR_COORDS.get(site, (None, None))
-
-        t = asyncio.create_task(
-            ensure_sounding_summary(
-                cache_key,
-                raw_text=summary,
-                lat=lat,
-                lon=lon,
-                location_name=f"radar site {site}",
-                bot=interaction.client,
-            )
-        )
-        t.add_done_callback(
-            lambda t: logger.debug(
-                f"[HODO] Proactive AI summary generation finished for {cache_key}"
-            )
-        )
+        # Prefetch AI summary using Gemini (fast) for immediate button response
+        asyncio.create_task(_prefetch_hodo_summary(cache_key, summary, site))
 
     try:
         if view:
