@@ -1,5 +1,6 @@
 from __future__ import print_function
 
+import asyncio
 import logging
 import os
 import re
@@ -503,6 +504,18 @@ async def find_file_times(rid: str) -> List[Tuple[str, datetime]]:
     return await _list_s3_vad_times(rid)
 
 
+async def _fetch_tgftp_sn_last(rid: str) -> Optional[bytes]:
+    """Fetch sn.last from TGFTP. Returns content or None."""
+    url = "%s/SI.%s/sn.last" % (_base_url, rid.lower())
+    try:
+        content, status = await http_get_bytes(url, retries=0, timeout=3)
+        if status == 200 and content:
+            return content
+    except Exception:
+        pass
+    return None
+
+
 async def download_vad(
     rid: str,
     time: Optional[datetime] = None,
@@ -511,98 +524,146 @@ async def download_vad(
 ) -> VADFile:
     host = "tgftp.nws.noaa.gov"
     content = None
-    status = None
 
-    # Attempt TGFTP if circuit is closed
-    if not circuit_breaker.is_open(host):
-        if time is None:
-            if file_id is None:
-                url = "%s/SI.%s/sn.last" % (_base_url, rid.lower())
-            else:
-                url = "%s/SI.%s/sn.%04d" % (_base_url, rid.lower(), file_id)
-        else:
-            file_name = ""
-            times = await find_file_times(rid)
-            # Filter for TGFTP filenames (sn.*)
-            tgftp_times = [
-                (fn, ft) for fn, ft in times if isinstance(fn, str) and fn.startswith("sn.")
-            ]
-            for fn, ft in tgftp_times:
-                # Ensure ft is naive for comparison if needed
-                ft_naive = ft.replace(tzinfo=None) if ft.tzinfo else ft
-                time_naive = time.replace(tzinfo=None) if time.tzinfo else time
-                if ft_naive <= time_naive:
-                    file_name = fn
-                    break
+    # ── Latest at EOF — race TGFTP vs S3 ─────────────────────────────────
+    if time is None and file_id is None:
+        tgftp_task = None
+        s3_task = None
 
-            if file_name:
-                url = "%s/SI.%s/%s" % (_base_url, rid.lower(), file_name)
-            else:
-                url = None
+        # Spin up both sources in parallel if applicable
+        if not circuit_breaker.is_open(host):
+            tgftp_task = asyncio.create_task(_fetch_tgftp_sn_last(rid))
 
-        if url:
-            try:
-                content, status = await http_get_bytes(url, retries=0, timeout=3)
-                if status == 200 and content:
-                    circuit_breaker.record_success(host)
-                else:
-                    logger.warning(f"[VAD] TGFTP fetch status {status} for {rid}")
+        if RUST_AVAILABLE:
+            s3_task = asyncio.create_task(
+                asyncio.to_thread(spc_rust_core.fetch_s3_vad_fast, rid)
+            )
+
+        if tgftp_task or s3_task:
+            tasks = [t for t in (tgftp_task, s3_task) if t is not None]
+            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED, timeout=5)
+
+            for task in pending:
+                task.cancel()
+
+            for task in done:
+                try:
+                    result = task.result()
+                    if result:
+                        if task is tgftp_task:
+                            content = result
+                            circuit_breaker.record_success(host)
+                        elif task is s3_task:
+                            content = result
+                        break
+                except Exception:
+                    pass
+
+            # If neither succeeded, try the remaining (not cancelled)
+            if not content:
+                for task in tasks:
+                    if task not in done and not task.cancelled():
+                        try:
+                            result = await asyncio.wait_for(task, timeout=3)
+                            if result:
+                                content = result
+                                break
+                        except Exception:
+                            pass
+
+            # Mark circuit failure only if TGFTP was in the race and lost
+            if not content and tgftp_task in done:
+                try:
+                    if tgftp_task.result() is None:
+                        circuit_breaker.record_failure(host)
+                except Exception:
                     circuit_breaker.record_failure(host)
-            except Exception as e:
-                logger.warning(f"[VAD] TGFTP fetch exception for {rid}: {e}")
-                circuit_breaker.record_failure(host)
-
-    # Fallback to S3 if TGFTP failed or circuit was open
-    if not content:
-        logger.info(f"[VAD] Fetching from S3 fallback for {rid}")
-
-        # Fast path: If asking for latest, use Rust core zero-copy fetcher if available
-        if not time and RUST_AVAILABLE:
-            try:
-                # Rust fetcher returns raw decompressed bytes for the latest VAD
-                # It handles listing, fetching, and gzip/zlib decompression internally
-                raw_bytes = spc_rust_core.fetch_s3_vad_fast(rid)
-                if raw_bytes:
-                    logger.info(f"[VAD] Rust S3 fetcher returned {len(raw_bytes)} bytes for {rid}")
-                    vad = VADFile(raw_bytes)
-                    vad.rid = rid
-                    if cache_path:
-                        iname = build_has_name(rid, vad["time"])
-                        with open("%s/%s" % (cache_path, iname), "wb") as floc:
-                            floc.write(raw_bytes)
-                    return vad
-            except Exception as e:
-                logger.warning(
-                    f"[VAD] Rust S3 fetcher failed: {e}. Falling back to Python S3 engine."
-                )
-
-        # Standard path (historical or fallback)
-        s3_times = await _list_s3_vad_times(rid)
-        if not s3_times:
-            raise ValueError(f"Could not find VAD data for {rid} on TGFTP or S3")
-
-        target_key = None
-        if time:
-            time_utc = time.replace(tzinfo=timezone.utc) if not time.tzinfo else time
-            for key, ts in s3_times:
-                if ts <= time_utc:
-                    target_key = key
-                    break
         else:
-            target_key = s3_times[0][0]  # Latest
+            circuit_breaker.record_failure(host)
 
-        if not target_key:
-            raise ValueError(f"No VAD files before {time} found on S3 for {rid}")
+        if content:
+            vad = VADFile(content)
+            vad.rid = rid
+            if cache_path:
+                iname = build_has_name(rid, vad["time"])
+                with open("%s/%s" % (cache_path, iname), "wb") as floc:
+                    floc.write(content)
+            if tgftp_task and tgftp_task in done:
+                logger.debug(f"[VAD] Fetched from TGFTP for {rid}")
+            else:
+                logger.info(f"[VAD] Rust S3 fetcher returned {len(content)} bytes for {rid}")
+            return vad
 
-        session = aioboto3.Session()
+        # Race didn't produce data — fall through to historical S3 path
+
+    # ── Historical: try TGFTP first, fall back to S3 ─────────────────────
+    url = None
+    if file_id is not None:
+        url = "%s/SI.%s/sn.%04d" % (_base_url, rid.lower(), file_id)
+    elif time is not None:
+        file_name = ""
+        times = await find_file_times(rid)
+        tgftp_times = [
+            (fn, ft) for fn, ft in times if isinstance(fn, str) and fn.startswith("sn.")
+        ]
+        for fn, ft in tgftp_times:
+            ft_naive = ft.replace(tzinfo=None) if ft.tzinfo else ft
+            time_naive = time.replace(tzinfo=None) if time.tzinfo else time
+            if ft_naive <= time_naive:
+                file_name = fn
+                break
+
+        if file_name:
+            url = "%s/SI.%s/%s" % (_base_url, rid.lower(), file_name)
+
+    if url and not circuit_breaker.is_open(host):
         try:
-            async with session.client(
-                "s3", config=Config(signature_version=botocore.UNSIGNED), region_name="us-east-1"
-            ) as s3:
-                resp = await s3.get_object(Bucket=_S3_BUCKET, Key=target_key)
-                content = await resp["Body"].read()
+            content, status = await http_get_bytes(url, retries=0, timeout=3)
+            if status == 200 and content:
+                circuit_breaker.record_success(host)
+            else:
+                circuit_breaker.record_failure(host)
         except Exception as e:
-            raise ValueError(f"Failed to fetch VAD from S3 ({target_key}): {e}")
+            logger.warning(f"[VAD] TGFTP fetch exception for {rid}: {e}")
+            circuit_breaker.record_failure(host)
+
+    if content:
+        vad = VADFile(content)
+        vad.rid = rid
+        if cache_path:
+            iname = build_has_name(rid, vad["time"])
+            with open("%s/%s" % (cache_path, iname), "wb") as floc:
+                floc.write(content)
+        return vad
+
+    # Historical S3 fallback
+    logger.info(f"[VAD] Fetching from S3 fallback for {rid}")
+    s3_times = await _list_s3_vad_times(rid)
+    if not s3_times:
+        raise ValueError(f"Could not find VAD data for {rid} on TGFTP or S3")
+
+    target_key = None
+    if time:
+        time_utc = time.replace(tzinfo=timezone.utc) if not time.tzinfo else time
+        for key, ts in s3_times:
+            if ts <= time_utc:
+                target_key = key
+                break
+    else:
+        target_key = s3_times[0][0]  # Latest (shouldn't reach here normally)
+
+    if not target_key:
+        raise ValueError(f"No VAD files before {time} found on S3 for {rid}")
+
+    session = aioboto3.Session()
+    try:
+        async with session.client(
+            "s3", config=Config(signature_version=botocore.UNSIGNED), region_name="us-east-1"
+        ) as s3:
+            resp = await s3.get_object(Bucket=_S3_BUCKET, Key=target_key)
+            content = await resp["Body"].read()
+    except Exception as e:
+        raise ValueError(f"Failed to fetch VAD from S3 ({target_key}): {e}")
 
     if content:
         vad = VADFile(content)
