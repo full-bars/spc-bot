@@ -264,7 +264,9 @@ def get_tornado_attributes(
       - confidence: "observed" or "radar_indicated" (None if not a tornado warning)
       - severity: "emergency", "pds", or "standard" (None if not a tornado warning)
     """
-    base_event = event.split(" (")[0].split(" — ")[0]
+    base_event = event.split(" (")[0].split(" — ")[0].split(" – ")[0]
+    if base_event in ("Tornado Warning", "Tornado Emergency"):
+        base_event = "Tornado Warning"
     if base_event != "Tornado Warning":
         return None, None
 
@@ -302,7 +304,11 @@ def get_warning_severity(event: str, text: str, params: dict = None) -> Optional
     """
     text_upper = (text or "").upper()
     # Strip display suffixes like "(PDS)", "(Emergency)" so base name matches
-    base_event = event.split(" (")[0].split(" — ")[0]
+    base_event = event.split(" (")[0].split(" — ")[0].split(" – ")[0]
+
+    # Map display variants to base event names
+    if base_event in ("Tornado Warning", "Tornado Emergency"):
+        base_event = "Tornado Warning"
 
     if base_event == "Tornado Warning":
         if "TORNADO EMERGENCY" in text_upper:
