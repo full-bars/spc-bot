@@ -312,26 +312,14 @@ async def send_sounding_embed(
                 sounding_label = f"{label} — {time_label}"
                 lat = float(clean_data["site_info"]["site-latlon"][0])
                 lon = float(clean_data["site_info"]["site-latlon"][1])
-                t = asyncio.create_task(
-                    autopost_sounding_summary(
-                        sounding_msg,
-                        cache_key,
-                        sounding_label,
-                        raw_text=raw_text,
-                        lat=lat,
-                        lon=lon,
-                        location_name=label,
-                    )
-                )
-                t.add_done_callback(
-                    lambda t: (
-                        logger.debug(f"[SOUNDING] AI summary autopost finished for {cache_key}")
-                        if not t.exception()
-                        else logger.exception(
-                            f"[SOUNDING] AI summary autopost failed for {cache_key}",
-                            exc_info=t.exception(),
-                        )
-                    )
+                await autopost_sounding_summary(
+                    sounding_msg,
+                    cache_key,
+                    sounding_label,
+                    raw_text=raw_text,
+                    lat=lat,
+                    lon=lon,
+                    location_name=label,
                 )
     except Exception as e:
         logger.exception(f"[SOUNDING] Failed to post: {e}")
