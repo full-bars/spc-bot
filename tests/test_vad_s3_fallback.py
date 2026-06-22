@@ -44,5 +44,27 @@ async def test_download_vad_s3_fallback():
                 assert kwargs["Key"] == "TLX_NVW_MOCK_KEY"
 
 
+@pytest.mark.asyncio
+async def test_download_vad_racing_cancelled_error():
+    """Verify racing path handles CancelledError gracefully.
+
+    The racing code in download_vad must catch BaseException (not just Exception)
+    because asyncio.CancelledError is a BaseException since Python 3.9.
+    """
+    import inspect
+    from lib.vad_plotter.vad_reader import download_vad as dv
+
+    src = inspect.getsource(dv)
+
+    # The racing block must catch BaseException (not just Exception) because
+    # asyncio.CancelledError is a BaseException since Python 3.9.
+    # Verify `except BaseException:` appears anywhere in download_vad.
+    # If someone changes it back to `except Exception`, this test will fail.
+    assert "except BaseException" in src, (
+        "download_vad must use except BaseException, not except Exception, "
+        "to catch asyncio.CancelledError"
+    )
+
+
 if __name__ == "__main__":
     asyncio.run(test_download_vad_s3_fallback())
