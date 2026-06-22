@@ -1,10 +1,11 @@
 # cogs/verification.py
 """Live SPC outlook verification using warning polygons, LSR reports, and SPC GIS data.
 
-Methodology (Hitchens et al. 2013):
-- Reports mapped to 40km grid (NCEP 212), Gaussian kernel σ=0.75
-- SPC probability thresholds compared to observed report density per risk area
-- For live use: show actual counts + density per risk area for quick "is it verifying?" check
+Verification math (Hitchens et al. 2013 / SPC):
+- SPC probability = % chance of event within 25 mi of a point
+- Each LSR "covers" a 25-mi-radius circle: π × (40.23 km)² ≈ 5,077 km²
+- Expected LSRs = (risk_area_km² × probability) / 5,077
+- If actual ≥ expected: the risk area is verifying
 """
 
 import logging
@@ -20,6 +21,9 @@ from shapely.geometry import Point, Polygon, shape
 from utils.http import http_get_bytes
 
 logger = logging.getLogger("spc_bot.verification")
+
+# 25-mile radius circle area in km² (SPC's "within 25 miles of a point")
+_COVERAGE_KM2 = 5077  # π × (25 × 1.60934)²
 
 # SPC probability thresholds per risk category
 # Tornado: 2% for SLGT, 10% for ENH, 15% for MDT, 30% for HIGH
@@ -293,10 +297,28 @@ async def compute_verification(hours_back: int = 24) -> dict:
         thresholds = _RISK_THRESHOLDS.get(label, {"tornado": 0, "wind": 0, "hail": 0})
         area_km2 = area["area_km2"]
 
-        # Density: reports per 100,000 km²
-        tor_density = int(len(tor_rpts) * 100_000 / area_km2) if area_km2 > 0 else 0
-        wind_density = int(len(wind_rpts) * 100_000 / area_km2) if area_km2 > 0 else 0
-        hail_density = int(len(hail_rpts) * 100_000 / area_km2) if area_km2 > 0 else 0
+        # Expected LSRs per hazard to "verify" the SPC probability threshold.
+        # Each report covers a 25-mile circle (5,077 km²), so:
+        # expected = (area × probability) / coverage_per_report
+        def _expected(prob: float) -> int:
+            return max(1, int(area_km2 * prob / _COVERAGE_KM2)) if prob > 0 else 0
+
+        tor_exp = _expected(thresholds["tornado"])
+        wind_exp = _expected(thresholds["wind"])
+        hail_exp = _expected(thresholds["hail"])
+
+        tor_actual = len(tor_rpts)
+        wind_actual = len(wind_rpts)
+        hail_actual = len(hail_rpts)
+
+        def _verdict(actual: int, expected: int) -> str:
+            if expected == 0:
+                return ""
+            if actual >= expected:
+                pct = min(999, int(actual / expected * 100))
+                return f"✅ ({pct}%)"
+            pct = int(actual / expected * 100) if actual > 0 else 0
+            return f"⚠️ ({pct}%)"
 
         results.append(
             {
@@ -305,13 +327,16 @@ async def compute_verification(hours_back: int = 24) -> dict:
                 "tor_warnings": len(tor_w),
                 "svr_warnings": len(svr_w),
                 "ffw_warnings": len(ffw_w),
-                "tor_lsrs": len(tor_rpts),
-                "wind_lsrs": len(wind_rpts),
-                "hail_lsrs": len(hail_rpts),
+                "tor_lsrs": tor_actual,
+                "wind_lsrs": wind_actual,
+                "hail_lsrs": hail_actual,
                 "active_watches": len(watches_inside),
-                "tor_density": tor_density,
-                "wind_density": wind_density,
-                "hail_density": hail_density,
+                "tor_expected": tor_exp,
+                "wind_expected": wind_exp,
+                "hail_expected": hail_exp,
+                "tor_verdict": _verdict(tor_actual, tor_exp),
+                "wind_verdict": _verdict(wind_actual, wind_exp),
+                "hail_verdict": _verdict(hail_actual, hail_exp),
                 "tor_threshold": thresholds["tornado"],
                 "wind_threshold": thresholds["wind"],
                 "hail_threshold": thresholds["hail"],
@@ -380,10 +405,15 @@ class VerificationCog(commands.Cog, name="Verification"):
             if area["label"] in ("TSTM", "MRGL"):
                 continue
 
+            tor_v = area.get("tor_verdict", "")
+            wind_v = area.get("wind_verdict", "")
+            hail_v = area.get("hail_verdict", "")
+
             value = (
                 f"⚠️ **{area['tor_warnings']}** tornado / **{area['svr_warnings']}** severe / **{area['ffw_warnings']}** FFW\n"
-                f"📡 {area['tor_lsrs']} tor / {area['wind_lsrs']} wind / {area['hail_lsrs']} hail LSRs\n"
-                f"📊 Density (per 100K km²): {area['tor_density']} T | {area['wind_density']} W | {area['hail_density']} H\n"
+                f"🌪️ Tornado: {area['tor_lsrs']} / {area['tor_expected']} report(s) needed {tor_v}\n"
+                f"💨 Wind: {area['wind_lsrs']} / {area['wind_expected']} report(s) needed {wind_v}\n"
+                f"🧊 Hail: {area['hail_lsrs']} / {area['hail_expected']} report(s) needed {hail_v}\n"
                 f"👀 Watches active: {area['active_watches']}"
             )
             embed.add_field(
