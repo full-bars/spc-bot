@@ -94,36 +94,33 @@ async def fetch_active_warnings() -> list[dict]:
 
 
 async def fetch_active_watches(bot_state=None) -> list[dict]:
-    """Get active tornado/severe watches. Uses bot state if available, falls back to NWS API."""
-    watches = []
+    """Get active tornado/severe watches from NWS API with polygon geometry."""
+    url = (
+        "https://api.weather.gov/alerts/active"
+        "?event=Severe%20Thunderstorm%20Watch,Tornado%20Watch"
+        "&status=actual"
+    )
+    content, status = await http_get_bytes(url, retries=2, timeout=15)
+    if not content or status != 200:
+        return []
 
     import json
 
-    # Try NWS API first
-    for evt in ("Tornado%20Watch", "Severe%20Thunderstorm%20Watch"):
-        url = f"https://api.weather.gov/alerts/active?event={evt}&status=actual"
-        content, status = await http_get_bytes(url, retries=2, timeout=15)
-        if not content or status != 200:
+    data = json.loads(content)
+    features = data.get("features", [])
+    watches = []
+    for f in features:
+        props = f.get("properties", {})
+        geom = f.get("geometry")
+        if not geom:
             continue
-        data = json.loads(content)
-        features = data.get("features", [])
-        for f in features:
-            props = f.get("properties", {})
-            geom = f.get("geometry")
-            if not geom:
-                continue
-            try:
-                poly = shape(geom)
-            except Exception:
-                continue
-            watches.append(
-                {
-                    "event": props.get("event", ""),
-                    "area": props.get("areaDesc", ""),
-                    "polygon": poly,
-                }
-            )
-
+        try:
+            poly = shape(geom)
+        except Exception:
+            continue
+        watches.append(
+            {"event": props.get("event", ""), "area": props.get("areaDesc", ""), "polygon": poly}
+        )
     return watches
 
 
