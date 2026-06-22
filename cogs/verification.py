@@ -400,17 +400,17 @@ class VerificationCog(commands.Cog, name="Verification"):
         now = datetime.now(timezone.utc)
 
         embed = discord.Embed(
-            title=f"🔬 Live Outlook Verification {label}",
+            title=f"🔬 Outlook Verification {label}",
             color=discord.Color.dark_purple(),
             timestamp=now,
         )
 
         embed.add_field(
-            name="Summary",
+            name="\u200b",
             value=(
-                f"⚠️ Active warnings: **{result['total_warnings']}**\n"
-                f"👀 Active watches: **{result['total_watches']}**\n"
-                f"📡 LSR reports ({hours}h): **{result['total_lsrs']}**\n"
+                f"⚠️ **{result['total_warnings']}** active warnings"
+                f" · 📡 **{result['total_lsrs']}** LSRs ({hours}h)"
+                f" · 👀 **{result['total_watches']}** watches"
             ),
             inline=False,
         )
@@ -419,25 +419,36 @@ class VerificationCog(commands.Cog, name="Verification"):
             if area["label"] in ("TSTM", "MRGL"):
                 continue
 
-            tor_v = area.get("tor_verdict", "")
-            wind_v = area.get("wind_verdict", "")
-            hail_v = area.get("hail_verdict", "")
+            risk_emoji = {"SLGT": "🟡", "ENH": "🟠", "MDT": "🔴", "HIGH": "🟣"}.get(
+                area["label"], ""
+            )
+            pct = (
+                f"({area['area_km2'] / 1_000_000:.1f}M km²)"
+                if area["area_km2"] > 1_000_000
+                else f"({area['area_km2'] / 1_000:.0f}K km²)"
+            )
+
+            def _line(name: str, emoji: str, actual: int, expected: int, verdict: str) -> str:
+                if expected == 0:
+                    return f"{emoji} {name}: **{actual}** reports"
+                bar = "✅" if actual >= expected else "⚠️"
+                return f"{emoji} {name}: **{actual}**/{expected} {bar}"
 
             value = (
-                f"⚠️ **{area['tor_warnings']}** tornado / **{area['svr_warnings']}** severe / **{area['ffw_warnings']}** FFW\n"
-                f"🌪️ Tornado: {area['tor_lsrs']} / {area['tor_expected']} report(s) needed {tor_v}\n"
-                f"💨 Wind: {area['wind_lsrs']} / {area['wind_expected']} report(s) needed {wind_v}\n"
-                f"🧊 Hail: {area['hail_lsrs']} / {area['hail_expected']} report(s) needed {hail_v}\n"
-                f"👀 Watches active: {area['active_watches']}"
+                f"{_line('Tornado', '🌪️', area['tor_lsrs'], area['tor_expected'], area['tor_verdict'])}\n"
+                f"{_line('Wind', '💨', area['wind_lsrs'], area['wind_expected'], area['wind_verdict'])}\n"
+                f"{_line('Hail', '🧊', area['hail_lsrs'], area['hail_expected'], area['hail_verdict'])}\n"
+                f"⚠️ {area['tor_warnings']}T / {area['svr_warnings']}S / {area['ffw_warnings']}F warnings in area"
+                f" · 👀 {area['active_watches']} nearby watches"
             )
             embed.add_field(
-                name=f"{area['label']} Risk Area ({area['area_km2']:,} km²)",
+                name=f"{risk_emoji} {area['label']} {pct}",
                 value=value,
                 inline=False,
             )
 
         embed.set_footer(
-            text="Data: NWS API / IEM / SPC GIS | PP methodology: Hitchens et al. 2013"
+            text="Expected = area × SPC probability ÷ 5,077 km² (25-mi circle)  |  Hitchens et al. 2013"
         )
         await interaction.followup.send(embed=embed)
 

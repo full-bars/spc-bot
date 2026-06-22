@@ -341,33 +341,43 @@ class AnalyticsCog(commands.Cog):
             timestamp=now,
         )
 
-        # Tornado
+        # Tornado — severity and confidence combined into one compact block
         tor_val = (
             f"**Total:** {tor['total']}\n"
-            f"🚨 Emergencies: {tor['emergency']}\n"
-            f"⚠️ PDS: {tor['pds']}\n"
-            f"Standard: {tor['standard']}\n"
-            f"\n🔴 Observed/Confirmed: {tor['observed']}\n"
-            f"📡 Radar Indicated: {tor['radar_indicated']}"
+            f"**Severity:** {tor['emergency']}🚨 / {tor['pds']}⚠️ PDS / {tor['standard']} std\n"
+            f"**Confidence:** {tor['observed']}🔴 obs / {tor['radar_indicated']}📡 RI"
         )
         embed.add_field(name="🌪️ Tornado Warnings", value=tor_val, inline=True)
 
         # Severe Tstorm
-        svr_val = (
-            f"**Total:** {svr['total']}\n"
-            f"🚨 Destructive: {svr['destructive']}\n"
-            f"⚠️ Considerable: {svr['considerable']}\n"
-            f"Standard: {svr['standard']}"
+        def _tag(n: int, emoji: str, label: str) -> str:
+            return f"{n}{emoji} {label}" if n > 0 else ""
+
+        svr_tags = " · ".join(
+            filter(
+                None,
+                [
+                    _tag(svr["destructive"], "🚨", "dest"),
+                    _tag(svr["considerable"], "⚠️", "cons"),
+                    f"{svr['standard']} std",
+                ],
+            )
         )
-        embed.add_field(name="⛈️ Severe Tstorm Warnings", value=svr_val, inline=True)
+        svr_val = f"**Total:** {svr['total']}\n**Tag:** {svr_tags}"
+        embed.add_field(name="⛈️ Severe Tstorm", value=svr_val, inline=True)
 
         # Flash Flood
-        ffw_val = (
-            f"**Total:** {ffw['total']}\n"
-            f"🚨 Emergencies: {ffw['emergency']}\n"
-            f"Standard: {ffw['standard']}"
+        ffw_tags = " · ".join(
+            filter(
+                None,
+                [
+                    _tag(ffw["emergency"], "🚨", "emerg"),
+                    f"{ffw['standard']} std",
+                ],
+            )
         )
-        embed.add_field(name="🌊 Flash Flood Warnings", value=ffw_val, inline=True)
+        ffw_val = f"**Total:** {ffw['total']}\n**Tag:** {ffw_tags}"
+        embed.add_field(name="🌊 Flash Flood", value=ffw_val, inline=True)
 
         embed.set_footer(text="SPC Bot Warning Tracker")
         await interaction.followup.send(embed=embed)
