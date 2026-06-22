@@ -881,8 +881,6 @@ async def backfill_warning_severity(days: int = 7):
         f"&limit=500&start={start}&end={end}"
     )
 
-    from utils.http import _get_next_url
-
     url = base_url
     updated = 0
 
