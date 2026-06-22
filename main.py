@@ -302,14 +302,6 @@ async def setup_hook():
     if should_run_primary:
         for ext in ALL_EXTENSIONS:
             await bot.load_extension(ext)
-
-        # Backfill warning severity for existing warnings via IEM archive
-        try:
-            from utils.db import backfill_warning_severity
-
-            asyncio.create_task(backfill_warning_severity(days=7))
-        except Exception as e:
-            logger.warning(f"Startup backfill skipped: {e}")
     else:
         logger.info("Running as STANDBY — cogs suppressed until promoted")
 
