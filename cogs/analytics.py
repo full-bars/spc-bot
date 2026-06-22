@@ -348,7 +348,7 @@ class AnalyticsCog(commands.Cog):
             f"⚠️ PDS: {tor['pds']}\n"
             f"🔴 Confirmed: {tor['observed']}\n"
             f"📡 Radar Indicated: {tor['radar_indicated']}\n"
-            f"Baseline: {tor['standard']}"
+            f"TOR: {tor['standard']}"
         )
         embed.add_field(name="🌪️ Tornado Warnings", value=tor_val, inline=True)
 
@@ -357,7 +357,7 @@ class AnalyticsCog(commands.Cog):
             f"**{svr['total']}** total\n"
             f"🚨 SVR D: {svr['destructive']}\n"
             f"⚠️ SVR C: {svr['considerable']}\n"
-            f"Baseline: {svr['standard']}"
+            f"SVR: {svr['standard']}"
         )
         embed.add_field(name="⛈️ Severe Tstorm", value=svr_val, inline=True)
 
@@ -366,7 +366,7 @@ class AnalyticsCog(commands.Cog):
             f"**{ffw['total']}** total\n"
             f"🚨 FFE: {ffw['emergency']}\n"
             f"⚠️ FFW-C: {ffw['considerable']}\n"
-            f"Baseline: {ffw['standard']}"
+            f"FFW: {ffw['standard']}"
         )
         embed.add_field(name="🌊 Flash Flood", value=ffw_val, inline=True)
 
