@@ -264,7 +264,8 @@ def get_tornado_attributes(
       - confidence: "observed" or "radar_indicated" (None if not a tornado warning)
       - severity: "emergency", "pds", or "standard" (None if not a tornado warning)
     """
-    if event != "Tornado Warning":
+    base_event = event.split(" (")[0].split(" — ")[0]
+    if base_event != "Tornado Warning":
         return None, None
 
     text_upper = (text or "").upper()
@@ -300,8 +301,10 @@ def get_warning_severity(event: str, text: str, params: dict = None) -> Optional
     flash flood → 'standard' | 'emergency'
     """
     text_upper = (text or "").upper()
+    # Strip display suffixes like "(PDS)", "(Emergency)" so base name matches
+    base_event = event.split(" (")[0].split(" — ")[0]
 
-    if event == "Tornado Warning":
+    if base_event == "Tornado Warning":
         if "TORNADO EMERGENCY" in text_upper:
             return "emergency"
         if "PARTICULARLY DANGEROUS SITUATION" in text_upper:
@@ -314,7 +317,7 @@ def get_warning_severity(event: str, text: str, params: dict = None) -> Optional
                 return "pds"
         return "standard"
 
-    if event == "Severe Thunderstorm Warning":
+    if base_event == "Severe Thunderstorm Warning":
         if "THUNDERSTORM DAMAGE THREAT...DESTRUCTIVE" in text_upper:
             return "destructive"
         if "THUNDERSTORM DAMAGE THREAT...CONSIDERABLE" in text_upper:
@@ -327,7 +330,7 @@ def get_warning_severity(event: str, text: str, params: dict = None) -> Optional
                 return "considerable"
         return "standard"
 
-    if event == "Flash Flood Warning":
+    if base_event == "Flash Flood Warning":
         if "FLASH FLOOD EMERGENCY" in text_upper:
             return "emergency"
         if params:
