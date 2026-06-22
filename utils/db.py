@@ -847,10 +847,12 @@ async def prune_posted_warnings(max_size: int = 500):
 
 
 async def backfill_warning_severity(days: int = 7):
-    """Fetch expired warnings from NWS API and backfill severity + raw_text for
-    rows where raw_text is NULL. Runs once on startup."""
+    """Query IEM VTEC events API for recent warnings and backfill severity + raw_text
+    for rows where raw_text is NULL."""
     from cogs.warning_format import get_warning_severity
-    from utils.http import http_get_bytes
+    from utils.http import http_get_bytes, http_get_text
+    import json
+    from datetime import datetime, timezone
 
     try:
         async with get_read_db() as db:
@@ -861,73 +863,87 @@ async def backfill_warning_severity(days: int = 7):
         logger.warning("[BACKFILL] Could not query posted_warnings (migrating?)")
         return
 
-    vtec_ids = {r[0] for r in rows}
-    if not vtec_ids:
+    missing = {r[0] for r in rows}
+    if not missing:
         logger.info("[BACKFILL] No warnings need backfill")
         return
 
-    logger.info(f"[BACKFILL] {len(vtec_ids)} warnings need severity backfill")
+    # Build set of expected VTEC IDs: K{wfo}.{phen}.{sig}.{etn:04d}
+    # so we can match IEM events quickly
+    logger.info(f"[BACKFILL] {len(missing)} warnings need backfill from IEM")
 
-    import json
-    from datetime import datetime, timedelta, timezone
-
-    now = datetime.now(timezone.utc)
-    start = (now - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    end = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    base_url = (
-        "https://api.weather.gov/alerts?"
-        f"status=expired&event=Tornado%20Warning,Severe%20Thunderstorm%20Warning,Flash%20Flood%20Warning"
-        f"&limit=500&start={start}&end={end}"
-    )
-
-    url = base_url
     updated = 0
+    now = datetime.now(timezone.utc)
+    for months_back in range(3):  # check up to 3 months
+        y = now.year
+        mo = now.month - months_back
+        if mo < 1:
+            mo += 12
+            y -= 1
 
-    while url and vtec_ids:
-        content, status = await http_get_bytes(url, retries=2, timeout=30)
-        if not content or status != 200:
-            logger.warning(f"[BACKFILL] NWS API returned {status}")
-            break
-
-        data = json.loads(content)
-        features = data.get("features", [])
-        logger.info(f"[BACKFILL] Processing {len(features)} warnings (pagination)...")
-
-        for f in features:
-            props = f.get("properties", {})
-            params = (props.get("parameters") or {}) or {}
-            vtec_list = params.get("VTEC") or []
-            if not vtec_list:
+        for phen in ("TO", "SV", "FF"):
+            url = (
+                f"https://mesonet.agron.iastate.edu/json/vtec_events.py"
+                f"?phenomena={phen}&significance=W&year={y}&month={mo}&limit=500"
+            )
+            content, status = await http_get_bytes(url, retries=2, timeout=20)
+            if not content or status != 200:
                 continue
 
-            # VTEC: /O.{action}.{office}.{phenom}.{sig}.{etn}
-            parts = vtec_list[0].split(".")
-            if len(parts) < 6:
-                continue
-            vtec_id = f"{parts[2]}.{parts[3]}.{parts[4]}.{parts[5]}"
-
-            if vtec_id not in vtec_ids:
+            data = json.loads(content)
+            events = data.get("events", [])
+            if not events:
                 continue
 
-            event = props.get("event", "")
-            description = props.get("description", "") or ""
-            severity = get_warning_severity(event, description, params)
-            if event:
-                await _write(
-                    "UPDATE posted_warnings SET severity = ?, raw_text = ? WHERE vtec_id = ?",
-                    (severity, description[:5000], vtec_id),
-                    f"backfill({vtec_id})",
-                )
-                updated += 1
-                vtec_ids.discard(vtec_id)
+            for ev in events:
+                wfo = ev.get("wfo", "")
+                eventid = ev.get("eventid")
+                if not wfo or eventid is None:
+                    continue
+                vtec_id = f"K{wfo}.{phen}.W.{int(eventid):04d}"
+                if vtec_id not in missing:
+                    continue
 
-        # Next page (NWS API uses pagination.next in response)
-        url = data.get("pagination", {}).get("next")
+                # Fetch product text from IEM VTEC page
+                vtec_url = f"https://mesonet.agron.iastate.edu/vtec/f/{y}/{wfo}/{phen}/W/{int(eventid):04d}"
+                html = await http_get_text(vtec_url, retries=1, timeout=15)
+                if not html:
+                    continue
+
+                # Extract the raw product text from the IEM page
+                import re
+
+                text_match = re.search(r"<pre[^>]*>(.*?)</pre>", html, re.DOTALL | re.IGNORECASE)
+                raw_text = text_match.group(1) if text_match else ""
+
+                if not raw_text:
+                    continue
+
+                # Determine severity from the event type + text
+                event_display = ""
+                if phen == "TO":
+                    event_display = "Tornado Warning"
+                elif phen == "SV":
+                    event_display = "Severe Thunderstorm Warning"
+                elif phen == "FF":
+                    event_display = "Flash Flood Warning"
+
+                severity = get_warning_severity(event_display, raw_text)
+                if severity:
+                    await _write(
+                        "UPDATE posted_warnings SET severity = ?, raw_text = ? WHERE vtec_id = ?",
+                        (severity, raw_text[:5000], vtec_id),
+                        f"backfill({vtec_id})",
+                    )
+                    updated += 1
+                    missing.discard(vtec_id)
+
+                    if updated % 50 == 0:
+                        logger.info(f"[BACKFILL] {updated} warnings updated so far...")
 
     logger.info(f"[BACKFILL] Updated {updated} warnings with severity")
-    if vtec_ids:
-        logger.info(f"[BACKFILL] {len(vtec_ids)} warnings unmatched in NWS response")
+    if missing:
+        logger.info(f"[BACKFILL] {len(missing)} warnings still unmatched")
 
 
 # ── Soundings ─────────────────────────────────────────────────────────────────
