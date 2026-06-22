@@ -620,6 +620,27 @@ async def remove_posted_product_id(product_id: str):
 # ── Posted warnings ───────────────────────────────────────────────────────────
 
 
+async def get_all_posted_warnings() -> dict:
+    """Get all posted warning mappings: {vtec_id: {'message_id': ..., 'channel_id': ..., 'area': ...}}."""
+    try:
+        async with get_read_db() as db:
+            async with db.execute(
+                "SELECT vtec_id, message_id, channel_id, area FROM posted_warnings"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return {
+                    row["vtec_id"]: {
+                        "message_id": row["message_id"],
+                        "channel_id": row["channel_id"],
+                        "area": row["area"],
+                    }
+                    for row in rows
+                }
+    except Exception as e:
+        logger.warning(f"get_all_posted_warnings failed: {e}")
+        return {}
+
+
 async def get_warning_stats(
     since: Optional[float] = None,
 ) -> dict:
@@ -761,6 +782,7 @@ async def add_posted_warning(
             tornado_severity,
             severity,
         ),
+        f"add_posted_warning({vtec_id})",
     )
 
 
