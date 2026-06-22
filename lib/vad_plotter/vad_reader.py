@@ -19,6 +19,7 @@ logger = logging.getLogger("spc_bot.vad_reader")
 # Rust core fallback
 try:
     import spc_rust_core
+
     RUST_AVAILABLE = True
     logger.info("VAD engine initialized: using Rust hybrid core")
 except ImportError:
@@ -28,6 +29,7 @@ except ImportError:
 _base_url = "https://tgftp.nws.noaa.gov/SL.us008001/DF.of/DC.radar/DS.48vwp"
 _S3_BUCKET = os.getenv("VAD_S3_BUCKET", "unidata-nexrad-level3")
 
+
 def _normalize_nids_bytes(raw_bytes: bytes) -> bytes:
     """
     Ensure the incoming bytes are raw NIDS Product 48, unwrapped and decompressed.
@@ -36,6 +38,7 @@ def _normalize_nids_bytes(raw_bytes: bytes) -> bytes:
     if raw_bytes.startswith(b"\x1f\x8b"):
         try:
             import gzip
+
             raw_bytes = gzip.decompress(raw_bytes)
             logger.debug(f"Decompressed Gzip payload: {len(raw_bytes)} bytes")
         except Exception as e:
@@ -45,13 +48,13 @@ def _normalize_nids_bytes(raw_bytes: bytes) -> bytes:
             # Find the first occurrence of either header
             idx_da = raw_bytes.find(b"\x78\xda")
             idx_9c = raw_bytes.find(b"\x78\x9c")
-            
+
             # Determine which one comes first (if both present, very unlikely in first 100)
             if idx_da != -1 and idx_9c != -1:
                 offset = min(idx_da, idx_9c)
             else:
                 offset = idx_da if idx_da != -1 else idx_9c
-            
+
             raw_bytes = zlib.decompress(raw_bytes[offset:])
             logger.debug(f"Decompressed Zlib payload: {len(raw_bytes)} bytes")
         except Exception as e:
@@ -81,11 +84,11 @@ def _normalize_nids_bytes(raw_bytes: bytes) -> bytes:
         # Fallback to Python loop if Rust failed or is unavailable
         for i in range(200):
             if i + 2 <= len(raw_bytes):
-                val = struct.unpack(">h", raw_bytes[i:i+2])[0]
+                val = struct.unpack(">h", raw_bytes[i : i + 2])[0]
                 if val == 48:
                     # Potential match. Verify if the Message Code at -30 bytes is also 48.
                     if i >= 30:
-                        msg_code = struct.unpack(">h", raw_bytes[i-30:i-30+2])[0]
+                        msg_code = struct.unpack(">h", raw_bytes[i - 30 : i - 30 + 2])[0]
                         if msg_code == 48:
                             found_offset = i
                             break
@@ -95,22 +98,23 @@ def _normalize_nids_bytes(raw_bytes: bytes) -> bytes:
         # (30 WMO + 18 Msg Header + 12 PDB prefix).
         # We will strip whatever is there and prepend exactly 30 dummy bytes
         # so the existing _read_headers (which skips 30) works perfectly.
-        nids_start = found_offset - 30 # Start of Message Header
+        nids_start = found_offset - 30  # Start of Message Header
         payload = raw_bytes[nids_start:]
         return b"A" * 30 + payload
 
     return raw_bytes
 
+
 from collections.abc import Mapping
 
 
 class VADFile(Mapping):
-    fields = ['wind_dir', 'wind_spd', 'rms_error', 'divergence', 'slant_range', 'elev_angle']
+    fields = ["wind_dir", "wind_spd", "rms_error", "divergence", "slant_range", "elev_angle"]
 
     def __init__(self, file_or_bytes: Union[bytes, bytearray, BytesIO, Any]) -> None:
         if isinstance(file_or_bytes, (bytes, bytearray)):
             data = file_or_bytes
-        elif hasattr(file_or_bytes, 'read'):
+        elif hasattr(file_or_bytes, "read"):
             data = file_or_bytes.read()
         else:
             data = bytes(file_or_bytes)
@@ -118,10 +122,12 @@ class VADFile(Mapping):
         normalized = _normalize_nids_bytes(data)
         self._rpg = BytesIO(normalized)
         self._data: Optional[Dict[str, np.ndarray]] = None
-        self.rid: str = "" # Should be set externally or parsed
+        self.rid: str = ""  # Should be set externally or parsed
 
         self._read_headers()
-        has_symbology_block, has_graphic_block, has_tabular_block = self._read_product_description_block()
+        has_symbology_block, has_graphic_block, has_tabular_block = (
+            self._read_product_description_block()
+        )
 
         if has_symbology_block:
             self._read_product_symbology_block()
@@ -137,68 +143,68 @@ class VADFile(Mapping):
         return
 
     def _read_headers(self) -> None:
-        wmo_header = self._read('s30')
+        wmo_header = self._read("s30")
 
-        message_code = self._read('h')
-        message_date = self._read('h')
-        message_time = self._read('i')
-        message_length = self._read('i')
-        source_id = self._read('h')
-        dest_id = self._read('h')
-        num_blocks = self._read('h')
+        message_code = self._read("h")
+        message_date = self._read("h")
+        message_time = self._read("i")
+        message_length = self._read("i")
+        source_id = self._read("h")
+        dest_id = self._read("h")
+        num_blocks = self._read("h")
 
         return
 
     def _read_product_description_block(self) -> Tuple[bool, bool, bool]:
-        self._read('h')
-        self._radar_latitude  = self._read('i') / 1000.
-        self._radar_longitude = self._read('i') / 1000.
-        self._radar_elevation = self._read('h')
+        self._read("h")
+        self._radar_latitude = self._read("i") / 1000.0
+        self._radar_longitude = self._read("i") / 1000.0
+        self._radar_elevation = self._read("h")
 
-        product_code = self._read('h')
+        product_code = self._read("h")
         if product_code != 48:
             raise IOError("This isn't a VWP file.")
 
-        operational_mode    = self._read('h')
-        self._vcp           = self._read('h')
-        req_sequence_number = self._read('h')
-        vol_sequence_number = self._read('h')
+        operational_mode = self._read("h")
+        self._vcp = self._read("h")
+        req_sequence_number = self._read("h")
+        vol_sequence_number = self._read("h")
 
-        scan_date    = self._read('h')
-        scan_time    = self._read('i')
-        product_date = self._read('h')
-        product_time = self._read('i')
+        scan_date = self._read("h")
+        scan_time = self._read("i")
+        product_date = self._read("h")
+        product_time = self._read("i")
 
-        self._read('h')
-        self._read('h')
-        self._read('h')
-        self._read('h')
-        self._read('16h')
-        self._read('7h')
+        self._read("h")
+        self._read("h")
+        self._read("h")
+        self._read("h")
+        self._read("16h")
+        self._read("7h")
 
-        version    = self._read('b')
-        spot_blank = self._read('b')
+        version = self._read("b")
+        spot_blank = self._read("b")
 
-        offset_symbology = self._read('i')
-        offset_graphic   = self._read('i')
-        self._tabular_offset = self._read('i')
+        offset_symbology = self._read("i")
+        offset_graphic = self._read("i")
+        self._tabular_offset = self._read("i")
 
         self._time = datetime(1969, 12, 31, 0, 0, 0) + timedelta(days=scan_date, seconds=scan_time)
 
         return offset_symbology > 0, offset_graphic > 0, self._tabular_offset > 0
 
     def _read_product_symbology_block(self) -> None:
-        self._read('h')
-        block_id = self._read('h')
+        self._read("h")
+        block_id = self._read("h")
 
         if block_id != 1:
             raise IOError("This isn't the product symbology block.")
 
-        block_length    = self._read('i')
-        num_layers      = self._read('h')
-        layer_separator = self._read('h')
-        layer_num_bytes = self._read('i')
-        block_data      = self._read('%dh' % int(layer_num_bytes / struct.calcsize('h')))
+        block_length = self._read("i")
+        num_layers = self._read("h")
+        layer_separator = self._read("h")
+        layer_num_bytes = self._read("i")
+        block_data = self._read("%dh" % int(layer_num_bytes / struct.calcsize("h")))
 
         packet_code = -1
         packet_size = -1
@@ -213,14 +219,16 @@ class VADFile(Mapping):
                 packet_counter = 0
             elif packet_value == -1:
                 packet_value = item
-                packet_counter += struct.calcsize('h')
+                packet_counter += struct.calcsize("h")
             else:
                 packet.append(item)
-                packet_counter += struct.calcsize('h')
+                packet_counter += struct.calcsize("h")
 
                 if packet_counter == packet_size:
                     if packet_code == 8:
-                        str_data = struct.pack('>%dh' % int(packet_size / struct.calcsize('h') - 3), *packet[2:])
+                        str_data = struct.pack(
+                            ">%dh" % int(packet_size / struct.calcsize("h") - 3), *packet[2:]
+                        )
                     elif packet_code == 4:
                         pass
 
@@ -232,70 +240,70 @@ class VADFile(Mapping):
         return
 
     def _read_tabular_block(self) -> None:
-        self._read('h')
-        block_id = self._read('h')
+        self._read("h")
+        block_id = self._read("h")
         if block_id != 3:
             raise IOError("This isn't the tabular block.")
 
-        block_size = self._read('i')
+        block_size = self._read("i")
 
-        self._read('h')
-        self._read('h')
-        self._read('i')
-        self._read('i')
-        self._read('h')
-        self._read('h')
-        self._read('h')
+        self._read("h")
+        self._read("h")
+        self._read("i")
+        self._read("i")
+        self._read("h")
+        self._read("h")
+        self._read("h")
 
-        self._read('h')
-        self._read('i')
-        self._read('i')
-        self._read('h')
-        product_code = self._read('h')
+        self._read("h")
+        self._read("i")
+        self._read("i")
+        self._read("h")
+        product_code = self._read("h")
 
-        operational_mode    = self._read('h')
-        vcp                 = self._read('h')
-        req_sequence_number = self._read('h')
-        vol_sequence_number = self._read('h')
+        operational_mode = self._read("h")
+        vcp = self._read("h")
+        req_sequence_number = self._read("h")
+        vol_sequence_number = self._read("h")
 
-        scan_date    = self._read('h')
-        scan_time    = self._read('i')
-        product_date = self._read('h')
-        product_time = self._read('i')
+        scan_date = self._read("h")
+        scan_time = self._read("i")
+        product_date = self._read("h")
+        product_time = self._read("i")
 
-        self._read('h')
-        self._read('h')
-        self._read('h')
-        self._read('h')
-        self._read('16h')
-        self._read('7h')
+        self._read("h")
+        self._read("h")
+        self._read("h")
+        self._read("h")
+        self._read("16h")
+        self._read("7h")
 
-        version    = self._read('b')
-        spot_blank = self._read('b')
+        version = self._read("b")
+        spot_blank = self._read("b")
 
-        offset_symbology = self._read('i')
-        offset_graphic   = self._read('i')
-        offset_tabular   = self._read('i')
+        offset_symbology = self._read("i")
+        offset_graphic = self._read("i")
+        offset_tabular = self._read("i")
 
-        self._read('h')
-        num_pages = self._read('h')
+        self._read("h")
+        num_pages = self._read("h")
         self._text_message = []
         for idx in range(num_pages):
-            num_chars = self._read('h')
+            num_chars = self._read("h")
             self._text_message.append([])
             while num_chars != -1:
                 self._text_message[-1].append(self._read("s%d" % num_chars))
-                num_chars = self._read('h')
+                num_chars = self._read("h")
 
         return
 
     def _read(self, type_string: str) -> Any:
-        if type_string[0] != 's':
+        if type_string[0] != "s":
             size = struct.calcsize(type_string)
             data = struct.unpack(">%s" % type_string, self._rpg.read(size))
         else:
             size = int(type_string[1:])
-            data = tuple([ self._rpg.read(size).strip(b"\0").decode('utf-8') ])
+            data = tuple([self._rpg.read(size).strip(b"\0").decode("utf-8")])
 
         if len(data) == 1:
             return data[0]
@@ -307,7 +315,7 @@ class VADFile(Mapping):
         if RUST_AVAILABLE:
             try:
                 # Seek to tabular block offset in the original stream
-                offset_tabular = self._tabular_offset if hasattr(self, '_tabular_offset') else 0
+                offset_tabular = self._tabular_offset if hasattr(self, "_tabular_offset") else 0
 
                 # Get the raw bytes from the BytesIO object
                 self._rpg.seek(0)
@@ -321,7 +329,9 @@ class VADFile(Mapping):
                     # Convert list values to numpy arrays for compatibility
                     return {k: np.array(v) for k, v in res.items()}
                 else:
-                    logger.warning(f"Rust parse_vwp_tabular_data returned None for offset {abs_offset}")
+                    logger.warning(
+                        f"Rust parse_vwp_tabular_data returned None for offset {abs_offset}"
+                    )
             except Exception as e:
                 logger.warning(f"Rust parse_vwp_tabular_data failed: {e}. Falling back to Python.")
 
@@ -336,37 +346,44 @@ class VADFile(Mapping):
 
         for line in vad_list:
             values = line.strip().split()
-            data['wind_dir'].append(float(values[4]))
-            data['wind_spd'].append(float(values[5]))
-            data['rms_error'].append(float(values[6]))
-            data['divergence'].append(float(values[7]) if values[7] != 'NA' else np.nan)
-            data['slant_range'].append(float(values[8]))
-            data['elev_angle'].append(float(values[9]))
+            data["wind_dir"].append(float(values[4]))
+            data["wind_spd"].append(float(values[5]))
+            data["rms_error"].append(float(values[6]))
+            data["divergence"].append(float(values[7]) if values[7] != "NA" else np.nan)
+            data["slant_range"].append(float(values[8]))
+            data["elev_angle"].append(float(values[9]))
 
         for key, val in data.items():
             data[key] = np.array(val)
 
-        data['slant_range'] *= 6067.1 / 3281.
+        data["slant_range"] *= 6067.1 / 3281.0
 
-        r_e = 4. / 3. * 6371
-        data['altitude'] = np.sqrt(r_e ** 2 + data['slant_range'] ** 2 + 2 * r_e * data['slant_range'] * np.sin(np.radians(data['elev_angle']))) - r_e
+        r_e = 4.0 / 3.0 * 6371
+        data["altitude"] = (
+            np.sqrt(
+                r_e**2
+                + data["slant_range"] ** 2
+                + 2 * r_e * data["slant_range"] * np.sin(np.radians(data["elev_angle"]))
+            )
+            - r_e
+        )
 
-        order = np.argsort(data['altitude'])
+        order = np.argsort(data["altitude"])
         for key, val in data.items():
             data[key] = val[order]
         return data
 
     def __getitem__(self, key: str) -> Any:
-        if key == 'time':
+        if key == "time":
             val = self._time
-        elif key == 'rid':
+        elif key == "rid":
             val = self.rid
         else:
-            val = self._data[key] # type: ignore
+            val = self._data[key]  # type: ignore
         return val
 
     def __iter__(self):
-        keys = ['time', 'rid']
+        keys = ["time", "rid"]
         if self._data:
             keys.extend(self._data.keys())
         return iter(keys)
@@ -377,11 +394,12 @@ class VADFile(Mapping):
     def add_surface_wind(self, sfc_wind: Tuple[float, float]) -> None:
         sfc_dir, sfc_spd = sfc_wind
 
-        keys = ['wind_dir', 'wind_spd', 'rms_error', 'altitude']
-        vals = [float(sfc_dir), float(sfc_spd), 0., 0.01]
+        keys = ["wind_dir", "wind_spd", "rms_error", "altitude"]
+        vals = [float(sfc_dir), float(sfc_spd), 0.0, 0.01]
 
         for key, val in zip(keys, vals):
-            self._data[key] = np.append(val, self._data[key]) # type: ignore
+            self._data[key] = np.append(val, self._data[key])  # type: ignore
+
 
 import aioboto3
 import botocore
@@ -394,28 +412,26 @@ async def _list_s3_vad_times(rid: str) -> List[Tuple[str, datetime]]:
     # unidata-nexrad-level3 primarily uses 3-letter ICAO codes (omits leading K).
     # e.g. KTLX -> TLX.
     site_candidates = [rid.upper()]
-    if rid.upper().startswith('K') and len(rid) == 4:
+    if rid.upper().startswith("K") and len(rid) == 4:
         site_candidates.append(rid[1:].upper())
 
     now = datetime.now(timezone.utc)
     session = aioboto3.Session()
-    
+
     try:
         async with session.client(
-            "s3",
-            config=Config(signature_version=botocore.UNSIGNED),
-            region_name="us-east-1"
+            "s3", config=Config(signature_version=botocore.UNSIGNED), region_name="us-east-1"
         ) as s3:
             results = []
             # Check last 3 days
             for i in range(3):
                 dt = now - timedelta(days=i)
-                date_str = dt.strftime('%Y_%m_%d')
-                
+                date_str = dt.strftime("%Y_%m_%d")
+
                 for site_id in site_candidates:
                     prefix = f"{site_id}_NVW_{date_str}"
                     response = await s3.list_objects_v2(Bucket=_S3_BUCKET, Prefix=prefix)
-                    
+
                     if "Contents" in response:
                         for obj in response["Contents"]:
                             key = obj["Key"]
@@ -424,13 +440,15 @@ async def _list_s3_vad_times(rid: str) -> List[Tuple[str, datetime]]:
                                 if not key.startswith(f"{site_id}_NVW"):
                                     continue
                                 ts_str = "_".join(key.split("_")[2:])
-                                ts = datetime.strptime(ts_str, "%Y_%m_%d_%H_%M_%S").replace(tzinfo=timezone.utc)
+                                ts = datetime.strptime(ts_str, "%Y_%m_%d_%H_%M_%S").replace(
+                                    tzinfo=timezone.utc
+                                )
                                 results.append((key, ts))
                             except (ValueError, IndexError):
                                 continue
-                
+
                 # If we found data for this day, we can probably stop unless we need more
-                if results and i >= 1: # Found data for at least yesterday
+                if results and i >= 1:  # Found data for at least yesterday
                     break
 
             # Sort newest first
@@ -439,6 +457,7 @@ async def _list_s3_vad_times(rid: str) -> List[Tuple[str, datetime]]:
         logger.warning(f"[VAD] S3 listing failed for {rid}: {e}")
         return []
 
+
 async def find_file_times(rid: str) -> List[Tuple[str, datetime]]:
     host = "tgftp.nws.noaa.gov"
 
@@ -446,9 +465,11 @@ async def find_file_times(rid: str) -> List[Tuple[str, datetime]]:
     if not circuit_breaker.is_open(host):
         url = "%s/SI.%s/" % (_base_url, rid.lower())
         try:
-            file_text = await http_get_text(url, timeout=10)
+            file_text = await http_get_text(url, timeout=3)
             if file_text:
-                file_list = re.findall(r"([\w]{3} [\d]{1,2} [\d]{2}:[\d]{2}) (sn.[\d]{4})", file_text)
+                file_list = re.findall(
+                    r"([\w]{3} [\d]{1,2} [\d]{2}:[\d]{2}) (sn.[\d]{4})", file_text
+                )
                 if file_list:
                     file_times_raw, file_names_raw = list(zip(*file_list))
                     file_names = list(file_names_raw)
@@ -470,7 +491,7 @@ async def find_file_times(rid: str) -> List[Tuple[str, datetime]]:
                     file_names = list(file_names_sorted)
 
                     file_names[:-1] = file_names[1:]
-                    file_names[-1] = 'sn.last'
+                    file_names[-1] = "sn.last"
 
                     return list(zip(file_names, file_dts_sorted))[::-1]
         except Exception as e:
@@ -480,6 +501,7 @@ async def find_file_times(rid: str) -> List[Tuple[str, datetime]]:
     # Fallback to S3
     logger.info(f"[VAD] Falling back to S3 listing for {rid}")
     return await _list_s3_vad_times(rid)
+
 
 async def download_vad(
     rid: str,
@@ -502,7 +524,9 @@ async def download_vad(
             file_name = ""
             times = await find_file_times(rid)
             # Filter for TGFTP filenames (sn.*)
-            tgftp_times = [(fn, ft) for fn, ft in times if isinstance(fn, str) and fn.startswith("sn.")]
+            tgftp_times = [
+                (fn, ft) for fn, ft in times if isinstance(fn, str) and fn.startswith("sn.")
+            ]
             for fn, ft in tgftp_times:
                 # Ensure ft is naive for comparison if needed
                 ft_naive = ft.replace(tzinfo=None) if ft.tzinfo else ft
@@ -518,7 +542,7 @@ async def download_vad(
 
         if url:
             try:
-                content, status = await http_get_bytes(url, retries=1, timeout=10)
+                content, status = await http_get_bytes(url, retries=0, timeout=3)
                 if status == 200 and content:
                     circuit_breaker.record_success(host)
                 else:
@@ -531,7 +555,7 @@ async def download_vad(
     # Fallback to S3 if TGFTP failed or circuit was open
     if not content:
         logger.info(f"[VAD] Fetching from S3 fallback for {rid}")
-        
+
         # Fast path: If asking for latest, use Rust core zero-copy fetcher if available
         if not time and RUST_AVAILABLE:
             try:
@@ -543,12 +567,14 @@ async def download_vad(
                     vad = VADFile(raw_bytes)
                     vad.rid = rid
                     if cache_path:
-                        iname = build_has_name(rid, vad['time'])
-                        with open("%s/%s" % (cache_path, iname), 'wb') as floc:
+                        iname = build_has_name(rid, vad["time"])
+                        with open("%s/%s" % (cache_path, iname), "wb") as floc:
                             floc.write(raw_bytes)
                     return vad
             except Exception as e:
-                logger.warning(f"[VAD] Rust S3 fetcher failed: {e}. Falling back to Python S3 engine.")
+                logger.warning(
+                    f"[VAD] Rust S3 fetcher failed: {e}. Falling back to Python S3 engine."
+                )
 
         # Standard path (historical or fallback)
         s3_times = await _list_s3_vad_times(rid)
@@ -563,17 +589,15 @@ async def download_vad(
                     target_key = key
                     break
         else:
-            target_key = s3_times[0][0] # Latest
+            target_key = s3_times[0][0]  # Latest
 
         if not target_key:
-             raise ValueError(f"No VAD files before {time} found on S3 for {rid}")
+            raise ValueError(f"No VAD files before {time} found on S3 for {rid}")
 
         session = aioboto3.Session()
         try:
             async with session.client(
-                "s3",
-                config=Config(signature_version=botocore.UNSIGNED),
-                region_name="us-east-1"
+                "s3", config=Config(signature_version=botocore.UNSIGNED), region_name="us-east-1"
             ) as s3:
                 resp = await s3.get_object(Bucket=_S3_BUCKET, Key=target_key)
                 content = await resp["Body"].read()
@@ -584,8 +608,8 @@ async def download_vad(
         vad = VADFile(content)
         vad.rid = rid
         if cache_path:
-            iname = build_has_name(rid, vad['time'])
-            with open("%s/%s" % (cache_path, iname), 'wb') as floc:
+            iname = build_has_name(rid, vad["time"])
+            with open("%s/%s" % (cache_path, iname), "wb") as floc:
                 floc.write(content)
         return vad
 
