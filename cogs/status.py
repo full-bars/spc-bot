@@ -3,7 +3,7 @@ import asyncio
 import logging
 import resource
 import socket
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import aiohttp
@@ -483,6 +483,24 @@ class StatusView(discord.ui.View):
             f"**Cache Hits:** `{ai_hits}` (`{hit_rate:.0f}%`)"
         )
         embed.add_field(name="🧠 AI Subsystem", value=ai_val, inline=True)
+
+        # Warning severity health check
+        try:
+            from utils.db import get_warning_stats
+
+            stats = await get_warning_stats(since=(now - timedelta(hours=6)).timestamp())
+            t, s, f = stats.get("tor", {}), stats.get("svr", {}), stats.get("ffw", {})
+            sev_val = (
+                f"🌪️ {t.get('total', 0)}w"
+                f" · {t.get('emergency', 0)}E {t.get('pds', 0)}PDS {t.get('observed', 0)}🔴 {t.get('radar_indicated', 0)}📡\n"
+                f"⛈️ {s.get('total', 0)}w"
+                f" · {s.get('destructive', 0)}D {s.get('considerable', 0)}C\n"
+                f"🌊 {f.get('total', 0)}w"
+                f" · {f.get('emergency', 0)}E {f.get('considerable', 0)}C"
+            )
+        except Exception as e:
+            sev_val = f"⚠️ Error: {e}"
+        embed.add_field(name="📋 Warning Labels (6h)", value=sev_val, inline=True)
 
         # Cluster status (Primary/Standby nodes)
         cluster_val = await self._get_cluster_status()
