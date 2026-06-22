@@ -197,7 +197,10 @@ async def ensure_sounding_summary(
         #    cache_key, wait for it instead of making a duplicate AI call.
         event = _sounding_inflight.get(cache_key)
         if event:
-            await event.wait()
+            try:
+                await asyncio.wait_for(event.wait(), timeout=10)
+            except asyncio.TimeoutError:
+                return None
             summary = await get_product_cache(cache_key)
             if summary:
                 if redis:
@@ -532,7 +535,8 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
 
             if not summary:
                 await interaction.followup.send(
-                    "Failed to generate AI analysis or data expired.", ephemeral=True
+                    "AI analysis is still being generated. Click the button again in a moment.",
+                    ephemeral=True,
                 )
                 return
 
