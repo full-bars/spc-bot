@@ -492,7 +492,7 @@ class StatusView(discord.ui.View):
             t, s, f = stats.get("tor", {}), stats.get("svr", {}), stats.get("ffw", {})
             sev_val = (
                 f"🌪️ **{t.get('total', 0)}** tor"
-                f" · {t.get('emergency', 0)} TORE {t.get('pds', 0)} TORP {t.get('observed', 0)} ✅ {t.get('radar_indicated', 0)} 📡\n"
+                f" · {t.get('emergency', 0)} TORE {t.get('pds', 0)} TORP {t.get('observed', 0)} TORR {t.get('radar_indicated', 0)} TOR\n"
                 f"⛈️ **{s.get('total', 0)}** svr"
                 f" · {s.get('destructive', 0)} SVRD {s.get('considerable', 0)} SVRC\n"
                 f"🌊 **{f.get('total', 0)}** ffw"
