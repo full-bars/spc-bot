@@ -15,7 +15,7 @@ class TestValidateImageCacheBatch:
     def sample_images(self):
         """Sample image data for testing."""
         # Valid image: > 2048 bytes
-        valid_image = b"PNG\x89\x50" + b"\x00" * 3000
+        valid_image = b"\x89PNG\r\n\x1a\n" + b"\x00" * 3000
 
         # Placeholder: < 2048 bytes
         placeholder = b"<html>Not Found</html>"
@@ -82,15 +82,19 @@ class TestValidateImageCacheBatch:
 
     def test_large_batch(self):
         """Should handle large batches efficiently."""
-        items = [(f"https://example.com/image{i}.png", b"data" * 1000) for i in range(100)]
+        items = [
+            (f"https://example.com/image{i}.png", b"\x89PNG\r\n\x1a\n" + b"data" * 1000)
+            for i in range(100)
+        ]
         results = validate_image_cache_batch(items)
         assert len(results) == 100
 
     def test_placeholder_threshold_boundary(self):
         """Should correctly apply 2048 byte threshold."""
-        exact_threshold = b"x" * 2048
-        below_threshold = b"x" * 2047
-        above_threshold = b"x" * 2049
+        png_header = b"\x89PNG\r\n\x1a\n"
+        exact_threshold = png_header + b"x" * (2048 - len(png_header))
+        below_threshold = png_header + b"x" * (2047 - len(png_header))
+        above_threshold = png_header + b"x" * (2049 - len(png_header))
 
         batch = [
             ("exact", exact_threshold),

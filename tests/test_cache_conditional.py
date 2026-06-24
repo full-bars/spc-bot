@@ -31,7 +31,7 @@ async def test_first_poll_sends_no_conditional_headers(monkeypatch):
     async def _fake_conditional(url, etag=None, last_modified=None, **kw):
         called_with["etag"] = etag
         called_with["last_modified"] = last_modified
-        return (b"x" * 3000, 200, {"etag": '"v1"', "last_modified": ""})
+        return (b"\x89PNG\r\n\x1a\n" + b"x" * 3000, 200, {"etag": '"v1"', "last_modified": ""})
 
     monkeypatch.setattr(cache, "http_get_bytes_conditional", _fake_conditional)
     monkeypatch.setattr(cache, "ensure_session", AsyncMock())
@@ -54,7 +54,7 @@ async def test_second_poll_echoes_stored_validators(monkeypatch):
         calls.append({"etag": etag, "last_modified": last_modified})
         if len(calls) == 1:
             return (
-                b"x" * 3000,
+                b"\x89PNG\r\n\x1a\n" + b"x" * 3000,
                 200,
                 {"etag": '"v1"', "last_modified": "Wed, 01 Jan 2025 00:00:00 GMT"},
             )
