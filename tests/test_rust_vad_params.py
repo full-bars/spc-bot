@@ -10,7 +10,7 @@ import spc_rust_core
 @pytest.fixture
 def vad_data():
     """Load test.vwp fixture."""
-    with open("test.vwp", "rb") as f:
+    with open("tests/fixtures/test.vwp", "rb") as f:
         vad = VADFile(f.read())
     # Add a dummy surface wind for more interesting calculations
     vad.add_surface_wind((200, 10))
