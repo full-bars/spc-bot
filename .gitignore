@@ -16,3 +16,8 @@ progress.md
 target/
 bot_state.db
 dist/*.whl
+.ruff_cache/
+.mypy_cache/
+*.db
+*.db-shm
+*.db-wal

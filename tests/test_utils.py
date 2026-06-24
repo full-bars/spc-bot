@@ -37,8 +37,12 @@ class TestChangeDetection:
     def test_is_placeholder_image_real(self):
         from utils.change_detection import is_placeholder_image
 
-        assert is_placeholder_image(b"x" * 2048) is False
-        assert is_placeholder_image(b"x" * 50000) is False
+        png_header = b"\x89PNG\r\n\x1a\n"
+        assert is_placeholder_image(png_header + b"x" * 2040) is False
+        assert is_placeholder_image(png_header + b"x" * 50000) is False
+
+        # Invalid magic bytes should be treated as placeholder/invalid
+        assert is_placeholder_image(b"x" * 2048) is True
 
     def test_is_placeholder_image_gif_truncation(self):
         from utils.change_detection import is_placeholder_image
@@ -52,7 +56,8 @@ class TestChangeDetection:
         assert is_placeholder_image(valid_gif) is False
 
         # Non-GIF content with 0x3B at end (should not falsely trigger)
-        non_gif = b"PNG123" + b"\x00" * 3000 + b"\x3b"
+        png_header = b"\x89PNG\r\n\x1a\n"
+        non_gif = png_header + b"\x00" * 3000 + b"\x3b"
         assert is_placeholder_image(non_gif) is False
 
     def test_get_cache_path_for_url(self):

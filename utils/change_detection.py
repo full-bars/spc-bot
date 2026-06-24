@@ -58,16 +58,40 @@ _KNOWN_PLACEHOLDER_HASHES: set[str] = set()
 
 def is_placeholder_image(content: bytes) -> bool:
     """
-    Detect placeholder / stub images from SPC.
+    Detect placeholder / stub images from SPC, or invalid content (e.g. HTML 404s).
 
     Checks file size (< 2048 bytes is almost certainly a placeholder),
     GIF truncation (missing 0x3B trailer byte), and optionally compares
     against known placeholder hashes.
+    Also verifies magic bytes to ensure the content is actually an image.
     """
     if not content:
         return True
     if len(content) < 2048:
         return True
+
+    # Magic bytes check for common image formats
+    is_valid_magic = False
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        is_valid_magic = True
+    elif content.startswith(b"GIF87a") or content.startswith(b"GIF89a"):
+        is_valid_magic = True
+    elif content.startswith(b"\xff\xd8\xff"):
+        is_valid_magic = True
+    elif content.startswith(b"RIFF") and len(content) > 12 and content[8:12] == b"WEBP":
+        is_valid_magic = True
+    elif content.startswith(b"BM"):
+        is_valid_magic = True
+    elif content.lstrip().startswith(b"<svg") or content.lstrip().startswith(b"<?xml"):
+        is_valid_magic = True
+
+    if not is_valid_magic:
+        logger.warning(
+            f"Invalid image magic bytes detected (size={len(content)}). "
+            f"First 10 bytes: {content[:10]!r}. Treating as placeholder/invalid."
+        )
+        return True
+
     if content[:3] == b"GIF" and len(content) >= 6 and content[-1] != 0x3B:
         logger.warning(
             f"Truncated GIF detected: {len(content)} bytes, missing trailer byte (0x3B), "
