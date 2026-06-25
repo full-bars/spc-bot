@@ -32,7 +32,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    needs: [lint]
+    needs: [lint, rust]
     container:
       image: ghcr.io/${{ github.repository }}/ci:latest
       credentials:
