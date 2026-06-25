@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.38.0] - 2026-06-24
+
+### Refactored
+- **Rust Module Split**: Broke the 2194-line monolithic `lib.rs` into 5 focused modules (`vad.rs`, `geo.rs`, `vtec.rs`, `nwws.rs`, `utils.rs`), with `lib.rs` now a thin registry of module declarations and `#[pymodule]` registrations.
+
+### Fixed
+- **Rust Unit Tests**: Restored 25 Rust unit tests that were dropped during the module split, relocating each to its new module. Fixed `test_vec2comp_east_wind`, which had the wind direction convention backwards.
+
+### Performance
+- **CI Fail-Fast**: The `test` job now waits on the `rust` job (fmt/clippy/test) before running, so a broken Rust change fails fast instead of burning a full `maturin --release` build and the entire pytest/coverage suite first.
+
 ## [5.37.14] - 2026-06-20
 
 ### Changed
