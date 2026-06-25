@@ -236,3 +236,62 @@ pub fn points_in_polygon_lookup(
     }
     Ok(lookup)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_haversine_zero_distance() {
+        let dist = haversine(0.0, 0.0, 0.0, 0.0).unwrap();
+        assert!(dist.abs() < 0.001);
+    }
+
+    #[test]
+    fn test_haversine_symmetry() {
+        let d1 = haversine(40.0, -100.0, 35.0, -95.0).unwrap();
+        let d2 = haversine(35.0, -95.0, 40.0, -100.0).unwrap();
+        assert!((d1 - d2).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_haversine_known_distance() {
+        // NYC to LA is approximately 3944 km
+        let dist = haversine(40.7128, -74.0060, 34.0522, -118.2437).unwrap();
+        assert!(dist > 3900.0 && dist < 4000.0);
+    }
+
+    #[test]
+    fn test_haversine_batch_single_target() {
+        let targets = vec![(0.0, 0.0)];
+        let dists = haversine_batch(0.0, 0.0, targets).unwrap();
+        assert_eq!(dists.len(), 1);
+        assert!(dists[0].abs() < 0.001);
+    }
+
+    #[test]
+    fn test_haversine_batch_multiple_targets() {
+        let targets = vec![(1.0, 0.0), (2.0, 0.0), (3.0, 0.0)];
+        let dists = haversine_batch(0.0, 0.0, targets).unwrap();
+        assert_eq!(dists.len(), 3);
+        // Distances should be increasing
+        assert!(dists[0] < dists[1]);
+        assert!(dists[1] < dists[2]);
+    }
+
+    #[test]
+    fn test_extract_latlon_valid() {
+        let text = "3567 9823 4521 10134";
+        let coords = extract_latlon_coords(text).unwrap();
+        assert_eq!(coords.len(), 2);
+        assert!((coords[0].0 - 35.67).abs() < 0.01);
+        assert!((coords[0].1 - (-98.23)).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_extract_latlon_out_of_range() {
+        let text = "1000 2000"; // Out of valid range
+        let coords = extract_latlon_coords(text).unwrap();
+        assert_eq!(coords.len(), 0);
+    }
+}

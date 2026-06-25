@@ -87,3 +87,47 @@ pub fn normalize_product_id(
 
     Ok(format!("{}-{}-{}-{}", ts_str, office, ttaaii, afos_pil))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_xxh3_hash_consistency() {
+        let data1 = b"test data";
+        let hash1a = xxh3::xxh3_64(data1);
+        let hash1b = xxh3::xxh3_64(data1);
+        assert_eq!(hash1a, hash1b);
+    }
+
+    #[test]
+    fn test_xxh3_hash_different() {
+        let hash1 = xxh3::xxh3_64(b"test1");
+        let hash2 = xxh3::xxh3_64(b"test2");
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_normalize_product_id_iso8601() {
+        let id = normalize_product_id("KOUN", "ACUS42", "SVDMX", "2026-05-03T06:50:00Z").unwrap();
+        assert_eq!(id, "202605030650-KOUN-ACUS42-SVDMX");
+    }
+
+    #[test]
+    fn test_normalize_product_id_compact() {
+        let id = normalize_product_id("KOUN", "ACUS42", "SVDMX", "202605030650").unwrap();
+        assert_eq!(id, "202605030650-KOUN-ACUS42-SVDMX");
+    }
+
+    #[test]
+    fn test_normalize_product_id_truncate() {
+        let id = normalize_product_id("KOUN", "ACUS42", "SVDMX", "20260503065030").unwrap();
+        assert_eq!(id, "202605030650-KOUN-ACUS42-SVDMX");
+    }
+
+    #[test]
+    fn test_sum_as_string() {
+        let result = sum_as_string(5, 3).unwrap();
+        assert_eq!(result, "8");
+    }
+}

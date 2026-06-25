@@ -715,3 +715,86 @@ pub fn clip_profile(
         None => Ok(vec![f64::NAN; prof.len()]),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vec2comp_north_wind() {
+        let (u, v) = vec2comp(0.0, 10.0).unwrap();
+        assert!(u.abs() < 0.01);
+        assert!((v - (-10.0)).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_vec2comp_east_wind() {
+        // wdir=90 means wind FROM the east, so it blows TOWARD the west (u negative).
+        let (u, v) = vec2comp(90.0, 10.0).unwrap();
+        assert!((u - (-10.0)).abs() < 0.01);
+        assert!(v.abs() < 0.01);
+    }
+
+    #[test]
+    fn test_comp2vec_north() {
+        let (dir, spd) = comp2vec(0.0, -10.0).unwrap();
+        assert!((spd - 10.0).abs() < 0.01);
+        assert!(dir < 1.0 || dir > 359.0); // Should be ~0 or ~360
+    }
+
+    #[test]
+    fn test_comp2vec_magnitude() {
+        let (_, spd) = comp2vec(3.0, 4.0).unwrap();
+        assert!((spd - 5.0).abs() < 0.01); // 3-4-5 triangle
+    }
+
+    #[test]
+    fn test_clip_profile_simple() {
+        let wind_dir = vec![250.0, 260.0, 270.0, 280.0];
+        let wind_spd = vec![10.0, 15.0, 20.0, 25.0];
+        let altitude = vec![0.0, 2000.0, 4000.0, 6000.0];
+        let (clipped_dir, clipped_spd, clipped_alt) =
+            _clip_profile_internal(&wind_dir, &wind_spd, &altitude, 5000.0);
+        // Should include 0, 2000, 4000 but not 6000
+        assert_eq!(clipped_dir.len(), 3);
+        assert_eq!(clipped_spd.len(), 3);
+        assert_eq!(clipped_alt.len(), 3);
+    }
+
+    #[test]
+    fn test_compute_bunkers_valid_profile() {
+        let wind_dir = vec![250.0; 7];
+        let wind_spd = vec![5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0];
+        let altitude = vec![0.0, 1000.0, 2000.0, 3000.0, 4000.0, 5000.0, 6000.0];
+
+        let (mean, left, right) = compute_bunkers(wind_dir, wind_spd, altitude).unwrap();
+        // Each motion should be (direction, speed)
+        assert!(mean.1 > 0.0); // Mean wind speed should be positive
+        assert!(left.1 > 0.0); // Left motion speed should be positive
+        assert!(right.1 > 0.0); // Right motion speed should be positive
+    }
+
+    #[test]
+    fn test_compute_bunkers_empty_profile() {
+        let result = compute_bunkers(vec![], vec![], vec![]).unwrap();
+        assert!(result.0 .0.is_nan());
+        assert!(result.0 .1.is_nan());
+    }
+
+    #[test]
+    fn test_compute_srh_valid_profile() {
+        let wind_dir = vec![250.0; 7];
+        let wind_spd = vec![5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0];
+        let altitude = vec![0.0, 1000.0, 2000.0, 3000.0, 4000.0, 5000.0, 6000.0];
+
+        let srh = compute_srh(wind_dir, wind_spd, altitude, 250.0, 15.0, 3000.0).unwrap();
+        // SRH should be a finite number
+        assert!(srh.is_finite());
+    }
+
+    #[test]
+    fn test_compute_srh_empty_profile() {
+        let srh = compute_srh(vec![], vec![], vec![], 250.0, 15.0, 3000.0).unwrap();
+        assert!(srh.is_nan());
+    }
+}

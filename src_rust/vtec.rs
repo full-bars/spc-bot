@@ -433,3 +433,35 @@ pub fn parse_watch_number(text: &str) -> PyResult<Option<(String, String)>> {
     let padded = format!("{:0>4}", digits);
     Ok(Some((padded, watch_type_str.to_string())))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vtec_regex_match() {
+        let pattern = r"/O\.(NEW|CON|EXP|CAN|UPG|EXA|EXT|ROU)\.([A-Z]{4})\.([A-Z]{2})\.([A-Z])\.(\d{4})\.(\d{6}T\d{4}Z)-(\d{6}T\d{4}Z)/";
+        let re = Regex::new(pattern).unwrap();
+        let text = "/O.NEW.KOUN.TO.W.0042.260427T2018Z-260427T2100Z/";
+        assert!(re.is_match(text));
+    }
+
+    #[test]
+    fn test_vtec_regex_no_match() {
+        let pattern = r"/O\.(NEW|CON|EXP|CAN|UPG|EXA|EXT|ROU)\.([A-Z]{4})\.([A-Z]{2})\.([A-Z])\.(\d{4})\.(\d{6}T\d{4}Z)-(\d{6}T\d{4}Z)/";
+        let re = Regex::new(pattern).unwrap();
+        let text = "No VTEC here";
+        assert!(!re.is_match(text));
+    }
+
+    #[test]
+    fn test_vtec_capture_groups() {
+        let pattern = r"/O\.(NEW|CON|EXP|CAN|UPG|EXA|EXT|ROU)\.([A-Z]{4})\.([A-Z]{2})\.([A-Z])\.(\d{4})\.(\d{6}T\d{4}Z)-(\d{6}T\d{4}Z)/";
+        let re = Regex::new(pattern).unwrap();
+        let text = "/O.NEW.KOUN.TO.W.0042.260427T2018Z-260427T2100Z/";
+        let caps = re.captures(text).unwrap();
+        assert_eq!(caps.get(1).unwrap().as_str(), "NEW");
+        assert_eq!(caps.get(2).unwrap().as_str(), "KOUN");
+        assert_eq!(caps.get(3).unwrap().as_str(), "TO");
+    }
+}
