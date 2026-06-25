@@ -9,6 +9,7 @@ spc-bot/
 ├── Dockerfile               # Debian-based scientific stack image
 ├── docker-compose.yml       # Docker orchestration
 ├── install-hooks.sh         # Installs pre-push git hooks (syntax + test checks)
+├── Cargo.toml                # Rust dependencies (pyo3, xxhash_rust, regex, rstar, geo) for the src_rust/ extension
 ├── config.py                # Configuration and centralized URL constants
 ├── requirements.txt         # Runtime dependencies (what the bot needs to run)
 ├── requirements-dev.txt     # Runtime + pytest/pytest-asyncio/pytest-cov/ruff for development & CI
@@ -77,13 +78,12 @@ spc-bot/
 ├── config/
 │   └── logrotate.conf       # Optional external logrotate config: 50 MB files, 12-file retention, gzip -9 compression
 ├── src_rust/
-│   ├── lib.rs               # PyO3 registry: module declarations + #[pymodule] registrations (64 LOC)
-│   ├── vad.rs               # VAD/VWP parser + hodograph math: vec2comp/comp2vec, compute_bunkers/SRH/DTM/critical_angle, shear_mag/sr_flow/clip_profile
-│   ├── geo.rs               # Geospatial: R-tree radar index, haversine distance, point-in-polygon batch operations
-│   ├── vtec.rs              # VTEC/text processing: parse_vtec, parse_warning_polygon, extract_narrative, area_with_state
+│   ├── lib.rs               # PyO3 registry: module declarations + #[pymodule] registrations (71 LOC)
+│   ├── vad.rs               # VAD/VWP parser + hodograph math: vec2comp/comp2vec, compute_bunkers/SRH/DTM/critical_angle, shear_mag/sr_flow/clip_profile (+ unit tests)
+│   ├── geo.rs               # Geospatial: R-tree radar index, haversine distance, point-in-polygon batch operations (+ unit tests)
+│   ├── vtec.rs              # VTEC/text processing: parse_vtec, parse_warning_polygon, extract_narrative, area_with_state (+ unit tests)
 │   ├── nwws.rs              # tokio XMPP client sidecar: nwws_start/stop/try_recv/is_connected/stats, fetch_s3_vad_fast
-│   ├── utils.rs             # Utilities: sum_as_string, calculate_fast_hash, validate_image_cache_batch, normalize_product_id
-│   └── Cargo.toml           # Rust dependencies (pyo3, xxhash_rust, regex, rstar, geo)
+│   └── utils.rs             # Utilities: sum_as_string, calculate_fast_hash, validate_image_cache_batch, normalize_product_id (+ unit tests)
 ├── lib/
 │   ├── vtec_parser.py       # VTEC/polygon parsing (reusable, zero Discord dependencies); Rust bridge with Python fallback
 │   └── vad_plotter/         # Hodograph library (vad-plotter by Tim Supinie)

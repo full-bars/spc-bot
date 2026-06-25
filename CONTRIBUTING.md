@@ -302,7 +302,7 @@ python -m pytest tests/ \
     --cov-report=term-missing
 ```
 
-The suite currently collects **382 tests**.
+The suite currently collects **539 tests**.
 
 Lint (same selection CI uses):
 
@@ -312,15 +312,17 @@ ruff check --select=E9,F63,F7,F82,F401 --exclude=venv,lib,cache .
 
 ### CI pipeline
 
-The GitHub Actions workflow runs three jobs on every push and pull request:
+The GitHub Actions workflow runs the following jobs on every push and pull request:
 
 | Job | What it checks |
 |---|---|
-| **pytest** | Full test suite via `pytest -n auto` (pytest-xdist parallel execution) with coverage |
-| **mypy** | Static type check on `utils/` (`mypy utils/`) |
-| **rust** | `cargo fmt --check` and `cargo clippy -- -D warnings` on `src_rust/` |
+| **lint** | `ruff check` (syntax/undefined-name/unused-imports) and `ruff format --check` |
+| **test** | Full test suite via `pytest -n auto` (pytest-xdist parallel execution) with coverage; gated on `lint` and `rust` passing first |
+| **mypy** | Static type check on `utils/` and `lib/vtec_parser.py` |
+| **rust** | `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo test --no-default-features` on `src_rust/` |
+| **docker-build** | Builds the Docker image for `linux/amd64` and `linux/arm64`; gated on `test`, `mypy`, and `rust` passing first |
 
-All three jobs must pass before a PR can be merged.
+All jobs must pass before a PR can be merged.
 
 ---
 
