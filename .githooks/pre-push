@@ -1,0 +1,108 @@
+#!/bin/bash
+while read local_ref local_sha remote_ref remote_sha; do
+    if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+        exit 0
+    fi
+    if echo "$remote_ref" | grep -q "^refs/tags/"; then
+        exit 0
+    fi
+done
+
+echo "Running pre-push checks..."
+cd "$(git rev-parse --show-toplevel)"
+source venv/bin/activate 2>/dev/null || true
+
+# Ensure dev dependencies are present (safe after a venv rebuild that only ran requirements.txt)
+python3 -c "import pytest_asyncio" 2>/dev/null || {
+    echo "Dev dependencies missing — installing requirements-dev.txt..."
+    pip install -r requirements-dev.txt -q
+}
+
+# 0. AI ATTRIBUTION CHECK (CRITICAL)
+echo "Scanning for AI attribution (ZERO TOLERANCE)..."
+ai_patterns=("@Claude" "@Sonnet" "Claude Code" "Generated with Claude" "Co-Authored-By: Claude" "AI-generated" "claude-code" "anthropic.com")
+violation_found=0
+
+for commit in $(git rev-list HEAD @{upstream}..HEAD 2>/dev/null); do
+  msg=$(git log -1 --format=%B "$commit")
+  for pattern in "${ai_patterns[@]}"; do
+    if echo "$msg" | grep -qi "$pattern"; then
+      echo "❌ VIOLATION in commit $(git rev-parse --short $commit): Found '$pattern' in commit message"
+      echo "   Message: $(echo "$msg" | head -1)"
+      echo "   PUSH ABORTED — Remove all AI attribution and try again"
+      violation_found=1
+    fi
+  done
+done
+
+if [ $violation_found -eq 1 ]; then
+  exit 1
+fi
+
+# 1. Formatting check (Python)
+echo "Checking Python formatting (Ruff)..."
+ruff format --check .
+if [ $? -ne 0 ]; then
+    echo "PYTHON FORMATTING ERRORS FOUND — push aborted. Run 'ruff format .' to fix."
+    exit 1
+fi
+
+# 2. Lint check (Python)
+echo "Linting Python (Ruff)..."
+ruff check .
+if [ $? -ne 0 ]; then
+    echo "PYTHON LINT ERRORS FOUND — push aborted."
+    exit 1
+fi
+
+# 3. Formatting check (Rust)
+echo "Checking Rust formatting (cargo fmt)..."
+cargo fmt --check
+if [ $? -ne 0 ]; then
+    echo "RUST FORMATTING ERRORS FOUND — push aborted. Run 'cargo fmt' to fix."
+    exit 1
+fi
+
+# 4. Lint check (Rust)
+echo "Checking Rust linting (Clippy)..."
+cargo clippy -- -D warnings
+if [ $? -ne 0 ]; then
+    echo "RUST LINT ERRORS FOUND — push aborted."
+    exit 1
+fi
+
+# 5. Type checking (mypy)
+echo "Type checking (mypy)..."
+MYPY_BIN=$(command -v mypy || echo "$HOME/.local/bin/mypy")
+if [ ! -x "$MYPY_BIN" ]; then
+    echo "mypy not found — skipping type check"
+else
+    "$MYPY_BIN" --ignore-missing-imports --follow-imports=silent utils/ lib/vtec_parser.py
+    if [ $? -ne 0 ]; then
+        echo "MYPY TYPE ERRORS FOUND — push aborted."
+        exit 1
+    fi
+fi
+
+# 6. Syntax check
+failed=0
+for f in $(git diff --name-only HEAD @{upstream} 2>/dev/null | grep '\.py$'); do
+    if [ -f "$f" ]; then
+        python3 -m py_compile "$f" 2>&1
+        if [ $? -ne 0 ]; then
+            echo "SYNTAX ERROR in $f — push aborted"
+            failed=1
+        fi
+    fi
+done
+[ $failed -ne 0 ] && exit 1
+
+# 7. Tests
+echo "Testing..."
+python -m pytest tests/ -q 2>&1 | tail -3
+if [ ${PIPESTATUS[0]} -ne 0 ]; then
+    echo "TESTS FAILED — push aborted"
+    exit 1
+fi
+
+echo "All checks passed."
