@@ -306,9 +306,17 @@ def get_warning_severity(event: str, text: str, params: dict = None) -> Optional
     # Strip display suffixes like "(PDS)", "(Emergency)" so base name matches
     base_event = event.split(" (")[0].split(" — ")[0].split(" – ")[0]
 
-    # Map display variants to base event names
+    # Map display variants to base event names.
+    # Styled SVR/FFW names already encode the severity, so fast-path return them.
+    # TOR stays as a normalization (text check below handles emergency/pds/standard).
     if base_event in ("Tornado Warning", "Tornado Emergency"):
         base_event = "Tornado Warning"
+    elif base_event == "CONSIDERABLE Severe Tstorm Warning":
+        return "considerable"
+    elif base_event == "DESTRUCTIVE Severe Tstorm Warning":
+        return "destructive"
+    elif base_event == "Flash Flood Emergency":
+        return "emergency"
 
     if base_event == "Tornado Warning":
         if "TORNADO EMERGENCY" in text_upper:

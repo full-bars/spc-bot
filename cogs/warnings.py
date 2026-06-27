@@ -660,8 +660,17 @@ class WarningsCog(commands.Cog):
         action_verb = "cancels" if reason == "Cancelled" else "expires"
         area_str = f" for {area}" if area else ""
 
-        # Build a cancellation vtec dict with CAN/EXP action for the URL
+        # Build a cancellation vtec dict with CAN/EXP action for the URL.
+        # Reconstruct from vtec_id if vtec is None — this happens when the NWWS
+        # handler pops the warning from active_warnings between when the tick
+        # snapshots the disappeared set and when we get here.
         cancel_vtec = dict(vtec or {})
+        if not cancel_vtec.get("phenom") and vtec_id.count(".") == 3:
+            office_, phenom_, sig_, etn_ = vtec_id.split(".")
+            cancel_vtec.setdefault("office", office_)
+            cancel_vtec.setdefault("phenom", phenom_)
+            cancel_vtec.setdefault("sig", sig_)
+            cancel_vtec.setdefault("etn", etn_)
         cancel_vtec["action"] = "CAN" if reason == "Cancelled" else "EXP"
         if not cancel_vtec.get("start"):
             now = datetime.now(timezone.utc)
