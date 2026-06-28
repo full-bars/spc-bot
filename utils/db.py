@@ -814,6 +814,19 @@ async def add_posted_warning(
 ) -> bool:
     """Mark a warning as posted. Uses a checked write to surface failures to callers.
 
+    ``vtec_id`` is the VTEC event identity (office.phenom.sig.etn),
+    which stays stable across the warning's lifecycle so it doubles as
+    our dedup key.
+
+    For tornado warnings, ``tornado_confidence`` is 'observed' or
+    'radar_indicated', and ``tornado_severity`` is 'standard', 'pds',
+    or 'emergency'.
+
+    ``severity`` stores the generic severity for any warning type:
+    tornado → 'standard'|'pds'|'emergency'
+    severe  → 'standard'|'considerable'|'destructive'
+    flash flood → 'standard'|'emergency'
+
     Returns True if the DB write succeeded, False if it was silently dropped.
     """
     return await _write_checked(
