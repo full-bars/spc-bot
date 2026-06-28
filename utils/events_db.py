@@ -130,10 +130,9 @@ async def _create_tables(db: aiosqlite.Connection) -> None:
         ("gif_path", "TEXT"),
         ("srh_0_1", "REAL"),
     ]:
-        try:
+        existing = {row["name"] for row in await db.execute_fetchall("PRAGMA table_info(significant_events)")}
+        if col not in existing:
             await db.execute(f"ALTER TABLE significant_events ADD COLUMN {col} {ctype}")
-        except Exception:
-            pass
 
 
 # ── Writes ───────────────────────────────────────────────────────────────────
