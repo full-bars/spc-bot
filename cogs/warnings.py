@@ -33,6 +33,7 @@ from cogs.warning_format import (
     _download_warning_image,
     _vtec_unix_ts,
     _vtec_url,
+    _WARNING_STYLE,
     build_concise_warning_text,
     get_tornado_attributes,
     get_warning_severity,
@@ -772,6 +773,9 @@ class WarningsCog(commands.Cog):
                 logger.info(
                     f"Pruned {removed} posted_warnings entries (cap={self.POSTED_WARNINGS_MAX})"
                 )
+            if len(self._cancelled_warnings) > 10000:
+                self._cancelled_warnings.clear()
+                logger.debug("Cleared _cancelled_warnings set (size > 10000)")
         except Exception as e:
             logger.exception(f"prune_posted_warnings_loop failed: {e}")
 
@@ -876,7 +880,6 @@ class WarningsCog(commands.Cog):
 
         current_vtec_data = {}
         current_vtec_ids = set()
-        from cogs.warning_format import _WARNING_STYLE
 
         for feature in alert_response.features:
             props = feature.properties
