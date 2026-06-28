@@ -823,6 +823,8 @@ async def add_posted_warning(
         )
     return ok
 
+    return ok
+
 
 async def remove_posted_warning(vtec_id: str) -> None:
     """Roll back an `add_posted_warning` write across SQLite + Redis."""
