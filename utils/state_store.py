@@ -784,9 +784,9 @@ async def add_posted_warning(
     tornado_severity: Optional[str] = None,
     severity: Optional[str] = None,
     raw_text: Optional[str] = None,
-) -> None:
+) -> bool:
     _cache_invalidate("posted_warnings")
-    await sqlite_backend.add_posted_warning(
+    ok = await sqlite_backend.add_posted_warning(
         vtec_id,
         message_id,
         channel_id,
@@ -821,6 +821,7 @@ async def add_posted_warning(
                 tornado_severity,
             ),
         )
+    return ok
 
 
 async def remove_posted_warning(vtec_id: str) -> None:

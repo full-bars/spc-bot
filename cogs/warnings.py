@@ -64,6 +64,16 @@ from utils.state_store import (
 logger = logging.getLogger("spc_bot.warnings")
 
 
+def _log_task_exception(task: asyncio.Task) -> None:
+    """Log any exception raised in a background task."""
+    try:
+        exc = task.exception()
+    except (asyncio.CancelledError, RuntimeError):
+        return
+    if exc:
+        logger.exception(f"Background task failed: {exc}")
+
+
 class WarningsCog(commands.Cog):
     MANAGED_TASK_NAMES = [
         ("auto_poll_warnings", "auto_poll_warnings"),
@@ -71,6 +81,8 @@ class WarningsCog(commands.Cog):
     ]
 
     POSTED_WARNINGS_MAX = 5000
+
+    _ABSENCE_THRESHOLD: int = 3
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -80,6 +92,7 @@ class WarningsCog(commands.Cog):
         self._in_flight_vtecs: set[str] = set()
         self._perm_warned: set[int] = set()
         self._discover_sem = asyncio.Semaphore(5)
+        self._absence_count: dict[str, int] = {}
 
     async def cog_load(self):
         # posted_warnings already hydrated by _hydrate_state before cog load
@@ -362,7 +375,11 @@ class WarningsCog(commands.Cog):
 
                 # Dispatch subscriptions for new issuances
                 if not is_update:
-                    asyncio.create_task(self._dispatch_subscriptions(vtec, raw_text, event))
+                    t = asyncio.create_task(
+                        self._dispatch_subscriptions(vtec, raw_text, event),
+                        name=f"warn-subs-{vtec_id}",
+                    )
+                    t.add_done_callback(_log_task_exception)
 
                 # Log significant events (tornadoes, hail, wind) to DB
                 event_id = await self._check_and_log_significant_event(event, raw_text, vtec)
@@ -630,6 +647,8 @@ class WarningsCog(commands.Cog):
         if not (channel_id and message_id):
             return
 
+        self._absence_count.pop(vtec_id, None)
+
         # Route the cancellation to the type-specific channel if configured;
         # fall back to the channel the original was posted in.
         phenom = (vtec or {}).get("phenom", "")
@@ -790,17 +809,38 @@ class WarningsCog(commands.Cog):
         current_vtec_ids: set,
         current_vtec_data: dict,
     ) -> None:
-        """Cancel or expire warnings that were active last cycle but absent this cycle."""
+        """Cancel or expire warnings absent for N consecutive cycles.
+
+        The NWS API occasionally drops active warnings from its index for 1-2
+        poll cycles (~30-90s).  Requiring ``ABSENCE_THRESHOLD`` consecutive
+        absences before posting a cancellation avoids a flood of false
+        cancellation notices during transient API hiccups.
+        """
+        # Reset absence count for any warning that reappeared this cycle so
+        # a single glitch doesn't put it on the path to cancellation.
+        for vtec_id in current_vtec_ids & self._absence_count.keys():
+            del self._absence_count[vtec_id]
+
         disappeared = set(self.bot.state.active_warnings.keys()) - current_vtec_ids
         for vtec_id in disappeared:
             # SPS are often absent from the NWS API poll but shouldn't be auto-cancelled
             if ".SPS." in vtec_id or vtec_id.startswith("20"):
                 continue
+
+            count = self._absence_count.get(vtec_id, 0) + 1
+            self._absence_count[vtec_id] = count
+            if count < self._ABSENCE_THRESHOLD:
+                logger.debug(
+                    f"[WARN_ABSENT] {vtec_id} absent {count}/{self._ABSENCE_THRESHOLD} cycles — not cancelling yet"
+                )
+                continue
+
             vtec_context = current_vtec_data.get(vtec_id) or self.bot.state.active_warnings.get(
                 vtec_id
             )
             await self._handle_cancellation(vtec_id, reason="Expired", vtec=vtec_context)
             self.bot.state.active_warnings.pop(vtec_id, None)
+            self._absence_count.pop(vtec_id, None)
 
     async def _tick(self):
         await self.bot.wait_until_ready()
@@ -1035,7 +1075,11 @@ class WarningsCog(commands.Cog):
 
         # Dispatch subscriptions for new issuances
         if not is_update:
-            asyncio.create_task(self._dispatch_subscriptions(vtec, description, event))
+            t = asyncio.create_task(
+                self._dispatch_subscriptions(vtec, description, event),
+                name=f"warn-subs-{vtec_id}",
+            )
+            t.add_done_callback(_log_task_exception)
 
         # Log significant events (tornadoes, hail, wind) to DB
         await self._check_and_log_significant_event(event, description, vtec)
