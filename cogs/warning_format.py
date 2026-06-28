@@ -360,10 +360,10 @@ def get_warning_severity(event: str, text: str, params: dict = None) -> Optional
 
 def iem_autoplot_url(vtec: dict, valid_time: Optional[str] = None) -> str:
     """Return the IEM Autoplot URL (#208 for VTEC, #217 for SPS)."""
-    office = vtec["office"]
-    phenom = vtec["phenom"]
-    sig = vtec["sig"]
-    etn = vtec["etn"]
+    office = vtec.get("office", "")
+    phenom = vtec.get("phenom", "")
+    sig = vtec.get("sig", "")
+    etn = vtec.get("etn", "")
 
     year = datetime.now(timezone.utc).year
     start = vtec.get("start") or ""
@@ -416,10 +416,10 @@ def iem_autoplot_url(vtec: dict, valid_time: Optional[str] = None) -> str:
         office = office[1:]
 
     # SPS (Special Weather Statements) use Autoplot 217 which requires the PID
-    if phenom == "SPS" and "-" in vtec["vtec_id"]:
+    if phenom == "SPS" and "-" in vtec.get("vtec_id", ""):
         return (
             f"https://mesonet.agron.iastate.edu/plotting/auto/plot/217/"
-            f"pid:{vtec['vtec_id']}::segnum:0.png"
+            f"pid:{vtec.get('vtec_id', '')}::segnum:0.png"
         )
 
     etn_padded = etn.zfill(4)  # Zero-pad to 4 digits
@@ -458,8 +458,8 @@ def _vtec_url(vtec: dict) -> str:
 
     action = vtec.get("action", "NEW")
     office = vtec.get("office", "")
-    phenom = vtec["phenom"]
-    sig = vtec["sig"]
+    phenom = vtec.get("phenom", "")
+    sig = vtec.get("sig", "")
     etn = int(vtec.get("etn", "0") or "0")
     return (
         f"https://mesonet.agron.iastate.edu/vtec/f/"
@@ -592,7 +592,7 @@ def build_concise_warning_text(
             {narrative}
             [<t:unix_ts:R>]
     """
-    office = vtec["office"]
+    office = vtec.get("office", "")
     if office.startswith("K") and len(office) == 4:
         office = office[1:]
 
@@ -605,7 +605,7 @@ def build_concise_warning_text(
         "EXT": "extends time of",
         "UPG": "upgrades",
     }
-    action_verb = action_map.get(vtec["action"], "updates")
+    action_verb = action_map.get(vtec.get("action", "NEW"), "updates")
     if is_update:
         action_verb = "updates"
 
