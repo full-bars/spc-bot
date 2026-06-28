@@ -357,17 +357,22 @@ class WarningsCog(commands.Cog):
         if vtec_id in self._in_flight_vtecs:
             return
 
+        self._in_flight_vtecs.add(vtec_id)
+
         # Check product_id again after potential await context switches
         if product_id in self.bot.state.posted_product_ids:
+            self._in_flight_vtecs.discard(vtec_id)
             return
-
-        self._in_flight_vtecs.add(vtec_id)
 
         # Claim dedup keys BEFORE any awaits so concurrent tasks hitting
         # the same path see the state immediately. For updates the
         # posted_warnings entry already exists, so the claim no-ops on
         # enter/exit — but claim.confirm() still updates persistence.
-        await self.bot.state.add_posted_product_id(product_id)
+        try:
+            await self.bot.state.add_posted_product_id(product_id)
+        except Exception:
+            self._in_flight_vtecs.discard(vtec_id)
+            raise
 
         try:
             async with self.bot.state.claim_posted_warning(vtec_id) as claim:
