@@ -188,6 +188,7 @@ def _make_cog(posted: dict | None = None) -> WarningsCog:
     cog._in_flight_vtecs = set()
     cog._perm_warned = set()
     cog._discover_sem = asyncio.Semaphore(5)
+    cog._absence_count = {}
     cog.bot = MagicMock()
     cog.bot.wait_until_ready = AsyncMock()
     cog.bot.state.is_primary = True
