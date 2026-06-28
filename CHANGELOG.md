@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.39.0] - 2026-06-27
+
+### Fixed
+- **Auto-Cancellation Debounce**: Warnings that briefly drop out of the NWS API index (a known 1–2 poll-cycle glitch) are no longer cancelled prematurely. A cancellation now requires `ABSENCE_THRESHOLD` consecutive absences, eliminating false "expired" notices during transient API hiccups (#541).
+- **Dedup Race Window**: Closed a race in `post_warning_now` where concurrent NWWS and IEMBot triggers could double-post the same warning.
+- **Safe VTEC Access**: Hardened VTEC dictionary access in `iem_autoplot_url`, `_vtec_url`, and `build_concise_warning_text` against missing keys (#540).
+- **Severity Labels & Tick Crash**: Fixed SVR/FFW severity labels being silently dropped, and a tick crash when a feature was missing its `phenom` key.
+- **DB Write Visibility**: Database write failures for warning severity/confidence data now surface instead of failing silently (#542).
+- **Background Task Logging**: Exceptions in background subscription-dispatch tasks are now logged with full tracebacks instead of being swallowed.
+
+### Changed
+- **Bounded Dedup Memory**: `_cancelled_warnings` is now an insertion-ordered dict with true FIFO eviction, so dedup memory stays bounded without resurrecting recently-cancelled warning IDs.
+
+### Developer
+- **Pre-Push Hook**: The pre-push hook is now tracked in `.githooks` with a simplified `install-hooks.sh` (#539).
+- **Docs**: Corrected stale Rust module structure and CI job references in project documentation.
+
 ## [5.38.0] - 2026-06-24
 
 ### Refactored
