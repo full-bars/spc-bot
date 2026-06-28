@@ -545,6 +545,7 @@ def _make_tick_cog(active=None, posted=None):
     cog._backoff = TaskBackoff("auto_poll_warnings")
     cog._validators = {"etag": "", "last_modified": ""}
     cog._cancelled_warnings = set()
+    cog._absence_count = {}
     cog.bot = MagicMock()
     cog.bot.wait_until_ready = AsyncMock()
     cog.bot.state.is_primary = True
@@ -583,8 +584,7 @@ def _make_tick_cog(active=None, posted=None):
 
 @pytest.mark.asyncio
 async def test_tick_disappeared_warning_triggers_cancellation(monkeypatch):
-    """A warning that was in active_warnings but has vanished from the API
-    response must fire a cancellation embed."""
+    """A warning absent for ABSENCE_THRESHOLD cycles fires a cancellation embed."""
     vtec_id = "KOUN.SV.W.0042"
     active = {
         vtec_id: {
@@ -599,6 +599,7 @@ async def test_tick_disappeared_warning_triggers_cancellation(monkeypatch):
     posted = {vtec_id: {"message_id": 1, "channel_id": 2, "area": "Noble"}}
 
     cog, channel = _make_tick_cog(active=active, posted=posted)
+    cog._ABSENCE_THRESHOLD = 1  # override for test — cancel on first absence
 
     # API returns empty features — the warning has "disappeared"
     content = _nws_response([])
@@ -617,6 +618,52 @@ async def test_tick_disappeared_warning_triggers_cancellation(monkeypatch):
     channel.send.assert_called_once()
     embed = channel.send.call_args.kwargs["embed"]
     assert "expires" in embed.description.lower()
+    assert vtec_id not in cog.bot.state.active_warnings
+
+
+@pytest.mark.asyncio
+async def test_tick_disappeared_warning_debounce(monkeypatch):
+    """A warning absent for less than ABSENCE_THRESHOLD cycles is NOT cancelled."""
+    vtec_id = "KOUN.SV.W.0042"
+    active = {
+        vtec_id: {
+            "office": "KOUN",
+            "phenom": "SV",
+            "sig": "W",
+            "etn": "0042",
+            "vtec_id": vtec_id,
+            "action": "NEW",
+        }
+    }
+    posted = {vtec_id: {"message_id": 1, "channel_id": 2, "area": "Noble"}}
+
+    cog, channel = _make_tick_cog(active=active, posted=posted)
+    cog._ABSENCE_THRESHOLD = 3
+
+    content = _nws_response([])
+    cog.bot.state.add_posted_warning = AsyncMock()
+    cog.bot.state.add_posted_product_id = AsyncMock()
+    import cogs.warnings as warnings_mod
+
+    monkeypatch.setattr(
+        warnings_mod, "http_get_bytes_conditional", AsyncMock(return_value=(content, 200, {}))
+    )
+    monkeypatch.setattr(warnings_mod, "_download_warning_image", AsyncMock(return_value=None))
+    monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
+
+    await cog._tick()
+
+    channel.send.assert_not_called()
+    assert vtec_id in cog.bot.state.active_warnings
+
+    # Simulate second absence — still below threshold (2 < 3)
+    await cog._tick()
+    channel.send.assert_not_called()
+    assert vtec_id in cog.bot.state.active_warnings
+
+    # Simulate third absence — threshold met, cancellation fires
+    await cog._tick()
+    channel.send.assert_called_once()
     assert vtec_id not in cog.bot.state.active_warnings
 
 
