@@ -64,6 +64,16 @@ from utils.state_store import (
 logger = logging.getLogger("spc_bot.warnings")
 
 
+def _log_task_exception(task: asyncio.Task) -> None:
+    """Log any exception raised in a background task."""
+    try:
+        exc = task.exception()
+    except (asyncio.CancelledError, RuntimeError):
+        return
+    if exc:
+        logger.exception(f"Background task failed: {exc}")
+
+
 class WarningsCog(commands.Cog):
     MANAGED_TASK_NAMES = [
         ("auto_poll_warnings", "auto_poll_warnings"),
@@ -362,7 +372,11 @@ class WarningsCog(commands.Cog):
 
                 # Dispatch subscriptions for new issuances
                 if not is_update:
-                    asyncio.create_task(self._dispatch_subscriptions(vtec, raw_text, event))
+                    t = asyncio.create_task(
+                        self._dispatch_subscriptions(vtec, raw_text, event),
+                        name=f"warn-subs-{vtec_id}",
+                    )
+                    t.add_done_callback(_log_task_exception)
 
                 # Log significant events (tornadoes, hail, wind) to DB
                 event_id = await self._check_and_log_significant_event(event, raw_text, vtec)
@@ -1035,7 +1049,11 @@ class WarningsCog(commands.Cog):
 
         # Dispatch subscriptions for new issuances
         if not is_update:
-            asyncio.create_task(self._dispatch_subscriptions(vtec, description, event))
+            t = asyncio.create_task(
+                self._dispatch_subscriptions(vtec, description, event),
+                name=f"warn-subs-{vtec_id}",
+            )
+            t.add_done_callback(_log_task_exception)
 
         # Log significant events (tornadoes, hail, wind) to DB
         await self._check_and_log_significant_event(event, description, vtec)
