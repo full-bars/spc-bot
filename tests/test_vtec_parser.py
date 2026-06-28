@@ -2,7 +2,6 @@ from lib.vtec_parser import (
     _parse_vtec_py,
     _parse_warning_polygon_py,
     get_polygon_centroid,
-    parse_vtec,
     parse_warning_polygon,
 )
 
