@@ -633,6 +633,8 @@ class WarningsCog(commands.Cog):
         if not (channel_id and message_id):
             return
 
+        self._absence_count.pop(vtec_id, None)
+
         # Route the cancellation to the type-specific channel if configured;
         # fall back to the channel the original was posted in.
         phenom = (vtec or {}).get("phenom", "")
