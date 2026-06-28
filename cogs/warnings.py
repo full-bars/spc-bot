@@ -89,7 +89,7 @@ class WarningsCog(commands.Cog):
         self.bot = bot
         self._backoff = TaskBackoff("auto_poll_warnings")
         self._validators = {"etag": "", "last_modified": ""}
-        self._cancelled_warnings: set[str] = set()
+        self._cancelled_warnings: dict[str, None] = {}
         self._in_flight_vtecs: set[str] = set()
         self._perm_warned: set[int] = set()
         self._discover_sem = asyncio.Semaphore(5)
@@ -754,7 +754,7 @@ class WarningsCog(commands.Cog):
 
         try:
             await channel.send(embed=embed, files=files)
-            self._cancelled_warnings.add(vtec_id)
+            self._cancelled_warnings[vtec_id] = None
             logger.info(f"Posted cancellation for {vtec_id}")
         except Exception as e:
             logger.warning(f"Failed to post cancellation for {vtec_id}: {e}")
@@ -774,9 +774,11 @@ class WarningsCog(commands.Cog):
                     f"Pruned {removed} posted_warnings entries (cap={self.POSTED_WARNINGS_MAX})"
                 )
             if len(self._cancelled_warnings) > 10000:
-                # Trim oldest 5000 entries instead of clearing all to avoid
-                # resurrecting dedup for a recently-cancelled warning
-                self._cancelled_warnings = set(list(self._cancelled_warnings)[-5000:])
+                # FIFO eviction: pop oldest entries.  Python dicts preserve
+                # insertion order >= 3.7, so iterating gives oldest-first.
+                to_remove = len(self._cancelled_warnings) - 5000
+                for _ in range(to_remove):
+                    self._cancelled_warnings.pop(next(iter(self._cancelled_warnings)))
         except Exception as e:
             logger.exception(f"prune_posted_warnings_loop failed: {e}")
 

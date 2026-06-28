@@ -545,7 +545,7 @@ def _make_tick_cog(active=None, posted=None):
 
     cog._backoff = TaskBackoff("auto_poll_warnings")
     cog._validators = {"etag": "", "last_modified": ""}
-    cog._cancelled_warnings = set()
+    cog._cancelled_warnings = {}
     cog._absence_count = {}
     cog.bot = MagicMock()
     cog.bot.wait_until_ready = AsyncMock()
@@ -781,7 +781,7 @@ async def test_tick_cancelled_warning_not_reactivated(monkeypatch):
     reappears in the NWS API response (handles index lag)."""
     vtec_id = "KOUN.SV.W.0042"
     cog, channel = _make_tick_cog()
-    cog._cancelled_warnings.add(vtec_id)
+    cog._cancelled_warnings[vtec_id] = None
 
     vtec_str = "/O.CON.KOUN.SV.W.0042.260429T2018Z-260429T2115Z/"
     feature = _nws_feature(vtec_str)
