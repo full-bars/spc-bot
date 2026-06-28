@@ -28,6 +28,8 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set
 
+logger = logging.getLogger("spc_bot")
+
 
 class RecentLogHandler(logging.Handler):
     """Logging handler that keeps the last N lines in memory."""
@@ -339,7 +341,7 @@ class BotState:
             "channel_id": channel_id,
             "area": area,
         }
-        await state_store.add_posted_warning(
+        ok = await state_store.add_posted_warning(
             vtec_id,
             message_id,
             channel_id,
@@ -350,6 +352,11 @@ class BotState:
             severity,
             raw_text,
         )
+        if not ok and severity:
+            logger.warning(
+                f"DB write failed for {vtec_id}: severity '{severity}' not persisted — "
+                "warning labels on /status may be inaccurate"
+            )
 
     async def add_posted_sounding(self, pkey: str) -> None:
         from utils import state_store

@@ -72,6 +72,33 @@ async def _write(sql: str, params: tuple, op: str) -> None:
         level(f"{op} failed ({_write_failure_count} consecutive): {e}")
 
 
+async def _write_checked(sql: str, params: tuple, op: str) -> bool:
+    """Serialized write that returns ``True`` on success.
+
+    Unlike ``_write``, this does NOT swallow exceptions — callers that
+    need to know about write failures (e.g., severity/confidence tracking)
+    can branch on the return value.
+    """
+    global _write_failure_count
+    try:
+        db = await get_db()
+        async with _LOCK:
+            await db.execute(sql, params)
+            await db.commit()
+        if _write_failure_count:
+            _write_failure_count = 0
+        return True
+    except Exception as e:
+        _write_failure_count += 1
+        level = (
+            logger.error
+            if _write_failure_count >= _WRITE_FAILURE_ALERT_THRESHOLD
+            else logger.warning
+        )
+        level(f"{op} failed ({_write_failure_count} consecutive): {e}")
+        return False
+
+
 async def _write_many(sql: str, rows: Iterable[tuple], op: str) -> None:
     """Serialized batch-write helper."""
     global _write_failure_count
@@ -784,20 +811,12 @@ async def add_posted_warning(
     tornado_severity: Optional[str] = None,
     severity: Optional[str] = None,
     raw_text: Optional[str] = None,
-):
-    """Mark a warning as posted. ``vtec_id`` is the VTEC event identity
-    (office.phenom.sig.etn), which stays stable across the warning's
-    lifecycle so it doubles as our dedup key.
+) -> bool:
+    """Mark a warning as posted. Uses a checked write to surface failures to callers.
 
-    For tornado warnings, ``tornado_confidence`` is 'observed' or 'radar_indicated',
-    and ``tornado_severity`` is 'standard', 'pds', or 'emergency'.
-
-    ``severity`` stores the generic severity for any warning type:
-    tornado → 'standard'|'pds'|'emergency'
-    severe  → 'standard'|'considerable'|'destructive'
-    flash flood → 'standard'|'emergency'
+    Returns True if the DB write succeeded, False if it was silently dropped.
     """
-    await _write(
+    return await _write_checked(
         """INSERT INTO posted_warnings (vtec_id, message_id, channel_id, posted_at, area, tornado_confidence, tornado_severity, severity, raw_text)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(vtec_id) DO UPDATE SET
