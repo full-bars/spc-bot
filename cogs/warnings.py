@@ -72,7 +72,7 @@ def _log_task_exception(task: asyncio.Task) -> None:
     except (asyncio.CancelledError, RuntimeError):
         return
     if exc:
-        logger.exception(f"Background task failed: {exc}")
+        logger.error("Background task failed", exc_info=exc)
 
 
 class WarningsCog(commands.Cog):
@@ -774,8 +774,9 @@ class WarningsCog(commands.Cog):
                     f"Pruned {removed} posted_warnings entries (cap={self.POSTED_WARNINGS_MAX})"
                 )
             if len(self._cancelled_warnings) > 10000:
-                self._cancelled_warnings.clear()
-                logger.debug("Cleared _cancelled_warnings set (size > 10000)")
+                # Trim oldest 5000 entries instead of clearing all to avoid
+                # resurrecting dedup for a recently-cancelled warning
+                self._cancelled_warnings = set(list(self._cancelled_warnings)[-5000:])
         except Exception as e:
             logger.exception(f"prune_posted_warnings_loop failed: {e}")
 

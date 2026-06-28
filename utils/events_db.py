@@ -124,16 +124,16 @@ async def _create_tables(db: aiosqlite.Connection) -> None:
     """)
 
     # Migrations
+    existing = {
+        row["name"]
+        for row in await db.execute_fetchall("PRAGMA table_info(significant_events)")
+    }
     for col, ctype in [
         ("dat_guid", "TEXT"),
         ("lead_time", "REAL"),
         ("gif_path", "TEXT"),
         ("srh_0_1", "REAL"),
     ]:
-        existing = {
-            row["name"]
-            for row in await db.execute_fetchall("PRAGMA table_info(significant_events)")
-        }
         if col not in existing:
             await db.execute(f"ALTER TABLE significant_events ADD COLUMN {col} {ctype}")
 
