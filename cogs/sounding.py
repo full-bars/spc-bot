@@ -1057,7 +1057,10 @@ class SoundingCog(commands.Cog):
         acars_task = asyncio.create_task(get_acars_profiles_near(lat, lon, max_dist_km=400))
         verified = await filter_stations_with_data(candidates)
         acars_profiles = await acars_task
-        nearest = verified[:3]
+        # Fall back to unverified nearest stations if availability check found nothing.
+        # Sources may be temporarily unavailable — still offer the picker so the
+        # user can attempt a fetch (post_sounding handles the "no data" case).
+        nearest = (verified or candidates)[:3]
 
         if not nearest and not acars_profiles:
             error_embed = discord.Embed(

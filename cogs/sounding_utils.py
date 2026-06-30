@@ -1067,7 +1067,11 @@ async def get_available_sounding_times(
 
     # 2. Try Wyoming Probe for standard hours (00z/12z)
     # This is needed for international stations like SBSM that aren't in IEM.
-    # We check standard hours in the requested window.
+    # US/Canada domestic stations (K/P/C prefix) are fully covered by IEM — skip
+    # the probe for them to avoid slow full-chain fetches when IEM has no data.
+    if station_id and (station_id[0].upper() in ("K", "P", "C") or station_id.isdigit()):
+        return []
+
     probe_times = get_recent_sounding_times(n=max(2, (hours_back // 12) + 1))
 
     # Filter probe times to only those within hours_back
