@@ -309,9 +309,7 @@ async def send_sounding_embed(
 
         for _attempt in range(2):
             try:
-                sounding_msg = await target.send(
-                    caption, files=[discord.File(png_path)], view=view
-                )
+                sounding_msg = await target.send(caption, files=[discord.File(png_path)], view=view)
                 break
             except OSError as _e:
                 if _attempt == 0:

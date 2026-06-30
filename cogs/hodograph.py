@@ -153,7 +153,9 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
             break
         except OSError as conn_err:
             if attempt == 0:
-                logger.warning(f"[HODO] Connection error sending hodograph for {site}, retrying: {conn_err}")
+                logger.warning(
+                    f"[HODO] Connection error sending hodograph for {site}, retrying: {conn_err}"
+                )
                 await asyncio.sleep(1)
             else:
                 logger.error(f"[HODO] Retry also failed for {site}: {conn_err}")
