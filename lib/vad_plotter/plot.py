@@ -408,7 +408,7 @@ def plot_hodograph(
     now = datetime.now(timezone.utc)
     img_age = now - data["time"].replace(tzinfo=timezone.utc)
     age_cstop = min(_total_seconds(img_age) / (6 * 3600), 1) * 0.4
-    age_color = mpl.cm.get_cmap("hot")(age_cstop)[:-1]
+    age_color = mpl.colormaps["hot"](age_cstop)[:-1]
     age_str = "Image created on %s (%s old)" % (
         now.strftime("%d %b %Y %H%M UTC"),
         _fmt_timedelta(img_age),
