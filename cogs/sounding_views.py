@@ -307,7 +307,20 @@ async def send_sounding_embed(
                             )
                         )
 
-        sounding_msg = await target.send(caption, files=[discord.File(png_path)], view=view)
+        for _attempt in range(2):
+            try:
+                sounding_msg = await target.send(
+                    caption, files=[discord.File(png_path)], view=view
+                )
+                break
+            except OSError as _e:
+                if _attempt == 0:
+                    logger.warning(
+                        f"[SOUNDING] Connection error sending {station_id}, retrying: {_e}"
+                    )
+                    await asyncio.sleep(1)
+                else:
+                    raise
         logger.info(f"[SOUNDING] Posted {station_id} {time_label}")
 
         # Autopost AI summary if enabled and cache_key was available

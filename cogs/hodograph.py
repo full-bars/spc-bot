@@ -132,22 +132,35 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
         cache_key = f"hodo_{site}_{now_str}"
         view = HodographPlotView(cache_key)
 
-    try:
-        if view:
-            await interaction.followup.send(
-                content=f"**{site}** VWP Hodograph", file=discord.File(output_path), view=view
-            )
-        else:
-            await interaction.followup.send(
-                content=f"**{site}** VWP Hodograph",
-                file=discord.File(output_path),
-            )
+    sent = False
+    for attempt in range(2):
+        try:
+            if view:
+                await interaction.followup.send(
+                    content=f"**{site}** VWP Hodograph",
+                    file=discord.File(output_path),
+                    view=view,
+                )
+            else:
+                await interaction.followup.send(
+                    content=f"**{site}** VWP Hodograph",
+                    file=discord.File(output_path),
+                )
+            sent = True
+            break
+        except discord.NotFound:
+            logger.warning(f"[HODO] Failed to send final hodograph for {site}: Interaction expired")
+            break
+        except OSError as conn_err:
+            if attempt == 0:
+                logger.warning(f"[HODO] Connection error sending hodograph for {site}, retrying: {conn_err}")
+                await asyncio.sleep(1)
+            else:
+                logger.error(f"[HODO] Retry also failed for {site}: {conn_err}")
 
-        # Fire-and-forget: cache raw_text + prefetch AI summary
-        if params and cache_key:
-            asyncio.create_task(_background_cache_hodo(cache_key, summary, site))
-    except discord.NotFound:
-        logger.warning(f"[HODO] Failed to send final hodograph for {site}: Interaction expired")
+    # Fire-and-forget: cache raw_text + prefetch AI summary
+    if sent and params and cache_key:
+        asyncio.create_task(_background_cache_hodo(cache_key, summary, site))
 
 
 class RadarSuggestionView(discord.ui.View):
