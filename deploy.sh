@@ -339,6 +339,7 @@ ExecStart=${VENV_DIR}/bin/python main.py
 Restart=on-failure
 RestartSec=10
 TimeoutStopSec=15
+WatchdogSec=300
 StandardOutput=journal
 StandardError=journal
 EnvironmentFile=${ENV_FILE}
