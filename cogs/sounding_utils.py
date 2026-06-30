@@ -1067,7 +1067,11 @@ async def get_available_sounding_times(
 
     # 2. Try Wyoming Probe for standard hours (00z/12z)
     # This is needed for international stations like SBSM that aren't in IEM.
-    # We check standard hours in the requested window.
+    # US/Canada domestic stations (K/P/C prefix) are fully covered by IEM — skip
+    # the probe for them to avoid slow full-chain fetches when IEM has no data.
+    if station_id and (station_id[0].upper() in ("K", "P", "C") or station_id.isdigit()):
+        return []
+
     probe_times = get_recent_sounding_times(n=max(2, (hours_back // 12) + 1))
 
     # Filter probe times to only those within hours_back
@@ -1199,12 +1203,21 @@ async def fetch_sounding(
     if hour in ("00", "12"):
         logger.debug(f"[SOUNDING] Fetching Wyoming for {station_id} {hour}z")
         try:
-            wyo_data = await loop.run_in_executor(
-                None, lambda: spy.get_obs_data(station_id, year, month, day, hour)
+            # SounderPy retries Wyoming up to 10 times internally — cap it so
+            # we can fall through to IEM when Wyoming is unreachable.
+            wyo_data = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None, lambda: spy.get_obs_data(station_id, year, month, day, hour)
+                ),
+                timeout=20.0,
             )
             if validate_sounding_data(wyo_data):
                 logger.debug(f"[SOUNDING] Wyoming success for {station_id} {hour}z")
                 return wyo_data
+        except asyncio.TimeoutError:
+            logger.debug(
+                f"[SOUNDING] Wyoming timed out for {station_id} {hour}z, falling through to IEM"
+            )
         except Exception as e:
             logger.debug(f"[SOUNDING] Wyoming failed for {station_id} {hour}z: {e}")
 

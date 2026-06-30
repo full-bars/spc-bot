@@ -338,6 +338,7 @@ WorkingDirectory=${INSTALL_DIR}
 ExecStart=${VENV_DIR}/bin/python main.py
 Restart=on-failure
 RestartSec=10
+TimeoutStopSec=15
 StandardOutput=journal
 StandardError=journal
 EnvironmentFile=${ENV_FILE}
