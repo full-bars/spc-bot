@@ -1203,12 +1203,21 @@ async def fetch_sounding(
     if hour in ("00", "12"):
         logger.debug(f"[SOUNDING] Fetching Wyoming for {station_id} {hour}z")
         try:
-            wyo_data = await loop.run_in_executor(
-                None, lambda: spy.get_obs_data(station_id, year, month, day, hour)
+            # SounderPy retries Wyoming up to 10 times internally — cap it so
+            # we can fall through to IEM when Wyoming is unreachable.
+            wyo_data = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None, lambda: spy.get_obs_data(station_id, year, month, day, hour)
+                ),
+                timeout=20.0,
             )
             if validate_sounding_data(wyo_data):
                 logger.debug(f"[SOUNDING] Wyoming success for {station_id} {hour}z")
                 return wyo_data
+        except asyncio.TimeoutError:
+            logger.debug(
+                f"[SOUNDING] Wyoming timed out for {station_id} {hour}z, falling through to IEM"
+            )
         except Exception as e:
             logger.debug(f"[SOUNDING] Wyoming failed for {station_id} {hour}z: {e}")
 
