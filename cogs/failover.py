@@ -194,7 +194,15 @@ class FailoverCog(commands.Cog):
             self._redis = None
 
     def _is_our_node(self, target: str) -> bool:
-        return target == self._identity or target == socket.gethostname()
+        # Match exact identity, bare hostname (from manual_primary key), or the
+        # hostname embedded in a role:hostname:uuid lease value. The hostname
+        # check covers the case where a previous run of this node left a lease
+        # with a different uuid — a new boot should still be able to reclaim it.
+        my_hostname = socket.gethostname()
+        if target == self._identity or target == my_hostname:
+            return True
+        parts = target.split(":")
+        return len(parts) >= 2 and parts[1] == my_hostname
 
     # ── Low-level Redis helpers ───────────────────────────────────────────
 
@@ -289,7 +297,11 @@ class FailoverCog(commands.Cog):
 
         holder = await self._read_lease_holder()
         if holder and holder != self._identity:
-            if self._identity.startswith("P:") and holder.startswith("S:"):
+            if self._is_our_node(holder):
+                # Stale lease from a previous run of this node (different uuid) —
+                # we own the hostname so just overwrite it and boot as primary.
+                logger.warning(f"[FAILOVER] Startup: reclaiming stale self-lease '{holder}'")
+            elif self._identity.startswith("P:") and holder.startswith("S:"):
                 logger.warning(
                     f"[FAILOVER] Startup: lease held by Standby '{holder}' — pre-empting"
                 )
@@ -341,6 +353,9 @@ class FailoverCog(commands.Cog):
                         # is bypassed — an operator's explicit override must
                         # be able to take the lease from a currently-held node.
                         await self._promote(force=True)
+                    # Always return after handling our own manual override so the
+                    # primary/standby cycle doesn't also fire in the same tick.
+                    return
                 else:
                     if self.bot.state.is_primary:
                         logger.warning(
@@ -449,6 +464,12 @@ class FailoverCog(commands.Cog):
     async def _standby_cycle(self) -> None:
         holder = await self._read_lease_holder()
         if holder:
+            if self._is_our_node(holder):
+                # Stale lease from a previous run of this node is blocking
+                # promotion — reclaim it with force to bypass the NX check.
+                logger.warning(f"[FAILOVER] Reclaiming stale self-lease '{holder}' — promoting")
+                await self._promote(force=True)
+                return
             if self._identity.startswith("P:") and holder.startswith("S:"):
                 logger.warning(
                     f"[FAILOVER] Configured Primary reclaiming lease from Standby '{holder}'"
