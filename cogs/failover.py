@@ -353,6 +353,9 @@ class FailoverCog(commands.Cog):
                         # is bypassed — an operator's explicit override must
                         # be able to take the lease from a currently-held node.
                         await self._promote(force=True)
+                    # Always return after handling our own manual override so the
+                    # primary/standby cycle doesn't also fire in the same tick.
+                    return
                 else:
                     if self.bot.state.is_primary:
                         logger.warning(
