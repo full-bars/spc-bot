@@ -17,6 +17,16 @@ from utils.state_store import (
 
 logger = logging.getLogger("spc_bot")
 
+
+def _log_task_exception(task: asyncio.Task) -> None:
+    try:
+        exc = task.exception()
+    except (asyncio.CancelledError, RuntimeError):
+        return
+    if exc:
+        logger.error("Background task failed", exc_info=exc)
+
+
 _LSR_SPLIT_RE = re.compile(r"\n\n(?=\d{4}\s+[A-Z])")
 _LSR_LINE1_RE = re.compile(r"^(\d{4}\s+[AP]M)\s+(.{16})\s+(.{24})\s+(\d+\.\d+N\s+\d+\.\d+W)", re.M)
 _LSR_LINE2_RE = re.compile(r"^(\d{2}/\d{2}/\d{4})\s+(.{24})\s+([A-Z]{2})\s+(.*)$", re.M)
@@ -430,7 +440,8 @@ class ReportsCog(commands.Cog):
 
         if event_date:
             logger.info(f"[REPORTS] Detected event date {event_date} in PNS, checking for tracks")
-            asyncio.create_task(self._check_for_surveys(event_date))
+            t = asyncio.create_task(self._check_for_surveys(event_date))
+            t.add_done_callback(_log_task_exception)
 
     async def _check_for_surveys(self, event_date: str):
         """Poll IEM metadata API for Autoplot 253 tracks on a specific date."""
@@ -520,7 +531,7 @@ class ReportsCog(commands.Cog):
                 if match_result:
                     event_id, location, magnitude, coords = match_result
                     # Pre-cache photos in the background
-                    asyncio.create_task(
+                    t = asyncio.create_task(
                         cache_dat_photos(
                             event_id=event_id,
                             location=location,
@@ -528,6 +539,7 @@ class ReportsCog(commands.Cog):
                             coords=coords or "",
                         )
                     )
+                    t.add_done_callback(_log_task_exception)
 
         except Exception as e:
             logger.warning(f"[REPORTS] Survey check failed for {event_date}: {e}")
