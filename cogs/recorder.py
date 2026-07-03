@@ -198,17 +198,21 @@ class RecorderCog(commands.Cog):
 
         frame_paths = []
         try:
+            frame_tasks = []
             for filename in files:
                 input_path = os.path.join(mission.dir, filename)
                 output_path = os.path.join(mission.dir, f"{filename}.png")
-                await loop.run_in_executor(
-                    self.executor,
-                    self._render_frame_worker,
-                    input_path,
-                    output_path,
-                    mission.site_id,
+                frame_tasks.append(
+                    loop.run_in_executor(
+                        self.executor,
+                        self._render_frame_worker,
+                        input_path,
+                        output_path,
+                        mission.site_id,
+                    )
                 )
                 frame_paths.append(output_path)
+            await asyncio.gather(*frame_tasks)
 
             if frame_paths:
                 gif_name = f"{mission.site_id}_{int(mission.trigger_ts)}_evolution.gif"
