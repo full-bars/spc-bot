@@ -900,3 +900,21 @@ class TestPromoteSplitBrainPrevention:
         )
         # Only the winner should have loaded cogs.
         assert (bot_a.load_extension.await_count == 1) ^ (bot_b.load_extension.await_count == 1)
+
+
+class TestConfiguredPrimaryReclaim:
+    @pytest.mark.asyncio
+    async def test_configured_primary_reclaims_from_standby_with_force(self, monkeypatch):
+        """When a configured primary (P:) sees a standby (S:) holding the
+        lease, it must reclaim with force=True so the SET NX doesn't fail
+        on the already-held key."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+        cog._identity = "P:test-node:abc"
+
+        monkeypatch.setattr(cog, "_exec", _stub_exec({"GET": "S:other-host:xyz"}))
+        monkeypatch.setattr(cog, "_promote", AsyncMock())
+
+        await cog._standby_cycle()
+
+        cog._promote.assert_awaited_once_with(force=True)
