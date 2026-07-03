@@ -6,6 +6,7 @@ to prevent long-running soundings from blocking rapid-fire radar updates.
 
 import asyncio
 import concurrent.futures
+import multiprocessing
 from typing import Optional
 
 _HODO_EXECUTOR: Optional[concurrent.futures.ProcessPoolExecutor] = None
@@ -56,7 +57,9 @@ def get_hodo_executor() -> concurrent.futures.ProcessPoolExecutor:
 
         _logging.getLogger("spc_bot").info(f"Initializing Hodo Pool ({_MAX_HODO_WORKERS} workers)")
         _HODO_EXECUTOR = concurrent.futures.ProcessPoolExecutor(
-            max_workers=_MAX_HODO_WORKERS, initializer=_worker_init
+            max_workers=_MAX_HODO_WORKERS,
+            initializer=_worker_init,
+            mp_context=multiprocessing.get_context("forkserver"),
         )
     return _HODO_EXECUTOR
 
@@ -71,7 +74,10 @@ def prefork_sounding_executor() -> None:
             f"Pre-forking Sounding Pool ({_MAX_SOUNDING_WORKERS} workers)"
         )
         _SOUNDING_EXECUTOR = concurrent.futures.ProcessPoolExecutor(
-            max_workers=_MAX_SOUNDING_WORKERS, initializer=_worker_init, max_tasks_per_child=5
+            max_workers=_MAX_SOUNDING_WORKERS,
+            initializer=_worker_init,
+            max_tasks_per_child=5,
+            mp_context=multiprocessing.get_context("forkserver"),
         )
 
 
@@ -85,7 +91,10 @@ def get_sounding_executor() -> concurrent.futures.ProcessPoolExecutor:
             f"Initializing Sounding Pool ({_MAX_SOUNDING_WORKERS} workers)"
         )
         _SOUNDING_EXECUTOR = concurrent.futures.ProcessPoolExecutor(
-            max_workers=_MAX_SOUNDING_WORKERS, initializer=_worker_init, max_tasks_per_child=5
+            max_workers=_MAX_SOUNDING_WORKERS,
+            initializer=_worker_init,
+            max_tasks_per_child=5,
+            mp_context=multiprocessing.get_context("forkserver"),
         )
     return _SOUNDING_EXECUTOR
 
@@ -111,15 +120,43 @@ def get_executor() -> concurrent.futures.ProcessPoolExecutor:
     return get_hodo_executor()
 
 
-def shutdown_executors():
-    """Cleanly shut down all worker pools."""
+def shutdown_executors(join_timeout: float = 1.0):
+    """Stop all worker pools quickly, without blocking on in-flight renders.
+
+    A graceful ``shutdown(wait=True)`` blocks until the worker currently
+    rendering a plot finishes — a sounding can take tens of seconds, which
+    overruns systemd's ``TimeoutStopSec`` and gets the whole process SIGKILLed
+    (leaving orphaned worker processes behind). Instead we drop queued work
+    (``cancel_futures=True``) without waiting (``wait=False``) and then forcibly
+    terminate any worker still alive, so shutdown returns near-instantly. A
+    half-drawn plot on shutdown is throwaway, so losing it is harmless.
+    """
     global _HODO_EXECUTOR, _SOUNDING_EXECUTOR
-    if _HODO_EXECUTOR is not None:
-        _HODO_EXECUTOR.shutdown(wait=True, cancel_futures=True)
-        _HODO_EXECUTOR = None
-    if _SOUNDING_EXECUTOR is not None:
-        _SOUNDING_EXECUTOR.shutdown(wait=True, cancel_futures=True)
-        _SOUNDING_EXECUTOR = None
+    for executor in (_HODO_EXECUTOR, _SOUNDING_EXECUTOR):
+        if executor is None:
+            continue
+        # Capture worker handles BEFORE shutdown() — shutdown(wait=False)
+        # clears the executor's internal ``_processes`` map, so grabbing it
+        # afterwards would leave in-flight workers un-terminated. ``_processes``
+        # is None/empty if no worker forked yet.
+        procs = list((getattr(executor, "_processes", None) or {}).values())
+        # Drop queued (not-yet-started) work and don't block on a worker
+        # mid-render.
+        executor.shutdown(wait=False, cancel_futures=True)
+        # Hard-stop any worker still running so an in-flight plot can't hold
+        # us past TimeoutStopSec. Join all live workers concurrently so the
+        # total shutdown wall-clock stays bounded by a single join_timeout
+        # (previously serial joins summed up to N*1.0s, exceeding the 3s
+        # backstop in main.py).
+        alive = [p for p in procs if p.is_alive()]
+        for p in alive:
+            p.terminate()
+        if alive:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(alive)) as joiner:
+                futures = [joiner.submit(p.join, join_timeout) for p in alive]
+                concurrent.futures.wait(futures, timeout=join_timeout + 0.5)
+    _HODO_EXECUTOR = None
+    _SOUNDING_EXECUTOR = None
 
 
 def shutdown_executor():

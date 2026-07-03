@@ -175,7 +175,7 @@ class TestPrimaryDemotion:
             if cmd == "GET":
                 return None  # Lease expired
             if cmd == "SET":
-                return "OK"  # NX succeeded
+                return True  # NX succeeded (real redis-py returns True, not "OK")
             return None
 
         monkeypatch.setattr(cog, "_exec", AsyncMock(side_effect=_exec_recorder))
@@ -405,9 +405,9 @@ def _stub_do_promote_prereqs(monkeypatch, cog):
     monkeypatch.setattr(cog, "_write_lease", AsyncMock())
     monkeypatch.setattr(cog, "_rehydrate_bot_state", AsyncMock())
 
-    # SET NX at the top of _do_promote returns "OK" so these tests exercise
-    # the cog-load path (without the stub the network call aborts promotion).
-    monkeypatch.setattr(cog, "_exec", _stub_exec({"SET": "OK"}))
+    # SET NX at the top of _do_promote returns True per redis-py contract
+    # (real redis-py returns True on success, None on failure — never "OK").
+    monkeypatch.setattr(cog, "_exec", _stub_exec({"SET": True}))
 
     import utils.state_store as state_store
 
@@ -612,9 +612,9 @@ def _stub_for_full_promotion(monkeypatch, cog):
         cog, "_build_local_redis", MagicMock(side_effect=Exception("skip redis flip"))
     )
     monkeypatch.setattr(cog, "_write_lease", AsyncMock())
-    # SET NX at top of _do_promote returns "OK" so these tests can exercise
-    # the post-claim side-effect paths.
-    monkeypatch.setattr(cog, "_exec", _stub_exec({"SET": "OK"}))
+    # SET NX at top of _do_promote returns True per redis-py contract
+    # (real redis-py returns True on success, None on failure — never "OK").
+    monkeypatch.setattr(cog, "_exec", _stub_exec({"SET": True}))
 
     import utils.events_db as events_db
 
@@ -801,10 +801,10 @@ class TestPromoteSplitBrainPrevention:
 
     @pytest.mark.asyncio
     async def test_nx_winner_completes_promotion(self, monkeypatch):
-        """If SET NX returns 'OK', the cog promotes normally."""
+        """If SET NX returns a truthy value (True in real redis-py), the cog promotes normally."""
         bot = _make_bot(is_primary=False)
         cog = FailoverCog(bot)
-        _stub_do_promote_prereqs(monkeypatch, cog)  # already stubs SET → "OK"
+        _stub_do_promote_prereqs(monkeypatch, cog)  # stubs SET → True per real redis-py contract
 
         monkeypatch.setattr(failover_module, "ALL_EXTENSIONS", ["cog_a", "cog_b"])
         bot.load_extension = AsyncMock()
@@ -814,6 +814,36 @@ class TestPromoteSplitBrainPrevention:
         assert bot.state.is_primary is True
         assert bot.load_extension.await_count == 2
         bot.tree.sync.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_promotion_succeeds_with_real_redis_py_contract(self, monkeypatch):
+        """Regression: _do_promote must accept True (not the string "OK") as a
+        successful SET NX result. redis-py's SET ... NX response callback
+        returns True/None, never "OK". If the comparison uses `!= "OK"`, the
+        NX claim silently fails its own check and aborts promotion."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+        _stub_do_promote_prereqs(monkeypatch, cog)
+        # Override stub: explicitly return True (real redis-py success)
+        monkeypatch.setattr(
+            cog,
+            "_exec",
+            _stub_exec(
+                {
+                    "SET": True,
+                    "GET": f"P:{failover_module.socket.gethostname()}:{cog._process_uuid}",
+                }
+            ),
+        )
+        monkeypatch.setattr(failover_module, "ALL_EXTENSIONS", ["cog_x"])
+        bot.load_extension = AsyncMock()
+
+        await cog._do_promote()
+
+        assert bot.state.is_primary is True, (
+            "promotion must succeed when _exec returns True for SET NX"
+        )
+        assert bot.load_extension.await_count == 1
 
     @pytest.mark.asyncio
     async def test_force_true_bypasses_nx_and_takes_lease(self, monkeypatch):
@@ -829,7 +859,7 @@ class TestPromoteSplitBrainPrevention:
         async def _record(*args):
             if str(args[0]).upper() == "SET":
                 set_calls.append(tuple(str(a).upper() for a in args[1:]))
-                return "OK"
+                return True
             return None
 
         monkeypatch.setattr(cog, "_exec", AsyncMock(side_effect=_record))
@@ -876,7 +906,7 @@ class TestPromoteSplitBrainPrevention:
                     if use_nx and key in shared:
                         return None
                     shared[key] = val
-                    return "OK"
+                    return True
                 if cmd == "GET":
                     return shared.get(str(args[1]))
                 return None
@@ -925,3 +955,120 @@ class TestPromotionTaskCallback:
         fake_task.add_done_callback.assert_called_once_with(
             failover_module._log_task_exception,
         )
+
+
+class TestStaleSelfLeaseReclaim:
+    @pytest.mark.asyncio
+    async def test_try_reclaim_succeeds_via_lua_cas(self, monkeypatch):
+        """_try_reclaim_stale_lease must use Lua eval for atomic CAS."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+
+        mock_client = MagicMock()
+        mock_client.eval = AsyncMock(return_value="OK")
+        monkeypatch.setattr(cog, "_get_redis", AsyncMock(return_value=mock_client))
+
+        result = await cog._try_reclaim_stale_lease("P:test-node:old", "P:test-node:new")
+        assert result is True
+        mock_client.eval.assert_awaited_once_with(
+            failover_module._LUA_RECLAIM,
+            1,
+            failover_module.LEASE_KEY,
+            "P:test-node:old",
+            "P:test-node:new",
+            str(failover_module.HEARTBEAT_TTL),
+        )
+
+    @pytest.mark.asyncio
+    async def test_try_reclaim_fails_when_cas_returns_nil(self, monkeypatch):
+        """_try_reclaim_stale_lease returns False when CAS returns nil."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+
+        mock_client = MagicMock()
+        mock_client.eval = AsyncMock(return_value=None)
+        monkeypatch.setattr(cog, "_get_redis", AsyncMock(return_value=mock_client))
+
+        result = await cog._try_reclaim_stale_lease("P:test-node:old", "P:test-node:new")
+        assert result is False
+
+
+class TestConfiguredPrimaryReclaimStaleSelf:
+    @pytest.mark.asyncio
+    async def test_configured_primary_reclaim_uses_lua_cas_for_stale_self(self, monkeypatch):
+        """When a configured primary sees its own stale lease, it must use
+        _try_reclaim_stale_lease (Lua CAS) before force-promoting."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+        cog._identity = "S:test-node:abc"
+        stale_holder = "P:test-node:old-uuid"
+
+        monkeypatch.setattr(cog, "_exec", _stub_exec({"GET": stale_holder}))
+        monkeypatch.setattr(cog, "_try_reclaim_stale_lease", AsyncMock(return_value=True))
+        monkeypatch.setattr(cog, "_promote", AsyncMock())
+
+        await cog._standby_cycle()
+
+        cog._try_reclaim_stale_lease.assert_awaited_once_with(
+            stale_holder, cog._node_identity(True)
+        )
+        cog._promote.assert_awaited_once_with(force=True)
+
+
+class TestForcedPromotionLeaseCheck:
+    @pytest.mark.asyncio
+    async def test_force_true_aborts_when_redis_unreachable(self, monkeypatch):
+        """If the forced SET returns None (Redis connection error), promotion
+        must abort — no is_primary flip, no cog load."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+
+        async def _exec_fail(*args):
+            return None
+
+        monkeypatch.setattr(cog, "_exec", AsyncMock(side_effect=_exec_fail))
+        monkeypatch.setattr(cog, "_cleanup_own_stale_entries", AsyncMock())
+        monkeypatch.setattr(cog, "_build_local_redis", MagicMock(side_effect=Exception("skip")))
+        monkeypatch.setattr(cog, "_write_lease", AsyncMock())
+        monkeypatch.setattr(cog, "_rehydrate_bot_state", AsyncMock())
+
+        import utils.state_store as state_store
+
+        monkeypatch.setattr(state_store, "invalidate_all_caches", MagicMock())
+        monkeypatch.setattr(state_store, "mirror_to_sqlite", AsyncMock())
+        monkeypatch.setattr(state_store, "resync_to_redis", AsyncMock())
+
+        import utils.events_db as events_db
+
+        monkeypatch.setattr(events_db, "restore_from_sync", MagicMock())
+        monkeypatch.setattr(events_db, "set_syncthing_folder_mode", AsyncMock())
+
+        import asyncio as _asyncio
+
+        monkeypatch.setattr(_asyncio, "sleep", AsyncMock())
+
+        monkeypatch.setattr(failover_module, "ALL_EXTENSIONS", ["cog_x"])
+        bot.load_extension = AsyncMock()
+
+        await cog._do_promote(force=True)
+
+        assert bot.state.is_primary is False, "forced promotion must abort when lease write fails"
+        bot.load_extension.assert_not_awaited()
+
+
+class TestConfiguredPrimaryReclaim:
+    @pytest.mark.asyncio
+    async def test_configured_primary_reclaims_from_standby_with_force(self, monkeypatch):
+        """When a configured primary (P:) sees a standby (S:) holding the
+        lease, it must reclaim with force=True so the SET NX doesn't fail
+        on the already-held key."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+        cog._identity = "P:test-node:abc"
+
+        monkeypatch.setattr(cog, "_exec", _stub_exec({"GET": "S:other-host:xyz"}))
+        monkeypatch.setattr(cog, "_promote", AsyncMock())
+
+        await cog._standby_cycle()
+
+        cog._promote.assert_awaited_once_with(force=True)

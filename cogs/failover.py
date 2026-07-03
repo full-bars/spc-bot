@@ -102,6 +102,18 @@ else
 end
 """
 
+# Lua: atomic stale-self-lease reclaim — only overwrite the lease if it
+# still belongs to our own stale identity (closes TOCTOU race between read
+# and SET).
+# Returns "OK" if reclaimed, nil if someone else took it (or Redis is gone).
+_LUA_RECLAIM = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('set', KEYS[1], ARGV[2], 'EX', tonumber(ARGV[3]))
+else
+    return nil
+end
+"""
+
 
 def _require_failover_token() -> str:
     if not FAILOVER_TOKEN or FAILOVER_TOKEN == "changeme":
@@ -205,7 +217,15 @@ class FailoverCog(commands.Cog):
             self._redis = None
 
     def _is_our_node(self, target: str) -> bool:
-        return target == self._identity or target == socket.gethostname()
+        # Match exact identity, bare hostname (from manual_primary key), or the
+        # hostname embedded in a role:hostname:uuid lease value. The hostname
+        # check covers the case where a previous run of this node left a lease
+        # with a different uuid — a new boot should still be able to reclaim it.
+        my_hostname = socket.gethostname()
+        if target == self._identity or target == my_hostname:
+            return True
+        parts = target.split(":")
+        return len(parts) >= 2 and parts[1] == my_hostname
 
     # ── Low-level Redis helpers ───────────────────────────────────────────
 
@@ -271,6 +291,29 @@ class FailoverCog(commands.Cog):
         ) as e:
             logger.warning(f"[FAILOVER] Release lease error: {e!r}")
 
+    async def _try_reclaim_stale_lease(self, stale_holder: str, new_identity: str) -> bool:
+        """Atomically reclaim the lease if it still belongs to our stale
+        identity. Uses Lua compare-and-set to close the TOCTOU window between
+        the ``_read_lease_holder`` call and the force-promotion write.
+
+        Returns True if the lease was reclaimed; False if another node took it
+        in the race window (or Redis is unreachable).
+        """
+        try:
+            client = await self._get_redis()
+            result = await client.eval(
+                _LUA_RECLAIM, 1, LEASE_KEY, stale_holder, new_identity, str(HEARTBEAT_TTL)
+            )
+            return result is not None
+        except (
+            redis.exceptions.ConnectionError,
+            redis.exceptions.TimeoutError,
+            redis.exceptions.ReadOnlyError,
+            OSError,
+        ) as e:
+            logger.warning(f"[FAILOVER] Stale-lease reclaim error: {e!r}")
+            return False
+
     # ── Startup lease check ───────────────────────────────────────────────
 
     async def startup_lease_check(self) -> bool:
@@ -300,7 +343,11 @@ class FailoverCog(commands.Cog):
 
         holder = await self._read_lease_holder()
         if holder and holder != self._identity:
-            if self._identity.startswith("P:") and holder.startswith("S:"):
+            if self._is_our_node(holder):
+                # Stale lease from a previous run of this node (different uuid) —
+                # we own the hostname so just overwrite it and boot as primary.
+                logger.warning(f"[FAILOVER] Startup: reclaiming stale self-lease '{holder}'")
+            elif self._identity.startswith("P:") and holder.startswith("S:"):
                 logger.warning(
                     f"[FAILOVER] Startup: lease held by Standby '{holder}' — pre-empting"
                 )
@@ -352,6 +399,9 @@ class FailoverCog(commands.Cog):
                         # is bypassed — an operator's explicit override must
                         # be able to take the lease from a currently-held node.
                         await self._promote(force=True)
+                    # Always return after handling our own manual override so the
+                    # primary/standby cycle doesn't also fire in the same tick.
+                    return
                 else:
                     if self.bot.state.is_primary:
                         logger.warning(
@@ -460,11 +510,24 @@ class FailoverCog(commands.Cog):
     async def _standby_cycle(self) -> None:
         holder = await self._read_lease_holder()
         if holder:
+            if self._is_our_node(holder):
+                logger.warning(f"[FAILOVER] Reclaiming stale self-lease '{holder}' — promoting")
+                # Atomic CAS closes the TOCTOU window between the read above
+                # and the force-promotion below.
+                promoting = self._node_identity(True)
+                if await self._try_reclaim_stale_lease(holder, promoting):
+                    await self._promote(force=True)
+                else:
+                    logger.warning(
+                        "[FAILOVER] Stale-self-lease reclaimed by another node "
+                        "in race window — remaining standby"
+                    )
+                return
             if self._identity.startswith("P:") and holder.startswith("S:"):
                 logger.warning(
                     f"[FAILOVER] Configured Primary reclaiming lease from Standby '{holder}'"
                 )
-                await self._promote()
+                await self._promote(force=True)
                 return
             if self._primary_failures > 0:
                 logger.info(
@@ -494,16 +557,25 @@ class FailoverCog(commands.Cog):
         # currently-held primary.
         promoting_identity = self._node_identity(True)
         if force:
-            await self._exec("SET", LEASE_KEY, promoting_identity, "EX", str(HEARTBEAT_TTL))
+            result = await self._exec(
+                "SET", LEASE_KEY, promoting_identity, "EX", str(HEARTBEAT_TTL)
+            )
+            if result is None:
+                logger.error(
+                    "[FAILOVER] Forced promotion failed — Redis unreachable, cannot claim "
+                    "lease. Aborting promotion to avoid split-brain."
+                )
+                return
             logger.warning("[FAILOVER] !!! PROMOTING TO PRIMARY (forced) !!!")
         else:
             claim_result = await self._exec(
                 "SET", LEASE_KEY, promoting_identity, "NX", "EX", str(HEARTBEAT_TTL)
             )
-            if claim_result != "OK":
+            if not claim_result:
                 # NX failed — either another node holds the lease, or Redis
-                # is unavailable. In both cases, the safe action is to
-                # remain a standby. Try to identify the holder for the log.
+                # is unavailable. redis-py's SET...NX returns True on
+                # success and None on failure (never the string "OK").
+                # In both failure cases, remain a standby.
                 holder = await self._read_lease_holder()
                 if holder:
                     logger.warning(
@@ -655,6 +727,13 @@ class FailoverCog(commands.Cog):
             await self._do_demote()
 
     async def _do_demote(self) -> None:
+        # TODO(failover): see progress.md #4 — failback reconciliation.
+        # Demotion unloads cogs and flips syncthing mode but never re-attaches
+        # local Redis as a replica of the new primary. After a failover where
+        # this node accumulated state as primary, rebooting the configured
+        # primary without reconciling posted_warnings/dedup state can cause
+        # duplicate posts. Needs a design pass on re-REPLICAOF + wait-for-sync
+        # vs. diffing state before resuming autonomous posting.
         logger.info("[FAILOVER] Demoting to STANDBY")
         self.bot.state.is_primary = False
         self._identity = self._node_identity(False)
