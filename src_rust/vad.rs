@@ -716,6 +716,117 @@ pub fn clip_profile(
     }
 }
 
+// ── compute_all_parameters ──
+//
+// Single FFI entry point that computes all kinematic parameters in one
+// Rust call, cutting ~12 boundary crossings down to 1 for VAD profiles.
+
+#[pyfunction]
+pub fn compute_all_parameters(
+    wind_dir: Vec<f64>,
+    wind_spd: Vec<f64>,
+    altitude: Vec<f64>,
+    storm_motion_str: String,
+    py: Python<'_>,
+) -> PyResult<Py<PyDict>> {
+    // 1. Bunkers storm motion
+    let (bunkers_right, bunkers_left, mean_wind) =
+        compute_bunkers(wind_dir.clone(), wind_spd.clone(), altitude.clone())?;
+
+    let storm_motion: (f64, f64) = match storm_motion_str.to_lowercase().as_str() {
+        "blm" | "left-mover" => bunkers_left,
+        "brm" | "right-mover" => bunkers_right,
+        "mnw" | "mean-wind" => mean_wind,
+        _ => {
+            // Parse "ddd/sss" format
+            let parts: Vec<&str> = storm_motion_str.split('/').collect();
+            if parts.len() == 2 {
+                (
+                    parts[0].parse().unwrap_or(f64::NAN),
+                    parts[1].parse().unwrap_or(f64::NAN),
+                )
+            } else {
+                (f64::NAN, f64::NAN)
+            }
+        }
+    };
+
+    let storm_dir = storm_motion.0;
+    let storm_spd = storm_motion.1;
+
+    let result = PyDict::new(py);
+
+    // 2. Critical angle
+    let critical = compute_crit_angl(
+        wind_dir.clone(),
+        wind_spd.clone(),
+        altitude.clone(),
+        storm_dir,
+        storm_spd,
+    )
+    .unwrap_or(f64::NAN);
+    result.set_item("critical", critical)?;
+
+    // 3. Shear magnitude at each layer
+    for (hght, key) in &[
+        (0.5, "shear_mag_500m"),
+        (1.0, "shear_mag_1000m"),
+        (3.0, "shear_mag_3000m"),
+        (6.0, "shear_mag_6000m"),
+    ] {
+        let shear = compute_shear_mag(wind_dir.clone(), wind_spd.clone(), altitude.clone(), *hght)
+            .unwrap_or(f64::NAN);
+        result.set_item(*key, shear)?;
+    }
+
+    // 4. SRH at each layer
+    for (hght, key) in &[(0.5, "srh_500m"), (1.0, "srh_1000m"), (3.0, "srh_3000m")] {
+        let srh = compute_srh(
+            wind_dir.clone(),
+            wind_spd.clone(),
+            altitude.clone(),
+            storm_dir,
+            storm_spd,
+            *hght,
+        )
+        .unwrap_or(f64::NAN);
+        result.set_item(*key, srh)?;
+    }
+
+    // 5. Storm-relative flow
+    for (top, key) in &[
+        (0.5, "sr_flow_500m"),
+        (1.0, "sr_flow_1000m"),
+        (3.0, "sr_flow_3000m"),
+    ] {
+        let flow = compute_sr_flow(
+            wind_dir.clone(),
+            wind_spd.clone(),
+            altitude.clone(),
+            storm_dir,
+            storm_spd,
+            0.0,
+            *top,
+        )
+        .unwrap_or(f64::NAN);
+        result.set_item(*key, flow)?;
+    }
+
+    // 6. DTM (Downward Tilt Magnitude)
+    let dtm = compute_dtm(wind_dir.clone(), wind_spd.clone(), altitude.clone())
+        .unwrap_or((f64::NAN, f64::NAN));
+    result.set_item("dtm_dir", dtm.0)?;
+    result.set_item("dtm_mag", dtm.1)?;
+
+    // 7. Bunkers / storm motion
+    result.set_item("bunkers_right", bunkers_right)?;
+    result.set_item("bunkers_left", bunkers_left)?;
+    result.set_item("mean_wind", mean_wind)?;
+    result.set_item("storm_motion", storm_motion)?;
+
+    Ok(result.into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
