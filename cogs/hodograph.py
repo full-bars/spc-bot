@@ -13,6 +13,16 @@ from utils.worker_pool import get_hodo_executor
 
 logger = logging.getLogger("spc_bot")
 
+
+def _log_task_exception(task: asyncio.Task) -> None:
+    try:
+        exc = task.exception()
+    except (asyncio.CancelledError, RuntimeError):
+        return
+    if exc:
+        logger.error("Background task failed", exc_info=exc)
+
+
 VALID_RADARS = list(_radar_info.keys())
 HODO_OUTPUT_DIR = os.path.join("cache", "hodographs")
 VAD_SCRIPT = os.path.join("lib", "vad_plotter", "vad.py")
@@ -162,7 +172,8 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
 
     # Fire-and-forget: cache raw_text + prefetch AI summary
     if sent and params and cache_key:
-        asyncio.create_task(_background_cache_hodo(cache_key, summary, site))
+        t = asyncio.create_task(_background_cache_hodo(cache_key, summary, site))
+        t.add_done_callback(_log_task_exception)
 
 
 class RadarSuggestionView(discord.ui.View):
