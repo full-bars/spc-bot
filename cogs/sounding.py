@@ -299,29 +299,34 @@ class SoundingCog(commands.Cog):
                     lat=station["lat"],
                     lon=station["lon"],
                 )
-                return station, sid, y, mo, d, h, data
+                if not data:
+                    self.bot.state.posted_soundings.discard(pkey)
+                return station, sid, y, mo, d, h, data, pkey
 
             fetched = await asyncio.gather(*[_fetch_mon(*r) for r in batch])
 
             # Plot
             plot_jobs = []
-            for station, sid, y, mo, d, h, data in fetched:
+            for station, sid, y, mo, d, h, data, pkey in fetched:
                 if not data:
                     continue
                 opath = os.path.join(CACHE_DIR, f"sounding_{sid}_{y}{mo}{d}_{h}z")
-                plot_jobs.append((station, sid, y, mo, d, h, data, opath))
+                plot_jobs.append((station, sid, y, mo, d, h, data, opath, pkey))
 
             if not plot_jobs:
                 continue
 
             plot_results = await asyncio.gather(
-                *[generate_plot(data, opath) for *_, data, opath in plot_jobs]
+                *[generate_plot(data, opath) for *_, data, opath, _ in plot_jobs]
             )
 
-            # Send
-            for (station, sid, y, mo, d, h, data, opath), success in zip(plot_jobs, plot_results):
+            # Send — roll back dedup claim if plot failed
+            for (station, sid, y, mo, d, h, data, opath, pkey), success in zip(
+                plot_jobs, plot_results
+            ):
                 png_path = opath + ".png"
                 if not success or not os.path.exists(png_path):
+                    self.bot.state.posted_soundings.discard(pkey)
                     continue
 
                 applicable = await self._watches_near(station["lat"], station["lon"])
