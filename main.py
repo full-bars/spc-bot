@@ -446,11 +446,37 @@ async def on_app_command_error(
         )
 
 
+# ── Systemd notify helper ─────────────────────────────────────────────────────
+
+
+def _sd_notify(msg: str) -> None:
+    """Write a sd_notify message to the systemd socket (no-op if not supervised)."""
+    import socket as _sock
+
+    path = os.environ.get("NOTIFY_SOCKET", "")
+    if not path:
+        return
+    try:
+        with _sock.socket(_sock.AF_UNIX, _sock.SOCK_DGRAM) as s:
+            # Abstract sockets use a NUL prefix instead of '@'
+            if path.startswith("@"):
+                path = "\0" + path[1:]
+            s.connect(path)
+            s.sendall(msg.encode())
+    except Exception:
+        pass
+
+
 # ── Watchdog ─────────────────────────────────────────────────────────────────
 @tasks.loop(minutes=2)
 async def watchdog_task():
     global _session_probe_failures
     await bot.wait_until_ready()
+    # Ping the systemd watchdog so it knows the event loop is alive.
+    # WatchdogSec in the service file must be > 2 min (we use 5 min).
+    # If the asyncio loop dies but the process lingers (zombie threads),
+    # this ping stops and systemd kills+restarts the service automatically.
+    _sd_notify("WATCHDOG=1")
 
     # Probe two independent endpoints. We only count a failure if BOTH fail —
     # a single-endpoint outage (e.g. NWS maintenance) shouldn't trigger a
