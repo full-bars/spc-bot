@@ -52,6 +52,17 @@ from utils import state_store
 
 logger = logging.getLogger("spc_bot")
 
+
+def _log_task_exception(task: asyncio.Task) -> None:
+    """Log any exception raised in a background fire-and-forget task."""
+    try:
+        exc = task.exception()
+    except (asyncio.CancelledError, RuntimeError):
+        return
+    if exc:
+        logger.error("Background task failed", exc_info=exc)
+
+
 FAILOVER_TOKEN = os.getenv("FAILOVER_TOKEN", "")
 
 # On standby nodes, point this at the PRIMARY node's Redis (via Tailscale).
@@ -670,7 +681,8 @@ class FailoverCog(commands.Cog):
 
         nwws = self.bot.get_cog("NWWSCog")
         if nwws:
-            asyncio.create_task(nwws.trigger_connection())
+            t = asyncio.create_task(nwws.trigger_connection())
+            t.add_done_callback(_log_task_exception)
 
         try:
             synced = await self.bot.tree.sync()
