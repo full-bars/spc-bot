@@ -1253,11 +1253,15 @@ async def fetch_sounding(
     if hour in ("00", "12"):
         logger.debug(f"[SOUNDING] Fetching Wyoming for {station_id} {hour}z")
         try:
-            # SounderPy retries Wyoming up to 10 times internally — cap it so
-            # we can fall through to IEM when Wyoming is unreachable.
+            # SounderPy retries Wyoming up to 10 times internally — use a
+            # dedicated thread pool so leaked threads after a timeout don't
+            # clog the default executor shared with ACARS fetches and I/O.
+            import concurrent.futures
+
             wyo_data = await asyncio.wait_for(
                 loop.run_in_executor(
-                    None, lambda: spy.get_obs_data(station_id, year, month, day, hour)
+                    concurrent.futures.ThreadPoolExecutor(max_workers=1),
+                    lambda: spy.get_obs_data(station_id, year, month, day, hour),
                 ),
                 timeout=20.0,
             )
