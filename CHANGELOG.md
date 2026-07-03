@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **Fast Worker-Pool Shutdown**: `shutdown_executors()` no longer blocks on an in-flight plot. It previously called `ProcessPoolExecutor.shutdown(wait=True)`, which waited for the worker currently rendering a sounding/hodograph to finish — up to tens of seconds — overrunning systemd's `TimeoutStopSec` and getting the process SIGKILLed with orphaned workers left behind. It now drops queued work and force-terminates running workers, returning in well under a second. The `main.py` shutdown call is also wrapped in a 3s timeout backstop.
+
 ## [5.39.0] - 2026-06-27
 
 ### Fixed

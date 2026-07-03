@@ -701,7 +701,12 @@ async def _shutdown():
     try:
         from utils.worker_pool import shutdown_executor
 
-        shutdown_executor()
+        # shutdown_executor() force-terminates workers and should return in
+        # well under a second; the timeout is a backstop so a wedged worker
+        # can never stall graceful shutdown into a systemd SIGKILL.
+        await asyncio.wait_for(asyncio.to_thread(shutdown_executor), timeout=3.0)
+    except asyncio.TimeoutError:
+        logger.warning("Worker pool shutdown timed out — relying on systemd cgroup kill")
     except Exception:
         pass
     try:

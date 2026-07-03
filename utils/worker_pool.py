@@ -111,15 +111,39 @@ def get_executor() -> concurrent.futures.ProcessPoolExecutor:
     return get_hodo_executor()
 
 
-def shutdown_executors():
-    """Cleanly shut down all worker pools."""
+def shutdown_executors(join_timeout: float = 1.0):
+    """Stop all worker pools quickly, without blocking on in-flight renders.
+
+    A graceful ``shutdown(wait=True)`` blocks until the worker currently
+    rendering a plot finishes — a sounding can take tens of seconds, which
+    overruns systemd's ``TimeoutStopSec`` and gets the whole process SIGKILLed
+    (leaving orphaned worker processes behind). Instead we drop queued work
+    (``cancel_futures=True``) without waiting (``wait=False``) and then forcibly
+    terminate any worker still alive, so shutdown returns near-instantly. A
+    half-drawn plot on shutdown is throwaway, so losing it is harmless.
+    """
     global _HODO_EXECUTOR, _SOUNDING_EXECUTOR
-    if _HODO_EXECUTOR is not None:
-        _HODO_EXECUTOR.shutdown(wait=True, cancel_futures=True)
-        _HODO_EXECUTOR = None
-    if _SOUNDING_EXECUTOR is not None:
-        _SOUNDING_EXECUTOR.shutdown(wait=True, cancel_futures=True)
-        _SOUNDING_EXECUTOR = None
+    for executor in (_HODO_EXECUTOR, _SOUNDING_EXECUTOR):
+        if executor is None:
+            continue
+        # Capture worker handles BEFORE shutdown() — shutdown(wait=False)
+        # clears the executor's internal ``_processes`` map, so grabbing it
+        # afterwards would leave in-flight workers un-terminated. ``_processes``
+        # is None/empty if no worker forked yet.
+        procs = list((getattr(executor, "_processes", None) or {}).values())
+        # Drop queued (not-yet-started) work and don't block on a worker
+        # mid-render.
+        executor.shutdown(wait=False, cancel_futures=True)
+        # Hard-stop any worker still running so an in-flight plot can't hold
+        # us past TimeoutStopSec.
+        for proc in procs:
+            if proc.is_alive():
+                proc.terminate()
+        for proc in procs:
+            if proc.is_alive():
+                proc.join(join_timeout)
+    _HODO_EXECUTOR = None
+    _SOUNDING_EXECUTOR = None
 
 
 def shutdown_executor():
