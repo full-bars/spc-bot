@@ -6,6 +6,7 @@ to prevent long-running soundings from blocking rapid-fire radar updates.
 
 import asyncio
 import concurrent.futures
+import multiprocessing
 from typing import Optional
 
 _HODO_EXECUTOR: Optional[concurrent.futures.ProcessPoolExecutor] = None
@@ -56,7 +57,9 @@ def get_hodo_executor() -> concurrent.futures.ProcessPoolExecutor:
 
         _logging.getLogger("spc_bot").info(f"Initializing Hodo Pool ({_MAX_HODO_WORKERS} workers)")
         _HODO_EXECUTOR = concurrent.futures.ProcessPoolExecutor(
-            max_workers=_MAX_HODO_WORKERS, initializer=_worker_init
+            max_workers=_MAX_HODO_WORKERS,
+            initializer=_worker_init,
+            mp_context=multiprocessing.get_context("forkserver"),
         )
     return _HODO_EXECUTOR
 
@@ -71,7 +74,10 @@ def prefork_sounding_executor() -> None:
             f"Pre-forking Sounding Pool ({_MAX_SOUNDING_WORKERS} workers)"
         )
         _SOUNDING_EXECUTOR = concurrent.futures.ProcessPoolExecutor(
-            max_workers=_MAX_SOUNDING_WORKERS, initializer=_worker_init, max_tasks_per_child=5
+            max_workers=_MAX_SOUNDING_WORKERS,
+            initializer=_worker_init,
+            max_tasks_per_child=5,
+            mp_context=multiprocessing.get_context("forkserver"),
         )
 
 
@@ -85,7 +91,10 @@ def get_sounding_executor() -> concurrent.futures.ProcessPoolExecutor:
             f"Initializing Sounding Pool ({_MAX_SOUNDING_WORKERS} workers)"
         )
         _SOUNDING_EXECUTOR = concurrent.futures.ProcessPoolExecutor(
-            max_workers=_MAX_SOUNDING_WORKERS, initializer=_worker_init, max_tasks_per_child=5
+            max_workers=_MAX_SOUNDING_WORKERS,
+            initializer=_worker_init,
+            max_tasks_per_child=5,
+            mp_context=multiprocessing.get_context("forkserver"),
         )
     return _SOUNDING_EXECUTOR
 
