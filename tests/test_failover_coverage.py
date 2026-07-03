@@ -900,3 +900,28 @@ class TestPromoteSplitBrainPrevention:
         )
         # Only the winner should have loaded cogs.
         assert (bot_a.load_extension.await_count == 1) ^ (bot_b.load_extension.await_count == 1)
+
+
+class TestPromotionTaskCallback:
+    @pytest.mark.asyncio
+    async def test_trigger_connection_task_has_exception_callback(self, monkeypatch):
+        """The fire-and-forget create_task on promotion must have a
+        done_callback so exceptions don't vanish silently."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+        _stub_do_promote_prereqs(monkeypatch, cog)
+
+        nwws_mock = MagicMock()
+        nwws_mock.trigger_connection = AsyncMock()
+
+        fake_task = MagicMock()
+        fake_task.add_done_callback = MagicMock()
+        monkeypatch.setattr(asyncio, "create_task", MagicMock(return_value=fake_task))
+        monkeypatch.setattr(failover_module, "ALL_EXTENSIONS", ["cog_x"])
+        monkeypatch.setattr(bot, "get_cog", MagicMock(return_value=nwws_mock))
+
+        await cog._do_promote()
+
+        fake_task.add_done_callback.assert_called_once_with(
+            failover_module._log_task_exception,
+        )
