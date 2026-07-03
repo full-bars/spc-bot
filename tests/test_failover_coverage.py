@@ -932,6 +932,64 @@ class TestPromoteSplitBrainPrevention:
         assert (bot_a.load_extension.await_count == 1) ^ (bot_b.load_extension.await_count == 1)
 
 
+class TestStaleSelfLeaseReclaim:
+    @pytest.mark.asyncio
+    async def test_try_reclaim_succeeds_via_lua_cas(self, monkeypatch):
+        """_try_reclaim_stale_lease must use Lua eval for atomic CAS."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+
+        mock_client = MagicMock()
+        mock_client.eval = AsyncMock(return_value="OK")
+        monkeypatch.setattr(cog, "_get_redis", AsyncMock(return_value=mock_client))
+
+        result = await cog._try_reclaim_stale_lease("P:test-node:old", "P:test-node:new")
+        assert result is True
+        mock_client.eval.assert_awaited_once_with(
+            failover_module._LUA_RECLAIM,
+            1,
+            failover_module.LEASE_KEY,
+            "P:test-node:old",
+            "P:test-node:new",
+            str(failover_module.HEARTBEAT_TTL),
+        )
+
+    @pytest.mark.asyncio
+    async def test_try_reclaim_fails_when_cas_returns_nil(self, monkeypatch):
+        """_try_reclaim_stale_lease returns False when CAS returns nil."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+
+        mock_client = MagicMock()
+        mock_client.eval = AsyncMock(return_value=None)
+        monkeypatch.setattr(cog, "_get_redis", AsyncMock(return_value=mock_client))
+
+        result = await cog._try_reclaim_stale_lease("P:test-node:old", "P:test-node:new")
+        assert result is False
+
+
+class TestConfiguredPrimaryReclaimStaleSelf:
+    @pytest.mark.asyncio
+    async def test_configured_primary_reclaim_uses_lua_cas_for_stale_self(self, monkeypatch):
+        """When a configured primary sees its own stale lease, it must use
+        _try_reclaim_stale_lease (Lua CAS) before force-promoting."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+        cog._identity = "S:test-node:abc"
+        stale_holder = "P:test-node:old-uuid"
+
+        monkeypatch.setattr(cog, "_exec", _stub_exec({"GET": stale_holder}))
+        monkeypatch.setattr(cog, "_try_reclaim_stale_lease", AsyncMock(return_value=True))
+        monkeypatch.setattr(cog, "_promote", AsyncMock())
+
+        await cog._standby_cycle()
+
+        cog._try_reclaim_stale_lease.assert_awaited_once_with(
+            stale_holder, cog._node_identity(True)
+        )
+        cog._promote.assert_awaited_once_with(force=True)
+
+
 class TestForcedPromotionLeaseCheck:
     @pytest.mark.asyncio
     async def test_force_true_aborts_when_redis_unreachable(self, monkeypatch):

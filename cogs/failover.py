@@ -91,6 +91,18 @@ else
 end
 """
 
+# Lua: atomic stale-self-lease reclaim — only overwrite the lease if it
+# still belongs to our own stale identity (closes TOCTOU race between read
+# and SET).
+# Returns "OK" if reclaimed, nil if someone else took it (or Redis is gone).
+_LUA_RECLAIM = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('set', KEYS[1], ARGV[2], 'EX', tonumber(ARGV[3]))
+else
+    return nil
+end
+"""
+
 
 def _require_failover_token() -> str:
     if not FAILOVER_TOKEN or FAILOVER_TOKEN == "changeme":
@@ -267,6 +279,29 @@ class FailoverCog(commands.Cog):
             OSError,
         ) as e:
             logger.warning(f"[FAILOVER] Release lease error: {e!r}")
+
+    async def _try_reclaim_stale_lease(self, stale_holder: str, new_identity: str) -> bool:
+        """Atomically reclaim the lease if it still belongs to our stale
+        identity. Uses Lua compare-and-set to close the TOCTOU window between
+        the ``_read_lease_holder`` call and the force-promotion write.
+
+        Returns True if the lease was reclaimed; False if another node took it
+        in the race window (or Redis is unreachable).
+        """
+        try:
+            client = await self._get_redis()
+            result = await client.eval(
+                _LUA_RECLAIM, 1, LEASE_KEY, stale_holder, new_identity, str(HEARTBEAT_TTL)
+            )
+            return result is not None
+        except (
+            redis.exceptions.ConnectionError,
+            redis.exceptions.TimeoutError,
+            redis.exceptions.ReadOnlyError,
+            OSError,
+        ) as e:
+            logger.warning(f"[FAILOVER] Stale-lease reclaim error: {e!r}")
+            return False
 
     # ── Startup lease check ───────────────────────────────────────────────
 
@@ -465,10 +500,17 @@ class FailoverCog(commands.Cog):
         holder = await self._read_lease_holder()
         if holder:
             if self._is_our_node(holder):
-                # Stale lease from a previous run of this node is blocking
-                # promotion — reclaim it with force to bypass the NX check.
                 logger.warning(f"[FAILOVER] Reclaiming stale self-lease '{holder}' — promoting")
-                await self._promote(force=True)
+                # Atomic CAS closes the TOCTOU window between the read above
+                # and the force-promotion below.
+                promoting = self._node_identity(True)
+                if await self._try_reclaim_stale_lease(holder, promoting):
+                    await self._promote(force=True)
+                else:
+                    logger.warning(
+                        "[FAILOVER] Stale-self-lease reclaimed by another node "
+                        "in race window — remaining standby"
+                    )
                 return
             if self._identity.startswith("P:") and holder.startswith("S:"):
                 logger.warning(
@@ -673,6 +715,13 @@ class FailoverCog(commands.Cog):
             await self._do_demote()
 
     async def _do_demote(self) -> None:
+        # TODO(failover): see progress.md #4 — failback reconciliation.
+        # Demotion unloads cogs and flips syncthing mode but never re-attaches
+        # local Redis as a replica of the new primary. After a failover where
+        # this node accumulated state as primary, rebooting the configured
+        # primary without reconciling posted_warnings/dedup state can cause
+        # duplicate posts. Needs a design pass on re-REPLICAOF + wait-for-sync
+        # vs. diffing state before resuming autonomous posting.
         logger.info("[FAILOVER] Demoting to STANDBY")
         self.bot.state.is_primary = False
         self._identity = self._node_identity(False)
