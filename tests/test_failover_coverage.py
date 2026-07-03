@@ -900,3 +900,37 @@ class TestPromoteSplitBrainPrevention:
         )
         # Only the winner should have loaded cogs.
         assert (bot_a.load_extension.await_count == 1) ^ (bot_b.load_extension.await_count == 1)
+
+
+class TestManualOverrideFallthrough:
+    @pytest.mark.asyncio
+    async def test_primary_override_confirm_runs_cycle_and_drain(self, monkeypatch):
+        """Already primary + manual override = our node -> fall through to
+        _primary_cycle + _drain_dirty_writes (not short-circuit return)."""
+        bot = _make_bot(is_primary=True)
+        cog = FailoverCog(bot)
+        cog._identity = "P:test-node:abc"
+
+        monkeypatch.setattr(cog, "_exec", _stub_exec({"HSET": 1, "GET": "test-node"}))
+        monkeypatch.setattr(cog, "_primary_cycle", AsyncMock())
+        monkeypatch.setattr(cog, "_drain_dirty_writes", AsyncMock())
+
+        await cog.sync_loop()
+
+        cog._primary_cycle.assert_awaited_once()
+        cog._drain_dirty_writes.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_standby_override_confirm_runs_standby_cycle(self, monkeypatch):
+        """Already standby + manual override = other node -> fall through to
+        _standby_cycle (not short-circuit return)."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+        cog._identity = "S:test-node:abc"
+
+        monkeypatch.setattr(cog, "_exec", _stub_exec({"HSET": 1, "GET": "other-host"}))
+        monkeypatch.setattr(cog, "_standby_cycle", AsyncMock())
+
+        await cog.sync_loop()
+
+        cog._standby_cycle.assert_awaited_once()
