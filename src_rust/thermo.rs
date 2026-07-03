@@ -37,20 +37,12 @@ fn virtual_temp(t_k: f64, w: f64) -> f64 {
 // ── LCL pressure (Bolton 1980 eq. 22, verified against SHARPpy thalvl) ────
 
 fn lcl_pressure(t_k: f64, td_k: f64, p_hpa: f64) -> f64 {
-    // Bolton (1980) eq. 22.  Eq. 15 uses Celsius; the Poisson ratio needs Kelvin.
-    let t_c = t_k - 273.15;
-    let td_c = td_k - 273.15;
-    let tl = 1.0 / (1.0 / (td_c + 56.0) + ((t_c / td_c).ln()) / 800.0) - 56.0;
-    p_hpa * ((tl + 273.15) / t_k).powf(CP / RD)
+    let tl = lcl_temp_k(t_k, td_k);
+    p_hpa * (tl / t_k).powf(CP / RD)
 }
 
-// ── LCL temperature (Bolton 1980 eq. 15) ────────────────────────────────────
-
 fn lcl_temp_k(t_k: f64, td_k: f64) -> f64 {
-    let t = t_k - 273.15;
-    let td = td_k - 273.15;
-    let tl = 1.0 / (1.0 / (td + 56.0) + ((t / td).ln()) / 800.0) - 56.0;
-    tl + 273.15
+    1.0 / (1.0 / (td_k - 56.0) + (t_k / td_k).ln() / 800.0) + 56.0
 }
 
 // ── moist adiabatic lapse rate dT/dP — pseudoadiabatic ─────────────────────
@@ -58,10 +50,9 @@ fn lcl_temp_k(t_k: f64, td_k: f64) -> f64 {
 // where P is in Pa.
 
 fn moist_dt_dp(t_k: f64, p_hpa: f64) -> f64 {
-    let p_pa = p_hpa * 100.0;
     let es_t = es(t_k - 273.15);
     let ws = mixratio(es_t, p_hpa);
-    let num = RD * t_k / p_pa + LV * ws / p_pa;
+    let num = (RD * t_k + LV * ws) / p_hpa;
     let den = CP + LV.powi(2) * ws * EPS / (RD * t_k * t_k);
     num / den
 }
@@ -69,57 +60,59 @@ fn moist_dt_dp(t_k: f64, p_hpa: f64) -> f64 {
 // ── Bunkers storm motion (ID method, 0-6 km AGL) ──────────────────────────
 // Returns (right-mover u, right-mover v) in m/s.
 
-fn bunkers_storm_motion(u_ms: &[f64], v_ms: &[f64], z_agl_m: &[f64]) -> (f64, f64) {
-    let h_top = 6000.0; // 0-6 km AGL
-    let n = u_ms.len();
-
-    // Pressure-weighted mean wind 0-6 km AGL
-    let mut sum_u = 0.0;
-    let mut sum_v = 0.0;
-    let mut sum_w = 0.0;
-    let mut sfc_u = 0.0;
-    let mut sfc_v = 0.0;
-    let mut top_u = 0.0;
-    let mut top_v = 0.0;
-    let mut found_top = false;
-
-    for i in 0..n {
-        if z_agl_m[i] < 0.0 {
-            continue;
-        }
-        if i == 0 || (z_agl_m[i] <= h_top && z_agl_m[i] >= 0.0) {
-            sfc_u = u_ms[i];
-            sfc_v = v_ms[i];
-        }
-        if z_agl_m[i] >= h_top && !found_top {
-            top_u = u_ms[i];
-            top_v = v_ms[i];
-            found_top = true;
-        }
-        if i < n - 1 && z_agl_m[i + 1] <= h_top {
-            let dz = (z_agl_m[i + 1] - z_agl_m[i]).abs().max(1.0);
-            let u_avg = (u_ms[i] + u_ms[i + 1]) / 2.0;
-            let v_avg = (v_ms[i] + v_ms[i + 1]) / 2.0;
-            sum_u += u_avg * dz;
-            sum_v += v_avg * dz;
-            sum_w += dz;
+fn interp_wind_at(u: &[f64], v: &[f64], z: &[f64], h: f64) -> (f64, f64) {
+    let n = z.len();
+    for i in 1..n {
+        if z[i] >= h && z[i - 1] < h {
+            let f = (h - z[i - 1]) / (z[i] - z[i - 1]);
+            return (
+                u[i - 1] + f * (u[i] - u[i - 1]),
+                v[i - 1] + f * (v[i] - v[i - 1]),
+            );
         }
     }
+    (u[n - 1], v[n - 1])
+}
 
-    let mean_u = if sum_w > 0.0 { sum_u / sum_w } else { sfc_u };
-    let mean_v = if sum_w > 0.0 { sum_v / sum_w } else { sfc_v };
+fn bunkers_storm_motion(u_ms: &[f64], v_ms: &[f64], z_agl_m: &[f64]) -> (f64, f64) {
+    let h_top = 6000.0;
+    let n = u_ms.len();
+    let (sfc_u, sfc_v) = (u_ms[0], v_ms[0]);
+    let (top_u, top_v) = interp_wind_at(u_ms, v_ms, z_agl_m, h_top);
 
-    // Shear vector 0-6 km
-    let shear_u = top_u - sfc_u;
-    let shear_v = top_v - sfc_v;
-    let shear_mag = (shear_u.powi(2) + shear_v.powi(2)).sqrt();
+    // 0–6 km mean wind, trapezoid over dz, including partial top layer
+    let (mut su, mut sv, mut sw) = (0.0, 0.0, 0.0);
+    for i in 1..n {
+        let (z0, z1) = (z_agl_m[i - 1], z_agl_m[i]);
+        if z0 >= h_top {
+            break;
+        }
+        if z1 <= z0 {
+            continue;
+        }
+        if z1 <= h_top {
+            let dz = z1 - z0;
+            su += 0.5 * (u_ms[i] + u_ms[i - 1]) * dz;
+            sv += 0.5 * (v_ms[i] + v_ms[i - 1]) * dz;
+            sw += dz;
+        } else {
+            let dz = h_top - z0;
+            su += 0.5 * (top_u + u_ms[i - 1]) * dz;
+            sv += 0.5 * (top_v + v_ms[i - 1]) * dz;
+            sw += dz;
+            break;
+        }
+    }
+    let (mean_u, mean_v) = if sw > 0.0 {
+        (su / sw, sv / sw)
+    } else {
+        (sfc_u, sfc_v)
+    };
 
-    // Deviate ±7.5 m/s perpendicular to shear
-    let dev = 7.5;
-    if shear_mag > 0.1 {
-        let nx = shear_v / shear_mag; // right-perpendicular
-        let ny = -shear_u / shear_mag;
-        (mean_u + nx * dev, mean_v + ny * dev)
+    let (shear_u, shear_v) = (top_u - sfc_u, top_v - sfc_v);
+    let mag = (shear_u * shear_u + shear_v * shear_v).sqrt();
+    if mag > 0.1 {
+        (mean_u + 7.5 * shear_v / mag, mean_v - 7.5 * shear_u / mag)
     } else {
         (mean_u, mean_v)
     }
@@ -339,13 +332,11 @@ fn find_most_unstable_idx(p_hpa: &[f64], t_k: &[f64], td_k: &[f64]) -> usize {
 
 // Equivalent potential temperature (Bolton 1980 eq. 39)
 fn equivalent_theta_e_k(t_k: f64, p_hpa: f64, td_k: f64) -> f64 {
-    let t = t_k - 273.15;
-    let td = td_k - 273.15;
-    let e = es(td);
+    let e = es(td_k - 273.15);
     let w = mixratio(e, p_hpa);
-    let tl = 1.0 / (1.0 / (td + 56.0) + ((t / td).ln()) / 800.0) - 56.0; // Bolton eq. 15
+    let tl = lcl_temp_k(t_k, td_k);
     t_k * (P0 / p_hpa).powf(0.2854 * (1.0 - 0.28e-3 * w * 1000.0))
-        * ((3036.0 / (tl + 273.15) - 1.78) * w * (1.0 + 0.448e-3 * w * 1000.0)).exp()
+        * ((3036.0 / tl - 1.78) * w * (1.0 + 0.448e-3 * w * 1000.0)).exp()
 }
 
 // ── SRH (Storm-Relative Helicity) ─────────────────────────────────────────
@@ -370,28 +361,28 @@ fn compute_srh_rust(
     let mut srh = 0.0f64;
 
     for i in 1..n {
-        if z_agl_m[i] > h_m {
+        let (z0, z1) = (z_agl_m[i - 1], z_agl_m[i]);
+        if z0 >= h_m {
             break;
         }
-        if z_agl_m[i] <= z_agl_m[i - 1] {
+        if z1 <= z0 {
             continue;
         }
-        let dz = z_agl_m[i] - z_agl_m[i - 1];
-        // Average u,v over the layer
-        let u_avg = (u_ms[i] + u_ms[i - 1]) / 2.0;
-        let v_avg = (v_ms[i] + v_ms[i - 1]) / 2.0;
-        // Layer shear
-        let du_dz = (u_ms[i] - u_ms[i - 1]) / dz;
-        let dv_dz = (v_ms[i] - v_ms[i - 1]) / dz;
-        // Storm-relative wind (using layer-average)
-        let sr_u = u_avg - storm_u;
-        let sr_v = v_avg - storm_v;
-        // Correct sign: SRH = −∫ k̂·(v_rel × ∂v/∂z) dz
-        // = ∫ (v_rel · du/dz − u_rel · dv/dz) dz
-        // SHARPpy: sru[1:]*srv[:-1] − sru[:-1]*srv[1:]
-        // = u1'*v0' − u0'*v1'
-        // Using layer-average for sr and endpoint differences for shear:
-        srh += (sr_v * du_dz - sr_u * dv_dz) * dz;
+        let (u1, v1) = if z1 > h_m {
+            let f = (h_m - z0) / (z1 - z0);
+            (
+                u_ms[i - 1] + f * (u_ms[i] - u_ms[i - 1]),
+                v_ms[i - 1] + f * (v_ms[i] - v_ms[i - 1]),
+            )
+        } else {
+            (u_ms[i], v_ms[i])
+        };
+        let (u0, v0) = (u_ms[i - 1], v_ms[i - 1]);
+        // SHARPpy layer term: sru1*srv0 − sru0*srv1
+        srh += (u1 - storm_u) * (v0 - storm_v) - (u0 - storm_u) * (v1 - storm_v);
+        if z1 > h_m {
+            break;
+        }
     }
     Some(srh)
 }
@@ -472,26 +463,32 @@ fn cape_3km(
 
 // ── Lapse rate ──────────────────────────────────────────────────────────────
 
-fn lapse_rate(t_env_k: &[f64], z_m: &[f64], h_bot: f64, h_top: f64, surface_z: f64) -> Option<f64> {
-    let z_bot = surface_z + h_bot * 1000.0;
-    let z_top = surface_z + h_top * 1000.0;
-    let n = t_env_k.len();
-    let (mut t_bot, mut t_top) = (f64::NAN, f64::NAN);
-    for i in 0..n {
-        if z_m[i] >= z_bot && t_bot.is_nan() {
-            t_bot = t_env_k[i];
+fn lapse_rate(
+    t_env_k: &[f64],
+    td_env_k: &[f64],
+    p_hpa: &[f64],
+    z_m: &[f64],
+    h_bot: f64,
+    h_top: f64,
+    surface_z: f64,
+) -> Option<f64> {
+    let tv_at = |z_target: f64| -> Option<f64> {
+        let n = z_m.len();
+        for i in 1..n {
+            if z_m[i] >= z_target && z_m[i - 1] <= z_target {
+                let f = (z_target - z_m[i - 1]) / (z_m[i] - z_m[i - 1]).max(1e-9);
+                let t = t_env_k[i - 1] + f * (t_env_k[i] - t_env_k[i - 1]);
+                let td = td_env_k[i - 1] + f * (td_env_k[i] - td_env_k[i - 1]);
+                let p = p_hpa[i - 1] + f * (p_hpa[i] - p_hpa[i - 1]);
+                let w = mixratio(es(td - 273.15), p);
+                return Some(virtual_temp(t, w));
+            }
         }
-        if z_m[i] >= z_top {
-            t_top = t_env_k[i];
-            break;
-        }
-    }
-    if t_bot.is_nan() || t_top.is_nan() {
-        return None;
-    }
-    // Temperature difference in Kelvin = temperature difference in Celsius,
-    // so no -273.15 here.
-    Some((t_bot - t_top) / (h_top - h_bot) * 1000.0)
+        None
+    };
+    let tv_bot = tv_at(surface_z + h_bot * 1000.0)?;
+    let tv_top = tv_at(surface_z + h_top * 1000.0)?;
+    Some((tv_bot - tv_top) / (h_top - h_bot))
 }
 
 // ── PyO3 entry point ───────────────────────────────────────────────────────
@@ -531,41 +528,9 @@ pub fn compute_thermo_params(
     // ── Bunkers storm motion ────────────────────────────────────────────
     let (storm_u, storm_v) = bunkers_storm_motion(&u_ms, &v_ms, &z_agl_m);
 
-    // ── CAPE / CIN for SB, MU, ML ──────────────────────────────────────
-    for (label, idx, use_mixed) in [("SB", sf_idx, false), ("MU", mu_idx, false)] {
-        let (t_start, td_start) = if use_mixed {
-            // ML: average potential temp and mixing ratio over 50 hPa
-            let ml_top = p_hpa[sf_idx] - 50.0;
-            let (mut sum_theta, mut sum_w, mut count) = (0.0, 0.0, 0.0);
-            for i in sf_idx..n {
-                if p_hpa[i] < ml_top {
-                    break;
-                }
-                let theta = t_k[i] * (P0 / p_hpa[i]).powf(RD / CP);
-                let e = es(td_k[i] - 273.15);
-                let w = mixratio(e, p_hpa[i]);
-                sum_theta += theta;
-                sum_w += w;
-                count += 1.0;
-            }
-            if count < 1.0 {
-                continue;
-            }
-            let ml_theta = sum_theta / count;
-            let ml_w = sum_w / count;
-            // Back-compute T and Td from θ and w at surface pressure
-            let ml_t = ml_theta / (P0 / p_hpa[sf_idx]).powf(RD / CP);
-            // Approximate Td from w at surface pressure
-            let e_ml = ml_w * p_hpa[sf_idx] / (EPS + ml_w);
-            let ml_td = if e_ml > 0.0 {
-                (243.5 * (e_ml / 6.112).ln()) / (17.67 - (e_ml / 6.112).ln())
-            } else {
-                ml_t - 20.0 // dry fallback
-            };
-            (ml_t, ml_td + 273.15)
-        } else {
-            (t_k[idx], td_k[idx])
-        };
+    // ── CAPE / CIN for SB, MU ────────────────────────────────────────────
+    for (label, idx) in [("SB", sf_idx), ("MU", mu_idx)] {
+        let (t_start, td_start) = (t_k[idx], td_k[idx]);
 
         if let Some((tp, tvp)) = lift_parcel(&p_hpa, &t_k, &td_k, &z_m_msl, t_start, td_start, idx)
         {
@@ -641,7 +606,8 @@ pub fn compute_thermo_params(
 
     // ── lapse rates ────────────────────────────────────────────────────
     for &(h_bot, h_top, key) in &[(0.0, 3.0, "lr_03km"), (3.0, 6.0, "lr_36km")] {
-        let lr = lapse_rate(&t_k, &z_m_msl, h_bot, h_top, surface_z).unwrap_or(f64::NAN);
+        let lr =
+            lapse_rate(&t_k, &td_k, &p_hpa, &z_m_msl, h_bot, h_top, surface_z).unwrap_or(f64::NAN);
         result.set_item(key, lr)?;
     }
 
