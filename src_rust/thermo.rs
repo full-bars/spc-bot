@@ -227,76 +227,41 @@ fn cape_cin(
     start_idx: usize,
 ) -> Option<(f64, f64)> {
     let n = p_hpa.len();
-    if n < 2 {
+    if n < 2 || start_idx >= n {
         return None;
     }
 
-    let mut cape = 0.0f64;
-    let mut cin: f64 = 0.0; // negative
-    let mut found_lfc = false;
-    let mut last_positive = false;
+    let mut totp = 0.0f64;
+    let mut totn = 0.0f64;
+    let mut prev: Option<(f64, f64)> = None;
 
-    for i in start_idx + 1..n {
-        let tp = tp_k[i];
-        let tvp = tvp_k[i];
-        if tp.is_nan() || tvp.is_nan() {
+    for i in start_idx..n {
+        if tp_k[i].is_nan() || tvp_k[i].is_nan() || t_env_k[i].is_nan() || td_env_k[i].is_nan() {
             continue;
         }
-
-        let t_env = t_env_k[i];
-        let td_env = td_env_k[i];
-        if t_env.is_nan() || td_env.is_nan() {
-            continue;
-        }
-
-        let dz = (z_m[i] - z_m[i - 1]).abs();
-        if dz < 0.1 {
-            continue;
-        }
-
-        // Environmental virtual temperature using actual dewpoint (not saturation)
-        let e_env = es(td_env - 273.15);
+        let e_env = es(td_env_k[i] - 273.15);
         let w_env = mixratio(e_env, p_hpa[i]);
-        let tv_env = virtual_temp(t_env, w_env);
+        let tv_env = virtual_temp(t_env_k[i], w_env);
+        let tdef = (tvp_k[i] - tv_env) / tv_env;
 
-        // Buoyancy of this layer: average of this and previous level
-        let tvp_prev = if i > 0 && tp_k[i - 1].is_finite() {
-            let e_prev = es(td_env_k[i - 1] - 273.15);
-            let w_prev = mixratio(e_prev, p_hpa[i - 1]);
-            virtual_temp(tp_k[i - 1], w_start_or_computed(i - 1, p_hpa, tp_k))
-        } else {
-            tvp
-        };
-        // Simplified: use single-level buoyancy
-        let buoy = G * (tvp - tv_env) / tv_env * dz;
-
-        if buoy > 0.0 {
-            if !found_lfc {
-                found_lfc = true;
+        if let Some((tdef1, z1)) = prev {
+            let dz = z_m[i] - z1;
+            if dz >= 0.1 {
+                let lyre = G * 0.5 * (tdef1 + tdef) * dz;
+                if lyre > 0.0 {
+                    totp += lyre;
+                } else if p_hpa[i] > 500.0 {
+                    totn += lyre;
+                }
             }
-            cape += buoy;
-            last_positive = true;
-        } else if buoy < 0.0 {
-            if !found_lfc {
-                cin += buoy;
-            } else if last_positive {
-                // EL reached — cap CAPE here
-                break;
-            }
-            last_positive = false;
         }
+        prev = Some((tdef, z_m[i]));
     }
 
-    Some((cape.max(0.0), cin)) // CIN is already negative
-}
-
-// Helper for previous level mixing ratio
-fn w_start_or_computed(idx: usize, p_hpa: &[f64], tp_k: &[f64]) -> f64 {
-    if idx >= tp_k.len() {
-        return 0.0;
+    if totp.floor() == 0.0 {
+        totn = 0.0;
     }
-    let es_p = es(tp_k[idx] - 273.15);
-    mixratio(es_p, p_hpa[idx])
+    Some((totp, totn))
 }
 
 // ── parcel type helpers ─────────────────────────────────────────────────────
@@ -622,37 +587,55 @@ fn lift_ml_parcel(
     z_m: &[f64],
     sf_idx: usize,
 ) -> Option<(Vec<f64>, Vec<f64>)> {
-    if sf_idx >= p_hpa.len() {
+    let n = p_hpa.len();
+    if sf_idx >= n || n < 2 {
         return None;
     }
-    let ml_top = p_hpa[sf_idx] - 50.0;
-    let (mut sum_theta, mut sum_w, mut count) = (0.0, 0.0, 0.0);
-    let n = p_hpa.len();
+    let p_sfc = p_hpa[sf_idx];
+    let ml_top = p_sfc - 50.0;
 
-    for i in sf_idx..n {
-        if p_hpa[i] < ml_top {
+    let theta_at = |i: usize| t_k[i] * (P0 / p_hpa[i]).powf(RD / CP);
+    let w_at = |i: usize| mixratio(es(td_k[i] - 273.15), p_hpa[i]);
+
+    let (mut sum_theta, mut sum_w, mut dp_tot) = (0.0f64, 0.0f64, 0.0f64);
+    for i in sf_idx + 1..n {
+        let (p0, p1) = (p_hpa[i - 1], p_hpa[i]);
+        if p0 <= ml_top {
             break;
         }
-        let theta = t_k[i] * (P0 / p_hpa[i]).powf(RD / CP);
-        let e = es(td_k[i] - 273.15);
-        let w = mixratio(e, p_hpa[i]);
-        sum_theta += theta;
-        sum_w += w;
-        count += 1.0;
+        if t_k[i].is_nan() || td_k[i].is_nan() || t_k[i - 1].is_nan() || td_k[i - 1].is_nan() {
+            continue;
+        }
+        let (th0, w0) = (theta_at(i - 1), w_at(i - 1));
+        let (th1, w1) = (theta_at(i), w_at(i));
+        if p1 >= ml_top {
+            let dp = p0 - p1;
+            sum_theta += 0.5 * (th0 + th1) * dp;
+            sum_w += 0.5 * (w0 + w1) * dp;
+            dp_tot += dp;
+        } else {
+            let f = (p0 - ml_top) / (p0 - p1);
+            let th_t = th0 + f * (th1 - th0);
+            let w_t = w0 + f * (w1 - w0);
+            let dp = p0 - ml_top;
+            sum_theta += 0.5 * (th0 + th_t) * dp;
+            sum_w += 0.5 * (w0 + w_t) * dp;
+            dp_tot += dp;
+            break;
+        }
     }
-
-    if count < 1.0 {
+    if dp_tot <= 0.0 {
         return None;
     }
-    let ml_theta = sum_theta / count;
-    let ml_w = sum_w / count;
-    let ml_t = ml_theta / (P0 / p_hpa[sf_idx]).powf(RD / CP);
-    let e_ml = ml_w * p_hpa[sf_idx] / (EPS + ml_w);
-    let ml_td = if e_ml > 0.0 {
-        (243.5 * (e_ml / 6.112).ln()) / (17.67 - (e_ml / 6.112).ln())
-    } else {
-        ml_t - 20.0
-    } + 273.15;
+    let ml_theta = sum_theta / dp_tot;
+    let ml_w = sum_w / dp_tot;
+    let ml_t = ml_theta / (P0 / p_sfc).powf(RD / CP);
+    let e_ml = ml_w * p_sfc / (EPS + ml_w);
+    if e_ml <= 0.0 {
+        return None;
+    }
+    let l = (e_ml / 6.112).ln();
+    let ml_td = 243.5 * l / (17.67 - l) + 273.15;
 
     lift_parcel(p_hpa, t_k, td_k, z_m, ml_t, ml_td, sf_idx)
 }
