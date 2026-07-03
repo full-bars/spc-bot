@@ -99,6 +99,7 @@ class CircuitBreaker:
         self.failures: Dict[str, int] = {}
         self.last_failure_time: Dict[str, float] = {}
         self._state: Dict[str, str] = {}
+        self._half_open_at: Dict[str, float] = {}
 
     def _get_state(self, host: str) -> str:
         return self._state.get(host, self._STATE_CLOSED)
@@ -111,6 +112,7 @@ class CircuitBreaker:
         self.failures.pop(host, None)
         self.last_failure_time.pop(host, None)
         self._state.pop(host, None)
+        self._half_open_at.pop(host, None)
 
     def record_failure(self, host: str):
         self.failures[host] = self.failures.get(host, 0) + 1
@@ -142,14 +144,28 @@ class CircuitBreaker:
         if state == self._STATE_CLOSED:
             return False
         if state == self._STATE_HALF_OPEN:
-            # Trial already in flight from another caller — keep the gate shut
-            # for everyone else until that request resolves.
-            return True
+            # A trial request is in flight — keep the gate shut for new
+            # callers.  But if the trial was cancelled or errored without
+            # ever calling record_success/record_failure, the host would
+            # be locked out permanently.  A dead-man's switch reverts to
+            # OPEN after 60s so a new trial can eventually proceed.
+            half_open_age = time.time() - self._half_open_at.get(host, 0)
+            if half_open_age > 60:
+                host_hash = hash(host) % 10000
+                logger.warning(
+                    f"Host #{host_hash} half-open trial timed out "
+                    f"({half_open_age:.0f}s).  Reverting to OPEN."
+                )
+                self._state[host] = self._STATE_OPEN
+                # Fall through to the OPEN recovery-timeout check below.
+            else:
+                return True
         # OPEN: check if recovery timeout has elapsed.
         if time.time() - self.last_failure_time.get(host, 0) > self.recovery_timeout:
             host_hash = hash(host) % 10000
             logger.info(f"Host #{host_hash} recovery timeout elapsed. Half-open circuit.")
             self._state[host] = self._STATE_HALF_OPEN
+            self._half_open_at[host] = time.time()
             return False
         return True
 
@@ -389,7 +405,12 @@ async def http_get_json(
                 )
             if r.status != 200:
                 logger.warning(f"JSON fetch failed for {url}: {r.status}")
-                circuit_breaker.record_failure(host)
+                # Only trip the circuit on server-side / rate-limit errors.
+                # 4xx responses (including the 404s IEM emits during
+                # availability probing) are expected and should not open
+                # the circuit for the entire host.
+                if r.status >= 500 or r.status == 429:
+                    circuit_breaker.record_failure(host)
                 return None
             circuit_breaker.record_success(host)
             return await r.json()
@@ -437,7 +458,8 @@ async def http_post_json(
             if r.status != 200:
                 text = await r.text()
                 logger.warning(f"JSON POST failed for {url}: {r.status} {text}")
-                circuit_breaker.record_failure(host)
+                if r.status >= 500 or r.status == 429:
+                    circuit_breaker.record_failure(host)
                 return None
             circuit_breaker.record_success(host)
             return await r.json()
