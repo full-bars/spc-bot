@@ -833,6 +833,11 @@ class WarningsCog(commands.Cog):
 
             count = self._absence_count.get(vtec_id, 0) + 1
             self._absence_count[vtec_id] = count
+            # Prune entries for warnings no longer in active_warnings
+            if len(self._absence_count) > 1000:
+                stale = self._absence_count.keys() - set(self.bot.state.active_warnings.keys())
+                for k in list(stale)[:500]:
+                    del self._absence_count[k]
             if count < self._ABSENCE_THRESHOLD:
                 logger.debug(
                     f"[WARN_ABSENT] {vtec_id} absent {count}/{self._ABSENCE_THRESHOLD} cycles — not cancelling yet"
