@@ -510,10 +510,11 @@ class FailoverCog(commands.Cog):
             claim_result = await self._exec(
                 "SET", LEASE_KEY, promoting_identity, "NX", "EX", str(HEARTBEAT_TTL)
             )
-            if claim_result != "OK":
+            if not claim_result:
                 # NX failed — either another node holds the lease, or Redis
-                # is unavailable. In both cases, the safe action is to
-                # remain a standby. Try to identify the holder for the log.
+                # is unavailable. redis-py's SET...NX returns True on
+                # success and None on failure (never the string "OK").
+                # In both failure cases, remain a standby.
                 holder = await self._read_lease_holder()
                 if holder:
                     logger.warning(
