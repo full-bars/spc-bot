@@ -492,8 +492,6 @@ class WatchesCog(commands.Cog):
             for watch_num, nws_info in nws_watches.items():
                 self.bot.state.active_watches[watch_num] = nws_info
                 if watch_num in self.bot.state.posted_watches or watch_num in self._watch_inflight:
-                    # Notify SoundingCog only if it hasn't handled this watch yet —
-                    # avoids accumulating hundreds of no-op tasks over a long watch.
                     sounding_cog = self.bot.cogs.get("SoundingCog")
                     if (
                         sounding_cog
@@ -501,61 +499,67 @@ class WatchesCog(commands.Cog):
                         and nws_info.get("affected_zones")
                         and watch_num not in sounding_cog._handled_watches
                     ):
-                        asyncio.create_task(
+                        t = asyncio.create_task(
                             sounding_cog.post_soundings_for_watch(watch_num, nws_info, channel)
                         )
+                        t.add_done_callback(_log_task_exception)
                     continue
 
-                wtype = nws_info.get("type", "SVR")
-                expires = nws_info.get("expires")
-                is_tornado = wtype == "TORNADO"
-                watch_label = "Tornado Watch" if is_tornado else "Severe Thunderstorm Watch"
-                color = discord.Color.red() if is_tornado else discord.Color.orange()
+                self._watch_inflight.add(watch_num)
+                try:
+                    wtype = nws_info.get("type", "SVR")
+                    expires = nws_info.get("expires")
+                    is_tornado = wtype == "TORNADO"
+                    watch_label = "Tornado Watch" if is_tornado else "Severe Thunderstorm Watch"
+                    color = discord.Color.red() if is_tornado else discord.Color.orange()
 
-                logger.info(f"New watch detected: #{watch_num} ({wtype})")
-                image_url, text_summary, probs, is_pds = await fetch_watch_details(watch_num)
-                cache_path = None
-                if image_url:
-                    cache_path, _, _ = await download_single_image(
-                        image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
+                    logger.info(f"New watch detected: #{watch_num} ({wtype})")
+                    image_url, text_summary, probs, is_pds = await fetch_watch_details(watch_num)
+                    cache_path = None
+                    if image_url:
+                        cache_path, _, _ = await download_single_image(
+                            image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
+                        )
+
+                    embed = _build_watch_embed(
+                        watch_num,
+                        is_tornado=is_tornado,
+                        watch_label=watch_label,
+                        color=color,
+                        timestamp=now_utc,
+                        expires=expires,
+                        text_summary=text_summary,
+                        probs=probs,
+                        cache_path=cache_path,
+                        is_pds=is_pds,
                     )
 
-                embed = _build_watch_embed(
-                    watch_num,
-                    is_tornado=is_tornado,
-                    watch_label=watch_label,
-                    color=color,
-                    timestamp=now_utc,
-                    expires=expires,
-                    text_summary=text_summary,
-                    probs=probs,
-                    cache_path=cache_path,
-                    is_pds=is_pds,
-                )
-
-                try:
-                    files = _watch_files(watch_num, cache_path)
-                    message = await channel.send(embed=embed, files=files)
-                    await self.bot.state.add_posted_watch(str(watch_num))
-                    self.bot.state.last_post_times["watch"] = datetime.now(timezone.utc)
-                    logger.info(f"Posted watch #{watch_num}")
-                    sounding_cog = self.bot.cogs.get("SoundingCog")
-                    if sounding_cog:
-                        asyncio.create_task(
-                            sounding_cog.post_soundings_for_watch(watch_num, nws_info, channel)
-                        )
-                    # Schedule upgrade edit once SPC data is available
-                    has_prelim = probs and "preliminary" in probs
-                    if not cache_path or has_prelim:
-                        t = asyncio.create_task(
-                            self._upgrade_watch_embed(
-                                watch_num, message, is_tornado, watch_label, color, expires
+                    try:
+                        files = _watch_files(watch_num, cache_path)
+                        message = await channel.send(embed=embed, files=files)
+                        await self.bot.state.add_posted_watch(str(watch_num))
+                        self.bot.state.last_post_times["watch"] = datetime.now(timezone.utc)
+                        logger.info(f"Posted watch #{watch_num}")
+                        sounding_cog = self.bot.cogs.get("SoundingCog")
+                        if sounding_cog:
+                            t = asyncio.create_task(
+                                sounding_cog.post_soundings_for_watch(watch_num, nws_info, channel)
                             )
-                        )
-                        self._pending_tasks.add(t)
-                        t.add_done_callback(self._pending_tasks.discard)
-                except discord.HTTPException as e:
-                    logger.exception(f"Discord send failed for #{watch_num}: {e}")
+                            t.add_done_callback(_log_task_exception)
+                        # Schedule upgrade edit once SPC data is available
+                        has_prelim = probs and "preliminary" in probs
+                        if not cache_path or has_prelim:
+                            t = asyncio.create_task(
+                                self._upgrade_watch_embed(
+                                    watch_num, message, is_tornado, watch_label, color, expires
+                                )
+                            )
+                            self._pending_tasks.add(t)
+                            t.add_done_callback(self._pending_tasks.discard)
+                    except discord.HTTPException as e:
+                        logger.exception(f"Discord send failed for #{watch_num}: {e}")
+                finally:
+                    self._watch_inflight.discard(watch_num)
 
             self._watches_backoff.success()
 
