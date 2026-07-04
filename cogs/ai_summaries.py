@@ -277,7 +277,7 @@ async def ensure_sounding_summary(
                             y, mo, d, h = avail[0]
                             data = await fetch_sounding(sid, y, mo, d, h)
                             if data:
-                                sounding_context = get_sounding_params_text(data)
+                                sounding_context = await get_sounding_params_text(data)
                                 if sounding_context:
                                     sounding_context = (
                                         f"Station: {station['name']} ({sid})\n{sounding_context}"
