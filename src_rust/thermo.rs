@@ -37,10 +37,11 @@ fn virtual_temp(t_k: f64, w: f64) -> f64 {
 // ── LCL pressure (Bolton 1980 eq. 22, verified against SHARPpy thalvl) ────
 
 fn lcl_pressure(t_k: f64, td_k: f64, p_hpa: f64) -> f64 {
-    let t = t_k - 273.15;
-    let td = td_k - 273.15;
-    let tl = 1.0 / (1.0 / (td + 56.0) + ((t / td).ln()) / 800.0) - 56.0;
-    p_hpa * (tl / t).powf(CP / RD)
+    // Bolton (1980) eq. 22.  Eq. 15 uses Celsius; the Poisson ratio needs Kelvin.
+    let t_c = t_k - 273.15;
+    let td_c = td_k - 273.15;
+    let tl = 1.0 / (1.0 / (td_c + 56.0) + ((t_c / td_c).ln()) / 800.0) - 56.0;
+    p_hpa * ((tl + 273.15) / t_k).powf(CP / RD)
 }
 
 // ── LCL temperature (Bolton 1980 eq. 15) ────────────────────────────────────
@@ -488,7 +489,9 @@ fn lapse_rate(t_env_k: &[f64], z_m: &[f64], h_bot: f64, h_top: f64, surface_z: f
     if t_bot.is_nan() || t_top.is_nan() {
         return None;
     }
-    Some((t_bot - t_top - 273.15) / (h_top - h_bot) * 1000.0) // K/km
+    // Temperature difference in Kelvin = temperature difference in Celsius,
+    // so no -273.15 here.
+    Some((t_bot - t_top) / (h_top - h_bot) * 1000.0)
 }
 
 // ── PyO3 entry point ───────────────────────────────────────────────────────
