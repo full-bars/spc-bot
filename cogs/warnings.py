@@ -990,10 +990,11 @@ class WarningsCog(commands.Cog):
                 continue
 
             self._in_flight_vtecs.add(issuance_id)
-            asyncio.create_task(
+            t = asyncio.create_task(
                 self._discover_and_post_warning(issuance_id, feature, vtec_dict, event, props),
                 name=f"warn-discover-{issuance_id}",
             )
+            t.add_done_callback(_log_task_exception)
 
         await self._handle_disappeared_warnings(current_vtec_ids, current_vtec_data)
         self._backoff.success()

@@ -28,6 +28,16 @@ from utils.http import http_get_bytes
 
 logger = logging.getLogger("spc_bot")
 
+
+def _log_task_exception(task: asyncio.Task) -> None:
+    try:
+        exc = task.exception()
+    except (asyncio.CancelledError, RuntimeError):
+        return
+    if exc:
+        logger.error("Background task failed", exc_info=exc)
+
+
 _WATCH_FAST_POLL_INTERVAL_SEC = (
     5  # Stage 1: poll every 5s for image + probs (aggressive for probabilities)
 )
@@ -364,7 +374,8 @@ class WatchesCog(commands.Cog):
         # Run diagnostic to test all sources
         from cogs.watch_fetch import log_watch_source_timing
 
-        asyncio.create_task(log_watch_source_timing(watch_num))
+        t = asyncio.create_task(log_watch_source_timing(watch_num))
+        t.add_done_callback(_log_task_exception)
 
         logger.info(f"iembot-triggered post for #{watch_num} ({wtype})")
         image_url, text_summary, probs, is_pds = await fetch_watch_details(watch_num)
@@ -399,9 +410,10 @@ class WatchesCog(commands.Cog):
             logger.info(f"iembot-triggered: posted watch #{watch_num}")
             sounding_cog = self.bot.cogs.get("SoundingCog")
             if sounding_cog and isinstance(nws_info, dict) and nws_info.get("affected_zones"):
-                asyncio.create_task(
+                t = asyncio.create_task(
                     sounding_cog.post_soundings_for_watch(watch_num, nws_info, channel)
                 )
+                t.add_done_callback(_log_task_exception)
             # Schedule upgrade edit once SPC data is available
             has_prelim = probs and "preliminary" in probs
             if not cache_path or has_prelim:
