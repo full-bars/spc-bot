@@ -14,6 +14,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Circle
 
 from lib.vad_plotter.params import vec2comp
+from lib.vad_plotter.wsr88d import RADAR_NAMES
 
 logger = logging.getLogger("spc_bot")
 
@@ -386,10 +387,19 @@ def plot_hodograph(
     archive: bool = False,
     sfc_wind_str: Optional[str] = None,
 ) -> None:
-    img_title = "%s VWP valid %s" % (
-        data["rid"],
-        data["time"].strftime("%d %b %Y %H%M UTC"),
-    )
+    rid = data["rid"]
+    location = RADAR_NAMES.get(rid)
+    if location:
+        img_title = "%s (%s) VWP valid %s" % (
+            rid,
+            location,
+            data["time"].strftime("%d %b %Y %H%M UTC"),
+        )
+    else:
+        img_title = "%s VWP valid %s" % (
+            rid,
+            data["time"].strftime("%d %b %Y %H%M UTC"),
+        )
     img_file_name = fname if fname is not None else "%s_vad.png" % data["rid"]
 
     u, v = vec2comp(data["wind_dir"], data["wind_spd"])
