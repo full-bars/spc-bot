@@ -322,19 +322,25 @@ async def _replay(op: str, args: tuple) -> None:
         (vtec_id,) = args
         await _redis_cmd("HDEL", _k_posted_warnings(), vtec_id)
     elif op == "add_posted_warning":
-        # Handle both old (5-element) and new (7-element) formats
+        # Handle legacy (5-7 element) and current (9-element) formats
         vtec_id = args[0]
         message_id = args[1]
         channel_id = args[2]
+        posted_at = args[3] if len(args) > 3 else 0.0
         area = args[4] if len(args) > 4 else ""
         tornado_confidence = args[5] if len(args) > 5 else None
         tornado_severity = args[6] if len(args) > 6 else None
+        severity = args[7] if len(args) > 7 else None
+        raw_text = args[8] if len(args) > 8 else None
         data = {
             "message_id": message_id,
             "channel_id": channel_id,
+            "posted_at": posted_at,
             "area": area,
             "tornado_confidence": tornado_confidence,
             "tornado_severity": tornado_severity,
+            "severity": severity,
+            "raw_text": raw_text,
         }
         await _redis_cmd("HSET", _k_posted_warnings(), vtec_id, json.dumps(data))
     elif op == "set_state":
@@ -819,6 +825,8 @@ async def add_posted_warning(
                 area,
                 tornado_confidence,
                 tornado_severity,
+                severity,
+                raw_text,
             ),
         )
     return ok
