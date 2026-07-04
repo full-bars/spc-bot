@@ -17,6 +17,16 @@ from utils.worker_pool import get_executor
 
 logger = logging.getLogger("spc_bot.recorder")
 
+
+def _log_task_exception(task: asyncio.Task) -> None:
+    try:
+        exc = task.exception()
+    except (asyncio.CancelledError, RuntimeError):
+        return
+    if exc:
+        logger.error("Background task failed", exc_info=exc)
+
+
 STATE_KEY = "vad_active_missions"
 
 
@@ -139,7 +149,8 @@ class RecorderCog(commands.Cog):
         if to_finalize:
             for site_id in to_finalize:
                 mission = self.active_missions.pop(site_id)
-                asyncio.create_task(self._finalize_mission(mission))
+                t = asyncio.create_task(self._finalize_mission(mission))
+                t.add_done_callback(_log_task_exception)
             await self._persist_missions()
 
     async def _record_step(self, mission: VADRecordingMission):
