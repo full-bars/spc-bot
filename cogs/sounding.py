@@ -250,7 +250,7 @@ class SoundingCog(commands.Cog):
         # 2. Check IEM availability for all targets concurrently
         async def _check_target(sid, station_info):
             # Check last 18 hours to catch special releases
-            avail = await get_available_sounding_times_iem(sid, hours_back=18, skip_cache=True)
+            avail = await get_available_sounding_times_iem(sid, hours_back=18)
             if not avail:
                 return None
 
@@ -436,7 +436,7 @@ class SoundingCog(commands.Cog):
         # ── RAOB sweep ────────────────────────────────────────────────────
         async def _check_station(station):
             sid = station.get("icao") or station.get("wmo")
-            avail = await get_available_sounding_times_iem(sid, hours_back=18, skip_cache=True)
+            avail = await get_available_sounding_times_iem(sid, hours_back=18)
             if not avail:
                 return []
             # Claim atomically (no await between check and add) to prevent a
@@ -625,7 +625,7 @@ class SoundingCog(commands.Cog):
             station_id = station.get("icao") or station.get("wmo")
             logger.debug(f"[SOUNDING-PREWARM] Pre-fetching IEM availability for {station_id}")
             # This fills the get_available_sounding_times_iem internal cache
-            await get_available_sounding_times_iem(station_id, hours_back=24, skip_cache=False)
+            await get_available_sounding_times_iem(station_id, hours_back=24)
 
     async def post_soundings_for_watch(self, watch_num: str, nws_info: dict, channel):
         """
@@ -668,8 +668,8 @@ class SoundingCog(commands.Cog):
         # ── Phase 1: gather IEM availability for all stations concurrently ──
         async def _check_avail(station):
             sid = station.get("icao") or station.get("wmo")
-            # Use skip_cache=False to utilize any data cached by prewarm_soundings_for_md
-            avail = await get_available_sounding_times_iem(sid, hours_back=24, skip_cache=False)
+            # Utilize per-hour data cached by prewarm_soundings_for_md
+            avail = await get_available_sounding_times_iem(sid, hours_back=24)
             if not avail:
                 return None
             y, mo, d, h = avail[0]
