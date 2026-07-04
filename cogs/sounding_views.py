@@ -19,6 +19,7 @@ from cogs.sounding_utils import (
     get_recent_sounding_times,
     set_user_dark_mode,
     sounding_quality_warning,
+    _plot_skewt_fast,
 )
 from config import CACHE_DIR
 
@@ -126,68 +127,65 @@ async def post_sounding(
     # Generate plot (only if we didn't hit the image cache above)
     time_label = f"{used_month}-{used_day}-{used_year} {used_hour}z"
 
-    from utils.worker_pool import get_sounding_semaphore, sounding_queue_depth
+    from utils.worker_pool import get_sounding_semaphore
 
+    # ── Fast placeholder first ─────────────────────────────────────────
+    # Uses default thread executor (NOT hodo pool) where MetPy is available.
+    fast_png = None
+    try:
+        fast_path = (
+            _plot_path(station_id, used_year, used_month, used_day, used_hour, dark_mode) + "_fast"
+        )
+        loop = asyncio.get_running_loop()
+        await asyncio.wait_for(
+            loop.run_in_executor(None, _plot_skewt_fast, clean_data, fast_path, dark_mode),
+            timeout=10.0,
+        )
+        fast_png = fast_path + ".png"
+        logger.info(f"[SOUNDING] Fast placeholder posted for {label}")
+    except Exception as e:
+        logger.debug(f"[SOUNDING] Fast placeholder failed: {e}")
+
+    # Send placeholder immediately (or skip straight to full if it failed)
+    if fast_png:
+        await send_sounding_embed(
+            interaction,
+            station_id,
+            label,
+            time_label,
+            dark_mode,
+            fast_png,
+            fallback_note,
+            status_msg,
+            clean_data,
+        )
+
+    # ── Full SounderPy plot ────────────────────────────────────────────
     sem = get_sounding_semaphore()
-
-    if sem.locked():
-        # Pool is full, show queued status
-        pos = sounding_queue_depth() + 1
-        logger.info(f"[SOUNDING] Queueing plot for {label} (Position: {pos})")
-        queue_embed = discord.Embed(
-            title="⌛ Plot Queued...",
-            description=f"Sounding workers are currently busy. Your plot for **{label}** is at **position {pos}** in the queue. Please wait...",
-            color=discord.Color.orange(),
-        )
-        if status_msg:
-            try:
-                await status_msg.edit(embed=queue_embed)
-            except discord.HTTPException:
-                pass
-
     async with sem:
-        logger.info(f"[SOUNDING] Starting plot for {label} (Semaphore acquired)")
-        plotting_embed = discord.Embed(
-            title="⏳ Generating Sounding Plot...",
-            description=f"Plotting **{label}** at **{time_label}**. This takes ~15 seconds.",
-            color=discord.Color.blurple(),
-        )
-        if status_msg:
-            try:
-                await status_msg.edit(embed=plotting_embed)
-            except discord.HTTPException:
-                pass
-
         output_path = _plot_path(station_id, used_year, used_month, used_day, used_hour, dark_mode)
         success = await generate_plot(clean_data, output_path, dark_mode)
-        png_path = output_path + ".png"
 
-    logger.info(f"[SOUNDING] Plotting finished for {label} (Semaphore released)")
-
-    if not success or not os.path.exists(png_path):
-        error_embed = discord.Embed(
-            title="❌ Plot Generation Failed",
-            description="Something went wrong generating the sounding plot. Try again.",
-            color=discord.Color.red(),
-        )
-        if status_msg:
-            try:
-                await status_msg.edit(embed=error_embed)
-            except discord.HTTPException:
-                pass
-        return
-
-    await send_sounding_embed(
-        interaction,
-        station_id,
-        label,
-        time_label,
-        dark_mode,
-        png_path,
-        fallback_note,
-        status_msg,
-        clean_data,
-    )
+    png_path = output_path + ".png"
+    if success and os.path.exists(png_path):
+        if fast_png:
+            # Upgrade the placeholder
+            await _upgrade_message_with_plot(
+                interaction, station_id, label, time_label, dark_mode, png_path, fallback_note
+            )
+        else:
+            # Fast plot failed — send the full plot now
+            await send_sounding_embed(
+                interaction,
+                station_id,
+                label,
+                time_label,
+                dark_mode,
+                png_path,
+                fallback_note,
+                status_msg,
+                clean_data,
+            )
 
 
 async def send_sounding_embed(
@@ -337,6 +335,28 @@ async def send_sounding_embed(
                 )
     except Exception as e:
         logger.exception(f"[SOUNDING] Failed to post: {e}")
+
+
+async def _upgrade_message_with_plot(
+    interaction, station_id, label, time_label, dark_mode, png_path, fallback_note
+):
+    """Replace the last bot message's placeholder plot with the full SounderPy plot."""
+    try:
+        chan = interaction.channel
+        if not chan:
+            return False
+        mode_label = "🌙 Dark" if dark_mode else "☀️ Light"
+        caption = f"**RAOB Sounding — {label}**\nValid: {time_label} | {mode_label}{fallback_note}"
+        async for m in chan.history(limit=10):
+            if m.author == interaction.client.user:
+                try:
+                    await m.edit(content=caption, attachments=[discord.File(png_path)])
+                    return True
+                except discord.HTTPException:
+                    continue
+    except Exception:
+        pass
+    return False
 
 
 # ── Time selection view ───────────────────────────────────────────────────────
