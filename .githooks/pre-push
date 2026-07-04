@@ -18,15 +18,31 @@ python3 -c "import pytest_asyncio" 2>/dev/null || {
     pip install -r requirements-dev.txt -q
 }
 
-# 0. AI ATTRIBUTION CHECK (CRITICAL)
+# 0. GIT CONFIG GATE (CRITICAL)
+expected_name="full-bars"
+expected_email="45684698+full-bars@users.noreply.github.com"
+actual_name=$(git config user.name)
+actual_email=$(git config user.email)
+if [ "$actual_name" != "$expected_name" ] || [ "$actual_email" != "$expected_email" ]; then
+  echo "❌ GIT CONFIG MISMATCH: expected '$expected_name <$expected_email>' but got '$actual_name <$actual_email>'"
+  echo "   PUSH ABORTED — Fix with: git config user.name '$expected_name' && git config user.email '$expected_email'"
+  exit 1
+fi
+
+# 1. AI ATTRIBUTION CHECK — new commits only (CRITICAL)
 echo "Scanning for AI attribution (ZERO TOLERANCE)..."
-ai_patterns=("@Claude" "@Sonnet" "Claude Code" "Generated with Claude" "Co-Authored-By: Claude" "AI-generated" "claude-code" "anthropic.com")
+ai_patterns=(
+  "@Claude" "@Sonnet" "Claude Code" "Generated with Claude" "Co-Authored-By: Claude"
+  "AI-generated" "claude-code" "anthropic.com"
+  "Fable" "from Fable"
+)
 violation_found=0
 
+range="HEAD @{upstream}..HEAD"
 for commit in $(git rev-list HEAD @{upstream}..HEAD 2>/dev/null); do
   msg=$(git log -1 --format=%B "$commit")
   for pattern in "${ai_patterns[@]}"; do
-    if echo "$msg" | grep -qi "$pattern"; then
+    if echo "$msg" | grep -qiF "$pattern"; then
       echo "❌ VIOLATION in commit $(git rev-parse --short $commit): Found '$pattern' in commit message"
       echo "   Message: $(echo "$msg" | head -1)"
       echo "   PUSH ABORTED — Remove all AI attribution and try again"
