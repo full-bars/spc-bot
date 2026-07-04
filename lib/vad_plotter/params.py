@@ -28,6 +28,12 @@ try:
     from spc_rust_core import (
         compute_srh as _compute_srh_rust,
     )
+    try:
+        from spc_rust_core import (
+            compute_all_parameters as _compute_all_rust,
+        )
+    except ImportError:
+        _compute_all_rust = None
     _rust_available = True
 except ImportError:
     _rust_available = False
@@ -265,7 +271,6 @@ def _to_list(arr) -> list:
 
 def compute_parameters(data: Dict[str, Any], storm_motion: str) -> Dict[str, Any]:
     # Pre-convert arrays once so Rust functions receive lists without repeated copies.
-    # Guard with isinstance: VADFile supports __getitem__ but not ** spreading.
     if isinstance(data, dict):
         data = {
             **data,
@@ -273,6 +278,35 @@ def compute_parameters(data: Dict[str, Any], storm_motion: str) -> Dict[str, Any
             'wind_spd': _to_list(data['wind_spd']),
             'altitude': _to_list(data['altitude']),
         }
+
+    # Fast path: consolidated Rust call — ~1 FFI crossing instead of ~12.
+    if _rust_available and _compute_all_rust is not None:
+        try:
+            result = _compute_all_rust(
+                data['wind_dir'], data['wind_spd'], data['altitude'], storm_motion
+            )
+            sm = result.get('storm_motion', (float('nan'), float('nan')))
+            return {
+                'bunkers_right': result['bunkers_right'],
+                'bunkers_left': result['bunkers_left'],
+                'mean_wind': result['mean_wind'],
+                'storm_motion': sm,
+                'critical': result.get('critical', float('nan')),
+                'shear_mag_500m': result.get('shear_mag_500m', float('nan')),
+                'shear_mag_1000m': result.get('shear_mag_1000m', float('nan')),
+                'shear_mag_3000m': result.get('shear_mag_3000m', float('nan')),
+                'shear_mag_6000m': result.get('shear_mag_6000m', float('nan')),
+                'srh_500m': result.get('srh_500m', float('nan')),
+                'srh_1000m': result.get('srh_1000m', float('nan')),
+                'srh_3000m': result.get('srh_3000m', float('nan')),
+                'sr_flow_500m': result.get('sr_flow_500m', float('nan')),
+                'sr_flow_1000m': result.get('sr_flow_1000m', float('nan')),
+                'sr_flow_3000m': result.get('sr_flow_3000m', float('nan')),
+                'dtm': (result.get('dtm_dir', float('nan')), result.get('dtm_mag', float('nan'))),
+            }
+        except Exception as e:
+            logger.debug(f"Rust compute_all_parameters failed: {e} — falling back to individual calls")
+
     params: Dict[str, Any] = {}
 
     try:
