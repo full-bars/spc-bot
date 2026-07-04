@@ -94,27 +94,9 @@ async def get_raob_stations() -> pd.DataFrame:
 
 
 def _compute_params_text(clean_data: dict) -> Optional[str]:
-    """Worker function — runs in a process pool to keep the event loop free.
-    Extracts all computed thermodynamic and kinematic parameters."""
-    import os
-
-    try:
-        import sounderpy as spy
-    except ImportError:
-        return None
-
-    # SounderPy/SHARPPy can be noisy on stdout.
-    # Each pool worker has its own process, so the global swap is safe.
-    with open(os.devnull, "w") as devnull:
-        old_stdout = sys.stdout
-        sys.stdout = devnull
-        try:
-            params = spy.sounding_params(clean_data).calc()
-        finally:
-            sys.stdout = old_stdout
-
-    thermo = params[1]
-    kinematics = params[2]
+    """Worker function — runs in a process pool.  Extracts thermodynamic and
+    kinematic parameters either via the Rust kernel (fast path, <1 ms) or
+    SoundPy/SHARPpy (fallback, 1-5 s)."""
 
     def _fmt_val(val, unit=""):
         if val is None:
@@ -129,6 +111,70 @@ def _compute_params_text(clean_data: dict) -> Optional[str]:
             return str(val)
         except (ValueError, TypeError):
             return "N/A"
+
+    thermo: dict = {}
+    kinematics: dict = {}
+
+    # ── Fast path: try the Rust kernel ─────────────────────────────────
+    try:
+        from spc_rust_core import compute_thermo_params
+
+        def _extract(key):
+            v = clean_data[key]
+            return list(v.m) if hasattr(v, "m") else list(v)
+
+        p = _extract("p")
+        t = _extract("T")
+        td = _extract("Td")
+        u = _extract("u")
+        v = _extract("v")
+        z = _extract("z")
+
+        result = compute_thermo_params(p, t, td, u, v, z)
+        if result:
+            thermo = {
+                "sbcape": result.get("sbcape"),
+                "sbcin": result.get("sbcin"),
+                "mucape": result.get("mucape"),
+                "mucin": result.get("mucin"),
+                "mlcape": result.get("mlcape"),
+                "mlcin": result.get("mlcin"),
+                "sb3cape": result.get("sb3cape"),
+                "mu3cape": result.get("mu3cape"),
+                "sb_lcl_p": result.get("sb_lcl_p"),
+                "lr_03km": result.get("lr_03km"),
+                "lr_36km": result.get("lr_36km"),
+            }
+            kinematics = {
+                "shear_0_to_1000": result.get("shear_0_to_1000"),
+                "shear_0_to_6000": result.get("shear_0_to_6000"),
+                "srh_0_to_1000": result.get("srh_0_to_1000"),
+                "srh_0_to_3000": result.get("srh_0_to_3000"),
+            }
+            logger.debug("[SOUNDING] Rust thermo params computed")
+    except Exception:
+        thermo = None
+        kinematics = None
+
+    # ── Fallback: SoundPy/SHARPpy ─────────────────────────────────────
+    if not thermo:
+        import os
+
+        try:
+            import sounderpy as spy
+        except ImportError:
+            return None
+
+        with open(os.devnull, "w") as devnull:
+            old_stdout = sys.stdout
+            sys.stdout = devnull
+            try:
+                params = spy.sounding_params(clean_data).calc()
+            finally:
+                sys.stdout = old_stdout
+
+        thermo = params[1]
+        kinematics = params[2]
 
     summary = "SOUNDING PARAMETERS:\n\n"
     summary += "--- THERMODYNAMICS ---\n"
