@@ -35,6 +35,7 @@ fn spc_rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(crate::vad::compute_crit_angl, m)?)?;
     m.add_function(wrap_pyfunction!(crate::vad::compute_shear_mag, m)?)?;
     m.add_function(wrap_pyfunction!(crate::vad::compute_sr_flow, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::vad::compute_all_parameters, m)?)?;
     m.add_function(wrap_pyfunction!(crate::vad::clip_profile, m)?)?;
 
     // Geo
