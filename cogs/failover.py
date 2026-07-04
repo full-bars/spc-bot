@@ -388,16 +388,21 @@ class FailoverCog(commands.Cog):
                         # is bypassed — an operator's explicit override must
                         # be able to take the lease from a currently-held node.
                         await self._promote(force=True)
-                    # Always return after handling our own manual override so the
-                    # primary/standby cycle doesn't also fire in the same tick.
-                    return
+                        return  # state changed — skip normal cycle
+                    # Already primary and matching manual override — fall
+                    # through to _primary_cycle (renews the lease) and
+                    # _drain_dirty_writes below. Without this, a long-lived
+                    # manual override silently expires the lease and strands
+                    # dirty writes in SQLite.
                 else:
                     if self.bot.state.is_primary:
                         logger.warning(
                             f"[FAILOVER] Manual override: demoting to standby (target: '{manual_primary}')"
                         )
                         await self._demote()
-                    return
+                        return  # state changed — skip normal cycle
+                    # Already standby and matching override — fall through to
+                    # _standby_cycle below for normal heartbeat monitoring.
 
             if self.bot.state.is_primary:
                 await self._primary_cycle()
