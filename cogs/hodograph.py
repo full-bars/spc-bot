@@ -3,6 +3,7 @@ import asyncio
 import difflib
 import logging
 import os
+import time
 
 import discord
 from discord.ext import commands
@@ -73,44 +74,56 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
     os.makedirs(HODO_OUTPUT_DIR, exist_ok=True)
     output_path = os.path.join(HODO_OUTPUT_DIR, f"{site.lower()}_hodograph.png")
 
-    logger.info(f"[HODO] Generating hodograph for {site} in executor pool")
+    # If we have a fresh cached render (< 5 min), reuse it — VAD scans
+    # only update every 5-10 min so re-rendering is pure waste.
+    cache_valid = False
+    if os.path.exists(output_path):
+        file_age = time.time() - os.path.getmtime(output_path)
+        if file_age < 300:
+            cache_valid = True
+            logger.info(f"[HODO] Using cached hodograph for {site} ({file_age:.0f}s old)")
 
-    try:
-        params = await asyncio.wait_for(
-            vad_plotter(
-                site,  # radar_id
-                "right-mover",  # storm_motion
-                None,  # sfc_wind
-                None,  # time
-                output_path,  # fname
-                None,  # local_path
-                None,  # cache_path
-                False,  # web
-                False,  # fixed
-                executor=get_hodo_executor(),
-            ),
-            timeout=60,
-        )
-    except asyncio.TimeoutError:
-        logger.warning(f"[HODO] vad_plotter timed out for {site}")
+    params = None
+    if not cache_valid:
+        logger.info(f"[HODO] Generating hodograph for {site} in executor pool")
         try:
-            await interaction.followup.send(
-                f"⏱️ Timed out fetching data for `{site}`. The radar may be offline or have no recent VWP data.",
-                ephemeral=True,
+            params = await asyncio.wait_for(
+                vad_plotter(
+                    site,  # radar_id
+                    "right-mover",  # storm_motion
+                    None,  # sfc_wind
+                    None,  # time
+                    output_path,  # fname
+                    None,  # local_path
+                    None,  # cache_path
+                    False,  # web
+                    False,  # fixed
+                    executor=get_hodo_executor(),
+                ),
+                timeout=60,
             )
-        except discord.NotFound:
-            logger.debug(f"[HODO] Could not send timeout message for {site}: Interaction expired")
-        return
-    except Exception as e:
-        logger.error(f"[HODO] vad_plotter failed for {site}: {e}")
-        try:
-            await interaction.followup.send(
-                f"⚠️ Could not generate hodograph for `{site}`. The radar may not have recent data.",
-                ephemeral=True,
-            )
-        except discord.NotFound:
-            logger.debug(f"[HODO] Could not send error message for {site}: Interaction expired")
-        return
+        except asyncio.TimeoutError:
+            logger.warning(f"[HODO] vad_plotter timed out for {site}")
+            try:
+                await interaction.followup.send(
+                    f"⏱️ Timed out fetching data for `{site}`. The radar may be offline or have no recent VWP data.",
+                    ephemeral=True,
+                )
+            except discord.NotFound:
+                logger.debug(
+                    f"[HODO] Could not send timeout message for {site}: Interaction expired"
+                )
+            return
+        except Exception as e:
+            logger.error(f"[HODO] vad_plotter failed for {site}: {e}")
+            try:
+                await interaction.followup.send(
+                    f"⚠️ Could not generate hodograph for `{site}`. The radar may not have recent data.",
+                    ephemeral=True,
+                )
+            except discord.NotFound:
+                logger.debug(f"[HODO] Could not send error message for {site}: Interaction expired")
+            return
 
     if not os.path.exists(output_path):
         logger.error(f"[HODO] Output file not found after successful run for {site}")
