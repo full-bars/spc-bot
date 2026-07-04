@@ -116,7 +116,7 @@ _STATES_LIST = [
     "NEW MEXICO",
     "NEW YORK",
     "NORTH CAROLINA",
-    "NORTH DACOTA",
+    "NORTH DAKOTA",
     "OHIO",
     "OKLAHOMA",
     "OREGON",
