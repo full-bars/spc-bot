@@ -258,35 +258,47 @@ class RadarHistoryCog(commands.Cog):
         )
 
         try:
-            success = await _make_gif(raw_frames, gif_path)
-            if not success or not os.path.exists(gif_path):
-                await interaction.followup.send(
-                    "❌ Failed to generate radar loop. Try again.",
-                    ephemeral=True,
+            frame_pool = raw_frames
+            while frame_pool:
+                success = await _make_gif(frame_pool, gif_path)
+                if not success or not os.path.exists(gif_path):
+                    await interaction.followup.send(
+                        "❌ Failed to generate radar loop. Try again.",
+                        ephemeral=True,
+                    )
+                    return
+
+                file_size = os.path.getsize(gif_path)
+                if file_size <= MAX_GIF_SIZE:
+                    break
+
+                os.remove(gif_path)
+                keep = len(frame_pool) // 2
+                if keep < 2:
+                    await interaction.followup.send(
+                        "❌ Even 2 frames are too large for Discord (25 MB limit). "
+                        "Try a coarser interval or fewer frames.",
+                        ephemeral=True,
+                    )
+                    return
+                frame_pool = frame_pool[::2]
+                logger.info(
+                    f"[RADAR_HISTORY] GIF too large ({file_size / 1024 / 1024:.1f} MB), "
+                    f"halving to {keep} frames"
                 )
-                return
 
             file_size = os.path.getsize(gif_path)
-            if file_size > MAX_GIF_SIZE:
-                os.remove(gif_path)
-                await interaction.followup.send(
-                    f"❌ Generated GIF is too large ({file_size / 1024 / 1024:.1f} MB). "
-                    "Try fewer frames.",
-                    ephemeral=True,
-                )
-                return
-
             content = (
                 f"**Radar Loop** — {loc_display}{radar_label}\n"
                 f"{dt_tz.strftime('%b %d, %Y %I:%M %p')} {tz_abbr} "
-                f"({frames} frames × {interval}min)"
+                f"({len(frame_pool)} frames × {interval}min)"
             )
             await interaction.followup.send(
                 content=content,
                 file=discord.File(gif_path),
             )
             logger.info(
-                f"[RADAR_HISTORY] Sent {frames}-frame GIF "
+                f"[RADAR_HISTORY] Sent {len(frame_pool)}-frame GIF "
                 f"({file_size / 1024 / 1024:.1f} MB) for {nearest}"
             )
         finally:
