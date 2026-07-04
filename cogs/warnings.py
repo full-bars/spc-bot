@@ -30,7 +30,6 @@ from discord.ext import commands, tasks
 
 from cogs.warning_format import (
     _area_with_state,
-    _download_warning_image,
     _vtec_unix_ts,
     _vtec_url,
     _WARNING_STYLE,
@@ -415,34 +414,27 @@ class WarningsCog(commands.Cog):
                 if event == "Tornado Warning" and event_id:
                     view = EnvironmentalView()
 
-                # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS)
-                files = []
-                has_etn = vtec.get("etn") and vtec["etn"] != "0"
-                logger.debug(
-                    f"[WARN_IMG_CHECK] {vtec['vtec_id']}: has_etn={has_etn} phenom={vtec.get('phenom')}"
-                )
-                if has_etn or vtec.get("phenom") == "SPS":
-                    image_url = iem_autoplot_url(vtec)
-                    logger.debug(f"[WARN_IMG_IEMBOT] {vtec['vtec_id']}: {image_url}")
-                    filename = f"warning_{vtec_id.replace('.', '_')}.png"
-                    f = await _download_warning_image(image_url, filename)
-                    if f:
-                        files.append(f)
-                        embed.set_image(url=f"attachment://{filename}")
-                    else:
-                        logger.warning(
-                            f"[WARN_IMG_FAIL] {vtec['vtec_id']}: image download returned None"
-                        )
-                else:
-                    logger.debug(
-                        f"[WARN_IMG_SKIP] {vtec['vtec_id']}: no ETN, not downloading image"
-                    )
+                # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS).
+                # Launched in background after the message is sent so the safety-critical
+                # warning text is never delayed by IEM's autoplot generation latency.
+                should_image = (vtec.get("etn") and vtec["etn"] != "0") or vtec.get(
+                    "phenom"
+                ) == "SPS"
 
                 try:
-                    msg = await channel.send(embed=embed, files=files, view=view)
+                    msg = await channel.send(embed=embed, view=view)
                     logger.info(
                         f"Posted (iembot) {event} {vtec_id} ({'Update' if is_update else 'Issuance'})"
                     )
+
+                    if should_image:
+                        from cogs.warning_format import _attach_warning_image_async
+
+                        t = asyncio.create_task(
+                            _attach_warning_image_async(msg, vtec, vtec_id),
+                            name=f"warn-img-{vtec_id}",
+                        )
+                        t.add_done_callback(_log_task_exception)
 
                     # Simple area extraction for persistence
                     area_m = re.search(r"for (.+?) till", concise_text)
@@ -1106,25 +1098,23 @@ class WarningsCog(commands.Cog):
             footer_text += f" | {footer_id}"
         embed.set_footer(text=footer_text)
 
-        # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS)
-        files = []
-        has_etn = vtec.get("etn") and vtec["etn"] != "0"
-        logger.debug(f"[WARN_IMG_CHECK] {vtec_id}: has_etn={has_etn} phenom={vtec.get('phenom')}")
-        if has_etn or vtec.get("phenom") == "SPS":
-            image_url = iem_autoplot_url(vtec)
-            logger.debug(f"[WARN_IMG_NWSAPI] {vtec_id}: {image_url}")
-            filename = f"warning_{vtec_id.replace('.', '_')}.png"
-            f = await _download_warning_image(image_url, filename)
-            if f:
-                files.append(f)
-                embed.set_image(url=f"attachment://{filename}")
-            else:
-                logger.warning(f"[WARN_IMG_FAIL] {vtec_id}: image download returned None")
-        else:
-            logger.debug(f"[WARN_IMG_SKIP] {vtec_id}: no ETN, not downloading image")
+        # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS).
+        # Launched in background after the message is sent so the safety-critical
+        # warning text is never delayed by IEM's autoplot generation latency.
+        should_image = (vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS"
 
-        msg = await channel.send(embed=embed, files=files)
+        msg = await channel.send(embed=embed)
         logger.info(f"Posted {event} {vtec_id}")
+
+        if should_image:
+            from cogs.warning_format import _attach_warning_image_async
+
+            t = asyncio.create_task(
+                _attach_warning_image_async(msg, vtec, vtec_id),
+                name=f"warn-img-{vtec_id}",
+            )
+            t.add_done_callback(_log_task_exception)
+
         return msg, area_desc
 
     @auto_poll_warnings.before_loop

@@ -1000,3 +1000,39 @@ async def _download_warning_image(image_url: str, filename: str) -> discord.File
             logger.warning(f"[IMG_DL_FAIL] {filename}: Exception after 8 attempts: {e}")
         break
     return None
+
+
+async def _attach_warning_image_async(
+    msg,
+    vtec: dict,
+    vtec_id: str,
+) -> None:
+    """Post-then-edit pattern: download the IEM autoplot image in the
+    background and attach it to an already-sent warning message.
+
+    By sending the text embed first and upgrading with the image later,
+    the safety-critical warning text is never delayed by IEM's autoplot
+    generation latency (up to 60s of 404 retries).
+    """
+    has_etn = vtec.get("etn") and vtec["etn"] != "0"
+    if not has_etn and vtec.get("phenom") != "SPS":
+        return
+
+    image_url = iem_autoplot_url(vtec)
+    filename = f"warning_{vtec_id.replace('.', '_')}.png"
+    file = await _download_warning_image(image_url, filename)
+    if file is None:
+        logger.warning(f"[WARN_IMG_FAIL] {vtec_id}: image download returned None")
+        return
+
+    new_embed = msg.embeds[0].copy() if msg.embeds else None
+    if new_embed:
+        new_embed.set_image(url=f"attachment://{filename}")
+
+    try:
+        if new_embed:
+            await msg.edit(embed=new_embed, attachments=[file])
+        else:
+            await msg.edit(attachments=[file])
+    except Exception:
+        logger.debug(f"[WARN_IMG_UPGRADE] Edit failed for {vtec_id}", exc_info=True)
