@@ -30,6 +30,7 @@ from discord.ext import commands, tasks
 
 from cogs.warning_format import (
     _area_with_state,
+    _canonical_county_set,
     _vtec_unix_ts,
     _vtec_url,
     _WARNING_STYLE,
@@ -929,7 +930,11 @@ class WarningsCog(commands.Cog):
                     prev_area = stored_info.get("area", "")
                     curr_area = props.areaDesc or ""
 
-                    if prev_area and curr_area and prev_area != curr_area:
+                    if (
+                        prev_area
+                        and curr_area
+                        and _canonical_county_set(prev_area) != _canonical_county_set(curr_area)
+                    ):
                         # Area changed - likely a partial cancellation
                         if issuance_id not in self._in_flight_vtecs:
                             self._in_flight_vtecs.add(issuance_id)
