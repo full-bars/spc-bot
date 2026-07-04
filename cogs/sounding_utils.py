@@ -433,9 +433,12 @@ async def get_md_area_centroid(raw_text: str) -> tuple[float, float] | None:
 
 IEM_RAOB_URL = "https://mesonet.agron.iastate.edu/json/raob.py"
 
-# Cache for station availability results (station_id -> (timestamp, times_list))
-_AVAILABILITY_CACHE: dict = {}
-AVAILABILITY_CACHE_TTL = 900  # 15 minutes
+# Per-hour cache: "{station}:{YYYYMMDDHH}" -> (probed_at, result_tuple_or_None)
+# Past soundings are immutable — hours > 2 hours old are cached permanently.
+# Recent hours (<= 2h) expire after RECENT_HOUR_TTL so a newly-indexed sounding
+# is picked up on the next probe.
+_HOUR_CACHE: dict = {}
+RECENT_HOUR_TTL = 1800  # 30 minutes for recent (<=2h) hours
 
 
 def _iem_level_is_valid(lv: dict) -> bool:
@@ -620,69 +623,89 @@ async def fetch_iem_sounding(
 async def get_available_sounding_times_iem(
     station_id: str,
     hours_back: int = 24,
-    skip_cache: bool = False,
 ) -> list[tuple[str, str, str, str]]:
     """
-    Check IEM for all available sounding times for a station
-    in the last N hours. Returns list of (year, month, day, hour) tuples.
-    Limits concurrency to avoid overwhelming IEM's rate limits. Results are cached for 15 minutes.
+    Check IEM for all available sounding times for a station in the last
+    N hours.  Returns list of (year, month, day, hour) tuples.
+
+    Uses a per-hour cache: past hours (>2 h old) are cached permanently
+    (soundings are immutable once indexed); only the most recent 1-2 hours
+    are ever re-probed.  Limits concurrency to 5 simultaneous requests.
     """
     now = datetime.now(timezone.utc)
 
-    # Check cache
-    cache_key = f"{station_id}:{hours_back}"
-    if not skip_cache and cache_key in _AVAILABILITY_CACHE:
-        cached_time, cached_result = _AVAILABILITY_CACHE[cache_key]
-        if (now - cached_time).total_seconds() < AVAILABILITY_CACHE_TTL:
-            logger.info(f"[IEM] Cache hit for {station_id} availability — skipping IEM check")
-            return cached_result
-
-    # Skip 5-digit WMO IDs as IEM's json/raob.py has a 4-char limit
-    # and auto-prepends 'K' to numeric IDs, triggering 422 errors.
+    # Skip 5-digit WMO IDs — IEM's json/raob.py has a 4-char limit.
     if station_id.isdigit() and len(station_id) > 4:
-        _AVAILABILITY_CACHE[cache_key] = (now, [])
         return []
+
+    times_to_check = [now - timedelta(hours=h) for h in range(hours_back + 1)]
+
+    # Separate cached from uncached hours
+    results: list[tuple[str, str, str, str]] = []
+    uncached: list[datetime] = []
+
+    for dt in times_to_check:
+        hour_key = f"{station_id}:{dt.strftime('%Y%m%d%H')}"
+        if hour_key in _HOUR_CACHE:
+            cached_time, cached_tuple = _HOUR_CACHE[hour_key]
+            age_hours = (now - dt).total_seconds() / 3600
+            if age_hours > 2:
+                # Past hour — data is permanent.
+                if cached_tuple is not None:
+                    results.append(cached_tuple)
+                continue
+            if (now - cached_time).total_seconds() < RECENT_HOUR_TTL:
+                # Recent hour, cache still fresh.
+                if cached_tuple is not None:
+                    results.append(cached_tuple)
+                continue
+        uncached.append(dt)
+
+    if not uncached:
+        results.sort(key=lambda x: (x[0], x[1], x[2], x[3]), reverse=True)
+        return results
 
     async def check_hour(dt: datetime, semaphore: asyncio.Semaphore) -> Optional[tuple]:
         async with semaphore:
             ts = dt.strftime("%Y-%m-%dT%H:00:00Z")
             url = f"{IEM_RAOB_URL}?station={station_id}&ts={ts}"
+            hour_key = f"{station_id}:{dt.strftime('%Y%m%d%H')}"
             try:
                 data = await http_get_json(url, retries=1, timeout=8)
                 if not data:
+                    _HOUR_CACHE[hour_key] = (now, None)
                     return None
                 profiles = data.get("profiles", [])
                 if profiles and profiles[0].get("profile"):
-                    return (
+                    result = (
                         str(dt.year),
                         str(dt.month).zfill(2),
                         str(dt.day).zfill(2),
                         str(dt.hour).zfill(2),
                     )
+                    _HOUR_CACHE[hour_key] = (now, result)
+                    return result
+                _HOUR_CACHE[hour_key] = (now, None)
             except Exception as e:
-                logger.debug(f"[SOUNDING] IEM profile probe failed for {station_id}: {e}")
+                logger.debug(f"[SOUNDING] IEM probe failed for {station_id}: {e}")
             return None
 
-    times_to_check = [now - timedelta(hours=h) for h in range(hours_back + 1)]
-
-    # Limit concurrency to 5 simultaneous requests to avoid overwhelming IEM
     semaphore = asyncio.Semaphore(5)
-    results = await asyncio.gather(*[check_hour(dt, semaphore) for dt in times_to_check])
-    found = [r for r in results if r is not None]
+    new_results = await asyncio.gather(*[check_hour(dt, semaphore) for dt in uncached])
+    for r in new_results:
+        if r is not None:
+            results.append(r)
 
-    # Sort most recent first
-    found.sort(key=lambda x: (x[0], x[1], x[2], x[3]), reverse=True)
-    # Store in cache; evict expired entries if cache grows too large
-    _AVAILABILITY_CACHE[cache_key] = (now, found)
-    if len(_AVAILABILITY_CACHE) > 2000:
-        expired = [
-            k
-            for k, (ts, _) in _AVAILABILITY_CACHE.items()
-            if (now - ts).total_seconds() >= AVAILABILITY_CACHE_TTL
+    # Prune stale cache entries if total grows too large
+    if len(_HOUR_CACHE) > 5000:
+        stale = [
+            k for k, (ts, _) in _HOUR_CACHE.items() if (now - ts).total_seconds() >= RECENT_HOUR_TTL
         ]
-        for k in expired:
-            del _AVAILABILITY_CACHE[k]
-    return found
+        for k in stale:
+            del _HOUR_CACHE[k]
+
+    results.sort(key=lambda x: (x[0], x[1], x[2], x[3]), reverse=True)
+    return results
 
 
 # ── ACARS functions ───────────────────────────────────────────────────────────
@@ -1054,14 +1077,13 @@ async def fetch_acars_sounding(
 async def get_available_sounding_times(
     station_id: str,
     hours_back: int = 24,
-    skip_cache: bool = False,
 ) -> list[tuple[str, str, str, str]]:
     """
     Unified availability check: Try IEM first, fall back to a direct
     Wyoming/GSL probe for standard hours.
     """
     # 1. Try IEM (Fastest, covers all hours)
-    avail = await get_available_sounding_times_iem(station_id, hours_back, skip_cache=skip_cache)
+    avail = await get_available_sounding_times_iem(station_id, hours_back)
     if avail:
         return avail
 
