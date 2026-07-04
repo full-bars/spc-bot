@@ -186,8 +186,6 @@ class NWWSClient(ClientXMPP):
                 await asyncio.sleep(30)
         except asyncio.CancelledError:
             logger.debug("NWWS ping loop cancelled")
-            self.reconnect = True
-            self.use_ipv6 = False
 
     def disconnect(self, reconnect=False, wait=False):
         if self._ping_task is not None:
@@ -319,6 +317,7 @@ class NWWSCog(commands.Cog):
         # Self-healing: track reconnect_count to detect zombie reconnect loops.
         self._reconnect_baseline: int = 0
         self._reconnect_check_ts: float = 0.0
+        self._transport_stuck_since: Optional[float] = None
 
     async def cog_load(self):
         if not all([NWWS_USER, NWWS_PASSWORD]):
@@ -607,15 +606,26 @@ class NWWSCog(commands.Cog):
         # Check existing client state
         if self.xmpp_client is not None:
             if self.xmpp_client.is_connected:
+                self._transport_stuck_since = None
                 return
 
             if self.xmpp_client.transport is not None:
-                # Still in flight
+                # Transport exists but we're not connected — the connection
+                # is in progress.  If it stays stuck for > 120s the async
+                # connect likely hung; force-clean and retry.
+                now = time.monotonic()
+                if self._transport_stuck_since is None:
+                    self._transport_stuck_since = now
+                elif now - self._transport_stuck_since > 120:
+                    logger.warning(
+                        "[NWWS] Transport stuck for > 120s — forcing disconnect and retry"
+                    )
+                    self.xmpp_client.disconnect()
+                    self.xmpp_client = None
+                    self._transport_stuck_since = None
                 return
 
-            # Clean up before retrying.
-            self.xmpp_client.disconnect()
-            self.xmpp_client = None
+            self._transport_stuck_since = None
 
         logger.info(f"Connecting to {NWWS_SERVER}...")
         jid = f"{NWWS_USER}@{NWWS_SERVER}"
