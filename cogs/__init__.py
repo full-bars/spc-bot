@@ -23,4 +23,5 @@ ALL_EXTENSIONS = [
     "cogs.ai_summaries",
     "cogs.verification",
     "cogs.subscriptions",
+    "cogs.radar_history",
 ]
