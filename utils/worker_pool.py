@@ -144,13 +144,17 @@ def shutdown_executors(join_timeout: float = 1.0):
         # mid-render.
         executor.shutdown(wait=False, cancel_futures=True)
         # Hard-stop any worker still running so an in-flight plot can't hold
-        # us past TimeoutStopSec.
-        for proc in procs:
-            if proc.is_alive():
-                proc.terminate()
-        for proc in procs:
-            if proc.is_alive():
-                proc.join(join_timeout)
+        # us past TimeoutStopSec. Join all live workers concurrently so the
+        # total shutdown wall-clock stays bounded by a single join_timeout
+        # (previously serial joins summed up to N*1.0s, exceeding the 3s
+        # backstop in main.py).
+        alive = [p for p in procs if p.is_alive()]
+        for p in alive:
+            p.terminate()
+        if alive:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(alive)) as joiner:
+                futures = [joiner.submit(p.join, join_timeout) for p in alive]
+                concurrent.futures.wait(futures, timeout=join_timeout + 0.5)
     _HODO_EXECUTOR = None
     _SOUNDING_EXECUTOR = None
 
