@@ -6,6 +6,16 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - **Fast Worker-Pool Shutdown**: `shutdown_executors()` no longer blocks on an in-flight plot. It previously called `ProcessPoolExecutor.shutdown(wait=True)`, which waited for the worker currently rendering a sounding/hodograph to finish — up to tens of seconds — overrunning systemd's `TimeoutStopSec` and getting the process SIGKILLed with orphaned workers left behind. It now drops queued work and force-terminates running workers, returning in well under a second. The `main.py` shutdown call is also wrapped in a 3s timeout backstop.
+- **Automatic Failover Promotion**: Fixed the root cause of failed automatic failover — `_do_promote()` compared the Redis `SET ... NX` result against the string `"OK"`, but redis-py's response callback for that command returns `True`/`None`, never `"OK"`. Every automatic (non-forced) promotion attempt therefore succeeded at claiming the lease, then misread its own success as a failure and aborted, leaving the node stuck as a standby holding an orphaned lease under its own identity (#558).
+- **Configured-Primary Lease Reclaim**: A configured primary rejoining after failover could never actually reclaim its role from an active standby — the reclaim path called `_promote()` without `force=True`, so its `SET NX` could never win against the standby's still-live lease (#560).
+- **Forced-Promotion Split-Brain Risk**: The forced-promotion path (manual override, stale-self reclaim) ignored the result of its unconditional `SET`. On a Redis outage at that moment, the node would flip to primary and start posting with no lease actually held, risking split-brain with a genuine primary. It now aborts loudly if the write fails (#559).
+- **Stale-Self-Lease TOCTOU Race**: Closed a race between reading the lease holder and force-reclaiming it — a node's own stale lease (left by a previous process uuid) is now reclaimed via an atomic Lua compare-and-set instead of a plain read-then-write (#563).
+- **Manual-Override Lease Starvation**: A long-lived manual primary override used to skip the normal sync cycle entirely, so the Redis lease was never renewed and dirty writes were never drained — the lease could silently expire out from under an operator-pinned primary. It now falls through to the normal renew/drain cycle whenever the override just confirms the existing state (#562).
+- **Dangling Promotion Task**: The fire-and-forget `create_task` that reconnects NWWS on promotion held no reference and had no exception handling — a failure there could vanish with no log trace. It's now tracked with a `_log_task_exception` done-callback (#561).
+
+### Performance
+- **Worker-Pool Process Isolation**: Both process-pool executors (hodograph and sounding) now use the `forkserver` multiprocessing context instead of the default `fork`, avoiding the class of inherited-lock deadlock that can wedge a child process forked from a threaded asyncio parent (#564).
+- **Concurrent Worker Shutdown Join**: `shutdown_executors()` now joins all live worker processes concurrently instead of serially, so total shutdown time stays bounded by a single `join_timeout` regardless of worker count — previously N workers could sum to N × timeout and exceed the 3s shutdown backstop (#565).
 
 ## [5.39.0] - 2026-06-27
 
