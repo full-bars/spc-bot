@@ -487,7 +487,7 @@ class WatchesCog(commands.Cog):
                         sounding_cog
                         and isinstance(nws_info, dict)
                         and nws_info.get("affected_zones")
-                        and watch_num not in sounding_cog._handled_watches
+                        and watch_num not in self.bot.state.sounding_handled_watches
                     ):
                         asyncio.create_task(
                             sounding_cog.post_soundings_for_watch(watch_num, nws_info, channel)
