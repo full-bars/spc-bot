@@ -21,13 +21,27 @@ _MAX_SOUNDING_WORKERS = 4
 _sounding_semaphore: Optional[asyncio.Semaphore] = None
 
 
+def _hodo_worker_init():
+    """Hodo-only init — skips SounderPy (hodo renders never touch it)."""
+    import logging as _logging
+
+    for name in ("spc_bot", None):
+        log_obj = _logging.getLogger(name)
+        for h in log_obj.handlers[:]:
+            log_obj.removeHandler(h)
+    _logging.getLogger().setLevel(_logging.WARNING)
+
+    import matplotlib as _mpl
+
+    _mpl.use("Agg")
+
+
 def _worker_init():
     """Initialize each worker process by pre-importing heavy libraries."""
     import io as _io
     import logging as _logging
     import sys as _sys
 
-    # Silence inherited loggers to prevent double-logging to stdout
     for name in ("spc_bot", None):
         log_obj = _logging.getLogger(name)
         for h in log_obj.handlers[:]:
@@ -58,7 +72,7 @@ def get_hodo_executor() -> concurrent.futures.ProcessPoolExecutor:
         _logging.getLogger("spc_bot").info(f"Initializing Hodo Pool ({_MAX_HODO_WORKERS} workers)")
         _HODO_EXECUTOR = concurrent.futures.ProcessPoolExecutor(
             max_workers=_MAX_HODO_WORKERS,
-            initializer=_worker_init,
+            initializer=_hodo_worker_init,
             mp_context=multiprocessing.get_context("forkserver"),
         )
     return _HODO_EXECUTOR
