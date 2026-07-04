@@ -241,6 +241,12 @@ class RecorderCog(commands.Cog):
                 logger.info(f"Cleaned up temporary data for {mission.site_id}")
         except Exception as e:
             logger.error(f"Finalization failed for {mission.site_id}: {e}")
+            # Clean up temp files even on failure so the mission doesn't leak
+            # disk space indefinitely.
+            try:
+                await loop.run_in_executor(None, self._cleanup_worker, mission.dir)
+            except Exception:
+                pass
 
     async def _post_forensic_summary(
         self, mission: VADRecordingMission, gif_path: str, peak_srh: float
