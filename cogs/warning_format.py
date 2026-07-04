@@ -574,6 +574,24 @@ def _area_with_state(
         return ", ".join(parts[:-1]) + f" and {parts[-1]}"
 
 
+def _canonical_county_set(area_str: str) -> set[str]:
+    """Extract county names from an area-description string into a canonical
+    set for comparison across data sources.
+
+    The iembot fast path stores ``"Caddo, Grady [OK]"`` while the NWS API
+    returns ``"Caddo; Grady"`` from ``props.areaDesc``.  Normalising both
+    to ``{"Caddo", "Grady"}`` lets us detect real area changes (partial
+    cancellations) without being fooled by formatting differences.
+    """
+    if not area_str:
+        return set()
+    # Strip state brackets: "Caddo [OK]" → "Caddo"
+    cleaned = re.sub(r"\s*\[[A-Z]{2}\]", "", area_str)
+    # Split on commas, semicolons, or " and "
+    parts = re.split(r"[,;]|\s+and\s+", cleaned)
+    return {p.strip() for p in parts if p.strip()}
+
+
 _DESCRIPTION_LIMIT = 4000
 
 
