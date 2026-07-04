@@ -115,14 +115,14 @@ async def _fetch_single_frame(url: str, session: aiohttp.ClientSession) -> Optio
 
 
 async def _fetch_iem_frames(
-    start_utc: datetime, end_utc: datetime, interval: int = 5
+    start_utc: datetime, end_utc: datetime, max_frames: int = 6, interval: int = 5
 ) -> list[bytes]:
     frames = []
     current = _round_down_to_minute(start_utc, interval)
     connector = aiohttp.TCPConnector(limit=8)
     async with aiohttp.ClientSession(connector=connector) as session:
         tasks = []
-        while current <= end_utc and len(tasks) < MAX_FRAMES:
+        while current <= end_utc and len(tasks) < max_frames:
             url = _iem_frame_url(current)
             tasks.append(asyncio.ensure_future(_fetch_single_frame(url, session)))
             current += timedelta(minutes=interval)
@@ -163,6 +163,22 @@ async def _make_gif(frames: list[bytes], output_path: str) -> bool:
 class RadarHistoryCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._cleanup_old_cache()
+
+    @staticmethod
+    def _cleanup_old_cache():
+        cache_dir = GIF_CACHE_DIR
+        if not os.path.isdir(cache_dir):
+            return
+        now = datetime.now().timestamp()
+        cutoff = now - 3600  # delete files older than 1 hour
+        for fname in os.listdir(cache_dir):
+            fpath = os.path.join(cache_dir, fname)
+            try:
+                if os.path.isfile(fpath) and os.path.getmtime(fpath) < cutoff:
+                    os.remove(fpath)
+            except OSError:
+                pass
 
     @app_commands.command(
         name="radarhistory",
@@ -173,7 +189,8 @@ class RadarHistoryCog(commands.Cog):
         date="Date (YYYY-MM-DD)",
         time="Local time (e.g. '7:10 PM' or '19:10')",
         timezone="Your timezone",
-        duration="Duration of loop in minutes (default 30)",
+        frames="Number of frames (default 6, max 30, ~1.5-3 MB each)",
+        interval="Minutes between frames (default 5, or 10 for coarser)",
     )
     async def radarhistory(
         self,
@@ -182,13 +199,18 @@ class RadarHistoryCog(commands.Cog):
         date: str,
         time: str,
         timezone: str,
-        duration: int = 30,
+        frames: int = 6,
+        interval: int = 5,
     ):
         await interaction.response.defer(thinking=True)
 
+        frames = max(1, min(frames, MAX_FRAMES))
+        interval = max(5, min(interval, 30))
+        total_minutes = frames * interval
+
         tz = _parse_timezone(timezone)
-        dt_utc = _parse_local_time(date, time, tz)
-        if dt_utc is None:
+        dt_tz = _parse_local_time(date, time, tz)
+        if dt_tz is None:
             await interaction.followup.send(
                 "❌ Could not parse date/time. Use format: `YYYY-MM-DD` for date "
                 "and `7:10 PM` or `19:10` for time.",
@@ -207,20 +229,20 @@ class RadarHistoryCog(commands.Cog):
 
         lat, lon, loc_display = geo
         nearest = get_nearest_radar(lat, lon)
-        radar_label = f" {nearest}" if nearest else ""
-        tz_abbr = dt_utc.strftime("%Z")
+        radar_label = f" ({nearest})" if nearest else ""
+        tz_abbr = dt_tz.strftime("%Z")
 
-        start_utc = dt_utc.astimezone(dt_timezone.utc).replace(tzinfo=None)
-        end_utc = start_utc + timedelta(minutes=max(5, min(duration, 120)))
+        start_utc = dt_tz.astimezone(dt_timezone.utc).replace(tzinfo=None)
+        end_utc = start_utc + timedelta(minutes=total_minutes)
 
         logger.info(
             f"[RADAR_HISTORY] {location} ({lat:.2f}, {lon:.2f}) → {nearest} "
             f"| {start_utc.isoformat()} to {end_utc.isoformat()} "
-            f"({duration} min, tz={tz_abbr})"
+            f"({frames}x{interval}m={total_minutes}min, tz={tz_abbr})"
         )
 
-        frames = await _fetch_iem_frames(start_utc, end_utc)
-        if not frames:
+        raw_frames = await _fetch_iem_frames(start_utc, end_utc, frames, interval)
+        if not raw_frames:
             await interaction.followup.send(
                 "❌ No radar imagery available for that time window. "
                 "The data may not be in the archive yet (try a date older than today) "
@@ -232,38 +254,47 @@ class RadarHistoryCog(commands.Cog):
         os.makedirs(GIF_CACHE_DIR, exist_ok=True)
         gif_path = os.path.join(
             GIF_CACHE_DIR,
-            f"{nearest or 'unknown'}_{start_utc.strftime('%Y%m%d%H%M')}_{duration}m.gif",
+            f"{nearest or 'unknown'}_{start_utc.strftime('%Y%m%d%H%M')}_{frames}f.gif",
         )
-        success = await _make_gif(frames, gif_path)
-        if not success or not os.path.exists(gif_path):
-            await interaction.followup.send(
-                "❌ Failed to generate radar loop. Try again.",
-                ephemeral=True,
-            )
-            return
 
-        file_size = os.path.getsize(gif_path)
-        if file_size > MAX_GIF_SIZE:
-            await interaction.followup.send(
-                f"❌ Generated GIF is too large ({file_size / 1024 / 1024:.1f} MB) "
-                "for Discord. Try a shorter duration.",
-                ephemeral=True,
-            )
-            return
+        try:
+            success = await _make_gif(raw_frames, gif_path)
+            if not success or not os.path.exists(gif_path):
+                await interaction.followup.send(
+                    "❌ Failed to generate radar loop. Try again.",
+                    ephemeral=True,
+                )
+                return
 
-        content = (
-            f"**Radar Loop** — {loc_display}{radar_label}\n"
-            f"{dt_utc.strftime('%b %d, %Y %I:%M %p')} {tz_abbr} "
-            f"({duration} min, {len(frames)} frames)"
-        )
-        await interaction.followup.send(
-            content=content,
-            file=discord.File(gif_path),
-        )
-        logger.info(
-            f"[RADAR_HISTORY] Sent {len(frames)}-frame GIF "
-            f"({file_size / 1024 / 1024:.1f} MB) for {nearest}"
-        )
+            file_size = os.path.getsize(gif_path)
+            if file_size > MAX_GIF_SIZE:
+                os.remove(gif_path)
+                await interaction.followup.send(
+                    f"❌ Generated GIF is too large ({file_size / 1024 / 1024:.1f} MB). "
+                    "Try fewer frames.",
+                    ephemeral=True,
+                )
+                return
+
+            content = (
+                f"**Radar Loop** — {loc_display}{radar_label}\n"
+                f"{dt_tz.strftime('%b %d, %Y %I:%M %p')} {tz_abbr} "
+                f"({frames} frames × {interval}min)"
+            )
+            await interaction.followup.send(
+                content=content,
+                file=discord.File(gif_path),
+            )
+            logger.info(
+                f"[RADAR_HISTORY] Sent {frames}-frame GIF "
+                f"({file_size / 1024 / 1024:.1f} MB) for {nearest}"
+            )
+        finally:
+            if os.path.exists(gif_path):
+                try:
+                    os.remove(gif_path)
+                except OSError:
+                    pass
 
 
 async def setup(bot: commands.Bot):
