@@ -211,7 +211,7 @@ async def _scan_all_keys(pattern: str) -> List[str]:
     try:
         while True:
             cursor, batch = await client.scan(cursor=cursor, match=pattern, count=100)
-            keys.extend(batch)
+            keys.extend(k.decode() if isinstance(k, bytes) else k for k in batch)
             if cursor == 0:
                 break
     except (
@@ -1146,7 +1146,8 @@ async def mirror_to_sqlite() -> None:
             for k, val in zip(state_keys, values):
                 if val:
                     base_key = k.removeprefix(prefix)
-                    await sqlite_backend.set_state(base_key, val)
+                    str_val = val.decode() if isinstance(val, bytes) else val
+                    await sqlite_backend.set_state(base_key, str_val)
 
         # 4. Posted URLs
         for day in ("day1", "day2", "day3"):

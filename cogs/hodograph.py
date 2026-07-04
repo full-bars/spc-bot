@@ -9,7 +9,7 @@ import discord
 from discord.ext import commands
 
 from lib.vad_plotter.vad import vad_plotter
-from lib.vad_plotter.wsr88d import _radar_info
+from lib.vad_plotter.wsr88d import _radar_info, RADAR_NAMES
 from utils.worker_pool import get_hodo_executor
 
 logger = logging.getLogger("spc_bot")
@@ -155,18 +155,23 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
         cache_key = f"hodo_{site}_{now_str}"
         view = HodographPlotView(cache_key)
 
+    label = f"**{site}** VWP Hodograph"
+    location = RADAR_NAMES.get(site)
+    if location:
+        label = f"**{site} ({location})** VWP Hodograph"
+
     sent = False
     for attempt in range(2):
         try:
             if view:
                 await interaction.followup.send(
-                    content=f"**{site}** VWP Hodograph",
+                    content=label,
                     file=discord.File(output_path),
                     view=view,
                 )
             else:
                 await interaction.followup.send(
-                    content=f"**{site}** VWP Hodograph",
+                    content=label,
                     file=discord.File(output_path),
                 )
             sent = True
