@@ -556,8 +556,8 @@ async def download_vad(
                         elif task is s3_task:
                             content = result
                         break
-                except BaseException:
-                    pass
+                except Exception:
+                    logger.debug("[VAD] Task result fetch failed", exc_info=True)
 
             # If neither succeeded, try the remaining (not cancelled)
             if not content:
@@ -576,7 +576,8 @@ async def download_vad(
                 try:
                     if tgftp_task.result() is None:
                         circuit_breaker.record_failure(host)
-                except BaseException:
+                except Exception:
+                    logger.debug("[VAD] tgftp result check failed", exc_info=True)
                     circuit_breaker.record_failure(host)
         else:
             circuit_breaker.record_failure(host)
