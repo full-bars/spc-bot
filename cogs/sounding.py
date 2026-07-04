@@ -682,17 +682,16 @@ class SoundingCog(commands.Cog):
             pkey = f"raob:{sid}:{tkey}"
             if pkey in self.bot.state.posted_soundings:
                 return None
-            # Claim synchronously before returning so a concurrent task that runs
+            # Claim atomically before returning so a concurrent task that runs
             # during the gather's yield points cannot grab the same key.
-            self.bot.state.posted_soundings.add(pkey)
+            # Use add_posted_sounding (persists to SQLite/Redis) so an
+            # exception between the in-memory claim and the batch persist
+            # below doesn't leave a ghost claim that vanishes on restart.
+            await self.bot.state.add_posted_sounding(pkey)
             return station, sid, y, mo, d, h, tkey, pkey
 
         avail_results = await asyncio.gather(*[_check_avail(s) for s in verified[:3]])
         to_fetch = [r for r in avail_results if r]
-
-        # Persist keys already claimed in-memory by _check_avail.
-        for *_, pkey in to_fetch:
-            await self.bot.state.add_posted_sounding(pkey)
 
         # ── Phase 1: fetch all sounding data concurrently ─────────────────
         async def _fetch_raob(station, sid, y, mo, d, h, tkey, pkey):
