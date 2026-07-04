@@ -474,7 +474,7 @@ class FailoverCog(commands.Cog):
                 logger.warning(
                     f"[FAILOVER] Configured Primary reclaiming lease from Standby '{holder}'"
                 )
-                await self._promote()
+                await self._promote(force=True)
                 return
             if self._primary_failures > 0:
                 logger.info(
