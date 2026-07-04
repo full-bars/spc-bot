@@ -504,7 +504,15 @@ class FailoverCog(commands.Cog):
         # currently-held primary.
         promoting_identity = self._node_identity(True)
         if force:
-            await self._exec("SET", LEASE_KEY, promoting_identity, "EX", str(HEARTBEAT_TTL))
+            result = await self._exec(
+                "SET", LEASE_KEY, promoting_identity, "EX", str(HEARTBEAT_TTL)
+            )
+            if result is None:
+                logger.error(
+                    "[FAILOVER] Forced promotion failed — Redis unreachable, cannot claim "
+                    "lease. Aborting promotion to avoid split-brain."
+                )
+                return
             logger.warning("[FAILOVER] !!! PROMOTING TO PRIMARY (forced) !!!")
         else:
             claim_result = await self._exec(

@@ -932,6 +932,47 @@ class TestPromoteSplitBrainPrevention:
         assert (bot_a.load_extension.await_count == 1) ^ (bot_b.load_extension.await_count == 1)
 
 
+class TestForcedPromotionLeaseCheck:
+    @pytest.mark.asyncio
+    async def test_force_true_aborts_when_redis_unreachable(self, monkeypatch):
+        """If the forced SET returns None (Redis connection error), promotion
+        must abort — no is_primary flip, no cog load."""
+        bot = _make_bot(is_primary=False)
+        cog = FailoverCog(bot)
+
+        async def _exec_fail(*args):
+            return None
+
+        monkeypatch.setattr(cog, "_exec", AsyncMock(side_effect=_exec_fail))
+        monkeypatch.setattr(cog, "_cleanup_own_stale_entries", AsyncMock())
+        monkeypatch.setattr(cog, "_build_local_redis", MagicMock(side_effect=Exception("skip")))
+        monkeypatch.setattr(cog, "_write_lease", AsyncMock())
+        monkeypatch.setattr(cog, "_rehydrate_bot_state", AsyncMock())
+
+        import utils.state_store as state_store
+
+        monkeypatch.setattr(state_store, "invalidate_all_caches", MagicMock())
+        monkeypatch.setattr(state_store, "mirror_to_sqlite", AsyncMock())
+        monkeypatch.setattr(state_store, "resync_to_redis", AsyncMock())
+
+        import utils.events_db as events_db
+
+        monkeypatch.setattr(events_db, "restore_from_sync", MagicMock())
+        monkeypatch.setattr(events_db, "set_syncthing_folder_mode", AsyncMock())
+
+        import asyncio as _asyncio
+
+        monkeypatch.setattr(_asyncio, "sleep", AsyncMock())
+
+        monkeypatch.setattr(failover_module, "ALL_EXTENSIONS", ["cog_x"])
+        bot.load_extension = AsyncMock()
+
+        await cog._do_promote(force=True)
+
+        assert bot.state.is_primary is False, "forced promotion must abort when lease write fails"
+        bot.load_extension.assert_not_awaited()
+
+
 class TestConfiguredPrimaryReclaim:
     @pytest.mark.asyncio
     async def test_configured_primary_reclaims_from_standby_with_force(self, monkeypatch):
