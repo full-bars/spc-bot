@@ -280,12 +280,8 @@ async def send_sounding_embed(
                 from cogs.ai_summaries import ensure_sounding_summary
                 from cogs.sounding_utils import get_sounding_params_text
 
-                raw_text = get_sounding_params_text(clean_data)
+                raw_text = await get_sounding_params_text(clean_data, cache_key=cache_key)
                 if raw_text:
-                    from utils.state_store import set_product_cache as _cache_raw
-
-                    await _cache_raw(f"raw_text_{cache_key}", raw_text, ttl=3600)
-
                     # Only prefetch proactively for interactive soundings.
                     # For auto-posts, the autopost handles it sequentially to avoid
                     # rate-limiting the AI API with concurrent calls.
@@ -325,7 +321,7 @@ async def send_sounding_embed(
         if autopost_summary and cache_key and clean_data:
             from cogs.ai_summaries import autopost_sounding_summary
 
-            raw_text = get_sounding_params_text(clean_data)
+            raw_text = await get_sounding_params_text(clean_data, cache_key=cache_key)
             if raw_text:
                 sounding_label = f"{label} — {time_label}"
                 lat = float(clean_data["site_info"]["site-latlon"][0])

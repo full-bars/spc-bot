@@ -93,80 +93,108 @@ async def get_raob_stations() -> pd.DataFrame:
     return _station_cache
 
 
-def get_sounding_params_text(clean_data: dict) -> Optional[str]:
-    """Extract all computed thermodynamic and kinematic parameters for AI analysis."""
+def _compute_params_text(clean_data: dict) -> Optional[str]:
+    """Worker function — runs in a process pool to keep the event loop free.
+    Extracts all computed thermodynamic and kinematic parameters."""
+    import os
+
     try:
         import sounderpy as spy
-        import os
+    except ImportError:
+        return None
 
-        # SounderPy/SHARPPy can be noisy on stdout
+    # SounderPy/SHARPPy can be noisy on stdout.
+    # Each pool worker has its own process, so the global swap is safe.
+    with open(os.devnull, "w") as devnull:
         old_stdout = sys.stdout
-        sys.stdout = open(os.devnull, "w")
+        sys.stdout = devnull
         try:
             params = spy.sounding_params(clean_data).calc()
         finally:
-            sys.stdout.close()
             sys.stdout = old_stdout
 
-        thermo = params[1]
-        kinematics = params[2]
+    thermo = params[1]
+    kinematics = params[2]
 
-        def _fmt_val(val, unit=""):
-            """Format any value, handling masked/missing cases. Show actual values, not filters."""
-            if val is None:
-                return "N/A"
-            if hasattr(val, "mask") and val.mask:
-                return "N/A"
-            if str(val) == "--":
-                return "N/A"
-            try:
-                if isinstance(val, (int, float)):
-                    return f"{float(val):.0f}" + (f" {unit}" if unit else "")
-                return str(val)
-            except (ValueError, TypeError):
-                return "N/A"
+    def _fmt_val(val, unit=""):
+        if val is None:
+            return "N/A"
+        if hasattr(val, "mask") and val.mask:
+            return "N/A"
+        if str(val) == "--":
+            return "N/A"
+        try:
+            if isinstance(val, (int, float)):
+                return f"{float(val):.0f}" + (f" {unit}" if unit else "")
+            return str(val)
+        except (ValueError, TypeError):
+            return "N/A"
 
-        summary = "SOUNDING PARAMETERS:\n\n"
-        summary += "--- THERMODYNAMICS ---\n"
+    summary = "SOUNDING PARAMETERS:\n\n"
+    summary += "--- THERMODYNAMICS ---\n"
 
-        # Include all CAPE variants (some may be N/A, but show everything)
-        summary += f"SBCAPE: {_fmt_val(thermo.get('sbcape'), 'J/kg')} | "
-        summary += f"MUCAPE: {_fmt_val(thermo.get('mucape'), 'J/kg')} | "
-        summary += f"MLCAPE: {_fmt_val(thermo.get('mlcape'), 'J/kg')}\n"
+    summary += f"SBCAPE: {_fmt_val(thermo.get('sbcape'), 'J/kg')} | "
+    summary += f"MUCAPE: {_fmt_val(thermo.get('mucape'), 'J/kg')} | "
+    summary += f"MLCAPE: {_fmt_val(thermo.get('mlcape'), 'J/kg')}\n"
+    summary += f"SB 0-3km CAPE: {_fmt_val(thermo.get('sb3cape'), 'J/kg')} | "
+    summary += f"MU 0-3km CAPE: {_fmt_val(thermo.get('mu3cape'), 'J/kg')}\n"
+    summary += f"SBCIN: {_fmt_val(thermo.get('sbcin'), 'J/kg')} | "
+    summary += f"MUCIN: {_fmt_val(thermo.get('mucin'), 'J/kg')}\n"
+    summary += f"DCAPE: {_fmt_val(thermo.get('dcape'), 'J/kg')} | "
+    summary += f"MUECAPE: {_fmt_val(thermo.get('mu_ecape'), 'J/kg')}\n"
+    summary += f"SB LCL Pressure: {_fmt_val(thermo.get('sb_lcl_p'), 'hPa')} | "
+    summary += f"SB LFC Pressure: {_fmt_val(thermo.get('sb_lfc_p'), 'hPa')}\n"
+    summary += f"Lapse Rate (0-3km): {_fmt_val(thermo.get('lr_03km'), 'K/km')} | "
+    summary += f"Lapse Rate (3-6km): {_fmt_val(thermo.get('lr_36km'), 'K/km')}\n\n"
 
-        # Low-level CAPE (critical for incomplete profiles)
-        summary += f"SB 0-3km CAPE: {_fmt_val(thermo.get('sb3cape'), 'J/kg')} | "
-        summary += f"MU 0-3km CAPE: {_fmt_val(thermo.get('mu3cape'), 'J/kg')}\n"
+    summary += "--- KINEMATICS ---\n"
+    summary += f"Effective Inflow Layer (EIL): {_fmt_val(kinematics.get('eil_z'), 'mb')}\n"
+    summary += f"Bulk Shear (0-1km): {_fmt_val(kinematics.get('shear_0_to_1000'), 'kts')} | "
+    summary += f"Bulk Shear (0-6km): {_fmt_val(kinematics.get('shear_0_to_6000'), 'kts')}\n"
+    summary += f"SRH (0-1km): {_fmt_val(kinematics.get('srh_0_to_1000'), 'm²/s²')} | "
+    summary += f"SRH (0-3km): {_fmt_val(kinematics.get('srh_0_to_3000'), 'm²/s²')}\n"
+    summary += f"STP (Effective): {_fmt_val(kinematics.get('eil_stp'))} | "
+    summary += f"SCP: {_fmt_val(kinematics.get('eil_scp'))}\n"
 
-        # CIN measures
-        summary += f"SBCIN: {_fmt_val(thermo.get('sbcin'), 'J/kg')} | "
-        summary += f"MUCIN: {_fmt_val(thermo.get('mucin'), 'J/kg')}\n"
+    return summary
 
-        # Downdraft and elevated convection
-        summary += f"DCAPE: {_fmt_val(thermo.get('dcape'), 'J/kg')} | "
-        summary += f"MUECAPE: {_fmt_val(thermo.get('mu_ecape'), 'J/kg')}\n"
 
-        # LCL/LFC in pressure coordinates (higher pressure value = closer to surface = favorable for surface convection)
-        summary += f"SB LCL Pressure: {_fmt_val(thermo.get('sb_lcl_p'), 'hPa')} | "
-        summary += f"SB LFC Pressure: {_fmt_val(thermo.get('sb_lfc_p'), 'hPa')}\n"
+async def get_sounding_params_text(clean_data: dict, cache_key: str = None) -> Optional[str]:
+    """Extract thermodynamic/kinematic parameters for AI analysis.
 
-        # Lapse rates
-        summary += f"Lapse Rate (0-3km): {_fmt_val(thermo.get('lr_03km'), 'K/km')} | "
-        summary += f"Lapse Rate (3-6km): {_fmt_val(thermo.get('lr_36km'), 'K/km')}\n\n"
+    Checks the product cache first (keyed on ``cache_key``), then falls back
+    to running the heavy MetPy computation in the sounding process pool so it
+    never blocks the asyncio event loop. Result is cached for 1 hour."""
+    if cache_key:
+        try:
+            from utils.state_store import get_product_cache
 
-        summary += "--- KINEMATICS ---\n"
-        summary += f"Effective Inflow Layer (EIL): {_fmt_val(kinematics.get('eil_z'), 'mb')}\n"
-        summary += f"Bulk Shear (0-1km): {_fmt_val(kinematics.get('shear_0_to_1000'), 'kts')} | "
-        summary += f"Bulk Shear (0-6km): {_fmt_val(kinematics.get('shear_0_to_6000'), 'kts')}\n"
-        summary += f"SRH (0-1km): {_fmt_val(kinematics.get('srh_0_to_1000'), 'm²/s²')} | "
-        summary += f"SRH (0-3km): {_fmt_val(kinematics.get('srh_0_to_3000'), 'm²/s²')}\n"
-        summary += f"STP (Effective): {_fmt_val(kinematics.get('eil_stp'))} | "
-        summary += f"SCP: {_fmt_val(kinematics.get('eil_scp'))}\n"
+            cached = await get_product_cache(f"raw_text_{cache_key}")
+            if cached:
+                return cached
+        except Exception:
+            pass
 
-        return summary
+    try:
+        from utils.worker_pool import get_sounding_executor
+
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            get_sounding_executor(), _compute_params_text, clean_data
+        )
     except Exception as e:
         logger.debug(f"[SOUNDING] Failed to compute parameters for AI: {e}")
         return None
+
+    if cache_key and result:
+        try:
+            from utils.state_store import set_product_cache
+
+            await set_product_cache(f"raw_text_{cache_key}", result, ttl=3600)
+        except Exception:
+            pass
+
+    return result
 
 
 def _fetch_stations() -> pd.DataFrame:
