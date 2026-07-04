@@ -40,9 +40,15 @@ impl rstar::RTreeObject for RadarPoint {
 
 impl rstar::PointDistance for RadarPoint {
     fn distance_2(&self, point: &[f64; 2]) -> f64 {
-        let d1 = self.location[0] - point[0];
-        let d2 = self.location[1] - point[1];
-        d1 * d1 + d2 * d2
+        let d_lat = self.location[0] - point[0];
+        // Scale longitude by cos(mean latitude) to approximate real distance.
+        // At CONUS latitudes raw Euclidean overweights north-south separation
+        // relative to east-west, biasing nearest-radar picks toward sites
+        // at similar latitude regardless of actual range.
+        let mean_lat = (self.location[0] + point[0]) / 2.0;
+        let cos_lat = (mean_lat.to_radians()).cos();
+        let d_lon = (self.location[1] - point[1]) * cos_lat;
+        d_lat * d_lat + d_lon * d_lon
     }
 }
 
