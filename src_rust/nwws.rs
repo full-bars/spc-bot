@@ -493,6 +493,9 @@ pub fn fetch_s3_vad_fast<'py>(
     if rid_upper.starts_with('K') && rid_upper.len() == 4 {
         candidates.push(rid_upper[1..].to_string());
     }
+    if rid_upper.starts_with('P') && rid_upper.len() == 4 {
+        candidates.push(rid_upper[1..].to_string());
+    }
 
     for days_back in 0..3 {
         let date = now - chrono::Duration::try_days(days_back).unwrap_or_default();
