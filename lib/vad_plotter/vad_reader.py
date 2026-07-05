@@ -415,6 +415,8 @@ async def _list_s3_vad_times(rid: str) -> List[Tuple[str, datetime]]:
     site_candidates = [rid.upper()]
     if len(rid) == 4 and rid.upper()[0] in ("K", "T"):
         site_candidates.append(rid[1:].upper())
+    if len(rid) == 4 and rid.upper().startswith("P"):
+        site_candidates.append(rid[1:].upper())
 
     now = datetime.now(timezone.utc)
     session = aioboto3.Session()
