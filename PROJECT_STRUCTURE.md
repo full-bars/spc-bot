@@ -67,6 +67,8 @@ spc-bot/
 │   ├── sounding_utils.py    # Location resolution, IEM fetch (all hours), ACARS fetch, plot generation; disk-caches plots with hash-based dedup
 │   ├── sounding_views.py    # Discord UI: CombinedSoundingView, IEMTimeSelectionView, ACARS views
 │   ├── hodograph.py         # VWP hodograph generation via /hodograph
+│   ├── radar/               # /download NEXRAD Level 2 downloader package (downloads.py, s3.py, views.py)
+│   ├── radar_history.py     # /radarhistory: animated historical radar reflectivity loops for any location/time
 │   ├── failover.py          # Leader election via a self-hosted Redis lease (no HTTP tunnel — v5+)
 │   ├── wxsummary.py         # /wxsummary: Project WxEye live weather briefing embed
 │   ├── status.py            # Bot status and manual slash commands
@@ -94,7 +96,7 @@ spc-bot/
 │       ├── wsr88d.py        # Radar site info and filename utilities
 │       ├── asos.py          # ASOS surface wind fetching
 │       └── utils.py         # Shared exception types
-└── tests/                   # pytest suite (382 tests, see CONTRIBUTING.md)
+└── tests/                   # pytest suite (559 tests, see CONTRIBUTING.md)
     ├── conftest.py          # Fixtures: fake_bot (real BotState), isolated_db, global patches
     ├── test_analytics.py    # IEM analytics command URL/API behavior
     ├── test_fixtures.py     # Fixture invariants
@@ -190,7 +192,7 @@ See [High Availability & Failover](CONTRIBUTING.md#failover) in CONTRIBUTING.md 
 
 ## Testing
 
-The test suite has **382 tests** covering:
+The test suite has **559 tests** covering:
 - Unit tests for parsers (VTEC, polygons, narratives)
 - Integration tests for bot state and cog lifecycle
 - Failover scenarios and race conditions

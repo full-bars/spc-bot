@@ -74,7 +74,8 @@ or inline where invoked, not into the configured channels.
 |---|---|
 | `/download` | Open the NEXRAD Level 2 radar downloader UI. Optional `sites` (space or comma separated codes e.g. `KICT KUEX`), `time` (Last 1h/2h/3h/4h), and `count` (number of most recent files) for quick-start without interactive flow. |
 | `/downloaderstatus` | Check AWS downloader and S3 latency |
-| `/hodograph` | Generate a VWP hodograph for any NEXRAD or TDWR site. Accepts a 4-letter site ID (e.g. `KTLX`). Includes auto ASOS surface wind, storm parameter table, and persistent "🪄 AI Analysis" button for context-aware environmental assessment. |
+| `/radarhistory` | Generate an animated historical radar reflectivity loop for any location and time. Parameters: `location` (city/state, zip, or coordinates), `date` (YYYY-MM-DD), `time` (local, e.g. `7:10 PM` or `19:10`), `timezone`, and optional `frames` (default 6, max 30) and `interval` (minutes between frames, default 5). Geocodes via OSM Nominatim, finds the nearest NEXRAD site via the R-tree spatial index, and fetches IEM national composite N0Q frames. |
+| `/hodograph` | Generate a VWP hodograph for any NEXRAD or TDWR site. Accepts a 4-letter site ID (e.g. `KTLX`). Displays the site's city/state alongside the code (e.g. **KOAX (Omaha, NE)**). Includes auto ASOS surface wind, storm parameter table, and persistent "🪄 AI Analysis" button for context-aware environmental assessment. |
 
 ### Analytics
 These commands expose IEM Autoplot or IEM Cow data. They are useful for operations and experimentation, but some are still being hardened for production workflows.
@@ -302,7 +303,7 @@ python -m pytest tests/ \
     --cov-report=term-missing
 ```
 
-The suite currently collects **539 tests**.
+The suite currently collects **559 tests**.
 
 Lint (same selection CI uses):
 
