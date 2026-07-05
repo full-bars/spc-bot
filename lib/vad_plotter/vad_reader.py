@@ -676,3 +676,40 @@ async def download_vad(
         return vad
 
     raise ValueError(f"VAD data unavailable for {rid}")
+
+
+async def download_vads_batch(rid: str, max_frames: int = 10) -> List[VADFile]:
+    """Download the N most recent VAD files concurrently for a radar site."""
+    times = await _list_s3_vad_times(rid)
+    if not times:
+        raise ValueError(f"No VAD files found for {rid}")
+
+    targets = times[:max_frames]
+
+    async def _fetch_one(key: str, ts: datetime) -> Optional[VADFile]:
+        session = aioboto3.Session()
+        try:
+            async with session.client(
+                "s3",
+                config=Config(signature_version=botocore.UNSIGNED),
+                region_name="us-east-1",
+            ) as s3:
+                resp = await s3.get_object(Bucket=_S3_BUCKET, Key=key)
+                content = await resp["Body"].read()
+                if content:
+                    vad = VADFile(content)
+                    vad.rid = rid
+                    return vad
+        except Exception as e:
+            logger.warning(f"[VAD] Batch fetch failed for {rid} key={key}: {e}")
+        return None
+
+    tasks = [_fetch_one(key, ts) for key, ts in targets]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    vads: List[VADFile] = []
+    for r in results:
+        if isinstance(r, VADFile):
+            vads.append(r)
+    vads.sort(key=lambda v: v["time"])
+    return vads
