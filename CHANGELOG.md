@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [5.40.0] - 2026-07-04
+
+### Features
+- **`/radarhistory`**: New slash command generates an animated radar reflectivity GIF for any location and time. Geocodes the location (city/zip/coordinates) via OSM Nominatim, finds the nearest NEXRAD site via the R-tree spatial index, converts local time + timezone to UTC, and fetches IEM national composite N0Q reflectivity frames. Frames auto-scale down if the GIF would exceed Discord's 25MB upload limit.
+- **Fast Skew-T Placeholder**: `/sounding` now posts a minimal Skew-T (temperature, dewpoint, wind barbs) within ~1s via the default thread executor, then upgrades the message in place with the full SounderPy plot (~55s) once it's ready via the sounding worker pool. Falls back gracefully if the fast plot fails.
+- **Hodograph Location Names**: `/hodograph` and VWP displays now show the city/state alongside the radar site code (e.g. **KOAX (Omaha, NE)**), backed by a new `RADAR_NAMES` mapping covering all 209 NEXRAD and TDWR sites.
+
 ### Fixed
 - **Fast Worker-Pool Shutdown**: `shutdown_executors()` no longer blocks on an in-flight plot. It previously called `ProcessPoolExecutor.shutdown(wait=True)`, which waited for the worker currently rendering a sounding/hodograph to finish — up to tens of seconds — overrunning systemd's `TimeoutStopSec` and getting the process SIGKILLed with orphaned workers left behind. It now drops queued work and force-terminates running workers, returning in well under a second. The `main.py` shutdown call is also wrapped in a 3s timeout backstop.
 - **Automatic Failover Promotion**: Fixed the root cause of failed automatic failover — `_do_promote()` compared the Redis `SET ... NX` result against the string `"OK"`, but redis-py's response callback for that command returns `True`/`None`, never `"OK"`. Every automatic (non-forced) promotion attempt therefore succeeded at claiming the lease, then misread its own success as a failure and aborted, leaving the node stuck as a standby holding an orphaned lease under its own identity (#558).

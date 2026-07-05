@@ -11,7 +11,7 @@ Use the project virtual environment when available:
 ./venv/bin/python -m ruff check .
 ```
 
-This repository currently collects **382 tests** with the project virtual environment:
+This repository currently collects **559 tests** with the project virtual environment:
 
 ```bash
 ./venv/bin/python -m pytest --collect-only -q
