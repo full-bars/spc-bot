@@ -9,6 +9,9 @@ import discord
 from discord.ext import commands
 
 from lib.vad_plotter.vad import vad_plotter
+from lib.vad_plotter.vad_reader import download_vads_batch
+from lib.vad_plotter.params import compute_parameters
+from lib.vad_plotter.plot import plot_hodograph_gif
 from lib.vad_plotter.wsr88d import _radar_info, RADAR_NAMES
 from utils.worker_pool import get_hodo_executor
 
@@ -18,7 +21,7 @@ logger = logging.getLogger("spc_bot")
 def _log_task_exception(task: asyncio.Task) -> None:
     try:
         exc = task.exception()
-    except (asyncio.CancelledError, RuntimeError):
+    except (asyncio.CancelError, RuntimeError):
         return
     if exc:
         logger.error("Background task failed", exc_info=exc)
@@ -26,7 +29,11 @@ def _log_task_exception(task: asyncio.Task) -> None:
 
 VALID_RADARS = list(_radar_info.keys())
 HODO_OUTPUT_DIR = os.path.join("cache", "hodographs")
+HODO_GIF_CACHE_DIR = os.path.join("cache", "hodograph_gifs")
 VAD_SCRIPT = os.path.join("lib", "vad_plotter", "vad.py")
+MAX_GIF_FRAMES = 20
+MAX_GIF_SIZE_MB = 25
+DEFAULT_LOOP_FRAMES = 6
 
 
 async def _background_cache_hodo(cache_key: str, raw_text: str, site: str):
@@ -35,10 +42,8 @@ async def _background_cache_hodo(cache_key: str, raw_text: str, site: str):
         from utils.state_store import get_product_cache, set_product_cache
         from utils.ai import call_gemini
 
-        # Cache raw_text for button handler
         await set_product_cache(f"raw_text_{cache_key}", raw_text, ttl=3600)
 
-        # Prefetch AI summary
         existing = await get_product_cache(cache_key)
         if existing:
             return
@@ -62,7 +67,7 @@ class HodographPlotView(discord.ui.View):
     def __init__(self, cache_key: str):
         super().__init__(timeout=None)
         button = discord.ui.Button(
-            label="🪄 AI Analysis",
+            label="AI Analysis",
             style=discord.ButtonStyle.secondary,
             custom_id=f"ai_snd:{cache_key}",
         )
@@ -74,8 +79,6 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
     os.makedirs(HODO_OUTPUT_DIR, exist_ok=True)
     output_path = os.path.join(HODO_OUTPUT_DIR, f"{site.lower()}_hodograph.png")
 
-    # If we have a fresh cached render (< 5 min), reuse it — VAD scans
-    # only update every 5-10 min so re-rendering is pure waste.
     cache_valid = False
     if os.path.exists(output_path):
         file_age = time.time() - os.path.getmtime(output_path)
@@ -89,15 +92,15 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
         try:
             params = await asyncio.wait_for(
                 vad_plotter(
-                    site,  # radar_id
-                    "right-mover",  # storm_motion
-                    None,  # sfc_wind
-                    None,  # time
-                    output_path,  # fname
-                    None,  # local_path
-                    None,  # cache_path
-                    False,  # web
-                    False,  # fixed
+                    site,
+                    "right-mover",
+                    None,
+                    None,
+                    output_path,
+                    None,
+                    None,
+                    False,
+                    False,
                     executor=get_hodo_executor(),
                 ),
                 timeout=60,
@@ -106,7 +109,7 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
             logger.warning(f"[HODO] vad_plotter timed out for {site}")
             try:
                 await interaction.followup.send(
-                    f"⏱️ Timed out fetching data for `{site}`. The radar may be offline or have no recent VWP data.",
+                    f"Timed out fetching data for `{site}`. The radar may be offline or have no recent VWP data.",
                     ephemeral=True,
                 )
             except discord.NotFound:
@@ -118,7 +121,7 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
             logger.error(f"[HODO] vad_plotter failed for {site}: {e}")
             try:
                 await interaction.followup.send(
-                    f"⚠️ Could not generate hodograph for `{site}`. The radar may not have recent data.",
+                    f"Could not generate hodograph for `{site}`. The radar may not have recent data.",
                     ephemeral=True,
                 )
             except discord.NotFound:
@@ -129,7 +132,7 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
         logger.error(f"[HODO] Output file not found after successful run for {site}")
         try:
             await interaction.followup.send(
-                f"⚠️ Hodograph image not generated for `{site}`.",
+                f"Hodograph image not generated for `{site}`.",
                 ephemeral=True,
             )
         except discord.NotFound:
@@ -188,10 +191,152 @@ async def generate_hodograph(interaction: discord.Interaction, site: str):
             else:
                 logger.error(f"[HODO] Retry also failed for {site}: {conn_err}")
 
-    # Fire-and-forget: cache raw_text + prefetch AI summary
     if sent and params and cache_key:
         t = asyncio.create_task(_background_cache_hodo(cache_key, summary, site))
         t.add_done_callback(_log_task_exception)
+
+
+async def generate_hodogif(
+    interaction: discord.Interaction,
+    site: str,
+    num_frames: int = DEFAULT_LOOP_FRAMES,
+):
+    """Generate an animated hodograph GIF loop from recent VAD scans.
+
+    Each frame shows for 1s, last frame lingers 3s on the most recent scan.
+    """
+    os.makedirs(HODO_GIF_CACHE_DIR, exist_ok=True)
+    output_path = os.path.join(HODO_GIF_CACHE_DIR, f"{site.lower()}_hodogif_{num_frames}f.gif")
+
+    cache_valid = False
+    if os.path.exists(output_path):
+        file_age = time.time() - os.path.getmtime(output_path)
+        if file_age < 600:
+            cache_valid = True
+            logger.info(f"[HODO] Using cached hodogif for {site}")
+
+    if not cache_valid:
+        logger.info(f"[HODO] Generating hodogif ({num_frames} frames) for {site}")
+        try:
+            vads = await asyncio.wait_for(
+                download_vads_batch(site, max_frames=num_frames),
+                timeout=120,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"[HODO] VAD batch download timed out for {site}")
+            try:
+                await interaction.followup.send(
+                    f"Timed out fetching VWP data for `{site}`.",
+                    ephemeral=True,
+                )
+            except discord.NotFound:
+                pass
+            return
+        except Exception as e:
+            logger.error(f"[HODO] VAD batch download failed for {site}: {e}")
+            try:
+                await interaction.followup.send(
+                    f"Could not fetch VWP data for `{site}`: {e}",
+                    ephemeral=True,
+                )
+            except discord.NotFound:
+                pass
+            return
+
+        if not vads:
+            try:
+                await interaction.followup.send(
+                    f"No recent VWP data available for `{site}`.",
+                    ephemeral=True,
+                )
+            except discord.NotFound:
+                pass
+            return
+
+        params_list = [compute_parameters(v, "right-mover") for v in vads]
+
+        executor = get_hodo_executor()
+        loop = asyncio.get_running_loop()
+        try:
+            success = await asyncio.wait_for(
+                loop.run_in_executor(
+                    executor,
+                    plot_hodograph_gif,
+                    vads,
+                    params_list,
+                    output_path,
+                    False,
+                    1000,
+                    3000,
+                ),
+                timeout=120,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"[HODO] GIF generation timed out for {site}")
+            try:
+                await interaction.followup.send(
+                    f"Timed out generating hodogif for `{site}`.",
+                    ephemeral=True,
+                )
+            except discord.NotFound:
+                pass
+            return
+        except Exception as e:
+            logger.error(f"[HODO] GIF generation failed for {site}: {e}")
+            try:
+                await interaction.followup.send(
+                    f"Failed to generate hodogif for `{site}`.",
+                    ephemeral=True,
+                )
+            except discord.NotFound:
+                pass
+            return
+
+        if not success or not os.path.exists(output_path):
+            try:
+                await interaction.followup.send(
+                    f"Failed to generate hodogif for `{site}`.",
+                    ephemeral=True,
+                )
+            except discord.NotFound:
+                pass
+            return
+
+        file_size = os.path.getsize(output_path)
+        if file_size > MAX_GIF_SIZE_MB * 1024 * 1024:
+            logger.info(
+                f"[HODO] GIF too large ({file_size / 1024 / 1024:.1f} MB), retrying with fewer frames"
+            )
+            if num_frames > 4:
+                os.remove(output_path)
+                await generate_hodogif(interaction, site, num_frames - 2)
+                return
+            else:
+                try:
+                    await interaction.followup.send(
+                        f"Even a 4-frame GIF is too large ({file_size / 1024 / 1024:.1f} MB). "
+                        "Try another radar.",
+                        ephemeral=True,
+                    )
+                except discord.NotFound:
+                    pass
+                return
+
+    logger.info(f"[HODO] Hodogif generated at {output_path}")
+
+    location = RADAR_NAMES.get(site)
+    if location:
+        label = f"**{site} ({location})** VWP Hodograph Loop ({num_frames} frames, ~{num_frames * 5} min)"
+    else:
+        label = f"**{site}** VWP Hodograph Loop ({num_frames} frames, ~{num_frames * 5} min)"
+
+    file_size = os.path.getsize(output_path)
+    content = f"{label}\n{file_size / 1024 / 1024:.1f} MB"
+
+    try:
+        await interaction.followup.send(content=content, file=discord.File(output_path))
+    except discord.NotFound:
+        pass
 
 
 class RadarSuggestionView(discord.ui.View):
@@ -212,7 +357,6 @@ class RadarSuggestionView(discord.ui.View):
                 await interaction.response.defer(thinking=True)
                 for item in self.children:
                     item.disabled = True
-                # Use edit_original_response instead of message.edit to properly handle deferred interaction
                 await interaction.edit_original_response(view=self)
                 await generate_hodograph(interaction, site)
             except discord.NotFound:
@@ -242,13 +386,13 @@ class HodographCog(commands.Cog):
             if suggestions:
                 view = RadarSuggestionView(suggestions)
                 await interaction.followup.send(
-                    f"❌ `{site}` is not a recognized radar ID. Did you mean one of these?",
+                    f"`{site}` is not a recognized radar ID. Did you mean one of these?",
                     view=view,
                     ephemeral=True,
                 )
             else:
                 await interaction.followup.send(
-                    f"❌ `{site}` is not a recognized radar ID. Try a 4-letter NEXRAD code like `KTLX` or `KHOU`.",
+                    f"`{site}` is not a recognized radar ID. Try a 4-letter NEXRAD code like `KTLX` or `KHOU`.",
                     ephemeral=True,
                 )
             return
@@ -259,7 +403,51 @@ class HodographCog(commands.Cog):
             logger.exception(f"[HODO] Unhandled error in /hodograph for {site}: {e}")
             try:
                 await interaction.followup.send(
-                    f"⚠️ Unexpected error for `{site}`. Please try again.",
+                    f"Unexpected error for `{site}`. Please try again.",
+                    ephemeral=True,
+                )
+            except discord.HTTPException as send_err:
+                logger.debug(f"[HODO] Could not send error message: {send_err}")
+
+    @discord.app_commands.command(
+        name="hodogif",
+        description="Generate an animated VWP hodograph loop (default 6 frames, ~30 min)",
+    )
+    @discord.app_commands.describe(
+        site="4-letter radar site ID (e.g. KTLX, KHOU, KNKX)",
+        frames="Number of frames (default 6, ~5 min each)",
+    )
+    async def hodogif_slash(
+        self, interaction: discord.Interaction, site: str, frames: int = DEFAULT_LOOP_FRAMES
+    ):
+        await interaction.response.defer(thinking=True)
+
+        site = site.upper().strip()
+
+        if site not in VALID_RADARS:
+            suggestions = difflib.get_close_matches(site, VALID_RADARS, n=3, cutoff=0.5)
+            if suggestions:
+                view = RadarSuggestionView(suggestions)
+                await interaction.followup.send(
+                    f"`{site}` is not a recognized radar ID. Did you mean one of these?",
+                    view=view,
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    f"`{site}` is not a recognized radar ID. Try a 4-letter NEXRAD code like `KTLX` or `KHOU`.",
+                    ephemeral=True,
+                )
+            return
+
+        frames = max(2, min(frames, MAX_GIF_FRAMES))
+        try:
+            await generate_hodogif(interaction, site, frames)
+        except Exception as e:
+            logger.exception(f"[HODO] Unhandled error in /hodogif for {site}: {e}")
+            try:
+                await interaction.followup.send(
+                    f"Unexpected error for `{site}`. Please try again.",
                     ephemeral=True,
                 )
             except discord.HTTPException as send_err:
