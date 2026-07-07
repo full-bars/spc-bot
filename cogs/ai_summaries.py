@@ -15,16 +15,36 @@ logger = logging.getLogger("spc_bot.ai_summaries")
 
 
 class RegionalAnalysisView(discord.ui.View):
-    def __init__(self, day: str, regions: list[dict]):
-        super().__init__(timeout=3600)  # 1 hour timeout
+    """Persistent paginated view for regional analysis.
+
+    Uses timeout=None and explicit custom_ids encoding day+page.
+    Button clicks are handled via on_interaction in AISummariesCog,
+    so pagination survives View timeouts and bot restarts.
+    """
+
+    def __init__(self, day: str, regions: list[dict], current_page: int = 0):
+        super().__init__(timeout=None)
         self.day = day
         self.regions = regions
-        self.current_page = 0
-        self._update_buttons()
+        self.current_page = current_page
+        self._rebuild_children()
 
-    def _update_buttons(self):
-        self.prev_button.disabled = self.current_page == 0
-        self.next_button.disabled = self.current_page == len(self.regions) - 1
+    def _rebuild_children(self):
+        self.clear_items()
+        prev_btn = discord.ui.Button(
+            label="◀ Previous",
+            style=discord.ButtonStyle.secondary,
+            custom_id=f"ai_region_prev:{self.day}:{self.current_page}",
+            disabled=self.current_page == 0,
+        )
+        self.add_item(prev_btn)
+        next_btn = discord.ui.Button(
+            label="Next ▶",
+            style=discord.ButtonStyle.secondary,
+            custom_id=f"ai_region_next:{self.day}:{self.current_page}",
+            disabled=self.current_page >= len(self.regions) - 1,
+        )
+        self.add_item(next_btn)
 
     def _create_embed(self) -> discord.Embed:
         region_data = self.regions[self.current_page]
@@ -46,7 +66,6 @@ class RegionalAnalysisView(discord.ui.View):
 
         for label, key in sections:
             val = region_data.get(key, "N/A")
-            # Ensure value doesn't exceed Discord's 1024 char field limit
             if len(val) > 1024:
                 val = val[:1021] + "..."
             embed.add_field(name=label, value=val, inline=False)
@@ -54,17 +73,21 @@ class RegionalAnalysisView(discord.ui.View):
         embed.set_footer(text="Navigate between regions using the buttons below.")
         return embed
 
-    @discord.ui.button(label="◀ Previous", style=discord.ButtonStyle.secondary)
-    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.current_page -= 1
-        self._update_buttons()
-        await interaction.response.edit_message(embed=self._create_embed(), view=self)
 
-    @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary)
-    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.current_page += 1
-        self._update_buttons()
-        await interaction.response.edit_message(embed=self._create_embed(), view=self)
+async def _get_regions_from_redis(day: str) -> list[dict] | None:
+    """Fetch cached regions data from Redis for pagination."""
+    try:
+        from utils.state_store import get_product_cache
+
+        raw = await get_product_cache(f"ai_regions_day{day}")
+        if raw:
+            try:
+                return json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                return None
+    except Exception as e:
+        logger.debug(f"Failed to fetch regions from Redis for day {day}: {e}")
+    return None
 
 
 async def ensure_md_summary(md_num: str, raw_text: str = None) -> str | None:
@@ -381,6 +404,8 @@ async def ensure_outlook_summary(day: str, raw_text: str = None) -> Any | None:
         if summary:
             # Store with long TTL, it's content-addressed
             await set_product_cache(cache_key, json.dumps(summary), ttl=86400 * 7)
+            # Also store under day-based key for pagination after timeouts/restarts
+            await set_product_cache(f"ai_regions_day{day}", json.dumps(summary), ttl=86400 * 7)
             return summary
 
         return None
@@ -401,7 +426,7 @@ async def autopost_outlook_summary(channel: discord.abc.Messageable, day: str, d
             return
 
         if isinstance(summary, list) and len(summary) > 0:
-            view = RegionalAnalysisView(day, summary)
+            view = RegionalAnalysisView(day, summary, current_page=0)
             await channel.send(embed=view._create_embed(), view=view)
         else:
             embed = discord.Embed(
@@ -510,6 +535,15 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
         elif custom_id.startswith("ai_snd:"):
             cache_key = custom_id.split(":", 1)[1]
             await self._handle_sounding_summary(interaction, cache_key)
+        elif custom_id.startswith("ai_region_prev:") or custom_id.startswith("ai_region_next:"):
+            parts = custom_id.split(":")
+            day_str = parts[1]
+            target_page = int(parts[2])
+            if custom_id.startswith("ai_region_prev:"):
+                target_page -= 1
+            else:
+                target_page += 1
+            await self._handle_region_pagination(interaction, day_str, target_page)
 
     async def _handle_sounding_summary(self, interaction: discord.Interaction, cache_key: str):
         try:
@@ -633,7 +667,7 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
 
             if isinstance(summary, list) and len(summary) > 0:
                 # Paginated view
-                view = RegionalAnalysisView(day, summary)
+                view = RegionalAnalysisView(day, summary, current_page=0)
                 await interaction.followup.send(embed=view._create_embed(), view=view)
             else:
                 # Fallback for old cache or string response
@@ -653,6 +687,39 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
                 else:
                     await interaction.response.send_message(
                         "An error occurred while generating AI analysis.", ephemeral=True
+                    )
+            except Exception:
+                pass
+
+    async def _handle_region_pagination(
+        self, interaction: discord.Interaction, day: str, target_page: int
+    ):
+        """Handle pagination buttons for regional analysis views."""
+        try:
+            regions = await _get_regions_from_redis(day)
+            if not regions:
+                await interaction.response.send_message(
+                    "Analysis data has expired. Click the 'AI Analysis' button to regenerate.",
+                    ephemeral=True,
+                )
+                return
+
+            if target_page < 0 or target_page >= len(regions):
+                await interaction.response.send_message(
+                    "Page out of range. The analysis may have been updated.",
+                    ephemeral=True,
+                )
+                return
+
+            view = RegionalAnalysisView(day, regions, current_page=target_page)
+            await interaction.response.edit_message(embed=view._create_embed(), view=view)
+        except Exception as e:
+            logger.exception(f"Error in _handle_region_pagination: {e}")
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(
+                        "An error occurred while navigating. Click 'AI Analysis' to regenerate.",
+                        ephemeral=True,
                     )
             except Exception:
                 pass
