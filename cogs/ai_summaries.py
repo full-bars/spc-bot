@@ -16,7 +16,7 @@ logger = logging.getLogger("spc_bot.ai_summaries")
 
 class RegionalAnalysisView(discord.ui.View):
     """Persistent paginated view for regional analysis.
-    
+
     Uses timeout=None and explicit custom_ids encoding day+page.
     Button clicks are handled via on_interaction in AISummariesCog,
     so pagination survives View timeouts and bot restarts.
@@ -691,7 +691,9 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
             except Exception:
                 pass
 
-    async def _handle_region_pagination(self, interaction: discord.Interaction, day: str, target_page: int):
+    async def _handle_region_pagination(
+        self, interaction: discord.Interaction, day: str, target_page: int
+    ):
         """Handle pagination buttons for regional analysis views."""
         try:
             regions = await _get_regions_from_redis(day)
