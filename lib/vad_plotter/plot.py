@@ -518,6 +518,7 @@ def plot_hodograph_gif(
 
         _plot_background(min_u, max_u, min_v, max_v)
         _plot_data(vad, params)
+        _plot_param_table(params, web=False)
 
         if location:
             title = "%s (%s) VWP valid %s" % (
