@@ -337,6 +337,36 @@ async def ensure_sounding_summary(
             del _sounding_inflight[cache_key]
 
 
+async def _fetch_outlook_text(day: str) -> str | None:
+    """Fetch the raw outlook text for a given day (1, 2, 3, 48)."""
+    url_map = {
+        "1": "https://www.spc.noaa.gov/products/outlook/day1otlk.txt",
+        "2": "https://www.spc.noaa.gov/products/outlook/day2otlk.txt",
+        "3": "https://www.spc.noaa.gov/products/outlook/day3otlk.txt",
+        "48": "https://www.spc.noaa.gov/products/exper/day4-8/",
+    }
+    url = url_map.get(day)
+    if not url:
+        return None
+    html = await http_get_text(url)
+    if not html:
+        return None
+
+    if url.endswith(".txt"):
+        raw_text = html
+    elif "<pre>" in html.lower():
+        parts = re.split(r"<pre[^>]*>", html, flags=re.IGNORECASE)
+        if len(parts) > 1:
+            raw_text = parts[1].split("</pre>")[0]
+        else:
+            raw_text = html
+    else:
+        raw_text = html
+
+    raw_text = re.sub(r"<[^>]*>", "", raw_text).strip()
+    return raw_text
+
+
 async def ensure_outlook_summary(day: str, raw_text: str = None) -> Any | None:
     """Fetches or generates an AI analysis for an SPC Outlook."""
     try:
@@ -348,36 +378,10 @@ async def ensure_outlook_summary(day: str, raw_text: str = None) -> Any | None:
 
         # 1. Fetch raw text if not provided (to determine cache key)
         if not raw_text:
-            url_map = {
-                "1": "https://www.spc.noaa.gov/products/outlook/day1otlk.txt",
-                "2": "https://www.spc.noaa.gov/products/outlook/day2otlk.txt",
-                "3": "https://www.spc.noaa.gov/products/outlook/day3otlk.txt",
-                "48": "https://www.spc.noaa.gov/products/exper/day4-8/",
-            }
-            url = url_map.get(day)
-            if not url:
-                return None
-            html = await http_get_text(url)
-            if not html:
-                return None
-
-            if url.endswith(".txt"):
-                raw_text = html
-            elif "<pre>" in html.lower():
-                # Case-insensitive split for <pre>
-                parts = re.split(r"<pre[^>]*>", html, flags=re.IGNORECASE)
-                if len(parts) > 1:
-                    raw_text = parts[1].split("</pre>")[0]
-                else:
-                    raw_text = html
-            else:
-                raw_text = html
+            raw_text = await _fetch_outlook_text(day)
 
         if not raw_text:
             return None
-
-        # Strip remaining HTML tags for cleaner AI input
-        raw_text = re.sub(r"<[^>]*>", "", raw_text).strip()
 
         # 2. Version the cache key based on content hash
         text_hash = calculate_hash_bytes(raw_text.encode())
@@ -418,12 +422,52 @@ async def autopost_outlook_summary(channel: discord.abc.Messageable, day: str, d
     """Wait for outlook summary to be ready and post it as a follow-up message."""
     try:
         import asyncio
+        from utils.state_store import (
+            get_previous_outlook_text,
+            set_previous_outlook_text,
+        )
 
         await asyncio.sleep(delay)
-        summary = await ensure_outlook_summary(day)
+
+        raw_text = await _fetch_outlook_text(day)
+        if not raw_text:
+            logger.warning(f"[Day {day}] Could not fetch outlook text for AI summary")
+            return
+
+        # Check for CORR (correction) marker
+        is_correction = bool(re.search(r"CORR\s*\d+", raw_text, re.IGNORECASE))
+
+        if is_correction:
+            previous_text = await get_previous_outlook_text(day)
+            if previous_text:
+                # Generate revision summary
+                from utils.ai import summarize_outlook_revision
+
+                revision_summary = await summarize_outlook_revision(previous_text, raw_text)
+                if revision_summary:
+                    # Extract CORR number for display
+                    corr_match = re.search(r"CORR\s*(\d+)", raw_text, re.IGNORECASE)
+                    corr_num = corr_match.group(1) if corr_match else "1"
+
+                    embed = discord.Embed(
+                        title=f"🔄 SPC Day {day} Outlook — Updated — CORR {corr_num}",
+                        description=revision_summary,
+                        color=discord.Color.orange(),
+                    )
+                    await channel.send(embed=embed)
+                    # Update stored text for next comparison
+                    await set_previous_outlook_text(day, raw_text)
+                    logger.info(f"[Day {day}] Posted CORR {corr_num} revision summary")
+                    return
+
+        # Not a correction, or no previous text — generate full summary
+        summary = await ensure_outlook_summary(day, raw_text)
         if not summary:
             logger.warning(f"[Day {day}] AI summary returned None (text fetch or API call failed)")
             return
+
+        # Store current text as previous for next comparison
+        await set_previous_outlook_text(day, raw_text)
 
         if isinstance(summary, list) and len(summary) > 0:
             view = RegionalAnalysisView(day, summary, current_page=0)
