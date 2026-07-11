@@ -57,7 +57,7 @@ async def resolve_gateway_ip(gateway_url: Optional[str]) -> Optional[str]:
         loop = asyncio.get_event_loop()
         ip = await loop.getaddrinfo(gateway_url, None)
         if ip:
-            return ip[0][4][0]  # Return first IPv4 address
+            return str(ip[0][4][0])  # Return first IPv4 address
     except Exception as e:
         logger.debug(f"Could not resolve gateway IP: {e}")
 
