@@ -4,25 +4,65 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [5.40.1] - 2026-07-11
+
+### Features
+- **SPC Outlook Revision Summaries**: When SPC issues a corrected outlook (CORR N), the bot now generates a brief revision summary highlighting what changed (risk level adjustments, geographic shifts, timing updates, focus city changes) instead of posting a full duplicate AI analysis. The message header shows `🔄 SPC Day X Outlook — Updated — CORR N` to clearly indicate a revision.
+
+### Fixed
+- **AI Analysis Pagination Timeout**: Fixed a timeout issue where paginated regional analysis views could crash when users clicked through pages too quickly. Added proper state validation for pagination buttons.
+- **Guam Radar ICAO**: Corrected Guam radar site code from PGUM to PGUA, and fixed S3 VAD lookup to strip the P-prefix in AWS key construction.
+
+### Dependencies
+- Updated `numpy` to ≥2.2.6 (from ≥2.1.0)
+- Updated `mypy` to ≥2.1.0 (from ≥1.19.1)
+- Updated `requests` to ≥2.34.2 (from ≥2.32.5)
+- Updated `pytest-asyncio` to ≥1.4.0 (from ≥1.3.0)
+- Updated `ruff` to ≥0.15.20 (from ≥0.15.18)
+- Updated `xxhash-rust` to 0.8.16 (from 0.8.15)
+
 ## [5.40.0] - 2026-07-04
 
 ### Features
-- **`/radarhistory`**: New slash command generates an animated radar reflectivity GIF for any location and time. Geocodes the location (city/zip/coordinates) via OSM Nominatim, finds the nearest NEXRAD site via the R-tree spatial index, converts local time + timezone to UTC, and fetches IEM national composite N0Q reflectivity frames. Frames auto-scale down if the GIF would exceed Discord's 25MB upload limit.
+- **`/radarhistory`**: New slash command generates an animated radar reflectivity GIF for any location and time. Geocodes the location (city/zip/coordinates) via OSM Nominatim, finds the nearest NEXRAD site via the R-tree spatial index, converts local time + timezone to UTC, and fetches IEM national composite N0Q reflectivity frames. Frames auto-scale down if the GIF would exceed Discord's 25MB upload limit (#585).
 - **Fast Skew-T Placeholder**: `/sounding` now posts a minimal Skew-T (temperature, dewpoint, wind barbs) within ~1s via the default thread executor, then upgrades the message in place with the full SounderPy plot (~55s) once it's ready via the sounding worker pool. Falls back gracefully if the fast plot fails.
-- **Hodograph Location Names**: `/hodograph` and VWP displays now show the city/state alongside the radar site code (e.g. **KOAX (Omaha, NE)**), backed by a new `RADAR_NAMES` mapping covering all 209 NEXRAD and TDWR sites.
+- **Hodograph Location Names**: `/hodograph` and VWP displays now show the city/state alongside the radar site code (e.g. **KOAX (Omaha, NE)**), backed by a new `RADAR_NAMES` mapping covering all 209 NEXRAD and TDWR sites (#584).
+- **Rust Thermodynamic Kernel**: Computed thermodynamic parameters (MLCAPE, MLCIN, LCL, 0-1km SRH, 0-6km bulk shear) are now calculated in a Rust native extension (~50x faster than Python). Falls back gracefully to Python on error (#583).
+- **Python Fallbacks for VTEC Parsing**: When the Rust VTEC parser is unavailable, Python fallback implementations ensure continuous operation.
+- **Systemd Watchdog**: Bot now notifies systemd of readiness and sends periodic keepalives, enabling automatic restart on zombie-process hangs (#556).
 
 ### Fixed
-- **Fast Worker-Pool Shutdown**: `shutdown_executors()` no longer blocks on an in-flight plot. It previously called `ProcessPoolExecutor.shutdown(wait=True)`, which waited for the worker currently rendering a sounding/hodograph to finish — up to tens of seconds — overrunning systemd's `TimeoutStopSec` and getting the process SIGKILLed with orphaned workers left behind. It now drops queued work and force-terminates running workers, returning in well under a second. The `main.py` shutdown call is also wrapped in a 3s timeout backstop.
+- **Fast Worker-Pool Shutdown**: `shutdown_executors()` no longer blocks on an in-flight plot. It previously called `ProcessPoolExecutor.shutdown(wait=True)`, which waited for the worker currently rendering a sounding/hodograph to finish — up to tens of seconds — overrunning systemd's `TimeoutStopSec` and getting the process SIGKILLed with orphaned workers left behind. It now drops queued work and force-terminates running workers, returning in well under a second. The `main.py` shutdown call is also wrapped in a 3s timeout backstop (#557).
 - **Automatic Failover Promotion**: Fixed the root cause of failed automatic failover — `_do_promote()` compared the Redis `SET ... NX` result against the string `"OK"`, but redis-py's response callback for that command returns `True`/`None`, never `"OK"`. Every automatic (non-forced) promotion attempt therefore succeeded at claiming the lease, then misread its own success as a failure and aborted, leaving the node stuck as a standby holding an orphaned lease under its own identity (#558).
-- **Configured-Primary Lease Reclaim**: A configured primary rejoining after failover could never actually reclaim its role from an active standby — the reclaim path called `_promote()` without `force=True`, so its `SET NX` could never win against the standby's still-live lease (#560).
 - **Forced-Promotion Split-Brain Risk**: The forced-promotion path (manual override, stale-self reclaim) ignored the result of its unconditional `SET`. On a Redis outage at that moment, the node would flip to primary and start posting with no lease actually held, risking split-brain with a genuine primary. It now aborts loudly if the write fails (#559).
-- **Stale-Self-Lease TOCTOU Race**: Closed a race between reading the lease holder and force-reclaiming it — a node's own stale lease (left by a previous process uuid) is now reclaimed via an atomic Lua compare-and-set instead of a plain read-then-write (#563).
+- **Configured-Primary Lease Reclaim**: A configured primary rejoining after failover could never actually reclaim its role from an active standby — the reclaim path called `_promote()` without `force=True`, so its `SET NX` could never win against the standby's still-live lease (#560).
 - **Manual-Override Lease Starvation**: A long-lived manual primary override used to skip the normal sync cycle entirely, so the Redis lease was never renewed and dirty writes were never drained — the lease could silently expire out from under an operator-pinned primary. It now falls through to the normal renew/drain cycle whenever the override just confirms the existing state (#562).
+- **Stale-Self-Lease TOCTOU Race**: Closed a race between reading the lease holder and force-reclaiming it — a node's own stale lease (left by a previous process uuid) is now reclaimed via an atomic Lua compare-and-set instead of a plain read-then-write (#563).
 - **Dangling Promotion Task**: The fire-and-forget `create_task` that reconnects NWWS on promotion held no reference and had no exception handling — a failure there could vanish with no log trace. It's now tracked with a `_log_task_exception` done-callback (#561).
+- **Wyoming Fetch Thread Leak**: Sounding data fetches from the University of Wyoming were leaking threads past their timeout, accumulating in the default executor and eventually stalling new requests. Threads are now properly cancelled on timeout (#577).
+- **NWWS Reconnect State Corruption**: A failed reconnection attempt could leave the NWWS client in a corrupted state, preventing future reconnections. State is now reset cleanly on each attempt (#576).
+- **Auto-Sounding Dedup Rollback**: When a sounding fetch or plot fails, the dedup state is now properly rolled back so the same station/time can be retried instead of being permanently marked as handled (#575).
+- **Cross-Source Area-Format Mismatch**: Mismatched area formatting between NWWS and IEMBot warning sources caused spurious partial-cancellation posts. Area strings are now normalized to a canonical format before comparison (#570).
+- **Watch Double-Post Race**: Concurrent NWWS and IEMBot triggers for the same watch could double-post due to a race in the claim logic. The claim is now made before any awaits (#573).
+- **Circuit Breaker HALF_OPEN Deadlock**: The circuit breaker could get stuck in HALF_OPEN state when a slow request completed after the probe timeout, preventing recovery. Probe state is now properly reset (#569).
+- **Circuit Breaker 4xx False Trips**: 4xx client errors (e.g., rate limits) were incorrectly tripping the circuit breaker. Only 5xx server errors now count toward the failure threshold (#569).
+- **Warning Image Async Upload**: Warning images are now uploaded in the background after the text message is sent, reducing time-to-first-message for severe warnings (#568).
+- **Dangling create_task in Promotion**: Background tasks created during promotion now have exception callbacks to prevent silent garbage collection of failed tasks (#572).
+- **ECONNRESET Retry on Discord File Sends**: Linux `ECONNRESET` (errno 104) when uploading warning images to Discord is now retried automatically instead of failing the post (#553).
+- **Sounding Stall on IEM No Data**: `/sounding` no longer stalls indefinitely on the availability check when IEM has no data for a station (#554).
 
 ### Performance
 - **Worker-Pool Process Isolation**: Both process-pool executors (hodograph and sounding) now use the `forkserver` multiprocessing context instead of the default `fork`, avoiding the class of inherited-lock deadlock that can wedge a child process forked from a threaded asyncio parent (#564).
 - **Concurrent Worker Shutdown Join**: `shutdown_executors()` now joins all live worker processes concurrently instead of serially, so total shutdown time stays bounded by a single `join_timeout` regardless of worker count — previously N workers could sum to N × timeout and exceed the 3s shutdown backstop (#565).
+- **R-tree Anisotropic Distance**: Radar site lookups now use latitude-corrected distance calculations, preventing southern sites from being incorrectly selected due to uncorrected lat/lon distance (#581).
+- **Hodograph Rendering Cache**: Hodograph renders are now cached for 5 minutes, eliminating redundant plot generation when multiple users request the same site/time (#580).
+- **Parallel GIF Frame Rendering**: Radar history GIF frames are now rendered concurrently, with the hodograph pool skipped for VAD processing when not needed (#579).
+- **Sounding Availability Probe Cache**: A per-hour permanent cache for sounding availability probes eliminates redundant IEM queries when multiple users check the same station/time (#567).
+- **Sounding Thermodynamics in Process Pool**: Heavy thermodynamic calculations are now offloaded to a process pool instead of blocking the main event loop (#566).
+- **Rust FFI Consolidation**: Consolidated the Rust FFI entry point for VAD kinematics, reducing interop overhead (#582).
+
+### Dependencies
+- Updated `cartopy` to ≥0.25.0 (#552), `tenacity` to ≥9.1.4 (#551), `redis` to ≥8.0.1 (#550), `shapely` to ≥2.1.2 (#549), `aiohttp` to 3.14.1 (#548).
 
 ## [5.39.0] - 2026-06-27
 
