@@ -33,7 +33,7 @@ fi
 echo "Scanning for AI attribution (ZERO TOLERANCE)..."
 ai_patterns=(
   "@Claude" "@Sonnet" "Claude Code" "Generated with Claude" "Co-Authored-By: Claude"
-  "AI-generated" "claude-code" "anthropic.com"
+  "AI-generated" "claude-code" "anthropic.com" " AI " " AI-" "Ai " "Ai-"
   "Fable" "from Fable"
 )
 violation_found=0
