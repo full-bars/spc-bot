@@ -168,6 +168,20 @@ async def summarize_outlook(raw_text: str) -> list[dict] | None:
     return await call_ai(prompt, is_json=True)
 
 
+async def summarize_outlook_revision(old_text: str, new_text: str) -> str | None:
+    prompt = (
+        "You are a meteorologist comparing two versions of an SPC Convective Outlook. "
+        "The second version contains a CORR (correction) indicator. "
+        "Identify only the significant changes between the two texts. "
+        "Focus on: risk level changes, geographic area adjustments, timing updates, "
+        "and focus city additions/removals. Be concise — 3-5 bullet points max.\n\n"
+        "If there are no meaningful changes, state 'Minor wording corrections only — no significant changes to the threat.'\n\n"
+        f"OLD VERSION:\n{old_text}\n\n"
+        f"NEW VERSION:\n{new_text}"
+    )
+    return await call_ai(prompt)
+
+
 async def summarize_sounding(raw_text: str) -> str | None:
     prompt = (
         "You are an expert severe weather meteorologist. I will provide you with computed "

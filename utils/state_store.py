@@ -1026,6 +1026,19 @@ async def set_product_cache(product_id: str, text: str, ttl: int = 600) -> None:
         await _enqueue_dirty("set_product_cache", (product_id, text, ttl))
 
 
+# ── Outlook revision tracking ────────────────────────────────────────────────
+
+
+async def get_previous_outlook_text(day: str) -> Optional[str]:
+    """Return the previous outlook text for revision comparison."""
+    return await get_product_cache(f"previous_outlook_text_day{day}")
+
+
+async def set_previous_outlook_text(day: str, text: str, ttl: int = 3600) -> None:
+    """Store the outlook text for revision comparison (1 hour TTL)."""
+    await set_product_cache(f"previous_outlook_text_day{day}", text, ttl=ttl)
+
+
 # ── HTTP validators (ETag / Last-Modified) ─────────────────────────────────
 # SQLite-only — conditional-GET runs every 60s per URL; pushing every
 # validator update through Redis would be wasteful on the hot path.
