@@ -185,7 +185,7 @@ class RadarHistoryCog(commands.Cog):
         description="Generate a historical radar loop for a location",
     )
     @app_commands.describe(
-        location="City and state, zip code, or coordinates (e.g. 'Dearborn, MI')",
+        location="City and state, zip code, or coordinates (e.g. 'Oklahoma City, OK')",
         date="Date (YYYY-MM-DD)",
         time="Local time (e.g. '7:10 PM' or '19:10')",
         timezone="Your timezone",
@@ -222,7 +222,7 @@ class RadarHistoryCog(commands.Cog):
         if geo is None:
             await interaction.followup.send(
                 f"❌ Could not find location: `{location}`. "
-                "Try a city name with state (e.g. 'Dearborn, MI'), zip code, or coordinates.",
+                "Try a city name with state (e.g. 'Oklahoma City, OK'), zip code, or coordinates.",
                 ephemeral=True,
             )
             return
