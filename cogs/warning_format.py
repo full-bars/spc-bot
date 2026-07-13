@@ -274,7 +274,12 @@ def get_tornado_attributes(
 
     # Extract confidence: observed vs radar_indicated
     confidence = "radar_indicated"  # default
-    if "TORNADO...OBSERVED" in text_upper or "CONFIRMED TORNADO" in text_upper:
+    if (
+        "TORNADO...OBSERVED" in text_upper
+        or "CONFIRMED TORNADO" in text_upper
+        or "CONFIRMED LARGE" in text_upper
+        or "CONFIRMED TORNADO WAS" in text_upper
+    ):
         confidence = "observed"
 
     # Extract severity: emergency > pds > standard

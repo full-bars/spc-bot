@@ -477,12 +477,24 @@ class WarningsCog(commands.Cog):
         vtec_id = vtec.get("vtec_id", "Unknown")
 
         # 1. Confirmed Tornado Detection
-        # Check for OBSERVED tag or CONFIRMED wording
+        # Check for OBSERVED tag, CONFIRMED wording, or TORNADO EMERGENCY
         is_confirmed = False
-        if "TORNADO...OBSERVED" in text_upper or "CONFIRMED TORNADO" in text_upper:
+        if (
+            "TORNADO...OBSERVED" in text_upper
+            or "CONFIRMED TORNADO" in text_upper
+            or "CONFIRMED LARGE" in text_upper
+            or "CONFIRMED TORNADO WAS" in text_upper
+            or "TORNADO EMERGENCY" in text_upper
+        ):
             is_confirmed = True
 
-        if event == "Tornado Warning" and is_confirmed:
+        # Trigger on Tornado Warning, Tornado Emergency, or SVS with confirmed tornado
+        is_tornado = event in ("Tornado Warning", "Tornado Emergency")
+        is_svs_with_tornado = event == "Severe Weather Statement" and (
+            "TORNADO...OBSERVED" in text_upper or "CONFIRMED TORNADO" in text_upper
+        )
+
+        if is_confirmed and (is_tornado or is_svs_with_tornado):
             # Extract location (rough approximation from first line of narrative)
             location = "Unknown Area"
             m_area = re.search(r"(?:near|over)\s+(.+?)(?:,)", raw_text, re.I)
