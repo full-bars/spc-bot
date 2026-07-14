@@ -10,7 +10,7 @@ A high-performance severe weather monitoring platform with near-zero latency ale
 > [!IMPORTANT]  
 > **Warning features are Beta.** While designed for ultra-low latency, this bot is for situational awareness only. Redundancy saves lives. Avoid a single point of failure by always maintaining multiple independent methods for receiving life-safety alerts. Recommended sources include: NOAA Radio (w/ battery backup), WEA mobile alerts, TV/Radio Broadcast. 
 
-NWWS-OI fast path, IEMBot fallback, NWS API polling, SPC watch alerts with deduplication, NWS warnings (TOR/SVR/FFW/SPS) routable to dedicated per-type channels with runtime configuration via `/enablewarnings`, lifecycle tracking (CON/EXT/EXA), damage survey detection with DAT integration and photo carousels, automated 2.5h environmental evolution GIFs for observed tornadoes.
+NWWS-OI fast path, IEMBot fallback, NWS API polling, SPC watch alerts with deduplication, NWS warnings (TOR/SVR/FFW/SPS) routable to dedicated per-type channels with runtime configuration via `/enablewarnings`, lifecycle tracking (CON/EXT/EXA), damage survey detection with DAT integration and photo carousels, VAD hodograph evolution recording for confirmed tornadoes (`/archive` to search).
 
 **Scientific Tools:** Interactive RAOB/ACARS sounding plots with a fast Skew-T placeholder that upgrades in place (auto-posted near active watches and MDT/HIGH risk areas, with automatic AI environmental analysis), VWP hodographs with named radar sites (with AI-powered analysis buttons), **Context-Aware AI Analysis** (Gemini-powered environmental synthesis cross-referenced with SPC products, Day 1 outlooks, active MDs, and nearby watches), searchable tornado forensics archive, NEXRAD Level 2 downloader, historical radar loop GIFs for any location/time (`/radarhistory`), and IEM-based tornado analytics.
 
@@ -19,7 +19,7 @@ NWWS-OI fast path, IEMBot fallback, NWS API polling, SPC watch alerts with dedup
 ## Quick Start
 
 ### Prerequisites
-- Python 3.13+ or Docker
+- Python 3.10+ or Docker
 - Discord bot token ([Discord Developer Portal](https://discord.com/developers/applications))
 - Discord channel IDs for SPC/model posts
 - A non-default `FAILOVER_TOKEN` (required at startup)
@@ -52,7 +52,7 @@ git clone https://github.com/full-bars/spc-bot.git
 cd spc-bot
 sudo ./deploy.sh
 ```
-Creates systemd service and bash aliases: `spcon`, `spcoff`, `spcstatus`, `spclog`, `spcupdate`.
+Creates systemd service and bash aliases: `spcon`, `spcoff`, `spcrestart`, `spcstatus`, `spclog`, `spclog50`, `spcupdate`.
 
 ## Optional Features
 
@@ -99,6 +99,11 @@ Work in progress. Actively developed in free time; expect behavior to evolve bet
 * [MetPy](https://github.com/Unidata/MetPy)
 * [numpy](https://numpy.org)
 * [matplotlib](https://matplotlib.org)
-* [requests](https://requests.readthedocs.io)
 * [pytz](https://github.com/stub42/pytz)
 * [vad-plotter](https://github.com/tsupinie/vad-plotter) by Tim Supinie
+* [slixmpp](https://github.com/sagarp/xmppasync) — NWWS-OI XMPP connection
+* [Cartopy](https://scitools.org.uk/cartopy) — Map projections
+* [SciPy](https://scipy.org) — Scientific computing
+* [Shapely](https://shapely.readthedocs.io) — Polygon operations
+* [pyproj](https://pyproj4.github.io/pyproj) — Coordinate transformations
+* [Redis](https://redis.io) — Shared state for failover leader election
