@@ -471,7 +471,9 @@ class WarningsCog(commands.Cog):
         finally:
             self._in_flight_vtecs.discard(vtec_id)
 
-    async def _check_and_log_significant_event(self, event: str, raw_text: str, vtec: dict):
+    async def _check_and_log_significant_event(
+        self, event: str, raw_text: str, vtec: dict, params: dict = None
+    ):
         """Parse warning text for confirmed tornadoes and log to DB."""
         text_upper = (raw_text or "").upper()
         vtec_id = vtec.get("vtec_id", "Unknown")
@@ -487,6 +489,11 @@ class WarningsCog(commands.Cog):
             or "TORNADO EMERGENCY" in text_upper
         ):
             is_confirmed = True
+        # Structured parameter check (more reliable than text parsing)
+        if params:
+            t_detect = params.get("tornadoDetection") or []
+            if "OBSERVED" in t_detect:
+                is_confirmed = True
 
         # Trigger on Tornado Warning, Tornado Emergency, or SVS with confirmed tornado
         is_tornado = event in ("Tornado Warning", "Tornado Emergency")
@@ -1108,7 +1115,7 @@ class WarningsCog(commands.Cog):
             t.add_done_callback(_log_task_exception)
 
         # Log significant events (tornadoes, hail, wind) to DB
-        await self._check_and_log_significant_event(event, description, vtec)
+        await self._check_and_log_significant_event(event, description, vtec, params)
 
         embed = discord.Embed(
             title=f"{emoji} {display_event}",
