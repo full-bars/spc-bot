@@ -485,7 +485,6 @@ class WarningsCog(commands.Cog):
             "TORNADO...OBSERVED" in text_upper
             or "CONFIRMED TORNADO" in text_upper
             or "CONFIRMED LARGE" in text_upper
-            or "CONFIRMED TORNADO WAS" in text_upper
             or "TORNADO EMERGENCY" in text_upper
         ):
             is_confirmed = True
@@ -498,7 +497,10 @@ class WarningsCog(commands.Cog):
         # Trigger on Tornado Warning, Tornado Emergency, or SVS with confirmed tornado
         is_tornado = event in ("Tornado Warning", "Tornado Emergency")
         is_svs_with_tornado = event == "Severe Weather Statement" and (
-            "TORNADO...OBSERVED" in text_upper or "CONFIRMED TORNADO" in text_upper
+            "TORNADO...OBSERVED" in text_upper
+            or "CONFIRMED TORNADO" in text_upper
+            or "CONFIRMED LARGE" in text_upper
+            or "TORNADO EMERGENCY" in text_upper
         )
 
         if is_confirmed and (is_tornado or is_svs_with_tornado):
@@ -1069,6 +1071,13 @@ class WarningsCog(commands.Cog):
                         )
                     except Exception as e:
                         logger.warning(f"Failed to persist {issuance_id}: {e}")
+                        # Message already sent — register in-memory to prevent
+                        # re-discovery on next poll (duplicate post)
+                        self.bot.state.posted_warnings[issuance_id] = {
+                            "message_id": msg.id,
+                            "channel_id": msg.channel.id,
+                            "area": area_desc,
+                        }
             except Exception as e:
                 logger.exception(f"Unhandled error discovering {issuance_id}: {e}")
             finally:

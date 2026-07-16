@@ -346,7 +346,6 @@ class AnalyticsCog(commands.Cog):
             f"**{tor['total']}** total\n"
             f"🚨 TORE: {tor['emergency']}\n"
             f"⚠️ TORP: {tor['pds']}\n"
-            f"✅ Confirmed: {tor['observed']}\n"
             f"📡 TORR: {tor['observed']}\n"
             f"TOR: {tor['radar_indicated']}"
         )

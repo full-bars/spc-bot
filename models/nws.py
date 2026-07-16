@@ -15,6 +15,7 @@ class NWSAlertParameters(BaseModel):
     maxWindGust: Optional[List[str]] = None
     tornadoDetection: Optional[List[str]] = None
     tornadoDamageThreat: Optional[List[str]] = None
+    tornadoPossible: Optional[List[str]] = None
     thunderstormDamageThreat: Optional[List[str]] = None
     flashFloodDamageThreat: Optional[List[str]] = None
     flashFloodDetection: Optional[List[str]] = None
