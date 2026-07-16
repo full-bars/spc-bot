@@ -975,6 +975,9 @@ class WarningsCog(commands.Cog):
                                 # Update stored area so we don't spam updates for every poll
                                 description = props.description or ""
                                 params = props.parameters.model_dump() if props.parameters else {}
+                                await self._check_and_log_significant_event(
+                                    event, description, vtec_dict, params
+                                )
                                 _, corrected_event, _, _ = get_warning_style(
                                     event, description, params, vtec=vtec_dict
                                 )
