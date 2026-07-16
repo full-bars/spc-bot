@@ -347,8 +347,8 @@ class AnalyticsCog(commands.Cog):
             f"🚨 TORE: {tor['emergency']}\n"
             f"⚠️ TORP: {tor['pds']}\n"
             f"✅ Confirmed: {tor['observed']}\n"
-            f"📡 TORR: {tor['radar_indicated']}\n"
-            f"TOR: {tor['standard']}"
+            f"📡 TORR: {tor['observed']}\n"
+            f"TOR: {tor['radar_indicated']}"
         )
         embed.add_field(name="🌪️ Tornado Warnings", value=tor_val, inline=True)
 

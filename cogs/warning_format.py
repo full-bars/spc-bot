@@ -289,8 +289,11 @@ def get_tornado_attributes(
     elif "PARTICULARLY DANGEROUS SITUATION" in text_upper:
         severity = "pds"
 
-    # Check params for NWS API path
+    # Check params for NWS API path (these override text-based detection)
     if params:
+        t_detect = params.get("tornadoDetection") or []
+        if "OBSERVED" in t_detect:
+            confidence = "observed"
         t_threat = params.get("tornadoDamageThreat") or []
         if "CATASTROPHIC" in t_threat:
             severity = "emergency"
