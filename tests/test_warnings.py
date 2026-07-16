@@ -473,6 +473,7 @@ def _nws_feature(
     event: str = "Severe Thunderstorm Warning",
     area: str = "Noble, Garfield",
     ugc: list | None = None,
+    description: str = "Test description.",
 ) -> dict:
     """Build a minimal NWS GeoJSON feature dict."""
     return {
@@ -483,7 +484,7 @@ def _nws_feature(
             "areaDesc": area,
             "event": event,
             "headline": f"{event} until 9:00 PM CDT",
-            "description": "Test description.",
+            "description": description,
             "instruction": None,
             "response": "Shelter",
             "parameters": {
@@ -744,6 +745,125 @@ async def test_tick_con_area_change_posts_partial_update(monkeypatch):
     channel.send.assert_called_once()
     # Stored area should be updated to current area
     assert cog.bot.state.posted_warnings[vtec_id]["area"] == "Noble, Garfield"
+
+
+@pytest.mark.asyncio
+async def test_tick_con_area_change_logs_confirmed_tornado(monkeypatch):
+    """A CON area-change update carrying newly-confirmed tornado wording must
+    be logged to the significant-events table (regression for the CON path
+    previously skipping _check_and_log_significant_event)."""
+    vtec_id = "KOUN.TO.W.0042"
+    active = {
+        vtec_id: {
+            "office": "KOUN",
+            "phenom": "TO",
+            "sig": "W",
+            "etn": "0042",
+            "vtec_id": vtec_id,
+            "action": "CON",
+        }
+    }
+    posted = {vtec_id: {"message_id": 1, "channel_id": 2, "area": "Noble, Garfield, Grant"}}
+
+    cog, channel = _make_tick_cog(active=active, posted=posted)
+
+    vtec_str = "/O.CON.KOUN.TO.W.0042.260429T2018Z-260429T2115Z/"
+    feature = _nws_feature(
+        vtec_str,
+        event="Tornado Warning",
+        area="Noble, Garfield",
+        description="TORNADO...OBSERVED near Norman, moving east at 35 mph.",
+    )
+    content = _nws_response([feature])
+
+    msg_mock = AsyncMock()
+    msg_mock.id = 1
+    msg_mock.channel.id = 2
+    channel.send.return_value = msg_mock
+
+    async def _mock_add_warning(vtec_id, msg_id, chan_id, *args, **kwargs):
+        cog.bot.state.posted_warnings[vtec_id] = {
+            "message_id": msg_id,
+            "channel_id": chan_id,
+            "area": kwargs.get("area", ""),
+        }
+
+    cog.bot.state.add_posted_warning = AsyncMock(side_effect=_mock_add_warning)
+    cog.bot.state.add_posted_product_id = AsyncMock()
+
+    monkeypatch.setattr(
+        warnings_mod, "http_get_bytes_conditional", AsyncMock(return_value=(content, 200, {}))
+    )
+    monkeypatch.setattr(warning_format_mod, "_attach_warning_image_async", AsyncMock())
+    monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
+    monkeypatch.setattr(
+        "utils.state_store.find_matching_tornado", AsyncMock(return_value=None)
+    )
+    mock_add_sig_event = AsyncMock()
+    monkeypatch.setattr(warnings_mod, "add_significant_event", mock_add_sig_event)
+
+    await cog._tick()
+
+    # _post_warning already logs significant events internally; the CON
+    # branch must not log it a second time on the success path.
+    mock_add_sig_event.assert_awaited_once()
+    _, kwargs = mock_add_sig_event.call_args
+    assert kwargs["event_type"] == "Tornado"
+    assert kwargs["vtec_id"] == vtec_id
+
+
+@pytest.mark.asyncio
+async def test_tick_con_area_change_logs_tornado_when_channel_disabled(monkeypatch):
+    """If the target channel is disabled/misconfigured, _resolve_warning_channel
+    returns None and _post_warning (which normally logs significant events)
+    never runs — the CON branch must still log the confirmed tornado so it
+    isn't silently dropped from /recenttornadoes."""
+    vtec_id = "KOUN.TO.W.0042"
+    active = {
+        vtec_id: {
+            "office": "KOUN",
+            "phenom": "TO",
+            "sig": "W",
+            "etn": "0042",
+            "vtec_id": vtec_id,
+            "action": "CON",
+        }
+    }
+    posted = {vtec_id: {"message_id": 1, "channel_id": 2, "area": "Noble, Garfield, Grant"}}
+
+    cog, channel = _make_tick_cog(active=active, posted=posted)
+
+    vtec_str = "/O.CON.KOUN.TO.W.0042.260429T2018Z-260429T2115Z/"
+    feature = _nws_feature(
+        vtec_str,
+        event="Tornado Warning",
+        area="Noble, Garfield",
+        description="TORNADO...OBSERVED near Norman, moving east at 35 mph.",
+    )
+    content = _nws_response([feature])
+
+    cog.bot.state.add_posted_warning = AsyncMock()
+    cog.bot.state.add_posted_product_id = AsyncMock()
+
+    monkeypatch.setattr(
+        warnings_mod, "http_get_bytes_conditional", AsyncMock(return_value=(content, 200, {}))
+    )
+    monkeypatch.setattr(warning_format_mod, "_attach_warning_image_async", AsyncMock())
+    monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
+    monkeypatch.setattr(
+        "utils.state_store.find_matching_tornado", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(cog, "_resolve_warning_channel", AsyncMock(return_value=None))
+    mock_add_sig_event = AsyncMock()
+    monkeypatch.setattr(warnings_mod, "add_significant_event", mock_add_sig_event)
+
+    await cog._tick()
+
+    channel.send.assert_not_called()
+    mock_add_sig_event.assert_awaited_once()
+    _, kwargs = mock_add_sig_event.call_args
+    assert kwargs["event_type"] == "Tornado"
+    assert kwargs["vtec_id"] == vtec_id
 
 
 @pytest.mark.asyncio
