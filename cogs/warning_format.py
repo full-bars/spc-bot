@@ -278,7 +278,6 @@ def get_tornado_attributes(
         "TORNADO...OBSERVED" in text_upper
         or "CONFIRMED TORNADO" in text_upper
         or "CONFIRMED LARGE" in text_upper
-        or "CONFIRMED TORNADO WAS" in text_upper
     ):
         confidence = "observed"
 

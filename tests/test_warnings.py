@@ -417,7 +417,7 @@ class TestGetWarningStyle:
         emoji, display_event, color, footer_id = get_warning_style(
             "Tornado Warning",
             "",
-            params={"tornadoDamageThreat": "CATASTROPHIC"},
+            params={"tornadoDamageThreat": ["CATASTROPHIC"]},
         )
         assert "Tornado Emergency" in display_event
         assert emoji == "🚨🚨"
@@ -427,7 +427,7 @@ class TestGetWarningStyle:
         emoji, display_event, _, footer_id = get_warning_style(
             "Severe Thunderstorm Warning",
             "",
-            params={"thunderstormDamageThreat": "DESTRUCTIVE"},
+            params={"thunderstormDamageThreat": ["DESTRUCTIVE"]},
         )
         assert "DESTRUCTIVE" in display_event
         assert footer_id == "EWX"
