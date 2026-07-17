@@ -796,9 +796,7 @@ async def test_tick_con_area_change_logs_confirmed_tornado(monkeypatch):
     )
     monkeypatch.setattr(warning_format_mod, "_attach_warning_image_async", AsyncMock())
     monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
-    monkeypatch.setattr(
-        "utils.state_store.find_matching_tornado", AsyncMock(return_value=None)
-    )
+    monkeypatch.setattr("utils.state_store.find_matching_tornado", AsyncMock(return_value=None))
     mock_add_sig_event = AsyncMock()
     monkeypatch.setattr(warnings_mod, "add_significant_event", mock_add_sig_event)
 
@@ -850,9 +848,7 @@ async def test_tick_con_area_change_logs_tornado_when_channel_disabled(monkeypat
     )
     monkeypatch.setattr(warning_format_mod, "_attach_warning_image_async", AsyncMock())
     monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(None, 404)))
-    monkeypatch.setattr(
-        "utils.state_store.find_matching_tornado", AsyncMock(return_value=None)
-    )
+    monkeypatch.setattr("utils.state_store.find_matching_tornado", AsyncMock(return_value=None))
     monkeypatch.setattr(cog, "_resolve_warning_channel", AsyncMock(return_value=None))
     mock_add_sig_event = AsyncMock()
     monkeypatch.setattr(warnings_mod, "add_significant_event", mock_add_sig_event)
