@@ -960,21 +960,29 @@ class WarningsCog(commands.Cog):
                         if issuance_id not in self._in_flight_vtecs:
                             self._in_flight_vtecs.add(issuance_id)
                             try:
+                                description = props.description or ""
+                                params = props.parameters.model_dump() if props.parameters else {}
                                 try:
                                     event_ch = await self._resolve_warning_channel(
                                         event, vtec_phenom=vtec_dict.get("phenom")
                                     )
                                     if event_ch is None:
+                                        # No channel to post to (disabled/misconfigured), but
+                                        # still log confirmed tornadoes to /recenttornadoes —
+                                        # _post_warning (which normally does this) never runs.
+                                        await self._check_and_log_significant_event(
+                                            event, description, vtec_dict, params
+                                        )
                                         continue
                                     await self._post_warning(
                                         feature, event_ch, vtec_dict, event, is_update=True
                                     )
                                 except discord.HTTPException as e:
                                     logger.exception(f"Update send failed for {issuance_id}: {e}")
+                                    # _post_warning already logged significant events before
+                                    # the send failed, so nothing more to do here.
 
                                 # Update stored area so we don't spam updates for every poll
-                                description = props.description or ""
-                                params = props.parameters.model_dump() if props.parameters else {}
                                 _, corrected_event, _, _ = get_warning_style(
                                     event, description, params, vtec=vtec_dict
                                 )
