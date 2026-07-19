@@ -257,7 +257,7 @@ async def http_get_bytes_conditional(
     host = parsed.netloc
 
     if circuit_breaker.is_open(host):
-        logger.debug(f"Circuit open for {host}, failing fast: {url}")
+        logger.debug(f"Circuit open for {host}, failing fast: {url.split('?')[0]}")
         raise CircuitOpenError(f"Circuit breaker is open for {host}")
 
     headers: Dict[str, str] = dict(extra_headers) if extra_headers else {}
@@ -319,7 +319,7 @@ async def http_get_bytes_conditional(
         if status == 0 or status >= 500 or status == 429:
             circuit_breaker.record_failure(host)
 
-        logger.warning(f"Request failed for {url} after {retries} retries: {e}")
+        logger.warning(f"Request failed for {url.split('?')[0]} after {retries} retries: {e}")
         return None, status, None
 
 
@@ -457,7 +457,7 @@ async def http_post_json(
                 )
             if r.status != 200:
                 text = await r.text()
-                logger.warning(f"JSON POST failed for {url}: {r.status} {text}")
+                logger.warning(f"JSON POST failed for {url.split('?')[0]}: {r.status} {text}")
                 if r.status >= 500 or r.status == 429:
                     circuit_breaker.record_failure(host)
                 return None
@@ -470,5 +470,5 @@ async def http_post_json(
         status = getattr(e, "status", None)
         if status is None or status >= 500 or status == 429:
             circuit_breaker.record_failure(host)
-        logger.warning(f"JSON POST error for {url}: {type(e).__name__}: {e}")
+        logger.warning(f"JSON POST error for {url.split('?')[0]}: {type(e).__name__}: {e}")
         return None
