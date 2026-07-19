@@ -150,7 +150,7 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
         if files:
             try:
                 view = OutlookSummaryView(day=str(day))
-                await channel.send(
+                msg = await channel.send(
                     f"**Latest SPC Day {day} Outlooks**",
                     files=[discord.File(fp) for fp in files],
                     view=view,
@@ -160,10 +160,31 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
                 await set_posted_urls(day_key, urls)
                 logger.info(f"[Day {day}] Posted {len(files)} images. URLs: {urls}")
 
-                # Proactively trigger AI summary generation and autopost it
+                # Create thread for outlook text and AI summary
+                thread = None
+                try:
+                    thread = await msg.create_thread(
+                        name=f"SPC Day {day} Outlook",
+                        auto_archive_duration=1440,
+                    )
+                    from cogs.ai_summaries import _fetch_outlook_text
+
+                    raw_text = await _fetch_outlook_text(str(day))
+                    if raw_text:
+                        text_embed = discord.Embed(
+                            title=f"SPC Day {day} Outlook Discussion",
+                            description=raw_text[:6000],
+                            color=discord.Color.dark_gray(),
+                        )
+                        await thread.send(embed=text_embed)
+                except Exception as e:
+                    logger.warning(f"[Day {day}] Failed to create thread: {e}")
+
+                # Proactively trigger AI summary in thread (or channel as fallback)
                 from cogs.ai_summaries import autopost_outlook_summary
 
-                t = asyncio.create_task(autopost_outlook_summary(channel, str(day)))
+                target = thread or channel
+                t = asyncio.create_task(autopost_outlook_summary(target, str(day)))
                 t.add_done_callback(
                     lambda t: (
                         logger.debug(f"[Day {day}] AI summary autopost finished")
@@ -273,7 +294,7 @@ class OutlooksCog(commands.Cog):
             if files:
                 try:
                     view = OutlookSummaryView(day="48")
-                    await channel.send(
+                    msg = await channel.send(
                         "**Latest SPC Day 4-8 Outlook**",
                         files=[discord.File(fp) for fp in files],
                         view=view,
@@ -282,10 +303,31 @@ class OutlooksCog(commands.Cog):
                     self.bot.state.last_posted_urls["day48"] = urls
                     await set_posted_urls("day48", urls)
 
-                    # Autopost AI summary
+                    # Create thread for outlook text and AI summary
+                    thread = None
+                    try:
+                        thread = await msg.create_thread(
+                            name="SPC Day 4-8 Outlook",
+                            auto_archive_duration=1440,
+                        )
+                        from cogs.ai_summaries import _fetch_outlook_text
+
+                        raw_text = await _fetch_outlook_text("48")
+                        if raw_text:
+                            text_embed = discord.Embed(
+                                title="SPC Day 4-8 Outlook Discussion",
+                                description=raw_text[:6000],
+                                color=discord.Color.dark_gray(),
+                            )
+                            await thread.send(embed=text_embed)
+                    except Exception as e:
+                        logger.warning(f"[Day 48] Failed to create thread: {e}")
+
+                    # Autopost AI summary in thread (or channel as fallback)
                     from cogs.ai_summaries import autopost_outlook_summary
 
-                    t = asyncio.create_task(autopost_outlook_summary(channel, "48"))
+                    target = thread or channel
+                    t = asyncio.create_task(autopost_outlook_summary(target, "48"))
                     t.add_done_callback(
                         lambda t: (
                             logger.debug("[Day 48] AI summary autopost finished")

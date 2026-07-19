@@ -710,17 +710,25 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
                 return
 
             if isinstance(summary, list) and len(summary) > 0:
-                # Paginated view
                 view = RegionalAnalysisView(day, summary, current_page=0)
-                await interaction.followup.send(embed=view._create_embed(), view=view)
+                embed = view._create_embed()
             else:
-                # Fallback for old cache or string response
                 embed = discord.Embed(
                     title=f"🪄 AI Analysis (Day {day} Outlook)",
                     description=str(summary),
                     color=discord.Color.blue(),
                 )
-                await interaction.followup.send(embed=embed)
+                view = None
+
+            thread = interaction.message.thread if interaction.message else None
+            if thread:
+                await thread.send(embed=embed, view=view)
+                await interaction.followup.send(
+                    f"AI analysis posted in the [thread]({thread.jump_url})!",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(embed=embed, view=view)
         except Exception as e:
             logger.exception(f"Error in _handle_outlook_summary: {e}")
             try:
