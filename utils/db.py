@@ -729,7 +729,7 @@ async def get_warning_stats(
                         stats["tor"]["standard"] += 1
                     if confidence == "observed":
                         stats["tor"]["observed"] += 1
-                    elif confidence == "radar_indicated":
+                    else:
                         stats["tor"]["radar_indicated"] += 1
 
                 elif phenom == "SV":

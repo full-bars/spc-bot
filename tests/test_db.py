@@ -44,6 +44,26 @@ async def test_prune_posted_warnings_keeps_most_recent(isolated_db):
     assert "ID:7" in remaining
 
 
+async def test_get_warning_stats_null_confidence_counts_as_radar_indicated(isolated_db):
+    """Legacy rows with NULL tornado_confidence must still land in a
+    subcategory bucket instead of being dropped (observed + radar_indicated
+    should equal total)."""
+    await db.add_posted_warning(
+        "KOUN.TO.W.0001", 1, 2, posted_at=1.0, tornado_confidence="observed"
+    )
+    await db.add_posted_warning(
+        "KOUN.TO.W.0002", 2, 2, posted_at=2.0, tornado_confidence="radar_indicated"
+    )
+    await db.add_posted_warning("KOUN.TO.W.0003", 3, 2, posted_at=3.0, tornado_confidence=None)
+
+    stats = await db.get_warning_stats()
+
+    assert stats["tor"]["total"] == 3
+    assert stats["tor"]["observed"] == 1
+    assert stats["tor"]["radar_indicated"] == 2
+    assert stats["tor"]["observed"] + stats["tor"]["radar_indicated"] == stats["tor"]["total"]
+
+
 # ── Integrity & Serialization ──────────────────────────────────────────────
 
 
