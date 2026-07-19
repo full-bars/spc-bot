@@ -167,18 +167,20 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
                         name=f"SPC Day {day} Outlook",
                         auto_archive_duration=1440,
                     )
+                except Exception as e:
+                    logger.warning(f"[Day {day}] Failed to create thread: {e}")
+
+                if thread:
                     from cogs.ai_summaries import _fetch_outlook_text
 
                     raw_text = await _fetch_outlook_text(str(day))
                     if raw_text:
                         text_embed = discord.Embed(
                             title=f"SPC Day {day} Outlook Discussion",
-                            description=raw_text[:6000],
+                            description=raw_text[:4096],
                             color=discord.Color.dark_gray(),
                         )
                         await thread.send(embed=text_embed)
-                except Exception as e:
-                    logger.warning(f"[Day {day}] Failed to create thread: {e}")
 
                 # Proactively trigger AI summary in thread (or channel as fallback)
                 from cogs.ai_summaries import autopost_outlook_summary
@@ -310,18 +312,20 @@ class OutlooksCog(commands.Cog):
                             name="SPC Day 4-8 Outlook",
                             auto_archive_duration=1440,
                         )
+                    except Exception as e:
+                        logger.warning(f"[Day 48] Failed to create thread: {e}")
+
+                    if thread:
                         from cogs.ai_summaries import _fetch_outlook_text
 
                         raw_text = await _fetch_outlook_text("48")
                         if raw_text:
                             text_embed = discord.Embed(
                                 title="SPC Day 4-8 Outlook Discussion",
-                                description=raw_text[:6000],
+                                description=raw_text[:4096],
                                 color=discord.Color.dark_gray(),
                             )
                             await thread.send(embed=text_embed)
-                    except Exception as e:
-                        logger.warning(f"[Day 48] Failed to create thread: {e}")
 
                     # Autopost AI summary in thread (or channel as fallback)
                     from cogs.ai_summaries import autopost_outlook_summary
