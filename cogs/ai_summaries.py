@@ -418,6 +418,21 @@ async def ensure_outlook_summary(day: str, raw_text: str = None) -> Any | None:
         return None
 
 
+async def _resolve_message_thread(
+    message: discord.Message | None,
+) -> discord.Thread | None:
+    """Resolve the thread attached to a message, with API fallback for cache misses."""
+    if not message:
+        return None
+    thread = message.thread
+    if thread is not None:
+        return thread
+    try:
+        return await message.fetch_thread()
+    except (discord.NotFound, discord.HTTPException):
+        return None
+
+
 async def autopost_outlook_summary(channel: discord.abc.Messageable, day: str, delay: float = 0.5):
     """Wait for outlook summary to be ready and post it as a follow-up message."""
     try:
@@ -680,7 +695,7 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
                 color=discord.Color.teal(),
             )
 
-            thread = interaction.message.thread if interaction.message else None
+            thread = await _resolve_message_thread(interaction.message)
             if thread:
                 await thread.send(embed=embed)
                 await interaction.followup.send(
@@ -718,7 +733,7 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
                 color=discord.Color.purple(),
             )
 
-            thread = interaction.message.thread if interaction.message else None
+            thread = await _resolve_message_thread(interaction.message)
             if thread:
                 await thread.send(embed=embed)
                 await interaction.followup.send(
@@ -761,7 +776,7 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
                 )
                 view = None
 
-            thread = interaction.message.thread if interaction.message else None
+            thread = await _resolve_message_thread(interaction.message)
             if thread:
                 await thread.send(embed=embed, view=view)
                 await interaction.followup.send(
