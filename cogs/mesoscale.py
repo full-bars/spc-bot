@@ -707,7 +707,7 @@ class MesoscaleCog(commands.Cog):
             # Proactively trigger AI summary generation and autopost it
             from cogs.ai_summaries import autopost_md_summary
 
-            t = asyncio.create_task(autopost_md_summary(channel, str(md_num)))
+            t = asyncio.create_task(autopost_md_summary(msg, str(md_num)))
             t.add_done_callback(_log_task_exception)
 
             self.bot.state.posted_mds.add(md_num)
@@ -863,7 +863,7 @@ class MesoscaleCog(commands.Cog):
                     # Autopost AI summary
                     from cogs.ai_summaries import autopost_md_summary
 
-                    t = asyncio.create_task(autopost_md_summary(channel, str(md_num)))
+                    t = asyncio.create_task(autopost_md_summary(msg, str(md_num)))
                     t.add_done_callback(
                         lambda t: (
                             logger.debug(f"[MD {md_num}] AI summary autopost finished")
