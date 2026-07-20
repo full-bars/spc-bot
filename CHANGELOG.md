@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [5.41.0] - 2026-07-19
+
+### Added
+- **SPC Outlook Threads**: Outlook posts now create a dedicated discussion thread attached to the image message (#605). The full outlook discussion text is posted as an embed in the thread, followed by the AI analysis summary — keeping the channel clean while making full details one click away. Applies to Days 1–3 and Day 4–8. Falls back gracefully to channel posting when thread creation is unavailable.
+- **Thread-Aware AI Button**: The AI Analysis button on outlook image messages now detects whether a thread exists. If so, it posts the analysis inside the thread with an ephemeral link; otherwise it posts inline as before (#605).
+- **URL Sanitization in HTTP Logs**: All URLs logged across every HTTP helper function (`http_get_bytes`, `http_get_json`, `http_post_json`, `http_head_check`, `http_head_meta`) are now stripped of query parameters before logging, preventing API keys (e.g. the Gemini key in `?key=...`) from leaking into plain-text logs (#606).
+
+### Fixed
+- **MD Image Recovery Not Retrying**: Fixed a bug in `_upgrade_md_message` where a failed call to `message.edit()` would silently exit the recovery loop instead of retrying, leaving Mesoscale Discussion posts permanently without their rendered image (#607). The fix tracks an `edit_pending` flag so the edit is retried on subsequent iterations up to the 20-attempt / 8-minute limit.
+- **Outlook Text Trapped in Thread-Creation Try Block**: Moved the `_fetch_outlook_text()` call and embed send outside the `create_thread()` try block, so the discussion text is only posted when the thread was successfully created — never accidentally to the channel. Separate follow-up to #605.
+- **Embed Description Limit**: Outlook discussion text embeds now cap their description at 4096 characters (Discord's actual field limit for embed descriptions) instead of 6000. Separate follow-up to #605.
+- **CON Warning Update False Cancellations**: Confirmed tornado checks are now skipped when a CON (convergence) update clears a warning, preventing spurious cancellation posts. NULL `tornado_confidence` values in stats are handled gracefully (#604).
+- **Warning Classification Gaps**: Fixed missing classification logic for borderline Tornado Warning events (#603).
+- **Tornado Detection Signal Integration**: The `params.tornadoDetection` signal is now correctly factored into tornado warning classification, improving metadata accuracy (#602).
+- **Broadened Confirmed Tornado Triggers**: Expanded VAD recorder signal detection to catch more confirmed tornado events.
+- **mypy 2.x Compatibility**: Fixed `getaddrinfo` return type cast for compatibility with mypy 2.x.
+
+### Dependencies
+- Updated `numpy` to ≥2.2.6 (from ≥2.1.0)
+- Updated `mypy` to ≥2.1.0 (from ≥1.19.1)
+- Updated `requests` to ≥2.34.2 (from ≥2.32.5)
+- Updated `pytest-asyncio` to ≥1.4.0 (from ≥1.3.0)
+- Updated `ruff` to ≥0.15.20 (from ≥0.15.18)
+- Updated `xxhash-rust` to 0.8.16 (from 0.8.15)
+- Updated `regex` to 1.13.0 (from 1.12.4)
+
 ## [5.40.1] - 2026-07-11
 
 ### Features
