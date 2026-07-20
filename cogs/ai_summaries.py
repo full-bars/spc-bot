@@ -483,8 +483,12 @@ async def autopost_outlook_summary(channel: discord.abc.Messageable, day: str, d
         logger.exception(f"Error autoposting outlook summary for Day {day}: {e}")
 
 
-async def autopost_md_summary(channel: discord.abc.Messageable, md_num: str, delay: float = 0.5):
-    """Wait for MD summary to be ready and post it as a follow-up message."""
+async def autopost_md_summary(
+    md_msg: discord.Message,
+    md_num: str,
+    delay: float = 0.5,
+):
+    """Wait for MD summary to be ready and post it in a thread on the MD message."""
     try:
         import asyncio
 
@@ -495,15 +499,26 @@ async def autopost_md_summary(channel: discord.abc.Messageable, md_num: str, del
                 f"[MD #{md_num}] AI summary returned None (text fetch or API call failed)"
             )
             return
-        if not summary:
-            return
 
         embed = discord.Embed(
             title=f"🪄 AI Summary (MD #{md_num})",
             description=summary,
             color=discord.Color.purple(),
         )
-        await channel.send(embed=embed)
+
+        thread = None
+        try:
+            thread = await md_msg.create_thread(
+                name=f"MD #{md_num}",
+                auto_archive_duration=1440,
+            )
+        except Exception as e:
+            logger.warning(f"[MD #{md_num}] Failed to create thread: {e}")
+
+        if thread:
+            await thread.send(embed=embed)
+        else:
+            await md_msg.channel.send(embed=embed)
     except Exception as e:
         logger.exception(f"Error autoposting MD summary for MD {md_num}: {e}")
 
@@ -702,7 +717,16 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
                 description=summary,
                 color=discord.Color.purple(),
             )
-            await interaction.followup.send(embed=embed)
+
+            thread = interaction.message.thread if interaction.message else None
+            if thread:
+                await thread.send(embed=embed)
+                await interaction.followup.send(
+                    f"AI analysis posted in the [thread]({thread.jump_url})!",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(embed=embed)
         except Exception as e:
             logger.exception(f"Error in _handle_md_summary: {e}")
             try:
