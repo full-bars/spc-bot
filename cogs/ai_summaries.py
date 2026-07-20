@@ -518,7 +518,7 @@ async def autopost_sounding_summary(
     lon: float = None,
     location_name: str = "Unknown",
 ):
-    """Wait for sounding summary to be ready and post it as a reply to the sounding message."""
+    """Wait for sounding summary to be ready and post it in a thread on the sounding message."""
     try:
         import asyncio
         from utils.state_store import set_product_cache
@@ -546,9 +546,22 @@ async def autopost_sounding_summary(
             description=summary,
             color=discord.Color.teal(),
         )
-        msg = await sounding_msg.reply(embed=embed)
-        # Store message ID so button clicks know it was already posted
-        await set_product_cache(f"sounding_summary_message_{cache_key}", str(msg.id))
+
+        thread = None
+        try:
+            thread = await sounding_msg.create_thread(
+                name=f"Sounding: {sounding_label if sounding_label else location_name}"[:100],
+                auto_archive_duration=1440,
+            )
+        except Exception as e:
+            logger.warning(f"[Sounding {cache_key}] Failed to create thread: {e}")
+
+        if thread:
+            msg = await thread.send(embed=embed)
+        else:
+            msg = await sounding_msg.reply(embed=embed)
+
+        await set_product_cache(f"sounding_summary_message_{cache_key}", msg.jump_url)
     except Exception as e:
         logger.exception(f"Error autoposting sounding summary for {cache_key}: {e}")
 
@@ -596,18 +609,13 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
             await interaction.response.defer(thinking=True)
 
             # Check if summary was already auto-posted
-            message_id_str = await get_product_cache(f"sounding_summary_message_{cache_key}")
-            if message_id_str:
-                try:
-                    message_id = int(message_id_str)
-                    msg_link = f"https://discord.com/channels/{interaction.guild_id}/{interaction.channel_id}/{message_id}"
-                    await interaction.followup.send(
-                        f"AI analysis already posted! [View it here]({msg_link})",
-                        ephemeral=True,
-                    )
-                    return
-                except (ValueError, AttributeError):
-                    pass
+            jump_url = await get_product_cache(f"sounding_summary_message_{cache_key}")
+            if jump_url:
+                await interaction.followup.send(
+                    f"AI analysis already posted! [View it here]({jump_url})",
+                    ephemeral=True,
+                )
+                return
 
             summary = await ensure_sounding_summary(cache_key, bot=self.bot)
 
@@ -656,7 +664,16 @@ class AISummariesCog(commands.Cog, name="AI Summaries"):
                 description=summary,
                 color=discord.Color.teal(),
             )
-            await interaction.followup.send(embed=embed)
+
+            thread = interaction.message.thread if interaction.message else None
+            if thread:
+                await thread.send(embed=embed)
+                await interaction.followup.send(
+                    f"AI analysis posted in the [thread]({thread.jump_url})!",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(embed=embed)
         except Exception as e:
             logger.exception(f"Error in _handle_sounding_summary: {e}")
             try:
