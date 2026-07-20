@@ -601,9 +601,11 @@ class MesoscaleCog(commands.Cog):
                 view = MDSummaryView(md_num=str(md_num), raw_text=full_text or "")
                 await message.edit(embeds=[img_embed, text_embed], attachments=files, view=view)
                 return True
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Failed to edit MD #{md_num} message: {e}")
                 return False
 
+        edit_pending = False
         for attempt in range(20):
             delay = 10 if attempt < 6 else 30
             await asyncio.sleep(delay)
@@ -639,8 +641,14 @@ class MesoscaleCog(commands.Cog):
                         logger.info(f"Recovered image for #{md_num}")
                         break
             if changed:
-                await _push_edit()
-            if cache_path and full_text:
+                edit_pending = True
+            if edit_pending:
+                edit_ok = await _push_edit()
+                if edit_ok:
+                    edit_pending = False
+                    if cache_path and full_text:
+                        break
+            elif cache_path and full_text:
                 break
 
     async def post_md_now(self, md_num: str):
