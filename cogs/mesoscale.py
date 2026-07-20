@@ -605,6 +605,7 @@ class MesoscaleCog(commands.Cog):
                 logger.warning(f"Failed to edit MD #{md_num} message: {e}")
                 return False
 
+        edit_pending = False
         for attempt in range(20):
             delay = 10 if attempt < 6 else 30
             await asyncio.sleep(delay)
@@ -640,9 +641,13 @@ class MesoscaleCog(commands.Cog):
                         logger.info(f"Recovered image for #{md_num}")
                         break
             if changed:
+                edit_pending = True
+            if edit_pending:
                 edit_ok = await _push_edit()
-                if edit_ok and cache_path and full_text:
-                    break
+                if edit_ok:
+                    edit_pending = False
+                    if cache_path and full_text:
+                        break
             elif cache_path and full_text:
                 break
 
