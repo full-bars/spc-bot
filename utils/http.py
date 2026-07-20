@@ -352,7 +352,7 @@ async def http_head_ok(url: str, timeout: int = 20) -> bool:
     except Exception as e:
         # Standard exceptions (timeout, conn error) always count as failure
         circuit_breaker.record_failure(host)
-        logger.warning(f"HEAD check failed for {url}: {type(e).__name__}: {e}")
+        logger.warning(f"HEAD check failed for {url.split('?')[0]}: {type(e).__name__}: {e}")
         return False
 
 
@@ -377,7 +377,7 @@ async def http_head_meta(url: str, timeout: int = 20) -> Optional[Dict[str, str]
             }
     except Exception as e:
         circuit_breaker.record_failure(host)
-        logger.warning(f"HEAD meta failed for {url}: {type(e).__name__}: {e}")
+        logger.warning(f"HEAD meta failed for {url.split('?')[0]}: {type(e).__name__}: {e}")
         return None
 
 
@@ -404,7 +404,7 @@ async def http_get_json(
                     message="Server returned retryable error",
                 )
             if r.status != 200:
-                logger.warning(f"JSON fetch failed for {url}: {r.status}")
+                logger.warning(f"JSON fetch failed for {url.split('?')[0]}: {r.status}")
                 # Only trip the circuit on server-side / rate-limit errors.
                 # 4xx responses (including the 404s IEM emits during
                 # availability probing) are expected and should not open
@@ -421,7 +421,7 @@ async def http_get_json(
         status = getattr(e, "status", None)
         if status is None or status >= 500 or status == 429:
             circuit_breaker.record_failure(host)
-        logger.warning(f"JSON fetch error for {url}: {type(e).__name__}: {e}")
+        logger.warning(f"JSON fetch error for {url.split('?')[0]}: {type(e).__name__}: {e}")
         return None
 
 
