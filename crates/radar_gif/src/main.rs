@@ -6,7 +6,7 @@ use clap::Parser;
 use image::codecs::gif::{GifEncoder, Repeat};
 use image::{Delay, Frame, RgbaImage};
 use radar_core::{MomentType, RadarVolume};
-use render2d::{render_moment_image, RasterOptions};
+use render2d::{base_tilt_cut, render_moment_image, RasterOptions};
 
 /// Fetch recent NEXRAD Level II volumes from the public AWS archive, render
 /// them as polar radar images, and output a GIF animation loop.
@@ -77,7 +77,8 @@ fn main() {
 
     let mut frames: Vec<RgbaImage> = Vec::with_capacity(volumes.len());
     for volume in &volumes {
-        match render_moment_image(volume, args.cut, moment.clone(), options) {
+        let cut_index = base_tilt_cut(volume, &moment).unwrap_or(0);
+        match render_moment_image(volume, cut_index, moment.clone(), options) {
             Ok(img) => frames.push(img),
             Err(e) => eprintln!(
                 "  Skipping volume {}: {e}",

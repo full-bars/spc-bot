@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Sounding AI Summary Threads**: Autoposted sounding AI summaries now create a dedicated discussion thread attached to the sounding plot message instead of posting as an inline reply (#612, #614). The thread is named `Sounding: {station} — {time}` and auto-archives after 24h. Falls back gracefully to inline reply when thread creation is unavailable. Applies to all RAOB and ACARS autopost paths (high-risk monitoring, special soundings, watch-triggered, and standard synoptic-time posts).
+- **MD AI Summary Threads**: Mesoscale Discussion AI summaries now create a thread named `MD #{num}` on the MD message instead of posting a standalone message in the channel (#613, #614). The AI Analysis button detects the thread and posts inside it with an ephemeral link to the user. Falls back to channel posting when thread creation fails.
+- **Thread Cache Fallback (`_resolve_message_thread`)**: Button handlers for outlook, sounding, and MD summaries now use a shared helper that checks `message.thread` (cached property) first, then falls back to `message.fetch_thread()` from the API (#614). This handles edge cases where Discord hasn't populated the thread cache, preventing spurious channel fallback.
+- **NEXRAD Radar Loops (`/radar` command)**: New `radar_gif` Rust crate fetches NEXRAD Level II volumes from the public AWS S3 archive, decodes them using BowEcho's `nexrad_io` and `render2d` crates, and outputs animated GIFs. The `/radar` slash command accepts site ID (e.g. KTLX), product (reflectivity/velocity/ZDR/CC/KDP/PHIDP), and frame count. The craterender2d dependency renders publication-quality polar radar images with proper color tables and range-folding handling.
+
 ## [5.41.0] - 2026-07-19
 
 ### Added
