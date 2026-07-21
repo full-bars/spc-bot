@@ -182,27 +182,81 @@ class RadarCog(commands.Cog):
 
     RADAR_GIF_CACHE = Path("cache") / "radar_gifs"
 
+    TDWR_SITES = {
+        "TATL": "Atlanta, GA",
+        "TBNA": "Nashville, TN",
+        "TBOS": "Boston, MA",
+        "TBWI": "Baltimore, MD",
+        "TCLT": "Charlotte, NC",
+        "TCMH": "Columbus, OH",
+        "TCVG": "Covington, KY",
+        "TDAL": "Dallas Love Field, TX",
+        "TDAY": "Dayton, OH",
+        "TDCA": "Washington National, VA",
+        "TDEN": "Denver, CO",
+        "TDFW": "Dallas/Ft. Worth, TX",
+        "TDTW": "Detroit, MI",
+        "TEWR": "Newark, NJ",
+        "TFLL": "Fort Lauderdale, FL",
+        "THOU": "Houston Hobby, TX",
+        "TIAD": "Dulles, VA",
+        "TIAH": "Houston Intercontinental, TX",
+        "TICH": "Wichita, KS",
+        "TIDS": "Indianapolis, IN",
+        "TJFK": "New York City, NY",
+        "TJUA": "San Juan, PR",
+        "TLAS": "Las Vegas, NV",
+        "TLVE": "Cleveland, OH",
+        "TMCI": "Kansas City, MO",
+        "TMCO": "Orlando, FL",
+        "TMDW": "Chicago Midway, IL",
+        "TMEM": "Memphis, TN",
+        "TMIA": "Miami, FL",
+        "TMKE": "Milwaukee, WI",
+        "TMSP": "Minneapolis, MN",
+        "TMSY": "New Orleans, LA",
+        "TOKC": "Oklahoma City, OK",
+        "TORD": "Chicago O'Hare, IL",
+        "TPBI": "West Palm Beach, FL",
+        "TPHL": "Philadelphia, PA",
+        "TPHX": "Phoenix, AZ",
+        "TPIT": "Pittsburgh, PA",
+        "TRDU": "Raleigh-Durham, NC",
+        "TSDF": "Louisville, KY",
+        "TSJU": "San Juan, PR",
+        "TSLC": "Salt Lake City, UT",
+        "TSTL": "St Louis, MO",
+        "TTPA": "Tampa, FL",
+        "TTUL": "Tulsa, OK",
+    }
+
     RADAR_SITES = {
-        "KTLX": "Oklahoma City/Twin Lakes, OK",
-        "KFWS": "Dallas/Ft. Worth, TX",
-        "KSHV": "Shreveport, LA",
-        "KHTX": "Huntsville, AL",
-        "KMOB": "Mobile, AL",
-        "KEOX": "Enterprise, AL",
-        "KBMX": "Birmingham, AL",
+        "KABR": "Aberdeen, SD",
+        "KABX": "Albuquerque, NM",
+        "KAKQ": "Norfolk, VA",
         "KAMA": "Amarillo, TX",
         "KAMX": "Miami, FL",
+        "KAPX": "Gaylord, MI",
+        "KARX": "La Crosse, WI",
+        "KATX": "Seattle, WA",
         "KBBX": "Beale AFB, CA",
+        "KBGM": "Binghamton, NY",
         "KBHX": "Eureka, CA",
         "KBIS": "Bismarck, ND",
         "KBLX": "Billings, MT",
-        "KBRX": "Belle Plaine, IA",
+        "KBMX": "Birmingham, AL",
+        "KBOX": "Boston, MA",
         "KBRO": "Brownsville, TX",
         "KBUF": "Buffalo, NY",
+        "KBYX": "Key West, FL",
         "KCAE": "Columbia, SC",
+        "KCBW": "Caribou, ME",
+        "KCBX": "Boise, ID",
+        "KCCX": "State College, PA",
         "KCLE": "Cleveland, OH",
         "KCLX": "Charleston, SC",
         "KCRP": "Corpus Christi, TX",
+        "KCXX": "Burlington, VT",
         "KCYS": "Cheyenne, WY",
         "KDAX": "Sacramento, CA",
         "KDDC": "Dodge City, KS",
@@ -213,82 +267,113 @@ class RadarCog(commands.Cog):
         "KDMX": "Des Moines, IA",
         "KDOX": "Dover AFB, DE",
         "KDTX": "Detroit, MI",
-        "KDYX": "Abilene/Sweetwater, TX",
+        "KDVN": "Quad Cities, IA",
+        "KDYX": "Abilene, TX",
         "KEAX": "Kansas City, MO",
         "KEMX": "Tucson, AZ",
         "KENX": "Albany, NY",
+        "KEOX": "Fort Rucker, AL",
         "KEPZ": "El Paso, TX",
         "KESX": "Las Vegas, NV",
         "KEVX": "Eglin AFB, FL",
-        "KEWX": "Austin/San Antonio, TX",
+        "KEWX": "Austin, TX",
         "KEYX": "Edwards AFB, CA",
         "KFCX": "Roanoke, VA",
-        "KFDR": "Frederick, OK",
+        "KFDR": "Altus AFB, OK",
         "KFDX": "Cannon AFB, NM",
         "KFFC": "Atlanta, GA",
         "KFSD": "Sioux Falls, SD",
         "KFSX": "Flagstaff, AZ",
         "KFTG": "Denver, CO",
+        "KFWS": "Dallas/Fort Worth, TX",
         "KGGW": "Glasgow, MT",
         "KGJX": "Grand Junction, CO",
         "KGLD": "Goodland, KS",
         "KGRB": "Green Bay, WI",
         "KGRK": "Fort Hood, TX",
         "KGRR": "Grand Rapids, MI",
-        "KGVX": "Gray/Portland, ME",
+        "KGSP": "Greer, SC",
         "KGWX": "Columbus AFB, MS",
+        "KGYX": "Portland, ME",
+        "KHDC": "Hammond, LA",
         "KHDX": "Holloman AFB, NM",
-        "KHGX": "Houston/Galveston, TX",
-        "KHKI": "Hickory, NC",
-        "KHPX": "Hopkinsville, KY",
+        "KHGX": "Houston, TX",
+        "KHNX": "San Joaquin Valley, CA",
+        "KHPX": "Fort Campbell, KY",
+        "KHTX": "Huntsville, AL",
         "KICT": "Wichita, KS",
-        "KILN": "Cincinnati/Wilmington, OH",
+        "KICX": "Cedar City, UT",
+        "KILN": "Cincinnati, OH",
         "KILX": "Lincoln, IL",
         "KIND": "Indianapolis, IN",
-        "KINX": "Tulsa/Inola, OK",
+        "KINX": "Tulsa, OK",
         "KIWA": "Phoenix, AZ",
+        "KIWX": "Northern Indiana, IN",
         "KJAX": "Jacksonville, FL",
-        "KJGX": "Macon/Perry, GA",
-        "KJKL": "Jackson/Julian, KY",
+        "KJGX": "Macon, GA",
+        "KJKL": "Jackson, KY",
         "KLBB": "Lubbock, TX",
         "KLCH": "Lake Charles, LA",
         "KLGX": "Langley Hill, WA",
-        "KLIX": "New Orleans/Slidell, LA",
         "KLNX": "North Platte, NE",
         "KLOT": "Chicago, IL",
         "KLRX": "Elko, NV",
-        "KLSX": "St. Louis, MO",
+        "KLSX": "St Louis, MO",
         "KLTX": "Wilmington, NC",
-        "KLVX": "Louisville/Fort Knox, KY",
-        "KLWX": "Washington D.C./Sterling, VA",
+        "KLVX": "Louisville, KY",
+        "KLWX": "Sterling, VA",
+        "KLZK": "Little Rock, AR",
+        "KMAF": "Midland, TX",
+        "KMAX": "Medford, OR",
+        "KMBX": "Minot, ND",
         "KMHX": "Morehead City, NC",
         "KMKX": "Milwaukee, WI",
         "KMLB": "Melbourne, FL",
-        "KMPX": "Minneapolis/Chanhassen, MN",
+        "KMOB": "Mobile, AL",
+        "KMPX": "Minneapolis, MN",
         "KMQT": "Marquette, MI",
-        "KMRX": "Knoxville/Morristown, TN",
+        "KMRX": "Knoxville, TN",
         "KMSX": "Missoula, MT",
         "KMTX": "Salt Lake City, UT",
         "KMUX": "San Francisco, CA",
-        "KMVX": "Fargo/Grand Forks, ND",
+        "KMVX": "Fargo, ND",
         "KMXX": "Maxwell AFB, AL",
         "KNKX": "San Diego, CA",
-        "KNOA": "Memphis, TN",
+        "KNQA": "Memphis, TN",
         "KOAX": "Omaha, NE",
         "KOHX": "Nashville, TN",
-        "KOKX": "New York City/Brookhaven, NY",
+        "KOKX": "Brookhaven, NY",
         "KOTX": "Spokane, WA",
         "KPAH": "Paducah, KY",
         "KPBZ": "Pittsburgh, PA",
         "KPDT": "Pendleton, OR",
         "KPOE": "Fort Polk, LA",
-        "KRAX": "Raleigh/Durham, NC",
+        "KPUX": "Pueblo, CO",
+        "KRAX": "Raleigh, NC",
         "KRGX": "Reno, NV",
         "KRIW": "Riverton, WY",
         "KRLX": "Charleston, WV",
         "KRTX": "Portland, OR",
-        "KSFX": "Pocatello/Idaho Falls, ID",
+        "KSFX": "Pocatello, ID",
         "KSGF": "Springfield, MO",
+        "KSHV": "Shreveport, LA",
+        "KSJT": "San Angelo, TX",
+        "KSOX": "Santa Ana, CA",
+        "KSRX": "Fort Smith, AR",
+        "KTBW": "Tampa, FL",
+        "KTFX": "Great Falls, MT",
+        "KTLH": "Tallahassee, FL",
+        "KTLX": "Oklahoma City, OK",
+        "KTWX": "Topeka, KS",
+        "KTYX": "Fort Drum, NY",
+        "KUDX": "Rapid City, SD",
+        "KUEX": "Grand Island, NE",
+        "KVAX": "Moody AFB, GA",
+        "KVBX": "Vandenberg AFB, CA",
+        "KVNX": "Vance AFB, OK",
+        "KVTX": "Los Angeles, CA",
+        "KVWX": "Evansville, IN",
+        "KYUX": "Yuma, AZ",
     }
 
     @discord.app_commands.command(
@@ -299,6 +384,7 @@ class RadarCog(commands.Cog):
         site="4-letter NEXRAD site ID (e.g. KTLX, KFWS)",
         product="Radar product to display",
         frames="Number of frames (default 6, max 20)",
+        zoom="View range — tighter zoom shows more storm-scale detail (default Regional)",
     )
     @discord.app_commands.choices(
         product=[
@@ -309,7 +395,13 @@ class RadarCog(commands.Cog):
             Choice(name="Correlation Coefficient (CC)", value="cc"),
             Choice(name="Differential Phase (PHIDP)", value="phidp"),
             Choice(name="Specific KDP", value="kdp"),
-        ]
+        ],
+        zoom=[
+            Choice(name="Storm-Scale (~75km) — couplets/TDS", value=75.0),
+            Choice(name="Regional (~150km)", value=150.0),
+            Choice(name="Wide (~300km)", value=300.0),
+            Choice(name="Full Range (~460km)", value=460.0),
+        ],
     )
     async def radar_slash(
         self,
@@ -317,30 +409,33 @@ class RadarCog(commands.Cog):
         site: str,
         product: Choice[str] = None,
         frames: int = 6,
+        zoom: Choice[float] = None,
     ):
         await interaction.response.defer(thinking=True)
 
         site = site.upper().strip()
         product_value = product.value if product else "reflectivity"
         frames = max(2, min(frames, 20))
+        range_km = zoom.value if zoom else 150.0
 
-        if site not in self.RADAR_SITES:
-            suggestions = difflib.get_close_matches(site, list(self.RADAR_SITES), n=3, cutoff=0.5)
+        all_sites = {**self.RADAR_SITES, **self.TDWR_SITES}
+        if site not in all_sites:
+            suggestions = difflib.get_close_matches(site, list(all_sites), n=3, cutoff=0.5)
             if suggestions:
                 msg = "`{}` not recognized. Did you mean?\n{}".format(
                     site,
-                    "\n".join("  `{}` — {}".format(s, self.RADAR_SITES[s]) for s in suggestions),
+                    "\n".join("  `{}` — {}".format(s, all_sites[s]) for s in suggestions),
                 )
             else:
-                msg = "`{}` is not a recognized NEXRAD site.".format(site)
+                msg = "`{}` is not a recognized radar site.".format(site)
             await interaction.followup.send(msg, ephemeral=True)
             return
 
         self.RADAR_GIF_CACHE.mkdir(parents=True, exist_ok=True)
-        out_path = self.RADAR_GIF_CACHE / "{}_{}_{}.gif".format(site, product_value, frames)
+        out_path = self.RADAR_GIF_CACHE / "{}_{}_{}_{:.0f}km.gif".format(site, product_value, frames, range_km)
 
         try:
-            await _run_radar_cli(site, product_value, frames, out_path)
+            await _run_radar_cli(site, product_value, frames, out_path, range_km)
         except Exception as e:
             logger.exception("[RADAR] Failed to generate for {}: {}".format(site, e))
             await interaction.followup.send(
@@ -354,11 +449,12 @@ class RadarCog(commands.Cog):
             )
             return
 
-        site_name = self.RADAR_SITES.get(site, site)
+        site_name = self.RADAR_SITES.get(site) or self.TDWR_SITES.get(site) or site
         product_label = product.name if product else "Reflectivity"
+        zoom_label = zoom.name if zoom else "Regional (~150km)"
         embed = discord.Embed(
             title="{} Loop — {} ({})".format(product_label, site, site_name),
-            description="{} frames".format(frames),
+            description="{} frames · {}".format(frames, zoom_label),
             color=discord.Color.blue(),
         )
         embed.set_footer(text="NEXRAD Level II Archive")
@@ -396,7 +492,7 @@ RADAR_GIF_BIN = next(
 )
 
 
-async def _run_radar_cli(site: str, product: str, frames: int, out_path: Path):
+async def _run_radar_cli(site: str, product: str, frames: int, out_path: Path, range_km: float = 150.0):
     if RADAR_GIF_BIN is None:
         raise RuntimeError(
             "radar_gif binary not found (build with: cargo build --release -p radar_gif)"
@@ -409,14 +505,10 @@ async def _run_radar_cli(site: str, product: str, frames: int, out_path: Path):
         product,
         "--frames",
         str(frames),
+        "--range-km",
+        str(range_km),
         "--output",
         str(out_path),
-        "--width",
-        "800",
-        "--height",
-        "800",
-        "--days-back",
-        "3",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
