@@ -1,10 +1,13 @@
 # cogs/radar/__init__.py
 """NEXRAD Level 2 radar data downloader from NOAA AWS S3."""
 
+import asyncio
+import difflib
 import logging
 import re
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import discord
 from discord.app_commands import Choice
@@ -177,9 +180,255 @@ class RadarCog(commands.Cog):
         embed.set_footer(text=f"Logged in as {self.bot.user}")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
+    RADAR_GIF_CACHE = Path("cache") / "radar_gifs"
+
+    RADAR_SITES = {
+        "KTLX": "Oklahoma City/Twin Lakes, OK",
+        "KFWS": "Dallas/Ft. Worth, TX",
+        "KSHV": "Shreveport, LA",
+        "KHTX": "Huntsville, AL",
+        "KMOB": "Mobile, AL",
+        "KEOX": "Enterprise, AL",
+        "KBMX": "Birmingham, AL",
+        "KAMA": "Amarillo, TX",
+        "KAMX": "Miami, FL",
+        "KBBX": "Beale AFB, CA",
+        "KBHX": "Eureka, CA",
+        "KBIS": "Bismarck, ND",
+        "KBLX": "Billings, MT",
+        "KBRX": "Belle Plaine, IA",
+        "KBRO": "Brownsville, TX",
+        "KBUF": "Buffalo, NY",
+        "KCAE": "Columbia, SC",
+        "KCLE": "Cleveland, OH",
+        "KCLX": "Charleston, SC",
+        "KCRP": "Corpus Christi, TX",
+        "KCYS": "Cheyenne, WY",
+        "KDAX": "Sacramento, CA",
+        "KDDC": "Dodge City, KS",
+        "KDFX": "Laughlin AFB, TX",
+        "KDGX": "Jackson, MS",
+        "KDIX": "Philadelphia, PA",
+        "KDLH": "Duluth, MN",
+        "KDMX": "Des Moines, IA",
+        "KDOX": "Dover AFB, DE",
+        "KDTX": "Detroit, MI",
+        "KDYX": "Abilene/Sweetwater, TX",
+        "KEAX": "Kansas City, MO",
+        "KEMX": "Tucson, AZ",
+        "KENX": "Albany, NY",
+        "KEPZ": "El Paso, TX",
+        "KESX": "Las Vegas, NV",
+        "KEVX": "Eglin AFB, FL",
+        "KEWX": "Austin/San Antonio, TX",
+        "KEYX": "Edwards AFB, CA",
+        "KFCX": "Roanoke, VA",
+        "KFDR": "Frederick, OK",
+        "KFDX": "Cannon AFB, NM",
+        "KFFC": "Atlanta, GA",
+        "KFSD": "Sioux Falls, SD",
+        "KFSX": "Flagstaff, AZ",
+        "KFTG": "Denver, CO",
+        "KGGW": "Glasgow, MT",
+        "KGJX": "Grand Junction, CO",
+        "KGLD": "Goodland, KS",
+        "KGRB": "Green Bay, WI",
+        "KGRK": "Fort Hood, TX",
+        "KGRR": "Grand Rapids, MI",
+        "KGVX": "Gray/Portland, ME",
+        "KGWX": "Columbus AFB, MS",
+        "KHDX": "Holloman AFB, NM",
+        "KHGX": "Houston/Galveston, TX",
+        "KHKI": "Hickory, NC",
+        "KHPX": "Hopkinsville, KY",
+        "KICT": "Wichita, KS",
+        "KILN": "Cincinnati/Wilmington, OH",
+        "KILX": "Lincoln, IL",
+        "KIND": "Indianapolis, IN",
+        "KINX": "Tulsa/Inola, OK",
+        "KIWA": "Phoenix, AZ",
+        "KJAX": "Jacksonville, FL",
+        "KJGX": "Macon/Perry, GA",
+        "KJKL": "Jackson/Julian, KY",
+        "KLBB": "Lubbock, TX",
+        "KLCH": "Lake Charles, LA",
+        "KLGX": "Langley Hill, WA",
+        "KLIX": "New Orleans/Slidell, LA",
+        "KLNX": "North Platte, NE",
+        "KLOT": "Chicago, IL",
+        "KLRX": "Elko, NV",
+        "KLSX": "St. Louis, MO",
+        "KLTX": "Wilmington, NC",
+        "KLVX": "Louisville/Fort Knox, KY",
+        "KLWX": "Washington D.C./Sterling, VA",
+        "KMHX": "Morehead City, NC",
+        "KMKX": "Milwaukee, WI",
+        "KMLB": "Melbourne, FL",
+        "KMPX": "Minneapolis/Chanhassen, MN",
+        "KMQT": "Marquette, MI",
+        "KMRX": "Knoxville/Morristown, TN",
+        "KMSX": "Missoula, MT",
+        "KMTX": "Salt Lake City, UT",
+        "KMUX": "San Francisco, CA",
+        "KMVX": "Fargo/Grand Forks, ND",
+        "KMXX": "Maxwell AFB, AL",
+        "KNKX": "San Diego, CA",
+        "KNOA": "Memphis, TN",
+        "KOAX": "Omaha, NE",
+        "KOHX": "Nashville, TN",
+        "KOKX": "New York City/Brookhaven, NY",
+        "KOTX": "Spokane, WA",
+        "KPAH": "Paducah, KY",
+        "KPBZ": "Pittsburgh, PA",
+        "KPDT": "Pendleton, OR",
+        "KPOE": "Fort Polk, LA",
+        "KRAX": "Raleigh/Durham, NC",
+        "KRGX": "Reno, NV",
+        "KRIW": "Riverton, WY",
+        "KRLX": "Charleston, WV",
+        "KRTX": "Portland, OR",
+        "KSFX": "Pocatello/Idaho Falls, ID",
+        "KSGF": "Springfield, MO",
+    }
+
+    @discord.app_commands.command(
+        name="radar",
+        description="Get a radar animation loop for a NEXRAD site",
+    )
+    @discord.app_commands.describe(
+        site="4-letter NEXRAD site ID (e.g. KTLX, KFWS)",
+        product="Radar product to display",
+        frames="Number of frames (default 6, max 20)",
+    )
+    @discord.app_commands.choices(
+        product=[
+            Choice(name="Reflectivity", value="reflectivity"),
+            Choice(name="Velocity", value="velocity"),
+            Choice(name="Spectrum Width", value="spectrum-width"),
+            Choice(name="Differential Reflectivity (ZDR)", value="zdr"),
+            Choice(name="Correlation Coefficient (CC)", value="cc"),
+            Choice(name="Differential Phase (PHIDP)", value="phidp"),
+            Choice(name="Specific KDP", value="kdp"),
+        ]
+    )
+    async def radar_slash(
+        self,
+        interaction: discord.Interaction,
+        site: str,
+        product: Choice[str] = None,
+        frames: int = 6,
+    ):
+        await interaction.response.defer(thinking=True)
+
+        site = site.upper().strip()
+        product_value = product.value if product else "reflectivity"
+        frames = max(2, min(frames, 20))
+
+        if site not in self.RADAR_SITES:
+            suggestions = difflib.get_close_matches(site, list(self.RADAR_SITES), n=3, cutoff=0.5)
+            if suggestions:
+                msg = "`{}` not recognized. Did you mean?\n{}".format(
+                    site,
+                    "\n".join("  `{}` — {}".format(s, self.RADAR_SITES[s]) for s in suggestions),
+                )
+            else:
+                msg = "`{}` is not a recognized NEXRAD site.".format(site)
+            await interaction.followup.send(msg, ephemeral=True)
+            return
+
+        self.RADAR_GIF_CACHE.mkdir(parents=True, exist_ok=True)
+        out_path = self.RADAR_GIF_CACHE / "{}_{}_{}.gif".format(site, product_value, frames)
+
+        try:
+            await _run_radar_cli(site, product_value, frames, out_path)
+        except Exception as e:
+            logger.exception("[RADAR] Failed to generate for {}: {}".format(site, e))
+            await interaction.followup.send(
+                "Failed to generate radar loop for `{}`.".format(site), ephemeral=True
+            )
+            return
+
+        if not out_path.exists():
+            await interaction.followup.send(
+                "No radar data available for `{}`.".format(site), ephemeral=True
+            )
+            return
+
+        site_name = self.RADAR_SITES.get(site, site)
+        product_label = product.name if product else "Reflectivity"
+        embed = discord.Embed(
+            title="{} Loop — {} ({})".format(product_label, site, site_name),
+            description="{} frames".format(frames),
+            color=discord.Color.blue(),
+        )
+        embed.set_footer(text="NEXRAD Level II Archive")
+
+        file_size_mb = out_path.stat().st_size / (1024 * 1024)
+        if file_size_mb > 25:
+            await interaction.followup.send(
+                "File too large ({:.1f} MB). Try fewer frames.".format(file_size_mb), ephemeral=True
+            )
+            return
+
+        try:
+            await interaction.followup.send(embed=embed, file=discord.File(str(out_path)))
+        except discord.HTTPException:
+            await interaction.followup.send(
+                "Generated but file too large to send. Try fewer frames.", ephemeral=True
+            )
+
     @tasks.loop(hours=1)
     async def periodic_cleanup(self):
         await cleanup_old_files(OUTPUT_DIR, CLEANUP_AGE_THRESHOLD)
+
+
+RADAR_GIF_BIN = next(
+    (
+        p
+        for p in [
+            Path(__file__).parent.parent.parent / "target/release/radar_gif",
+            Path(__file__).parent.parent.parent / "target/debug/radar_gif",
+            Path("/usr/local/bin/radar_gif"),
+        ]
+        if p.exists()
+    ),
+    None,
+)
+
+
+async def _run_radar_cli(site: str, product: str, frames: int, out_path: Path):
+    if RADAR_GIF_BIN is None:
+        raise RuntimeError(
+            "radar_gif binary not found (build with: cargo build --release -p radar_gif)"
+        )
+    proc = await asyncio.create_subprocess_exec(
+        str(RADAR_GIF_BIN),
+        "--site",
+        site,
+        "--product",
+        product,
+        "--frames",
+        str(frames),
+        "--output",
+        str(out_path),
+        "--width",
+        "800",
+        "--height",
+        "800",
+        "--days-back",
+        "3",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
+    except asyncio.TimeoutError:
+        proc.kill()
+        raise RuntimeError("Radar generation timed out after 180s")
+    if proc.returncode != 0:
+        stderr_text = stderr.decode() if stderr else "unknown error"
+        logger.warning("[RADAR] CLI failed (exit {}): {}".format(proc.returncode, stderr_text))
+        raise RuntimeError("radar_gif exited with code {}".format(proc.returncode))
 
 
 async def setup(bot: commands.Bot):
