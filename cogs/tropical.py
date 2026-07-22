@@ -210,6 +210,33 @@ class TropicalCog(commands.Cog, name="Tropical"):
         await self.post_tropical_product(product_id, raw_text or "", pil_prefix, source)
         return True
 
+    @discord.app_commands.command(
+        name="nwws_buffer",
+        description="Show last N NWWS messages in ring buffer (debug)",
+    )
+    @discord.app_commands.describe(count="Number to show (default 5)")
+    async def nwws_buffer_slash(self, interaction: discord.Interaction, count: int = 5):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            from cogs.nwws import NWWS_RING_BUFFER
+
+            entries = list(NWWS_RING_BUFFER)[-max(1, min(count, 50)) :]
+            if not entries:
+                await interaction.followup.send("Buffer is empty.", ephemeral=True)
+                return
+            lines = []
+            for e in entries:
+                pil = e.get("afos_pil", "?")
+                pid = e.get("product_id", "?")[-40:]
+                headline = e.get("headline", "")[:80]
+                lines.append("`{}` `{}` {}".format(pil, pid, headline))
+            await interaction.followup.send(
+                "Last {} NWWS messages:\n{}".format(len(entries), "\n".join(lines)),
+                ephemeral=True,
+            )
+        except Exception as ex:
+            await interaction.followup.send("Error: {}".format(ex), ephemeral=True)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(TropicalCog(bot))
