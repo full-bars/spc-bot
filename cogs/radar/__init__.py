@@ -465,13 +465,17 @@ class RadarCog(commands.Cog):
             color=discord.Color.blue(),
         )
         if product_value in ("tds", "ptds"):
-            embed.set_footer(text="NEXRAD Level II Archive · ⚠️ PTDS is experimental — do not rely on it for safety decisions")
+            embed.set_footer(
+                text="NEXRAD Level II Archive · ⚠️ PTDS is experimental — do not rely on it for safety decisions"
+            )
         else:
             embed.set_footer(text="NEXRAD Level II Archive")
 
         if show_rotation:
             rotation_field = _format_rotation_field(out_path.with_suffix(".rotation.json"))
-            embed.add_field(name="Rotation & Debris Signature (PTDS)", value=rotation_field, inline=False)
+            embed.add_field(
+                name="Rotation & Debris Signature (PTDS)", value=rotation_field, inline=False
+            )
 
         file_size_mb = out_path.stat().st_size / (1024 * 1024)
         if file_size_mb > 25:
@@ -494,8 +498,16 @@ class RadarCog(commands.Cog):
         if not current:
             matches = list(all_sites.items())[:25]
         else:
-            starts_with = [(c, n) for c, n in all_sites.items() if c.lower().startswith(current) or n.lower().startswith(current)]
-            contains = [(c, n) for c, n in all_sites.items() if (current in c.lower() or current in n.lower()) and (c, n) not in starts_with]
+            starts_with = [
+                (c, n)
+                for c, n in all_sites.items()
+                if c.lower().startswith(current) or n.lower().startswith(current)
+            ]
+            contains = [
+                (c, n)
+                for c, n in all_sites.items()
+                if (current in c.lower() or current in n.lower()) and (c, n) not in starts_with
+            ]
             matches = (starts_with + contains)[:25]
         return [Choice(name="{} — {}".format(code, name), value=code) for code, name in matches]
 
@@ -519,7 +531,12 @@ RADAR_GIF_BIN = next(
 
 
 async def _run_radar_cli(
-    site: str, product: str, frames: int, out_path: Path, range_km: float = 150.0, rotation: bool = False
+    site: str,
+    product: str,
+    frames: int,
+    out_path: Path,
+    range_km: float = 150.0,
+    rotation: bool = False,
 ):
     if RADAR_GIF_BIN is None:
         raise RuntimeError(
@@ -562,10 +579,29 @@ _ROTATION_DISPLAY = {
     "moderate_circulation": ("🟠", "Moderate Circulation"),
     "weak_circulation": ("🟡", "Weak Circulation"),
 }
-_ROTATION_RANK_ORDER = {"tvs": 0, "mesocyclone": 1, "moderate_circulation": 2, "weak_circulation": 3}
+_ROTATION_RANK_ORDER = {
+    "tvs": 0,
+    "mesocyclone": 1,
+    "moderate_circulation": 2,
+    "weak_circulation": 3,
+}
 _COMPASS_POINTS = [
-    "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
-    "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW",
+    "N",
+    "NNE",
+    "NE",
+    "ENE",
+    "E",
+    "ESE",
+    "SE",
+    "SSE",
+    "S",
+    "SSW",
+    "SW",
+    "WSW",
+    "W",
+    "WNW",
+    "NW",
+    "NNW",
 ]
 
 
@@ -606,7 +642,9 @@ def _format_rotation_field(sidecar_path: Path) -> str:
 
     lines = []
     if sites:
-        lines.append("**Current ({}):**".format(_fmt_z(current_time)) if current_time else "**Current:**")
+        lines.append(
+            "**Current ({}):**".format(_fmt_z(current_time)) if current_time else "**Current:**"
+        )
         for s in sorted(sites, key=lambda s: _ROTATION_RANK_ORDER.get(s["strength"], 9))[:5]:
             lines.append(_format_site_line(s))
     else:
@@ -623,7 +661,9 @@ def _format_rotation_field(sidecar_path: Path) -> str:
         )
         if peak_dv and peak_dv.get("time") != peak_vrot.get("time"):
             lines.append(
-                "**Peak ΔV:** {:.0f} m/s gate-to-gate @ {}".format(peak_dv["gtg_dv_mps"], _fmt_z(peak_dv["time"]))
+                "**Peak ΔV:** {:.0f} m/s gate-to-gate @ {}".format(
+                    peak_dv["gtg_dv_mps"], _fmt_z(peak_dv["time"])
+                )
             )
 
     tds_lines = _format_tds_timeline(data.get("tds_timeline", []))
@@ -651,10 +691,14 @@ def _format_tds_timeline(scans: list) -> list:
     peak = max(scans, key=lambda s: s["tds_score"])
     lines = ["**PTDS (debris signature) by scan:**"]
     lines.append(
-        "Peak: {} {:.0f}% @ {}".format(_tds_marker(peak["tds_score"]), peak["tds_score"], _fmt_z(peak["time"]))
+        "Peak: {} {:.0f}% @ {}".format(
+            _tds_marker(peak["tds_score"]), peak["tds_score"], _fmt_z(peak["time"])
+        )
     )
     for s in scans[-8:]:
-        lines.append("{} {} — {:.0f}%".format(_tds_marker(s["tds_score"]), _fmt_z(s["time"]), s["tds_score"]))
+        lines.append(
+            "{} {} — {:.0f}%".format(_tds_marker(s["tds_score"]), _fmt_z(s["time"]), s["tds_score"])
+        )
     lines.append(
         "-# ⚠️ PTDS is experimental and unvalidated — a low score does NOT rule out a tornado. "
         "Use official NWS warnings for safety decisions, not this number."
