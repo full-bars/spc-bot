@@ -108,15 +108,25 @@ async def _fetch_nhc_product(product_id: str) -> dict:
             body_start = i
             break
 
+    # The "Summary" section (location/movement/pressure) is bounded by the next
+    # section header — an all-caps line immediately followed by a dashed
+    # underline, e.g. "WATCHES AND WARNINGS\n--------------------". The
+    # summary header itself has the same dashed-underline shape, so start
+    # looking for the *next* one two lines after the summary header to skip
+    # over its own underline.
+    body_lines = lines[body_start:]
     summary_lines = []
-    in_summary = False
-    for line in lines[body_start:]:
-        if "SUMMARY OF" in line.upper() or "SUMMARY INFORMATION" in line.upper():
-            in_summary = True
-        if in_summary:
-            summary_lines.append(line)
-            if "FORECAST POSITIONS AND MAX WINDS" in line.upper():
-                break
+    for idx, line in enumerate(body_lines):
+        upper = line.strip().upper()
+        if "SUMMARY OF" in upper or "SUMMARY INFORMATION" in upper:
+            end = len(body_lines)
+            for j in range(idx + 2, len(body_lines) - 1):
+                underline = body_lines[j + 1].strip()
+                if underline and set(underline) == {"-"} and len(underline) > 3:
+                    end = j
+                    break
+            summary_lines = body_lines[idx:end]
+            break
 
     summary = "\n".join(summary_lines).strip() if summary_lines else None
 
@@ -197,24 +207,34 @@ class TropicalCog(commands.Cog, name="Tropical"):
             color=discord.Color.orange(),
             timestamp=datetime.now(timezone.utc),
         )
-
-        for line in (parsed.get("summary") or "").splitlines()[:5]:
-            clean = line.strip()
-            if clean:
-                embed.add_field(name="Summary", value=clean[:1024], inline=False)
-                break
-
         if parsed["summary"]:
-            full_summary = parsed["summary"][:2048]
-            embed.description = full_summary
-
+            embed.description = parsed["summary"][:2048]
         embed.set_footer(text=f"{source} | {product_id}")
 
         try:
-            await channel.send(embed=embed)
+            msg = await channel.send(embed=embed)
             logger.info(f"Posted tropical {product_type} for {storm_name or product_id}")
         except Exception as e:
             logger.exception(f"Failed to post tropical product: {e}")
+            return
+
+        thread_name = f"{storm_name or 'NHC'} {product_type}".strip()[:100]
+        thread = None
+        try:
+            thread = await msg.create_thread(name=thread_name, auto_archive_duration=1440)
+        except Exception as e:
+            logger.warning(f"Failed to create thread for {product_id}: {e}")
+
+        full_text_embed = discord.Embed(
+            title=f"Full Text — {product_type}",
+            description=parsed["raw_text"][:4096],
+            color=discord.Color.dark_gray(),
+        )
+        target = thread or channel
+        try:
+            await target.send(embed=full_text_embed)
+        except Exception as e:
+            logger.warning(f"Failed to post full text for {product_id}: {e}")
 
     async def route_from_product_id(
         self, product_id: str, raw_text: str = None, source: str = "IEMBot"
