@@ -170,10 +170,58 @@ fn main() {
     let mut tds_timeline: Vec<TdsScanOut> = Vec::new();
     let is_ptds = is_ptds_product(&args.product);
     for volume in &volumes {
+        // Rotation/TDS detection runs off velocity and dual-pol moments independent of
+        // the requested *display* product, so it must not be skipped just because that
+        // display moment (e.g. zdr/kdp/phidp) is missing on this particular scan below.
+        let rotation_sites = if args.rotation {
+            let deduped = dedup_repeated_tilts(volume);
+            let sites = detect_rotation_sites(&deduped);
+
+            if let Some(strongest) = sites
+                .iter()
+                .max_by(|a, b| a.vrot_mps.total_cmp(&b.vrot_mps))
+            {
+                if let Some((tds_cut_index, tds_grid)) = tds_score_grid(volume) {
+                    if let Some(tds_cut) = volume.cuts.get(tds_cut_index) {
+                        let range_km = (strongest.ground_range_m / 1000.0) as f32;
+                        if let Some(score) = sample_grid_max_near(
+                            tds_cut,
+                            &tds_grid,
+                            strongest.azimuth_deg,
+                            range_km,
+                            5.0,
+                            2.0,
+                        ) {
+                            tds_timeline.push(TdsScanOut {
+                                time: volume.volume_time.to_rfc3339(),
+                                tds_score: score,
+                                vrot_mps: strongest.vrot_mps,
+                                strength: strength_label(strongest.strength).to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+
+            for site in &sites {
+                all_detections.push((volume.volume_time, *site));
+            }
+            if latest_rotation
+                .as_ref()
+                .is_none_or(|(t, _)| volume.volume_time > *t)
+            {
+                latest_rotation = Some((volume.volume_time, sites.clone()));
+            }
+
+            Some(sites)
+        } else {
+            None
+        };
+
         let cache = match build_moment_cache(volume, is_ptds, &moment, &color_tables) {
             Some(c) => c,
             None => {
-                eprintln!("  Skipping volume: product unavailable");
+                eprintln!("  Skipping volume: product unavailable (rotation/TDS detection above still recorded)");
                 continue;
             }
         };
@@ -346,9 +394,7 @@ fn main() {
         // circulations in a messy line — cap full ring+label treatment to the top 6 by Vrot
         // (matches the embed's cap) and draw the rest as small unlabeled dots to avoid
         // overlapping rings and colliding labels at storm-scale zoom.
-        if args.rotation {
-            let deduped = dedup_repeated_tilts(volume);
-            let sites = detect_rotation_sites(&deduped);
+        if let Some(sites) = &rotation_sites {
             let mut ranked: Vec<&RotationSite> = sites.iter().collect();
             ranked.sort_by(|a, b| b.vrot_mps.total_cmp(&a.vrot_mps));
             for (i, site) in ranked.iter().enumerate() {
@@ -385,43 +431,6 @@ fn main() {
                 } else {
                     draw_filled_circle_mut(&mut img, (px as i32, py as i32), 2, color);
                 }
-            }
-            // TDS colocation: sample the debris-signature score at the strongest
-            // couplet's position so scan-by-scan confidence can be reported alongside it.
-            if let Some(strongest) = sites
-                .iter()
-                .max_by(|a, b| a.vrot_mps.total_cmp(&b.vrot_mps))
-            {
-                if let Some((tds_cut_index, tds_grid)) = tds_score_grid(volume) {
-                    if let Some(tds_cut) = volume.cuts.get(tds_cut_index) {
-                        let range_km = (strongest.ground_range_m / 1000.0) as f32;
-                        if let Some(score) = sample_grid_max_near(
-                            tds_cut,
-                            &tds_grid,
-                            strongest.azimuth_deg,
-                            range_km,
-                            5.0,
-                            2.0,
-                        ) {
-                            tds_timeline.push(TdsScanOut {
-                                time: volume.volume_time.to_rfc3339(),
-                                tds_score: score,
-                                vrot_mps: strongest.vrot_mps,
-                                strength: strength_label(strongest.strength).to_string(),
-                            });
-                        }
-                    }
-                }
-            }
-
-            for site in &sites {
-                all_detections.push((volume.volume_time, *site));
-            }
-            if latest_rotation
-                .as_ref()
-                .is_none_or(|(t, _)| volume.volume_time > *t)
-            {
-                latest_rotation = Some((volume.volume_time, sites));
             }
         }
 
