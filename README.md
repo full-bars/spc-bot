@@ -101,6 +101,7 @@ Work in progress. Actively developed in free time; expect behavior to evolve bet
 * [matplotlib](https://matplotlib.org)
 * [pytz](https://github.com/stub42/pytz)
 * [vad-plotter](https://github.com/tsupinie/vad-plotter) by Tim Supinie
+* [BowEcho](https://github.com/FahrenheitResearch/bowecho) by Fahrenheit Research
 * [slixmpp](https://github.com/sagarp/xmppasync) — NWWS-OI XMPP connection
 * [Cartopy](https://scitools.org.uk/cartopy) — Map projections
 * [SciPy](https://scipy.org) — Scientific computing
