@@ -19,7 +19,7 @@ from cogs.tropical import (
 
 
 def test_classify_product_matches_known_pil():
-    assert _classify_product("202607220600-KNHC-WTNT31-TCVAT1") == "ADVISORY"
+    assert _classify_product("202607220600-KNHC-WTNT31-TCPAT1") == "ADVISORY"
 
 
 def test_classify_product_returns_none_for_unknown_pil():
@@ -63,7 +63,7 @@ async def test_post_tropical_product_handles_missing_summary():
     with patch("cogs.tropical._fetch_nhc_product", AsyncMock(return_value=parsed)), patch(
         "cogs.tropical.get_state", AsyncMock(return_value=None)
     ):
-        await cog.post_tropical_product("202607220600-KNHC-WTNT31-TCVAT1", "", "ADVISORY")
+        await cog.post_tropical_product("202607220600-KNHC-WTNT31-TCPAT1", "", "ADVISORY")
 
     channel.send.assert_awaited_once()
 
@@ -85,6 +85,6 @@ async def test_post_tropical_product_posts_to_prod_channel():
     with patch("cogs.tropical._fetch_nhc_product", AsyncMock(return_value=parsed)), patch(
         "cogs.tropical.get_state", AsyncMock(return_value=None)
     ):
-        await cog.post_tropical_product("202607220600-KNHC-WTNT31-TCVAT1", "", "ADVISORY")
+        await cog.post_tropical_product("202607220600-KNHC-WTNT31-TCPAT1", "", "ADVISORY")
 
     bot.get_channel.assert_called_once_with(TROPICAL_CHANNEL_ID)

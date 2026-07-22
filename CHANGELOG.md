@@ -5,12 +5,13 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- **NHC Tropical Cyclone Auto-Posting**: New `cogs/tropical.py` auto-posts National Hurricane Center products (Advisory, Discussion, Tropical Weather Discussion, Tropical Weather Outlook, Update, Position Estimate, Probabilities) as they're issued, routed from the IEMBot NHC feed with NWWS XMPP and IEMBot botstalk as fallback sources. Posts include storm type/name detection, an emoji indicator, and a summary embed. Channel routing supports a runtime override (`warning_channel:tropical` state key), independent of any specific slash command.
+- **NHC Tropical Cyclone Auto-Posting**: New `cogs/tropical.py` auto-posts National Hurricane Center products (Public Advisory, Discussion, Tropical Weather Discussion, Tropical Weather Outlook, Update, Position Estimate, Watch/Warning Summary) as they're issued, routed from the IEMBot NHC feed with NWWS XMPP and IEMBot botstalk as fallback sources. Posts include storm type/name detection, an emoji indicator, and a summary embed. Channel routing supports a runtime override (`warning_channel:tropical` state key), independent of any specific slash command.
 - **`TROPICAL_CHANNEL_ID`**: New optional `.env` variable for the tropical products channel, defaulting to the existing hardcoded production channel if unset.
 
 ### Fixed
 - **Tropical Product Posting Crash**: `post_tropical_product` crashed with `AttributeError: 'NoneType' object has no attribute 'splitlines'` on every real NHC product, because most product types (anything without a "SUMMARY OF..." section) parse to `summary: None`, and `dict.get(key, default)` doesn't apply the default when the key is present with a `None` value. No tropical product had ever successfully posted before this fix.
 - **Tropical Products Posting to Dev Channel**: `cogs/tropical.py` posted to the hardcoded dev channel unconditionally. Now posts to the production tropical channel by default.
+- **Wrong NHC Product Labels**: `TCP` (the actual Public Advisory — "SUMMARY OF ... ADVISORY NUMBER X") was mislabeled "PROBABILITIES", and `TCV` (the Tropical Cyclone Watch/Warning summary product) was mislabeled "ADVISORY", swapping the two most common tropical products' titles. Confirmed live against Hurricane Fausto Advisory 14 and Tropical Storm Bertha Advisory 12, both of which posted as "NHC PROBABILITIES" instead of "NHC ADVISORY". Corrected per NHC's own product descriptions (nhc.noaa.gov/aboutnhcprod.shtml).
 
 ## [5.41.0] - 2026-07-19
 

@@ -70,13 +70,13 @@ def _extract_storm_name(text: str) -> str:
 
 
 NHC_PRODUCT_NAMES = {
-    "TCV": "ADVISORY",
+    "TCP": "ADVISORY",
     "TCD": "DISCUSSION",
     "TWD": "TROPICAL WEATHER DISCUSSION",
     "TWO": "TROPICAL WEATHER OUTLOOK",
     "TCU": "UPDATE",
     "TCE": "POSITION ESTIMATE",
-    "TCP": "PROBABILITIES",
+    "TCV": "WATCH/WARNING SUMMARY",
 }
 
 
