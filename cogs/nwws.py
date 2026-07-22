@@ -587,6 +587,17 @@ class NWWSCog(commands.Cog):
                     await reports_cog.post_report_now(product_id, raw_text, pil_prefix)
                     logger.info(f"Triggered {pil_prefix} via XMPP")
 
+            elif any(afos_pil.startswith(x) for x in ("TCV", "TCD", "TWD", "TCU")):
+                tropical_cog = self.bot.get_cog("Tropical")
+                if tropical_cog:
+                    pil_prefix = next(
+                        p for p in ("TCV", "TCD", "TWD", "TCU") if afos_pil.startswith(p)
+                    )
+                    await tropical_cog.post_tropical_product(
+                        product_id, raw_text, pil_prefix, source="NWWS"
+                    )
+                    logger.info(f"Triggered NHC {pil_prefix} via XMPP")
+
         except Exception as e:
             logger.exception(f"Error processing XMPP message: {e}")
 

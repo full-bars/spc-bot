@@ -373,6 +373,18 @@ class IEMBotCog(commands.Cog):
                     t = asyncio.create_task(self._handle_warning(product_id, pil_match.group(1)))
                     t.add_done_callback(_log_task_exception)
 
+                # Route NHC tropical products (TCV, TCD, TWD, TCU)
+                if any(pil in product_id.upper() for pil in ("-TCV", "-TCD", "-TWD", "-TCU")):
+                    tropical_cog = self.bot.get_cog("Tropical")
+                    if tropical_cog:
+                        text = await _fetch_product_text(product_id)
+                        t = asyncio.create_task(
+                            tropical_cog.post_tropical_product(
+                                product_id, text or "", source="IEMBot"
+                            )
+                        )
+                        t.add_done_callback(_log_task_exception)
+
             if new_seqnum > self.bot.state.iembot_botstalk_last_seqnum:
                 self.bot.state.iembot_botstalk_last_seqnum = new_seqnum
                 await set_state("iembot_botstalk_last_seqnum", str(new_seqnum))
