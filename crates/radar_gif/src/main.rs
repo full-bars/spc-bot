@@ -258,11 +258,16 @@ fn main() {
             if pixel[3] > 10 { img.put_pixel(px, py, *pixel); }
         }
 
-        // Rotation / mesocyclone-TVS markers
+        // Rotation / mesocyclone-TVS markers. `detect_rotation_sites` can return many weak
+        // circulations in a messy line — cap full ring+label treatment to the top 6 by Vrot
+        // (matches the embed's cap) and draw the rest as small unlabeled dots to avoid
+        // overlapping rings and colliding labels at storm-scale zoom.
         if args.rotation {
             let deduped = dedup_repeated_tilts(volume);
             let sites = detect_rotation_sites(&deduped);
-            for site in &sites {
+            let mut ranked: Vec<&RotationSite> = sites.iter().collect();
+            ranked.sort_by(|a, b| b.vrot_mps.total_cmp(&a.vrot_mps));
+            for (i, site) in ranked.iter().enumerate() {
                 let range_km = (site.ground_range_m / 1000.0) as f32;
                 if range_km > max_range_km { continue; }
                 let rad = site.azimuth_deg.to_radians();
@@ -270,14 +275,18 @@ fn main() {
                 let px = cx + radius_px * frac * rad.sin();
                 let py = cy - radius_px * frac * rad.cos();
                 let (color, marker_r) = rotation_marker_style(site.strength);
-                draw_hollow_circle_mut(&mut img, (px as i32, py as i32), marker_r, color);
-                draw_hollow_circle_mut(&mut img, (px as i32, py as i32), marker_r + 1, color);
-                let label = format!("{:.0}m/s", site.vrot_mps);
-                let label_x = (px + marker_r as f32 + 4.0) as i32;
-                let label_y = (py - 6.0) as i32;
-                let label_w = (label.len() as i32 * 7).max(24);
-                draw_filled_rect_mut(&mut img, Rect::at(label_x - 1, label_y - 1).of_size(label_w as u32, 15), LABEL_BG);
-                draw_text_mut(&mut img, color, label_x, label_y, small_scale, &font, &label);
+                if i < 6 {
+                    draw_hollow_circle_mut(&mut img, (px as i32, py as i32), marker_r, color);
+                    draw_hollow_circle_mut(&mut img, (px as i32, py as i32), marker_r + 1, color);
+                    let label = format!("{:.0}m/s", site.vrot_mps);
+                    let label_x = (px + marker_r as f32 + 4.0) as i32;
+                    let label_y = (py - 6.0) as i32;
+                    let label_w = (label.len() as i32 * 7).max(24);
+                    draw_filled_rect_mut(&mut img, Rect::at(label_x - 1, label_y - 1).of_size(label_w as u32, 15), LABEL_BG);
+                    draw_text_mut(&mut img, color, label_x, label_y, small_scale, &font, &label);
+                } else {
+                    draw_filled_circle_mut(&mut img, (px as i32, py as i32), 2, color);
+                }
             }
             // TDS colocation: sample the debris-signature score at the strongest
             // couplet's position so scan-by-scan confidence can be reported alongside it.

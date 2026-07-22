@@ -487,6 +487,18 @@ class RadarCog(commands.Cog):
                 "Generated but file too large to send. Try fewer frames.", ephemeral=True
             )
 
+    @radar_slash.autocomplete("site")
+    async def radar_site_autocomplete(self, interaction: discord.Interaction, current: str):
+        current = current.lower().strip()
+        all_sites = {**self.RADAR_SITES, **self.TDWR_SITES}
+        if not current:
+            matches = list(all_sites.items())[:25]
+        else:
+            starts_with = [(c, n) for c, n in all_sites.items() if c.lower().startswith(current) or n.lower().startswith(current)]
+            contains = [(c, n) for c, n in all_sites.items() if (current in c.lower() or current in n.lower()) and (c, n) not in starts_with]
+            matches = (starts_with + contains)[:25]
+        return [Choice(name="{} — {}".format(code, name), value=code) for code, name in matches]
+
     @tasks.loop(hours=1)
     async def periodic_cleanup(self):
         await cleanup_old_files(OUTPUT_DIR, CLEANUP_AGE_THRESHOLD)
