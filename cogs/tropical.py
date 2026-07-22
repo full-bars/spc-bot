@@ -7,13 +7,13 @@ from datetime import datetime, timezone
 import discord
 from discord.ext import commands
 
-from config import IEM_NWSTEXT_URL
+from config import IEM_NWSTEXT_URL, TROPICAL_CHANNEL_ID
 from utils.http import http_get_bytes
+from utils.state_store import get_state
 
 logger = logging.getLogger("spc_bot")
 
 DEV_CHANNEL_ID = 1336294580743704607
-PROD_CHANNEL_ID = 981540312688230420
 
 TROPICAL_PILS = {"TCV", "TCD", "TWD", "TCU", "TWO", "TCE", "TCP"}
 TROPICAL_OFFICES = {"KNHC", "KTPC", "PHFO"}
@@ -138,6 +138,24 @@ class TropicalCog(commands.Cog, name="Tropical"):
         self.bot = bot
         self._posted = set()
 
+    async def _resolve_channel(self):
+        """Return the channel to post tropical products to, or None if disabled."""
+        override = await get_state("warning_channel:tropical")
+        if override == "disabled":
+            return None
+        if override:
+            try:
+                channel = self.bot.get_channel(int(override))
+            except ValueError:
+                channel = None
+            if channel:
+                return channel
+            logger.warning(f"Tropical channel override {override} not found, using default")
+        channel = self.bot.get_channel(TROPICAL_CHANNEL_ID)
+        if not channel:
+            logger.warning(f"Tropical channel {TROPICAL_CHANNEL_ID} not found")
+        return channel
+
     async def post_tropical_product(
         self,
         product_id: str,
@@ -160,10 +178,8 @@ class TropicalCog(commands.Cog, name="Tropical"):
         if not parsed:
             return
 
-        channel_id = DEV_CHANNEL_ID
-        channel = self.bot.get_channel(channel_id)
+        channel = await self._resolve_channel()
         if not channel:
-            logger.warning(f"Tropical channel {channel_id} not found")
             return
 
         storm_type = parsed["storm_type"]
@@ -182,7 +198,7 @@ class TropicalCog(commands.Cog, name="Tropical"):
             timestamp=datetime.now(timezone.utc),
         )
 
-        for line in parsed.get("summary", "").splitlines()[:5]:
+        for line in (parsed.get("summary") or "").splitlines()[:5]:
             clean = line.strip()
             if clean:
                 embed.add_field(name="Summary", value=clean[:1024], inline=False)
