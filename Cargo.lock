@@ -2183,6 +2183,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "product_engine"
+version = "0.34.4"
+source = "git+https://github.com/FahrenheitResearch/bowecho#aee5574c6008cd581a91d4576bb89f629cfdfe33"
+dependencies = [
+ "radar_core",
+]
+
+[[package]]
 name = "profiling"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2411,6 +2419,7 @@ dependencies = [
  "image",
  "imageproc",
  "nexrad_io",
+ "product_engine",
  "quick-xml",
  "radar_core",
  "render2d",

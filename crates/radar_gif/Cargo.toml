@@ -9,6 +9,7 @@ color_tables = { git = "https://github.com/FahrenheitResearch/bowecho" }
 nexrad_io = { git = "https://github.com/FahrenheitResearch/bowecho" }
 data_source = { git = "https://github.com/FahrenheitResearch/bowecho" }
 render2d = { git = "https://github.com/FahrenheitResearch/bowecho" }
+product_engine = { git = "https://github.com/FahrenheitResearch/bowecho" }
 image = "0.25"
 imageproc = "0.25"
 ab_glyph = "0.2"

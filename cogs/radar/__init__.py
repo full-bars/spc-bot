@@ -3,6 +3,7 @@
 
 import asyncio
 import difflib
+import json
 import logging
 import re
 import time
@@ -385,6 +386,7 @@ class RadarCog(commands.Cog):
         product="Radar product to display",
         frames="Number of frames (default 6, max 20)",
         zoom="View range — tighter zoom shows more storm-scale detail (default Regional)",
+        show_rotation="Overlay mesocyclone/TVS rotation detection markers (Vrot, ΔV) and list findings (default on)",
     )
     @discord.app_commands.choices(
         product=[
@@ -395,6 +397,7 @@ class RadarCog(commands.Cog):
             Choice(name="Correlation Coefficient (CC)", value="cc"),
             Choice(name="Differential Phase (PHIDP)", value="phidp"),
             Choice(name="Specific KDP", value="kdp"),
+            Choice(name="PTDS (Probability of Debris Signature)", value="ptds"),
         ],
         zoom=[
             Choice(name="Storm-Scale (~75km) — couplets/TDS", value=75.0),
@@ -410,6 +413,7 @@ class RadarCog(commands.Cog):
         product: Choice[str] = None,
         frames: int = 6,
         zoom: Choice[float] = None,
+        show_rotation: bool = True,
     ):
         await interaction.response.defer(thinking=True)
 
@@ -432,10 +436,13 @@ class RadarCog(commands.Cog):
             return
 
         self.RADAR_GIF_CACHE.mkdir(parents=True, exist_ok=True)
-        out_path = self.RADAR_GIF_CACHE / "{}_{}_{}_{:.0f}km.gif".format(site, product_value, frames, range_km)
+        rot_suffix = "_rot" if show_rotation else ""
+        out_path = self.RADAR_GIF_CACHE / "{}_{}_{}_{:.0f}km{}.gif".format(
+            site, product_value, frames, range_km, rot_suffix
+        )
 
         try:
-            await _run_radar_cli(site, product_value, frames, out_path, range_km)
+            await _run_radar_cli(site, product_value, frames, out_path, range_km, show_rotation)
         except Exception as e:
             logger.exception("[RADAR] Failed to generate for {}: {}".format(site, e))
             await interaction.followup.send(
@@ -457,7 +464,14 @@ class RadarCog(commands.Cog):
             description="{} frames · {}".format(frames, zoom_label),
             color=discord.Color.blue(),
         )
-        embed.set_footer(text="NEXRAD Level II Archive")
+        if product_value in ("tds", "ptds"):
+            embed.set_footer(text="NEXRAD Level II Archive · ⚠️ PTDS is experimental — do not rely on it for safety decisions")
+        else:
+            embed.set_footer(text="NEXRAD Level II Archive")
+
+        if show_rotation:
+            rotation_field = _format_rotation_field(out_path.with_suffix(".rotation.json"))
+            embed.add_field(name="Rotation & Debris Signature (PTDS)", value=rotation_field, inline=False)
 
         file_size_mb = out_path.stat().st_size / (1024 * 1024)
         if file_size_mb > 25:
@@ -492,12 +506,14 @@ RADAR_GIF_BIN = next(
 )
 
 
-async def _run_radar_cli(site: str, product: str, frames: int, out_path: Path, range_km: float = 150.0):
+async def _run_radar_cli(
+    site: str, product: str, frames: int, out_path: Path, range_km: float = 150.0, rotation: bool = False
+):
     if RADAR_GIF_BIN is None:
         raise RuntimeError(
             "radar_gif binary not found (build with: cargo build --release -p radar_gif)"
         )
-    proc = await asyncio.create_subprocess_exec(
+    cmd = [
         str(RADAR_GIF_BIN),
         "--site",
         site,
@@ -509,6 +525,11 @@ async def _run_radar_cli(site: str, product: str, frames: int, out_path: Path, r
         str(range_km),
         "--output",
         str(out_path),
+    ]
+    if rotation:
+        cmd.append("--rotation")
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -521,6 +542,112 @@ async def _run_radar_cli(site: str, product: str, frames: int, out_path: Path, r
         stderr_text = stderr.decode() if stderr else "unknown error"
         logger.warning("[RADAR] CLI failed (exit {}): {}".format(proc.returncode, stderr_text))
         raise RuntimeError("radar_gif exited with code {}".format(proc.returncode))
+
+
+_ROTATION_DISPLAY = {
+    "tvs": ("🌪️", "TVS"),
+    "mesocyclone": ("🔴", "Mesocyclone"),
+    "moderate_circulation": ("🟠", "Moderate Circulation"),
+    "weak_circulation": ("🟡", "Weak Circulation"),
+}
+_ROTATION_RANK_ORDER = {"tvs": 0, "mesocyclone": 1, "moderate_circulation": 2, "weak_circulation": 3}
+_COMPASS_POINTS = [
+    "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+    "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW",
+]
+
+
+def _bearing_to_compass(deg: float) -> str:
+    idx = round(deg / 22.5) % 16
+    return _COMPASS_POINTS[idx]
+
+
+def _fmt_z(iso_time: str) -> str:
+    try:
+        dt = datetime.fromisoformat(iso_time)
+    except ValueError:
+        return iso_time
+    return dt.strftime("%H:%MZ")
+
+
+def _format_site_line(s: dict) -> str:
+    emoji, label = _ROTATION_DISPLAY.get(s["strength"], ("⚪", s["strength"]))
+    bearing = _bearing_to_compass(s["azimuth_deg"])
+    return "{} **{}** — Vrot {:.0f} m/s, ΔV {:.0f} m/s · {} @ {:.0f}km · {} tilts deep".format(
+        emoji, label, s["vrot_mps"], s["gtg_dv_mps"], bearing, s["range_km"], s["depth_tilts"]
+    )
+
+
+def _format_rotation_field(sidecar_path: Path) -> str:
+    if not sidecar_path.exists():
+        return "No rotation data (detection may have failed or found nothing)."
+    try:
+        data = json.loads(sidecar_path.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning("[RADAR] Failed to read rotation sidecar {}: {}".format(sidecar_path, e))
+        return "No rotation data available."
+
+    current_time = data.get("volume_time")
+    sites = data.get("sites", [])
+    peak_vrot = data.get("peak_vrot")
+    peak_dv = data.get("peak_dv")
+
+    lines = []
+    if sites:
+        lines.append("**Current ({}):**".format(_fmt_z(current_time)) if current_time else "**Current:**")
+        for s in sorted(sites, key=lambda s: _ROTATION_RANK_ORDER.get(s["strength"], 9))[:5]:
+            lines.append(_format_site_line(s))
+    else:
+        lines.append("No rotation in the most recent frame.")
+
+    # Only show a peak line if it's meaningfully distinct from the current listing
+    # (i.e. the strongest rotation in the loop happened on an earlier frame).
+    if peak_vrot and peak_vrot.get("time") != current_time:
+        emoji, label = _ROTATION_DISPLAY.get(peak_vrot["strength"], ("⚪", peak_vrot["strength"]))
+        lines.append(
+            "\n**Peak this loop:** {} {:.0f} m/s Vrot @ {} ({})".format(
+                emoji, peak_vrot["vrot_mps"], _fmt_z(peak_vrot["time"]), label
+            )
+        )
+        if peak_dv and peak_dv.get("time") != peak_vrot.get("time"):
+            lines.append(
+                "**Peak ΔV:** {:.0f} m/s gate-to-gate @ {}".format(peak_dv["gtg_dv_mps"], _fmt_z(peak_dv["time"]))
+            )
+
+    tds_lines = _format_tds_timeline(data.get("tds_timeline", []))
+    if tds_lines:
+        lines.append("")
+        lines.extend(tds_lines)
+
+    return "\n".join(lines)
+
+
+def _tds_marker(score: float) -> str:
+    if score >= 50:
+        return "🔴"
+    if score >= 25:
+        return "🟠"
+    return "⚪"
+
+
+def _format_tds_timeline(scans: list) -> list:
+    """PTDS (probability of tornadic debris signature) sampled at each scan's
+    strongest couplet — reflectivity+CC+ZDR based, independent of the Vrot/ΔV
+    numbers above. Scores are 0-100; shown per-scan so a rising trend is visible."""
+    if not scans:
+        return []
+    peak = max(scans, key=lambda s: s["tds_score"])
+    lines = ["**PTDS (debris signature) by scan:**"]
+    lines.append(
+        "Peak: {} {:.0f}% @ {}".format(_tds_marker(peak["tds_score"]), peak["tds_score"], _fmt_z(peak["time"]))
+    )
+    for s in scans[-8:]:
+        lines.append("{} {} — {:.0f}%".format(_tds_marker(s["tds_score"]), _fmt_z(s["time"]), s["tds_score"]))
+    lines.append(
+        "-# ⚠️ PTDS is experimental and unvalidated — a low score does NOT rule out a tornado. "
+        "Use official NWS warnings for safety decisions, not this number."
+    )
+    return lines
 
 
 async def setup(bot: commands.Bot):
