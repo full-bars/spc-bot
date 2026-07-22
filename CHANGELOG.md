@@ -13,6 +13,9 @@ All notable changes to this project will be documented in this file.
 - **Mesocyclone/TVS Rotation Detection**: `/radar` now runs BowEcho's operational rotation-detection algorithm (Stumpf/Mitchell) on every frame by default, overlaying color-coded markers (weak circulation through TVS) with Vrot labels, and reporting the loop's peak Vrot/ΔV (with timestamp) in the embed even when the strongest rotation occurred on an earlier frame than the most recent one.
 - **PTDS (Probability of Tornadic Debris Signature)**: New `/radar` product choice combining reflectivity, correlation coefficient, and differential reflectivity into a single 0–100% debris-signature confidence score, rendered with a dedicated probability color scale. Score is also sampled at each scan's strongest detected couplet and reported scan-by-scan in the embed. PTDS is explicitly experimental — the embed carries a visible disclaimer and a low score should not be read as ruling out a tornado.
 
+### Fixed
+- **Missing `beautifulsoup4` Dependency**: `sounderpy`'s ACARS data module imports `bs4` directly but never declares it as a dependency, and the package was only ever present transitively. Pinned `beautifulsoup4` explicitly in `requirements.txt` so a fresh install (e.g. a rebuilt CI image) doesn't break every sounding-related test with `ModuleNotFoundError`.
+
 ## [5.41.0] - 2026-07-19
 
 ### Added
