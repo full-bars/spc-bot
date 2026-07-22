@@ -27,6 +27,18 @@ dependency via pip.
 
 ---
 
+## BowEcho
+
+NEXRAD radar decoding and rendering for `/radar` uses several crates from
+[BowEcho](https://github.com/FahrenheitResearch/bowecho) by
+[Fahrenheit Research](https://github.com/FahrenheitResearch), used under the
+MIT License.
+
+No modifications were made to the BowEcho source. It is used as a dependency
+via Cargo (git).
+
+---
+
 ## Data Sources & Acknowledgements
 
 This project relies heavily on the incredible data and services provided by the meteorological community:
