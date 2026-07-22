@@ -75,10 +75,10 @@ fn main() {
 
     let state_polys = load_state_polys();
     let site_coords = load_site_coords();
-    let (radar_lat, radar_lon) = site_coords
-        .get(&site.as_str())
-        .copied()
-        .unwrap_or((35.333, -97.278));
+    let (radar_lat, radar_lon) = site_coords.get(&site.as_str()).copied().unwrap_or_else(|| {
+        eprintln!("Warning: unknown site '{site}', geography will be misaligned");
+        (35.333, -97.278)
+    });
 
     // Fetch volumes: try realtime first, fall back to archive
     let cache_dir = Path::new(CACHE_DIR);
@@ -129,7 +129,10 @@ fn main() {
 
     // Realtime is fetched first (newest) and archive fill-in appended after,
     // so the vec isn't chronological — sort oldest-to-newest for correct GIF playback order.
+    // The realtime chunk and the archive's most recent object can both reference the same
+    // underlying volume, so dedup by timestamp too or the GIF gets a visually "stuck" frame.
     volumes.sort_by_key(|v| v.volume_time);
+    volumes.dedup_by_key(|v| v.volume_time);
 
     let w = args.width.max(64);
     let h = args.height.max(64);

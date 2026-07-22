@@ -437,8 +437,11 @@ class RadarCog(commands.Cog):
 
         self.RADAR_GIF_CACHE.mkdir(parents=True, exist_ok=True)
         rot_suffix = "_rot" if show_rotation else ""
-        out_path = self.RADAR_GIF_CACHE / "{}_{}_{}_{:.0f}km{}.gif".format(
-            site, product_value, frames, range_km, rot_suffix
+        # Unique per invocation (interaction.id) — out_path is never reused as a cache (every
+        # call regenerates), so a shared filename only creates a collision risk between
+        # concurrent requests, not a cache hit.
+        out_path = self.RADAR_GIF_CACHE / "{}_{}_{}_{:.0f}km{}_{}.gif".format(
+            site, product_value, frames, range_km, rot_suffix, interaction.id
         )
 
         try:
@@ -514,6 +517,7 @@ class RadarCog(commands.Cog):
     @tasks.loop(hours=1)
     async def periodic_cleanup(self):
         await cleanup_old_files(OUTPUT_DIR, CLEANUP_AGE_THRESHOLD)
+        await cleanup_old_files(self.RADAR_GIF_CACHE, CLEANUP_AGE_THRESHOLD)
 
 
 RADAR_GIF_BIN = next(
@@ -566,7 +570,12 @@ async def _run_radar_cli(
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
     except asyncio.TimeoutError:
         proc.kill()
+        await proc.wait()
         raise RuntimeError("Radar generation timed out after 180s")
+    except asyncio.CancelledError:
+        proc.kill()
+        await proc.wait()
+        raise
     if proc.returncode != 0:
         stderr_text = stderr.decode() if stderr else "unknown error"
         logger.warning("[RADAR] CLI failed (exit {}): {}".format(proc.returncode, stderr_text))
