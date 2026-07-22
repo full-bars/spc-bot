@@ -12,6 +12,9 @@ Authority Sequence:
 3. API Polling (Tertiary Safety Net)
 """
 
+from collections import deque
+from datetime import datetime, timezone
+
 import asyncio
 import logging
 import re
@@ -27,6 +30,15 @@ from slixmpp.xmlstream import ElementBase, register_stanza_plugin
 from config import NWWS_FIREHOSE_LOG, NWWS_PASSWORD, NWWS_SERVER, NWWS_USER
 
 logger = logging.getLogger("spc_bot")
+
+# Ring buffer for the last N NWWS messages (for testing/debugging)
+NWWS_RING_BUFFER = deque(maxlen=200)
+
+
+def ring_buffer_snapshot():
+    """Return a list of recent NWWS messages for inspection."""
+    return list(NWWS_RING_BUFFER)
+
 
 # Rust core fallback
 try:
@@ -492,6 +504,20 @@ class NWWSCog(commands.Cog):
 
             issue_str = payload["issue"] or time.strftime("%Y%m%d%H%M", time.gmtime())
             product_id = normalize_product_id(office, ttaaii, afos_pil, issue_str)
+
+            # Ring buffer for debugging
+            NWWS_RING_BUFFER.append(
+                {
+                    "ts": received_at.isoformat()
+                    if hasattr(received_at, "isoformat")
+                    else str(received_at),
+                    "product_id": product_id,
+                    "afos_pil": afos_pil,
+                    "office": office,
+                    "ttaaii": ttaaii,
+                    "headline": (raw_text or "")[:120].replace("\n", " ").strip(),
+                }
+            )
 
             if not is_archived:
                 issue_val = payload["issue"] or issue_str
