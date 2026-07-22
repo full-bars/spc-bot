@@ -379,7 +379,8 @@ class IEMBotCog(commands.Cog):
 
                 # Route NHC tropical products
                 if any(
-                    pil in product_id.upper() for pil in ("-TCV", "-TCD", "-TWD", "-TCU", "-TWO")
+                    pil in product_id.upper()
+                    for pil in ("-TCV", "-TCD", "-TWD", "-TCU", "-TWO", "-TCE", "-TCP")
                 ):
                     tropical_cog = self.bot.get_cog("Tropical")
                     if tropical_cog:

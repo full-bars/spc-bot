@@ -15,7 +15,7 @@ logger = logging.getLogger("spc_bot")
 DEV_CHANNEL_ID = 1336294580743704607
 PROD_CHANNEL_ID = 981540312688230420
 
-TROPICAL_PILS = {"TCV", "TCD", "TWD", "TCU"}
+TROPICAL_PILS = {"TCV", "TCD", "TWD", "TCU", "TWO", "TCE", "TCP"}
 TROPICAL_OFFICES = {"KNHC", "KTPC", "PHFO"}
 
 _NHC_LABEL_RE = re.compile(
@@ -69,17 +69,22 @@ def _extract_storm_name(text: str) -> str:
     return None
 
 
+NHC_PRODUCT_NAMES = {
+    "TCV": "ADVISORY",
+    "TCD": "DISCUSSION",
+    "TWD": "TROPICAL WEATHER DISCUSSION",
+    "TWO": "TROPICAL WEATHER OUTLOOK",
+    "TCU": "UPDATE",
+    "TCE": "POSITION ESTIMATE",
+    "TCP": "PROBABILITIES",
+}
+
+
 def _classify_product(product_id: str) -> str:
-    """Determine product type from product_id."""
     pid = product_id.upper()
-    if "TCV" in pid:
-        return "ADVISORY"
-    if "TCD" in pid:
-        return "DISCUSSION"
-    if "TWD" in pid:
-        return "OUTLOOK"
-    if "TCU" in pid:
-        return "UPDATE"
+    for pil, name in NHC_PRODUCT_NAMES.items():
+        if pil in pid:
+            return name
     return None
 
 
