@@ -377,8 +377,10 @@ class IEMBotCog(commands.Cog):
                     t = asyncio.create_task(self._handle_warning(product_id, pil_match.group(1)))
                     t.add_done_callback(_log_task_exception)
 
-                # Route NHC tropical products (TCV, TCD, TWD, TCU)
-                if any(pil in product_id.upper() for pil in ("-TCV", "-TCD", "-TWD", "-TCU")):
+                # Route NHC tropical products
+                if any(
+                    pil in product_id.upper() for pil in ("-TCV", "-TCD", "-TWD", "-TCU", "-TWO")
+                ):
                     tropical_cog = self.bot.get_cog("Tropical")
                     if tropical_cog:
                         text = await _fetch_product_text(product_id)
