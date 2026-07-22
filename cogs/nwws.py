@@ -12,8 +12,6 @@ Authority Sequence:
 3. API Polling (Tertiary Safety Net)
 """
 
-from collections import deque
-
 import asyncio
 import logging
 import re
@@ -30,13 +28,23 @@ from config import NWWS_FIREHOSE_LOG, NWWS_PASSWORD, NWWS_SERVER, NWWS_USER
 
 logger = logging.getLogger("spc_bot")
 
-# Ring buffer for the last N NWWS messages (for testing/debugging)
-NWWS_RING_BUFFER = deque(maxlen=200)
+# Product metadata log (separate from firehose raw-text dump)
+_NWWS_PRODUCT_LOG = None
 
 
-def ring_buffer_snapshot():
-    """Return a list of recent NWWS messages for inspection."""
-    return list(NWWS_RING_BUFFER)
+def _ensure_product_log():
+    global _NWWS_PRODUCT_LOG
+    if _NWWS_PRODUCT_LOG is None:
+        import logging
+
+        _NWWS_PRODUCT_LOG = logging.getLogger("nwws_products")
+        _NWWS_PRODUCT_LOG.setLevel(logging.INFO)
+        handler = logging.handlers.RotatingFileHandler(
+            "cache/nwws_products.log", maxBytes=5 * 1024 * 1024, backupCount=2
+        )
+        handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+        _NWWS_PRODUCT_LOG.addHandler(handler)
+    return _NWWS_PRODUCT_LOG
 
 
 # Rust core fallback
@@ -504,19 +512,13 @@ class NWWSCog(commands.Cog):
             issue_str = payload["issue"] or time.strftime("%Y%m%d%H%M", time.gmtime())
             product_id = normalize_product_id(office, ttaaii, afos_pil, issue_str)
 
-            # Ring buffer for debugging
-            NWWS_RING_BUFFER.append(
-                {
-                    "ts": received_at.isoformat()
-                    if hasattr(received_at, "isoformat")
-                    else str(received_at),
-                    "product_id": product_id,
-                    "afos_pil": afos_pil,
-                    "office": office,
-                    "ttaaii": ttaaii,
-                    "headline": (raw_text or "")[:120].replace("\n", " ").strip(),
-                }
-            )
+            try:
+                headline = (raw_text or "")[:120].replace("\n", " ").strip()
+                _ensure_product_log().info(
+                    "%s | %s | %s | %s | %s", product_id, afos_pil, office, ttaaii, headline
+                )
+            except Exception:
+                pass
 
             if not is_archived:
                 issue_val = payload["issue"] or issue_str
