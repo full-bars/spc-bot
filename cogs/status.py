@@ -920,13 +920,12 @@ class StatusCog(commands.Cog):
             inline=True,
         )
 
-        # Warning Routing
+        # Channel Routing
         embed.add_field(
-            name="⚙️ Warning Routing",
+            name="⚙️ Channel Routing",
             value=(
-                "`/enablewarnings` - Route a warning type to a channel\n"
-                "`/disablewarnings` - Stop posting a warning type\n"
-                "`/displaysetup` - Show current routing config"
+                "`/channels assign` - Route a product type to a channel (or unassign it)\n"
+                "`/channels list` - Show current routing config"
             ),
             inline=True,
         )

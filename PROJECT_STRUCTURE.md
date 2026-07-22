@@ -56,7 +56,7 @@ spc-bot/
 │   ├── watch_fetch.py       # Watch data fetching and zone parsing
 │   ├── watch_format.py      # Watch formatting utilities
 │   ├── warnings.py          # NWS VTEC warning monitoring (SVR, TOR, FFW) — polling & deduplication logic
-│   ├── warning_channels.py  # Slash commands for per-type warning channel routing (/enablewarnings, /displaysetup, /disablewarnings)
+│   ├── warning_channels.py  # Slash commands for per-product-type channel routing (/channels assign, /channels list)
 │   ├── tropical.py          # NHC tropical cyclone product auto-poster (TCV, TCD, TWD, TWO, TCU, TCE, TCP) from IEMBot/NWWS/botstalk
 │   ├── warning_format.py    # Warning styling, narrative extraction, URL generation (decoupled from warnings.py)
 │   ├── warning_ui.py        # Discord UI views for tornado data: EnvironmentalView, TornadoPhotoView, TornadoDashboardView

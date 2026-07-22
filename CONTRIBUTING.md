@@ -15,15 +15,14 @@ The following variables are required or optional in `.env`:
 | `SPC_CHANNEL_ID` | Receives all severe weather alerts — SPC outlooks (Days 1–3), Day 4–8 outlooks, mesoscale discussions, watch alerts and cancellations, and bot health alerts from the watchdog |
 | `MODELS_CHANNEL_ID` | Receives model/forecast graphics — SCP twice-daily posts, CSU-MLP daily forecasts, and NCAR WxNext2 daily forecasts |
 | `WARNINGS_CHANNEL_ID` | (Optional) Receives real-time NWS warning embeds (TOR, SVR, FFW, SPS) and local storm reports. Defaults to `SPC_CHANNEL_ID` if not set. Overridden by per-type channels if set. |
-| `TOR_CHANNEL_ID` | (Optional) Tornado warning posts. Defaults to `WARNINGS_CHANNEL_ID` if not set. Configurable at runtime via `/enablewarnings`. |
-| `SVR_CHANNEL_ID` | (Optional) Severe thunderstorm warning posts. Defaults to `WARNINGS_CHANNEL_ID` if not set. Configurable at runtime via `/enablewarnings`. |
-| `FFW_CHANNEL_ID` | (Optional) Flash flood warning posts. Defaults to `WARNINGS_CHANNEL_ID` if not set. Configurable at runtime via `/enablewarnings`. |
-| `SPS_CHANNEL_ID` | (Optional) Special weather statement posts. Defaults to `WARNINGS_CHANNEL_ID` if not set. Configurable at runtime via `/enablewarnings`. |
+| `TOR_CHANNEL_ID` | (Optional) Tornado warning posts. Defaults to `WARNINGS_CHANNEL_ID` if not set. Configurable at runtime via `/channels assign`. |
+| `SVR_CHANNEL_ID` | (Optional) Severe thunderstorm warning posts. Defaults to `WARNINGS_CHANNEL_ID` if not set. Configurable at runtime via `/channels assign`. |
+| `FFW_CHANNEL_ID` | (Optional) Flash flood warning posts. Defaults to `WARNINGS_CHANNEL_ID` if not set. Configurable at runtime via `/channels assign`. |
+| `SPS_CHANNEL_ID` | (Optional) Special weather statement posts. Defaults to `WARNINGS_CHANNEL_ID` if not set. Configurable at runtime via `/channels assign`. |
 | `SURVEYS_CHANNEL_ID` | (Optional) Damage survey and DAT posts (tornado ratings). Defaults to `WARNINGS_CHANNEL_ID` if not set. |
 | `SOUNDING_CHANNEL_ID` | (Optional) Receives auto-posted sounding plots near active watches. Defaults to `SPC_CHANNEL_ID` if not set. |
 | `HEALTH_CHANNEL_ID` | (Optional) Receives bot health alerts (watchdog degraded, task failures). Defaults to `SPC_CHANNEL_ID` if not set. |
 | `DEV_CHANNEL_ID` | (Optional) Receives watchdog probe-degradation alerts (2/3 warning and session-reset confirmation). Defaults to `HEALTH_CHANNEL_ID` if not set. |
-| `TROPICAL_CHANNEL_ID` | (Optional) Receives NHC tropical cyclone product posts. Defaults to a hardcoded production channel if not set. |
 
 Slash commands can be used from any channel — they always respond ephemerally
 or inline where invoked, not into the configured channels.
@@ -51,9 +50,8 @@ or inline where invoked, not into the configured channels.
 | `/recenttornadoes` | List confirmed tornadoes via an interactive, chronological calendar-style dashboard |
 | `/sigtor` | List significant (EF2+) tornadoes via the interactive dashboard |
 | `/archive` | Search the tornado environmental forensics archive by radar and/or date |
-| `/enablewarnings` | Configure per-type warning channels (TOR, SVR, FFW, SPS) with a multi-select interface |
-| `/displaysetup` | Show the current warning channel routing configuration |
-| `/disablewarnings` | Disable all warning routing overrides and revert to static `.env` config |
+| `/channels assign` | Route a product type (TOR, SVR, FFW, SPS, NHC Tropical) to a channel. Omit the channel to stop posting that type entirely. |
+| `/channels list` | Show the current product channel routing configuration |
 
 ### Model Forecasts
 | Command | Description |
