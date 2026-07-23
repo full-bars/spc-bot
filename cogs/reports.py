@@ -363,7 +363,9 @@ class ReportsCog(commands.Cog):
         )
         embed.set_footer(text=f"{office} PNS | {product_id}")
 
-        msg = await safe_send(channel, context=f"PNS damage survey ({rating_str})", embed=embed, view=view)
+        msg = await safe_send(
+            channel, context=f"PNS damage survey ({rating_str})", embed=embed, view=view
+        )
         if not msg:
             return
 

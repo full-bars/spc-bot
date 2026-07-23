@@ -251,7 +251,9 @@ class TropicalCog(commands.Cog, name="Tropical"):
             embed.description = parsed["summary"][:2048]
         embed.set_footer(text=f"{source} | {product_id}")
 
-        msg = await safe_send(channel, context=f"tropical {product_type} ({product_id})", embed=embed)
+        msg = await safe_send(
+            channel, context=f"tropical {product_type} ({product_id})", embed=embed
+        )
         if not msg:
             return
         logger.info(f"Posted tropical {product_type} for {storm_name or product_id}")
@@ -274,9 +276,7 @@ class TropicalCog(commands.Cog, name="Tropical"):
             color=discord.Color.dark_gray(),
         )
         target = thread or channel
-        await safe_send(
-            target, context=f"tropical full text ({product_id})", embed=full_text_embed
-        )
+        await safe_send(target, context=f"tropical full text ({product_id})", embed=full_text_embed)
 
     async def route_from_product_id(
         self, product_id: str, raw_text: str = None, source: str = "IEMBot"

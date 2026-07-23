@@ -267,7 +267,9 @@ class WarningsCog(commands.Cog):
                 logger.error(f"Failed to fetch user {uid} for subscription alert: {e}")
                 continue
             if user:
-                await safe_send(user, context=f"warning subscription alert to user {uid}", embed=embed)
+                await safe_send(
+                    user, context=f"warning subscription alert to user {uid}", embed=embed
+                )
 
     # ── iembot fast-trigger path ───────────────────────────────────────────
     #

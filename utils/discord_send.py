@@ -24,9 +24,7 @@ async def safe_send(channel, *, context: str, **send_kwargs):
     try:
         return await channel.send(**send_kwargs)
     except discord.Forbidden as e:
-        logger.error(
-            f"Missing permissions to post {context} in #{channel.id} ({channel}): {e}"
-        )
+        logger.error(f"Missing permissions to post {context} in #{channel.id} ({channel}): {e}")
         return None
     except Exception as e:
         logger.exception(f"Failed to post {context} in #{channel.id} ({channel}): {e}")
