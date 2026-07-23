@@ -29,3 +29,7 @@ chrono = "0.4.45"
 [features]
 extension-module = ["pyo3/extension-module"]
 default = ["extension-module"]
+
+[workspace]
+members = ["crates/radar_gif"]
+resolver = "3"

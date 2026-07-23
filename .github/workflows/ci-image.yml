@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'requirements.txt'
       - 'requirements-dev.txt'
       - 'Dockerfile.ci'
       - '.github/workflows/ci-image.yml'
