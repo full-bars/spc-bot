@@ -24,4 +24,5 @@ ALL_EXTENSIONS = [
     "cogs.verification",
     "cogs.subscriptions",
     "cogs.radar_history",
+    "cogs.tropical",
 ]

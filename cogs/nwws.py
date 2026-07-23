@@ -28,6 +28,25 @@ from config import NWWS_FIREHOSE_LOG, NWWS_PASSWORD, NWWS_SERVER, NWWS_USER
 
 logger = logging.getLogger("spc_bot")
 
+# Product metadata log (separate from firehose raw-text dump)
+_NWWS_PRODUCT_LOG = None
+
+
+def _ensure_product_log():
+    global _NWWS_PRODUCT_LOG
+    if _NWWS_PRODUCT_LOG is None:
+        import logging
+
+        _NWWS_PRODUCT_LOG = logging.getLogger("nwws_products")
+        _NWWS_PRODUCT_LOG.setLevel(logging.INFO)
+        handler = logging.handlers.RotatingFileHandler(
+            "cache/nwws_products.log", maxBytes=5 * 1024 * 1024, backupCount=2
+        )
+        handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+        _NWWS_PRODUCT_LOG.addHandler(handler)
+    return _NWWS_PRODUCT_LOG
+
+
 # Rust core fallback
 try:
     import spc_rust_core
@@ -493,6 +512,14 @@ class NWWSCog(commands.Cog):
             issue_str = payload["issue"] or time.strftime("%Y%m%d%H%M", time.gmtime())
             product_id = normalize_product_id(office, ttaaii, afos_pil, issue_str)
 
+            try:
+                headline = (raw_text or "")[:120].replace("\n", " ").strip()
+                _ensure_product_log().info(
+                    "%s | %s | %s | %s | %s", product_id, afos_pil, office, ttaaii, headline
+                )
+            except Exception:
+                pass
+
             if not is_archived:
                 issue_val = payload["issue"] or issue_str
                 try:
@@ -586,6 +613,18 @@ class NWWSCog(commands.Cog):
                     pil_prefix = "LSR" if afos_pil.startswith("LSR") else "PNS"
                     await reports_cog.post_report_now(product_id, raw_text, pil_prefix)
                     logger.info(f"Triggered {pil_prefix} via XMPP")
+
+            elif any(
+                afos_pil.startswith(x) for x in ("TCV", "TCD", "TWD", "TCU", "TWO", "TCE", "TCP")
+            ):
+                tropical_cog = self.bot.get_cog("Tropical")
+                if tropical_cog:
+                    nhc_pils = ("TCV", "TCD", "TWD", "TCU", "TWO", "TCE", "TCP")
+                    pil_prefix = next(p for p in nhc_pils if afos_pil.startswith(p))
+                    await tropical_cog.post_tropical_product(
+                        product_id, raw_text, pil_prefix, source="NWWS"
+                    )
+                    logger.info(f"Triggered NHC {pil_prefix} via XMPP")
 
         except Exception as e:
             logger.exception(f"Error processing XMPP message: {e}")
