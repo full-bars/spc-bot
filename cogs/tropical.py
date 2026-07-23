@@ -22,29 +22,50 @@ _NHC_LABEL_RE = re.compile(
     r"(?:NATIONAL HURRICANE CENTER|NHC|TROPICAL|HURRICANE|TROPICAL STORM)", re.IGNORECASE
 )
 
-STORM_EMOJI = {
-    "TROPICAL DEPRESSION": "☁️",
-    "TROPICAL STORM": "🌧️",
-    "HURRICANE": "🌀",
-    "MAJOR HURRICANE": "⚠️🌀⚠️",
-    "POTENTIAL TROPICAL CYCLONE": "⚠️",
-    "POST-TROPICAL CYCLONE": "🌬️",
-    "SUBTROPICAL DEPRESSION": "☁️",
-    "SUBTROPICAL STORM": "🌧️",
-    "REMNANTS": "💨",
+SAFFIR_SIMPSON_COLORS = {
+    "TD": 0x5DBAFF,
+    "TS": 0x00FBF4,
+    "CAT1": 0xFFFFCD,
+    "CAT2": 0xFEE775,
+    "CAT3": 0xFFC140,
+    "CAT4": 0xFF8F21,
+    "CAT5": 0xFF6060,
 }
 
-STORM_COLORS = {
-    "TROPICAL DEPRESSION": discord.Color.from_str("#6b7b8d"),
-    "TROPICAL STORM": discord.Color.from_str("#f5d76e"),
-    "SUBTROPICAL DEPRESSION": discord.Color.from_str("#6b7b8d"),
-    "SUBTROPICAL STORM": discord.Color.from_str("#f5d76e"),
-    "HURRICANE": discord.Color.from_str("#f39c12"),
-    "MAJOR HURRICANE": discord.Color.from_str("#e74c3c"),
-    "POTENTIAL TROPICAL CYCLONE": discord.Color.from_str("#d35400"),
-    "POST-TROPICAL CYCLONE": discord.Color.from_str("#95a5a6"),
-    "REMNANTS": discord.Color.from_str("#7f8c8d"),
+SAFFIR_EMOJI = {
+    "TD": "☁️",
+    "TS": "🌧️",
+    "CAT1": "🌀",
+    "CAT2": "🌀",
+    "CAT3": "⚠️🌀⚠️",
+    "CAT4": "⚠️🌀⚠️",
+    "CAT5": "⚠️🌀⚠️",
 }
+
+
+def _winds_to_category(wind_mph: float) -> str:
+    if wind_mph < 39:
+        return "TD"
+    if wind_mph < 74:
+        return "TS"
+    if wind_mph < 96:
+        return "CAT1"
+    if wind_mph < 111:
+        return "CAT2"
+    if wind_mph < 130:
+        return "CAT3"
+    if wind_mph < 157:
+        return "CAT4"
+    return "CAT5"
+
+
+def _parse_max_wind(text: str) -> float | None:
+    """Extract maximum sustained wind speed in MPH from advisory text."""
+    m = re.search(r"MAXIMUM\s+SUSTAINED\s+WINDS[\.\s:]+?(\d+)\s*MPH", text, re.IGNORECASE)
+    if m:
+        return float(m.group(1))
+    return None
+
 
 STORM_TYPE_ORDER = [
     "REMNANTS",
@@ -206,15 +227,25 @@ class TropicalCog(commands.Cog, name="Tropical"):
 
         storm_type = parsed["storm_type"]
         storm_name = parsed["storm_name"]
-        emoji = STORM_EMOJI.get(storm_type, "🌀")
+        wind_mph = _parse_max_wind(parsed["raw_text"])
+        ss_cat = _winds_to_category(wind_mph) if wind_mph else None
+
+        emoji = SAFFIR_EMOJI.get(ss_cat or "", "🌀")
+        embed_color = SAFFIR_SIMPSON_COLORS.get(ss_cat or "", 0xF39C12)
 
         title = f"{emoji} NHC {product_type}"
         if storm_name:
             title += f" — {storm_name}"
-        if storm_type:
-            title += f" ({storm_type})"
-
-        embed_color = STORM_COLORS.get(storm_type, discord.Color.orange())
+        category_label = storm_type or ""
+        if ss_cat and ss_cat.startswith("CAT"):
+            cat_num = ss_cat.replace("CAT", "")
+            category_label = f"Cat {cat_num} {storm_type}" if storm_type else f"Cat {cat_num}"
+        elif ss_cat == "TS":
+            category_label = "Tropical Storm"
+        elif ss_cat == "TD":
+            category_label = "Tropical Depression"
+        if category_label:
+            title += f" ({category_label})"
         embed = discord.Embed(
             title=title,
             color=embed_color,
