@@ -457,13 +457,8 @@ fn main() {
         frames.push(img);
     }
 
-    if frames.is_empty() {
-        eprintln!("No frames could be rendered");
-        std::process::exit(1);
-    }
-    encode_gif(&frames, &args.output, args.delay);
-    println!("Wrote {} frames to {}", frames.len(), args.output.display());
-
+    // Write rotation sidecar BEFORE the empty-frames exit so detections
+    // are preserved even when no displayable moment exists.
     if args.rotation {
         if let Some((volume_time, sites)) = latest_rotation {
             let out: Vec<RotationSiteOut> = sites.iter().map(rotation_site_out).collect();
@@ -498,6 +493,13 @@ fn main() {
             }
         }
     }
+
+    if frames.is_empty() {
+        eprintln!("No frames could be rendered");
+        std::process::exit(1);
+    }
+    encode_gif(&frames, &args.output, args.delay);
+    println!("Wrote {} frames to {}", frames.len(), args.output.display());
 }
 
 fn rotation_site_out(s: &RotationSite) -> RotationSiteOut {
