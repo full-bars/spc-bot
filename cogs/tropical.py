@@ -23,15 +23,27 @@ _NHC_LABEL_RE = re.compile(
 )
 
 STORM_EMOJI = {
-    "TROPICAL DEPRESSION": "🌨️",
+    "TROPICAL DEPRESSION": "☁️",
     "TROPICAL STORM": "🌧️",
     "HURRICANE": "🌀",
-    "MAJOR HURRICANE": "🌀",
+    "MAJOR HURRICANE": "⚠️🌀⚠️",
     "POTENTIAL TROPICAL CYCLONE": "⚠️",
     "POST-TROPICAL CYCLONE": "🌬️",
-    "SUBTROPICAL DEPRESSION": "🌨️",
+    "SUBTROPICAL DEPRESSION": "☁️",
     "SUBTROPICAL STORM": "🌧️",
     "REMNANTS": "💨",
+}
+
+STORM_COLORS = {
+    "TROPICAL DEPRESSION": discord.Color.from_str("#6b7b8d"),
+    "TROPICAL STORM": discord.Color.from_str("#f5d76e"),
+    "SUBTROPICAL DEPRESSION": discord.Color.from_str("#6b7b8d"),
+    "SUBTROPICAL STORM": discord.Color.from_str("#f5d76e"),
+    "HURRICANE": discord.Color.from_str("#f39c12"),
+    "MAJOR HURRICANE": discord.Color.from_str("#e74c3c"),
+    "POTENTIAL TROPICAL CYCLONE": discord.Color.from_str("#d35400"),
+    "POST-TROPICAL CYCLONE": discord.Color.from_str("#95a5a6"),
+    "REMNANTS": discord.Color.from_str("#7f8c8d"),
 }
 
 STORM_TYPE_ORDER = [
@@ -202,9 +214,10 @@ class TropicalCog(commands.Cog, name="Tropical"):
         if storm_type:
             title += f" ({storm_type})"
 
+        embed_color = STORM_COLORS.get(storm_type, discord.Color.orange())
         embed = discord.Embed(
             title=title,
-            color=discord.Color.orange(),
+            color=embed_color,
             timestamp=datetime.now(timezone.utc),
         )
         if parsed["summary"]:
