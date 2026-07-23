@@ -55,6 +55,7 @@ from config import (
 from lib.vad_plotter.radar_coords import get_nearest_radar
 from lib.vtec_parser import get_polygon_centroid, parse_vtec, parse_warning_polygon
 from utils.backoff import TaskBackoff
+from utils.discord_send import safe_send
 from utils.http import http_get_bytes, http_get_bytes_conditional
 from utils.state_store import (
     add_significant_event,
@@ -262,12 +263,11 @@ class WarningsCog(commands.Cog):
         for uid in matched_users:
             try:
                 user = self.bot.get_user(uid) or await self.bot.fetch_user(uid)
-                if user:
-                    await user.send(embed=embed)
-            except discord.Forbidden:
-                pass
             except Exception as e:
-                logger.error(f"Failed to DM user {uid}: {e}")
+                logger.error(f"Failed to fetch user {uid} for subscription alert: {e}")
+                continue
+            if user:
+                await safe_send(user, context=f"warning subscription alert to user {uid}", embed=embed)
 
     # ── iembot fast-trigger path ───────────────────────────────────────────
     #
@@ -766,12 +766,12 @@ class WarningsCog(commands.Cog):
             footer_text += f" | {footer_id}"
         embed.set_footer(text=footer_text)
 
-        try:
-            await channel.send(embed=embed, files=files)
+        msg = await safe_send(
+            channel, context=f"cancellation for {vtec_id}", embed=embed, files=files
+        )
+        if msg:
             self._cancelled_warnings[vtec_id] = None
             logger.info(f"Posted cancellation for {vtec_id}")
-        except Exception as e:
-            logger.warning(f"Failed to post cancellation for {vtec_id}: {e}")
 
     @tasks.loop(hours=1)
     async def prune_posted_warnings_loop(self):

@@ -18,6 +18,7 @@ from utils.cache import (
     download_single_image,
 )
 from utils.change_detection import get_cache_path_for_url
+from utils.discord_send import safe_send
 from utils.http import http_get_bytes, http_get_text, http_head_meta
 from utils.state_store import get_state, set_state
 
@@ -702,7 +703,15 @@ class MesoscaleCog(commands.Cog):
         text_embed.set_footer(text="SPC MD Monitor")
         try:
             view = MDSummaryView(md_num=str(md_num), raw_text=raw_text or "")
-            msg = await channel.send(embeds=[img_embed, text_embed], files=files, view=view)
+            msg = await safe_send(
+                channel,
+                context=f"MD #{md_num} (iembot-triggered)",
+                embeds=[img_embed, text_embed],
+                files=files,
+                view=view,
+            )
+            if not msg:
+                return
 
             # Proactively trigger AI summary generation and autopost it
             from cogs.ai_summaries import autopost_md_summary
@@ -776,15 +785,15 @@ class MesoscaleCog(commands.Cog):
                         timestamp=datetime.now(timezone.utc),
                     )
                     embed.set_footer(text="SPC MD Monitor")
-                    try:
-                        await channel.send(embed=embed)
-                        self.bot.state.active_mds.discard(md_num)
-                        self._cancelled_mds.add(md_num)
-                        self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
-                        logger.info(f"Posted cancellation for #{md_num}")
-
-                    except discord.HTTPException as e:
-                        logger.exception(f"Failed to send cancellation for #{md_num}: {e}")
+                    msg = await safe_send(
+                        channel, context=f"MD #{md_num} cancellation", embed=embed
+                    )
+                    if not msg:
+                        continue
+                    self.bot.state.active_mds.discard(md_num)
+                    self._cancelled_mds.add(md_num)
+                    self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
+                    logger.info(f"Posted cancellation for #{md_num}")
             else:
                 logger.debug("In fallback mode — skipping cancellation check")
 
@@ -849,7 +858,15 @@ class MesoscaleCog(commands.Cog):
                 text_embed.set_footer(text="SPC MD Monitor")
                 try:
                     view = MDSummaryView(md_num=str(md_num), raw_text=raw_text or "")
-                    msg = await channel.send(embeds=[img_embed, text_embed], files=files, view=view)
+                    msg = await safe_send(
+                        channel,
+                        context=f"MD #{md_num}",
+                        embeds=[img_embed, text_embed],
+                        files=files,
+                        view=view,
+                    )
+                    if not msg:
+                        continue
                     if not cache_path or not full_text:
                         t = asyncio.create_task(self._upgrade_md_message(md_num, msg, full_text))
                         self._pending_tasks.add(t)

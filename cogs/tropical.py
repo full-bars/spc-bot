@@ -8,12 +8,11 @@ import discord
 from discord.ext import commands
 
 from config import IEM_NWSTEXT_URL, TROPICAL_CHANNEL_ID
+from utils.discord_send import safe_create_thread, safe_send
 from utils.http import http_get_bytes
 from utils.state_store import get_state
 
 logger = logging.getLogger("spc_bot")
-
-DEV_CHANNEL_ID = 1336294580743704607
 
 TROPICAL_PILS = {"TCV", "TCD", "TWD", "TCU", "TWO", "TCE", "TCP"}
 TROPICAL_OFFICES = {"KNHC", "KTPC", "PHFO"}
@@ -209,9 +208,6 @@ class TropicalCog(commands.Cog, name="Tropical"):
         dedup_key = f"tropical_{product_id}"
         if dedup_key in self._posted:
             return
-        self._posted.add(dedup_key)
-        if len(self._posted) > 1000:
-            self._posted.clear()
 
         product_type = pil_prefix or _classify_product(product_id)
         if not product_type:
@@ -255,19 +251,22 @@ class TropicalCog(commands.Cog, name="Tropical"):
             embed.description = parsed["summary"][:2048]
         embed.set_footer(text=f"{source} | {product_id}")
 
-        try:
-            msg = await channel.send(embed=embed)
-            logger.info(f"Posted tropical {product_type} for {storm_name or product_id}")
-        except Exception as e:
-            logger.exception(f"Failed to post tropical product: {e}")
+        msg = await safe_send(channel, context=f"tropical {product_type} ({product_id})", embed=embed)
+        if not msg:
             return
+        logger.info(f"Posted tropical {product_type} for {storm_name or product_id}")
+
+        self._posted.add(dedup_key)
+        if len(self._posted) > 1000:
+            self._posted.clear()
 
         thread_name = f"{storm_name or 'NHC'} {product_type}".strip()[:100]
-        thread = None
-        try:
-            thread = await msg.create_thread(name=thread_name, auto_archive_duration=1440)
-        except Exception as e:
-            logger.warning(f"Failed to create thread for {product_id}: {e}")
+        thread = await safe_create_thread(
+            msg,
+            context=f"tropical {product_type} ({product_id})",
+            name=thread_name,
+            auto_archive_duration=1440,
+        )
 
         full_text_embed = discord.Embed(
             title=f"Full Text — {product_type}",
@@ -275,10 +274,9 @@ class TropicalCog(commands.Cog, name="Tropical"):
             color=discord.Color.dark_gray(),
         )
         target = thread or channel
-        try:
-            await target.send(embed=full_text_embed)
-        except Exception as e:
-            logger.warning(f"Failed to post full text for {product_id}: {e}")
+        await safe_send(
+            target, context=f"tropical full text ({product_id})", embed=full_text_embed
+        )
 
     async def route_from_product_id(
         self, product_id: str, raw_text: str = None, source: str = "IEMBot"

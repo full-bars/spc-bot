@@ -15,6 +15,7 @@ from utils.cache import (
     get_cache_path_for_url,
     is_placeholder_image,
 )
+from utils.discord_send import safe_send
 from utils.http import ensure_session
 from utils.state_store import delete_state, get_state, set_hash, set_state
 
@@ -191,17 +192,18 @@ class NCARCog(commands.Cog):
             logger.exception(f"[NCAR] Failed to save WxNext2 image: {e}")
             return
 
-        try:
-            await channel.send(
-                "**NCAR WxNext2 Mean — AI Convective Hazard Forecast (Days 1-8)**",
-                files=[discord.File(cache_path)],
-            )
-            _posted_state = {"date": today_str, "hash": h}
-            await _save_state(today_str, h)
-            self.bot.state.last_post_times["wxnext"] = now_utc
-            logger.info("[NCAR] Auto-posted WxNext2")
-        except Exception as e:
-            logger.exception(f"[NCAR] Failed to post WxNext2: {e}")
+        msg = await safe_send(
+            channel,
+            context="NCAR WxNext2 forecast",
+            content="**NCAR WxNext2 Mean — AI Convective Hazard Forecast (Days 1-8)**",
+            files=[discord.File(cache_path)],
+        )
+        if not msg:
+            return
+        _posted_state = {"date": today_str, "hash": h}
+        await _save_state(today_str, h)
+        self.bot.state.last_post_times["wxnext"] = now_utc
+        logger.info("[NCAR] Auto-posted WxNext2")
 
     @wxnext_daily_poll.after_loop
     async def after_wxnext_poll(self):
