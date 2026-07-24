@@ -294,8 +294,12 @@ class ReportsCog(commands.Cog):
             return
 
         # 1. Strip boilerplate (EF Scale key) to avoid false EF5 matches
+        # NOTE: "&&" is NOT used as a stop marker here — multi-tornado PNS
+        # products use "&&" as the delimiter *between every tornado entry*,
+        # not just before the trailing legend, so stopping on it would
+        # truncate the search after the first tornado and miss the real max.
         search_text = raw_text
-        for stop_marker in ("&&", "EF SCALE:", "THE ENHANCED FUJITA SCALE"):
+        for stop_marker in ("EF SCALE:", "THE ENHANCED FUJITA SCALE"):
             m_stop = re.search(re.escape(stop_marker), raw_text, re.I)
             if m_stop:
                 search_text = raw_text[: m_stop.start()]
