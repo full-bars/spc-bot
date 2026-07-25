@@ -12,6 +12,7 @@ from PIL import Image
 
 from config import ARCHIVE_DIR, RECORDING_DIR
 from lib.vad_plotter.vad_reader import download_vad, find_file_times
+from utils.discord_send import safe_send
 from utils.state_store import get_state, set_state
 from utils.worker_pool import get_executor
 
@@ -278,7 +279,7 @@ class RecorderCog(commands.Cog):
             )
             file = discord.File(gif_path, filename="evolution.gif")
             embed.set_image(url="attachment://evolution.gif")
-            await channel.send(embed=embed, file=file)
+            await safe_send(channel, context="VAD forensic archive summary", embed=embed, file=file)
         except Exception as e:
             logger.error(f"Summary post failed: {e}")
 

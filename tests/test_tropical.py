@@ -179,6 +179,6 @@ async def test_post_tropical_product_posts_full_text_in_thread():
     assert "FULL RAW PRODUCT TEXT" not in (main_embed.description or "")
 
     main_msg.create_thread.assert_awaited_once()
-    thread.send.assert_awaited_once()
-    full_text_embed = thread.send.call_args[1]["embed"]
-    assert "FULL RAW PRODUCT TEXT" in full_text_embed.description
+    assert thread.send.await_count == 2
+    second_thread_embed = thread.send.await_args_list[1].kwargs["embed"]
+    assert "FULL RAW PRODUCT TEXT" in second_thread_embed.description

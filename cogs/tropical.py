@@ -8,12 +8,11 @@ import discord
 from discord.ext import commands
 
 from config import IEM_NWSTEXT_URL, TROPICAL_CHANNEL_ID
+from utils.discord_send import safe_create_thread, safe_send
 from utils.http import http_get_bytes
 from utils.state_store import get_state
 
 logger = logging.getLogger("spc_bot")
-
-DEV_CHANNEL_ID = 1336294580743704607
 
 TROPICAL_PILS = {"TCV", "TCD", "TWD", "TCU", "TWO", "TCE", "TCP"}
 TROPICAL_OFFICES = {"KNHC", "KTPC", "PHFO"}
@@ -65,6 +64,127 @@ def _parse_max_wind(text: str) -> float | None:
     if m:
         return float(m.group(1))
     return None
+
+
+def _clean_dots(s: str) -> str:
+    return re.sub(r"\.{2,}", " ", s).strip()
+
+
+def _parse_location(text: str) -> str | None:
+    m = re.search(r"LOCATION[\.\s:]+?([\d.]+[NS])\s+([\d.]+[EW])", text)
+    if m:
+        return _clean_dots(f"{m.group(1)} {m.group(2)}")
+    return None
+
+
+def _parse_location_desc(text: str) -> str | None:
+    m = re.search(r"ABOUT\s+(.+?)(?:\n|$)", text)
+    if m:
+        return _clean_dots(m.group(1))
+    return None
+
+
+def _parse_pressure(text: str) -> int | None:
+    m = re.search(r"MINIMUM\s+CENTRAL\s+PRESSURE[\.\s:]+?(\d+)\s*MB", text, re.IGNORECASE)
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def _parse_movement(text: str) -> str | None:
+    m = re.search(r"PRESENT\s+MOVEMENT[\.\s:]+?(.+?\d+)\s*MPH", text, re.IGNORECASE)
+    if m:
+        return _clean_dots(m.group(1))
+    return None
+
+
+def _build_compact_summary(
+    product_type: str,
+    parsed: dict,
+    wind_mph: float | None,
+    ss_cat: str | None,
+    storm_name: str | None,
+    storm_type: str | None,
+) -> str:
+    raw = parsed.get("raw_text", "")
+    summary = parsed.get("summary", "")
+
+    if product_type == "ADVISORY":
+        parts = []
+        loc = _parse_location(summary or raw)
+        loc_desc = _parse_location_desc(summary or raw)
+        if loc:
+            line = f"📍 {loc}"
+            if loc_desc:
+                line += f" — {loc_desc}"
+            parts.append(line)
+        data_bits = []
+        if wind_mph:
+            data_bits.append(f"💨 {wind_mph:.0f} MPH")
+        pressure = _parse_pressure(summary or raw)
+        if pressure:
+            data_bits.append(f"🌀 {pressure} MB")
+        movement = _parse_movement(summary or raw)
+        if movement:
+            data_bits.append(f"➡️ {movement}")
+        if data_bits:
+            parts.append(" | ".join(data_bits))
+        return "\n".join(parts)
+
+    elif product_type == "DISCUSSION":
+        lines = (summary or raw).splitlines()
+        for line in lines:
+            stripped = line.strip()
+            if (
+                stripped
+                and not stripped.startswith("SUMMARY")
+                and not stripped.startswith("-")
+                and not stripped.startswith("$$")
+            ):
+                return stripped[:200]
+        return ""
+
+    elif product_type == "TROPICAL WEATHER OUTLOOK":
+        lines = (summary or raw).splitlines()
+        # Priority 1: formation chance lines (most informative)
+        for line in lines:
+            s = line.strip()
+            if "formation chance" in s.lower() and ("%" in s or "percent" in s.lower()):
+                return s[:200]
+        # Priority 2: "not expected" (quiet period)
+        for line in lines:
+            s = line.strip()
+            if "not expected" in s.lower():
+                return s[:200]
+        # Priority 3: first non-header sentence mentioning active systems
+        for line in lines:
+            s = line.strip()
+            if (
+                s
+                and len(s) > 30
+                and not s.startswith(("NWS", "$$", "Forecaster", "&&", "For the", "Products"))
+                and not s.startswith("http")
+            ):
+                return s[:200]
+        return ""
+
+    elif product_type == "TROPICAL WEATHER DISCUSSION":
+        lines = (summary or raw).splitlines()
+        for line in lines:
+            s = line.strip()
+            if s and len(s) > 20 and not s.startswith(("$", ".", "*")):
+                return s[:200]
+        return ""
+
+    elif product_type == "UPDATE":
+        loc = _parse_location(summary or raw)
+        if loc and wind_mph:
+            return f"📍 {loc} | 💨 {wind_mph:.0f} MPH"
+        if loc:
+            return f"📍 {loc}"
+        return ""
+
+    return ""
 
 
 STORM_TYPE_ORDER = [
@@ -209,9 +329,6 @@ class TropicalCog(commands.Cog, name="Tropical"):
         dedup_key = f"tropical_{product_id}"
         if dedup_key in self._posted:
             return
-        self._posted.add(dedup_key)
-        if len(self._posted) > 1000:
-            self._posted.clear()
 
         product_type = pil_prefix or _classify_product(product_id)
         if not product_type:
@@ -233,52 +350,67 @@ class TropicalCog(commands.Cog, name="Tropical"):
         emoji = SAFFIR_EMOJI.get(ss_cat or "", "🌀")
         embed_color = SAFFIR_SIMPSON_COLORS.get(ss_cat or "", 0xF39C12)
 
-        title = f"{emoji} NHC {product_type}"
-        if storm_name:
-            title += f" — {storm_name}"
-        category_label = storm_type or ""
-        if ss_cat and ss_cat.startswith("CAT"):
-            cat_num = ss_cat.replace("CAT", "")
-            category_label = f"Cat {cat_num} {storm_type}" if storm_type else f"Cat {cat_num}"
-        elif ss_cat == "TS":
-            category_label = "Tropical Storm"
-        elif ss_cat == "TD":
-            category_label = "Tropical Depression"
-        if category_label:
-            title += f" ({category_label})"
+        if product_type in ("ADVISORY", "UPDATE"):
+            title = f"{emoji} {storm_name or product_type}"
+        elif product_type == "DISCUSSION":
+            title = f"{emoji} {storm_name + ' ' if storm_name else ''}Discussion"
+        else:
+            title = f"{emoji} NHC {product_type}"
+
+        compact = _build_compact_summary(
+            product_type, parsed, wind_mph, ss_cat, storm_name, storm_type
+        )
         embed = discord.Embed(
             title=title,
+            description=compact or None,
             color=embed_color,
             timestamp=datetime.now(timezone.utc),
         )
-        if parsed["summary"]:
-            embed.description = parsed["summary"][:2048]
         embed.set_footer(text=f"{source} | {product_id}")
 
-        try:
-            msg = await channel.send(embed=embed)
-            logger.info(f"Posted tropical {product_type} for {storm_name or product_id}")
-        except Exception as e:
-            logger.exception(f"Failed to post tropical product: {e}")
+        msg = await safe_send(
+            channel, context=f"tropical {product_type} ({product_id})", embed=embed
+        )
+        if not msg:
             return
+        logger.info(f"Posted tropical {product_type} for {storm_name or product_id}")
+
+        self._posted.add(dedup_key)
+        if len(self._posted) > 1000:
+            self._posted.clear()
 
         thread_name = f"{storm_name or 'NHC'} {product_type}".strip()[:100]
-        thread = None
-        try:
-            thread = await msg.create_thread(name=thread_name, auto_archive_duration=1440)
-        except Exception as e:
-            logger.warning(f"Failed to create thread for {product_id}: {e}")
-
-        full_text_embed = discord.Embed(
-            title=f"Full Text — {product_type}",
-            description=parsed["raw_text"][:4096],
-            color=discord.Color.dark_gray(),
+        thread = await safe_create_thread(
+            msg,
+            context=f"tropical {product_type} ({product_id})",
+            name=thread_name,
+            auto_archive_duration=1440,
         )
+
+        # Full summary embed goes in thread
+        summary_embed = (
+            discord.Embed(
+                title=f"{product_type} — {storm_name or ''}",
+                description=(parsed["summary"] or parsed["raw_text"])[:4096],
+                color=embed_color,
+            )
+            if parsed.get("summary")
+            else None
+        )
+
         target = thread or channel
-        try:
-            await target.send(embed=full_text_embed)
-        except Exception as e:
-            logger.warning(f"Failed to post full text for {product_id}: {e}")
+        if summary_embed:
+            await safe_send(target, context=f"tropical summary ({product_id})", embed=summary_embed)
+
+        # Chunk full text across multiple embeds if it exceeds 4096 chars
+        full_text = parsed["raw_text"]
+        for i in range(0, len(full_text), 4096):
+            chunk_embed = discord.Embed(
+                title="Full Text" if i == 0 else "Full Text (cont.)",
+                description=full_text[i : i + 4096],
+                color=discord.Color.dark_gray(),
+            )
+            await safe_send(target, context=f"tropical full text ({product_id})", embed=chunk_embed)
 
     async def route_from_product_id(
         self, product_id: str, raw_text: str = None, source: str = "IEMBot"

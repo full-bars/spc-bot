@@ -9,6 +9,7 @@ import discord
 from discord.ext import commands, tasks
 
 from config import WARNINGS_CHANNEL_ID, SURVEYS_CHANNEL_ID
+from utils.discord_send import safe_send
 from utils.http import http_get_bytes
 from utils.state_store import (
     add_significant_event,
@@ -142,6 +143,7 @@ class ReportsCog(commands.Cog):
         if not channel:
             return
 
+        all_success = True
         for r in reports:
             if "LOCAL STORM REPORT" not in r and "EVENT" not in r:
                 continue
@@ -278,7 +280,11 @@ class ReportsCog(commands.Cog):
                 )
                 logger.info(f"[REPORTS] Recorded UNWARNED tornado: {location} at {time_str}")
 
-            await channel.send(embed=embed)
+            msg = await safe_send(channel, context=f"LSR ({event_type})", embed=embed)
+            if not msg:
+                all_success = False
+
+        if all_success:
             await self.bot.state.add_posted_report(product_id)
 
     async def _handle_pns(self, product_id: str, raw_text: str):
@@ -364,7 +370,11 @@ class ReportsCog(commands.Cog):
         )
         embed.set_footer(text=f"{office} PNS | {product_id}")
 
-        await channel.send(embed=embed, view=view)
+        msg = await safe_send(
+            channel, context=f"PNS damage survey ({rating_str})", embed=embed, view=view
+        )
+        if not msg:
+            return
 
         await self.bot.state.add_posted_report(product_id)
 
@@ -524,7 +534,11 @@ class ReportsCog(commands.Cog):
 
                 embed.set_footer(text=f"{source_text} | {guid}")
 
-                await channel.send(embed=embed, file=file_to_send)
+                msg = await safe_send(
+                    channel, context=f"survey map ({guid})", embed=embed, file=file_to_send
+                )
+                if not msg:
+                    continue
                 await self.bot.state.add_posted_survey(guid)
                 logger.info(f"[REPORTS] Posted survey map for {guid} ({label}) via {source_text}")
 

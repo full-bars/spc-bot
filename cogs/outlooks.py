@@ -13,6 +13,7 @@ from utils.cache import (
     save_downloaded_images,
 )
 from utils.compare_utils import archive_outlook_version
+from utils.discord_send import safe_create_thread, safe_send
 from utils.spc_urls import get_spc_urls
 from utils.state_store import set_posted_urls
 
@@ -150,25 +151,27 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
         if files:
             try:
                 view = OutlookSummaryView(day=str(day))
-                msg = await channel.send(
-                    f"**Latest SPC Day {day} Outlooks**",
+                msg = await safe_send(
+                    channel,
+                    context=f"SPC Day {day} outlook",
+                    content=f"**Latest SPC Day {day} Outlooks**",
                     files=[discord.File(fp) for fp in files],
                     view=view,
                 )
+                if not msg:
+                    return
                 state.last_post_times[day_key] = datetime.now(timezone.utc)
                 state.last_posted_urls[day_key] = urls
                 await set_posted_urls(day_key, urls)
                 logger.info(f"[Day {day}] Posted {len(files)} images. URLs: {urls}")
 
                 # Create thread for outlook text and AI summary
-                thread = None
-                try:
-                    thread = await msg.create_thread(
-                        name=f"SPC Day {day} Outlook",
-                        auto_archive_duration=1440,
-                    )
-                except Exception as e:
-                    logger.warning(f"[Day {day}] Failed to create thread: {e}")
+                thread = await safe_create_thread(
+                    msg,
+                    context=f"SPC Day {day} outlook",
+                    name=f"SPC Day {day} Outlook",
+                    auto_archive_duration=1440,
+                )
 
                 if thread:
                     from cogs.ai_summaries import _fetch_outlook_text
@@ -296,24 +299,26 @@ class OutlooksCog(commands.Cog):
             if files:
                 try:
                     view = OutlookSummaryView(day="48")
-                    msg = await channel.send(
-                        "**Latest SPC Day 4-8 Outlook**",
+                    msg = await safe_send(
+                        channel,
+                        context="SPC Day 4-8 outlook",
+                        content="**Latest SPC Day 4-8 Outlook**",
                         files=[discord.File(fp) for fp in files],
                         view=view,
                     )
+                    if not msg:
+                        return
                     self.bot.state.last_post_times["day48"] = datetime.now(timezone.utc)
                     self.bot.state.last_posted_urls["day48"] = urls
                     await set_posted_urls("day48", urls)
 
                     # Create thread for outlook text and AI summary
-                    thread = None
-                    try:
-                        thread = await msg.create_thread(
-                            name="SPC Day 4-8 Outlook",
-                            auto_archive_duration=1440,
-                        )
-                    except Exception as e:
-                        logger.warning(f"[Day 48] Failed to create thread: {e}")
+                    thread = await safe_create_thread(
+                        msg,
+                        context="SPC Day 4-8 outlook",
+                        name="SPC Day 4-8 Outlook",
+                        auto_archive_duration=1440,
+                    )
 
                     if thread:
                         from cogs.ai_summaries import _fetch_outlook_text
