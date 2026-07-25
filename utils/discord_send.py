@@ -45,5 +45,5 @@ async def safe_create_thread(message, *, context: str, **thread_kwargs):
         )
         return None
     except Exception as e:
-        logger.warning(f"Failed to create thread for {context}: {e}")
+        logger.exception(f"Failed to create thread for {context}: {e}")
         return None
