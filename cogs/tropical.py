@@ -398,15 +398,19 @@ class TropicalCog(commands.Cog, name="Tropical"):
             else None
         )
 
-        raw_text_embed = discord.Embed(
-            title="Full Text",
-            description=parsed["raw_text"][:4096],
-            color=discord.Color.dark_gray(),
-        )
         target = thread or channel
         if summary_embed:
             await safe_send(target, context=f"tropical summary ({product_id})", embed=summary_embed)
-        await safe_send(target, context=f"tropical full text ({product_id})", embed=raw_text_embed)
+
+        # Chunk full text across multiple embeds if it exceeds 4096 chars
+        full_text = parsed["raw_text"]
+        for i in range(0, len(full_text), 4096):
+            chunk_embed = discord.Embed(
+                title="Full Text" if i == 0 else "Full Text (cont.)",
+                description=full_text[i : i + 4096],
+                color=discord.Color.dark_gray(),
+            )
+            await safe_send(target, context=f"tropical full text ({product_id})", embed=chunk_embed)
 
     async def route_from_product_id(
         self, product_id: str, raw_text: str = None, source: str = "IEMBot"
