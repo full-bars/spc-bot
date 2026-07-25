@@ -146,27 +146,34 @@ def _build_compact_summary(
 
     elif product_type == "TROPICAL WEATHER OUTLOOK":
         lines = (summary or raw).splitlines()
+        # Priority 1: formation chance lines (most informative)
         for line in lines:
-            stripped = line.strip()
-            if "not expected" in stripped.lower() or "expected" in stripped.lower():
-                return stripped[:200]
+            s = line.strip()
+            if "formation chance" in s.lower() and ("%" in s or "percent" in s.lower()):
+                return s[:200]
+        # Priority 2: "not expected" (quiet period)
         for line in lines:
-            stripped = line.strip()
+            s = line.strip()
+            if "not expected" in s.lower():
+                return s[:200]
+        # Priority 3: first non-header sentence mentioning active systems
+        for line in lines:
+            s = line.strip()
             if (
-                stripped
-                and not stripped.startswith("NWS")
-                and not stripped.startswith("$$")
-                and not stripped.startswith("Forecaster")
+                s
+                and len(s) > 30
+                and not s.startswith(("NWS", "$$", "Forecaster", "&&", "For the", "Products"))
+                and not s.startswith("http")
             ):
-                return stripped[:200]
+                return s[:200]
         return ""
 
     elif product_type == "TROPICAL WEATHER DISCUSSION":
         lines = (summary or raw).splitlines()
         for line in lines:
-            stripped = line.strip()
-            if stripped and len(stripped) > 20 and not stripped.startswith("$$"):
-                return stripped[:200]
+            s = line.strip()
+            if s and len(s) > 20 and not s.startswith(("$", ".", "*")):
+                return s[:200]
         return ""
 
     elif product_type == "UPDATE":
@@ -343,8 +350,11 @@ class TropicalCog(commands.Cog, name="Tropical"):
         emoji = SAFFIR_EMOJI.get(ss_cat or "", "🌀")
         embed_color = SAFFIR_SIMPSON_COLORS.get(ss_cat or "", 0xF39C12)
 
-        title = f"{emoji} {storm_name or product_type}"
-        if product_type not in ("ADVISORY", "UPDATE"):
+        if product_type in ("ADVISORY", "UPDATE"):
+            title = f"{emoji} {storm_name or product_type}"
+        elif product_type == "DISCUSSION":
+            title = f"{emoji} {storm_name + ' ' if storm_name else ''}Discussion"
+        else:
             title = f"{emoji} NHC {product_type}"
 
         compact = _build_compact_summary(
@@ -389,7 +399,7 @@ class TropicalCog(commands.Cog, name="Tropical"):
         )
 
         raw_text_embed = discord.Embed(
-            title=f"Full Text",
+            title="Full Text",
             description=parsed["raw_text"][:4096],
             color=discord.Color.dark_gray(),
         )
