@@ -143,6 +143,7 @@ class ReportsCog(commands.Cog):
         if not channel:
             return
 
+        all_success = True
         for r in reports:
             if "LOCAL STORM REPORT" not in r and "EVENT" not in r:
                 continue
@@ -281,7 +282,9 @@ class ReportsCog(commands.Cog):
 
             msg = await safe_send(channel, context=f"LSR ({event_type})", embed=embed)
             if not msg:
-                continue
+                all_success = False
+
+        if all_success:
             await self.bot.state.add_posted_report(product_id)
 
     async def _handle_pns(self, product_id: str, raw_text: str):

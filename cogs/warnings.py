@@ -22,7 +22,7 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
-from typing import Optional, Tuple, cast
+from typing import Optional, cast
 
 import discord
 from discord import app_commands
@@ -964,25 +964,20 @@ class WarningsCog(commands.Cog):
                             try:
                                 description = props.description or ""
                                 params = props.parameters.model_dump() if props.parameters else {}
-                                try:
-                                    event_ch = await self._resolve_warning_channel(
-                                        event, vtec_phenom=vtec_dict.get("phenom")
+                                event_ch = await self._resolve_warning_channel(
+                                    event, vtec_phenom=vtec_dict.get("phenom")
+                                )
+                                if event_ch is None:
+                                    # No channel to post to (disabled/misconfigured), but
+                                    # still log confirmed tornadoes to /recenttornadoes —
+                                    # _post_warning (which normally does this) never runs.
+                                    await self._check_and_log_significant_event(
+                                        event, description, vtec_dict, params
                                     )
-                                    if event_ch is None:
-                                        # No channel to post to (disabled/misconfigured), but
-                                        # still log confirmed tornadoes to /recenttornadoes —
-                                        # _post_warning (which normally does this) never runs.
-                                        await self._check_and_log_significant_event(
-                                            event, description, vtec_dict, params
-                                        )
-                                        continue
-                                    await self._post_warning(
-                                        feature, event_ch, vtec_dict, event, is_update=True
-                                    )
-                                except discord.HTTPException as e:
-                                    logger.exception(f"Update send failed for {issuance_id}: {e}")
-                                    # _post_warning already logged significant events before
-                                    # the send failed, so nothing more to do here.
+                                    continue
+                                await self._post_warning(
+                                    feature, event_ch, vtec_dict, event, is_update=True
+                                )
 
                                 # Update stored area so we don't spam updates for every poll
                                 _, corrected_event, _, _ = get_warning_style(
@@ -1044,17 +1039,13 @@ class WarningsCog(commands.Cog):
         async with self._discover_sem:
             try:
                 async with self.bot.state.claim_posted_warning(issuance_id) as claim:
-                    try:
-                        event_ch = await self._resolve_warning_channel(
-                            event, vtec_phenom=vtec_dict.get("phenom")
-                        )
-                        if event_ch is None:
-                            return
-                        msg, area_desc = await self._post_warning(
-                            feature, event_ch, vtec_dict, event
-                        )
-                    except discord.HTTPException as e:
-                        logger.exception(f"Send failed for {issuance_id}: {e}")
+                    event_ch = await self._resolve_warning_channel(
+                        event, vtec_phenom=vtec_dict.get("phenom")
+                    )
+                    if event_ch is None:
+                        return
+                    msg, area_desc = await self._post_warning(feature, event_ch, vtec_dict, event)
+                    if msg is None:
                         return
 
                     self.bot.state.active_warnings[issuance_id] = vtec_dict
@@ -1100,7 +1091,7 @@ class WarningsCog(commands.Cog):
         vtec: dict,
         event: str,
         is_update: bool = False,
-    ) -> Tuple[discord.Message, str]:
+    ) -> tuple[discord.Message | None, str]:
         props = feature.properties
         description = props.description or ""
         params = props.parameters.model_dump() if props.parameters else {}
@@ -1152,7 +1143,13 @@ class WarningsCog(commands.Cog):
         # warning text is never delayed by IEM's autoplot generation latency.
         should_image = (vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS"
 
-        msg = await channel.send(embed=embed)
+        msg = await safe_send(
+            channel,
+            context=f"warning {event} {vtec_id}",
+            embed=embed,
+        )
+        if not msg:
+            return msg, area_desc
         logger.info(f"Posted {event} {vtec_id}")
 
         if should_image:

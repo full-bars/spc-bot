@@ -483,12 +483,16 @@ class WatchesCog(commands.Cog):
                     timestamp=now_utc,
                 )
                 embed.set_footer(text="SPC Watch Monitor")
-                try:
-                    await channel.send(embed=embed)
-                    logger.info(f"Posted cancellation for #{watch_num}")
-                except discord.HTTPException as e:
-                    logger.exception(f"Failed to send cancellation for #{watch_num}: {e}")
+                msg = await safe_send(
+                    channel,
+                    context=f"watch cancellation #{watch_num}",
+                    embed=embed,
+                )
+                if msg is None:
+                    logger.warning(f"Failed to send cancellation for #{watch_num}")
                     self.bot.state.active_watches[watch_num] = info
+                else:
+                    logger.info(f"Posted cancellation for #{watch_num}")
 
             # ── New watches ────────────────────────────────────────────────
             for watch_num, nws_info in nws_watches.items():
