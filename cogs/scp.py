@@ -9,6 +9,7 @@ from config import MANUAL_CACHE_FILE, MODELS_CHANNEL_ID, PACIFIC, SCP_IMAGE_URLS
 from utils.cache import (
     download_images_parallel,
 )
+from utils.discord_send import safe_send
 
 logger = logging.getLogger("spc_bot")
 
@@ -67,13 +68,18 @@ class SCPCog(commands.Cog):
                 use_cached=False,
             )
             if files:
-                await channel.send(
-                    "**New SCP Forecast Graphics Available**\n"
-                    "Supercell Composite Parameter — NIU/Gensini CFSv2",
+                msg = await safe_send(
+                    channel,
+                    context="SCP forecast graphics",
+                    content=(
+                        "**New SCP Forecast Graphics Available**\n"
+                        "Supercell Composite Parameter — NIU/Gensini CFSv2"
+                    ),
                     files=[discord.File(fp) for fp in files],
                 )
-                self.bot.state.last_post_times["scp"] = datetime.now(timezone.utc)
-                logger.info(f"[SCP_DAILY] Posted {len(files)} SCP images")
+                if msg:
+                    self.bot.state.last_post_times["scp"] = datetime.now(timezone.utc)
+                    logger.info(f"[SCP_DAILY] Posted {len(files)} SCP images")
             else:
                 logger.info("[SCP_DAILY] No SCP images could be downloaded")
         except Exception as e:

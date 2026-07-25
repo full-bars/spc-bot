@@ -270,6 +270,48 @@ $$
 
 
 @pytest.mark.asyncio
+async def test_handle_pns_extracts_max_ef_rating_across_ampamp_delimited_tornadoes():
+    """Regression: "&&" separates every tornado entry in real PNS products,
+    not just the trailing EF Scale legend. The max EF must be found even when
+    a stronger tornado appears after an earlier "&&" than a weaker first one."""
+    cog, channel = _make_cog()
+
+    multi_pns = """\
+...NWS DAMAGE SURVEY FOR 07/21/2026 TORNADO EVENT...
+
+..First Tornado...
+
+Rating:                 EF0
+Estimated Peak Wind:    80 mph
+
+&&
+
+.Second Tornado...
+
+Rating:                 EF1
+Estimated Peak Wind:    105 mph
+
+&&
+
+EF Scale: The Enhanced Fujita Scale classifies tornadoes into the
+following categories:
+
+EF0.....65 to 85 mph
+EF1.....86 to 110 mph
+
+SUMMARY: Two tornadoes confirmed near Example City OK.
+$$
+"""
+    with patch("cogs.reports.add_significant_event", AsyncMock()), patch(
+        "utils.state_store.find_matching_tornado", AsyncMock(return_value=None)
+    ), patch.object(cog, "_check_for_surveys", AsyncMock()):
+        await cog._handle_pns("202607232205-KPBZ-PNSPBZ", multi_pns)
+
+    embed: discord.Embed = channel.send.call_args.kwargs["embed"]
+    assert "EF1" in embed.description
+
+
+@pytest.mark.asyncio
 async def test_handle_pns_parses_numerical_date_for_survey_check():
     """MM/DD/YYYY date triggers _check_for_surveys with the correct ISO date."""
     cog, channel = _make_cog()

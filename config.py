@@ -102,6 +102,10 @@ CONFIG = {
         "SURVEYS_CHANNEL_ID", "WARNINGS_CHANNEL_ID", "SPC_CHANNEL_ID"
     ),
     "dev_channel_id": _optional_int("DEV_CHANNEL_ID", "HEALTH_CHANNEL_ID", "SPC_CHANNEL_ID"),
+    "tropical_channel_id": _optional_int(
+        "TROPICAL_CHANNEL_ID", "DEV_CHANNEL_ID", "HEALTH_CHANNEL_ID", "SPC_CHANNEL_ID"
+    ),
+    "weather_chat_channel_id": _optional_int("WEATHER_CHAT_CHANNEL_ID", "SPC_CHANNEL_ID"),
     "gemini_api_key": os.getenv("GEMINI_API_KEY", ""),
     "opencode_api_key": os.getenv("OPENCODE_API_KEY", ""),
     "ai_model": os.getenv("AI_MODEL", "deepseek-v4-pro"),
@@ -128,6 +132,8 @@ FFW_CHANNEL_ID = CONFIG["ffw_channel_id"]
 SPS_CHANNEL_ID = CONFIG["sps_channel_id"]
 SURVEYS_CHANNEL_ID = CONFIG["surveys_channel_id"]
 DEV_CHANNEL_ID = CONFIG["dev_channel_id"]
+TROPICAL_CHANNEL_ID = CONFIG["tropical_channel_id"]
+WEATHER_CHAT_CHANNEL_ID = CONFIG["weather_chat_channel_id"]
 GEMINI_API_KEY = CONFIG["gemini_api_key"]
 OPENCODE_API_KEY = CONFIG["opencode_api_key"]
 AI_MODEL = CONFIG["ai_model"]
@@ -178,6 +184,7 @@ NWS_ALERTS_URL = _P["nws_alerts_url"]
 NWS_ALERTS_WARNINGS_URL = _P["nws_alerts_warnings_url"]
 IEMBOT_FEED_URL = _P["iembot_feed_url"]
 IEMBOT_BOTSTALK_URL = _P["iembot_botstalk_url"]
+IEMBOT_NHC_URL = _P["iembot_nhc_url"]
 IEM_NWSTEXT_URL = _P["iem_nwstext_url"]
 WXNEXT_BASE = _P["wxnext_base_url"]
 WXNEXT_PAGE = _P["wxnext_page_url"]

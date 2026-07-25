@@ -24,6 +24,7 @@ from utils.cache import (
     download_single_image,
 )
 from utils.change_detection import get_cache_path_for_url, is_placeholder_image
+from utils.discord_send import safe_send
 from utils.http import http_get_bytes
 
 logger = logging.getLogger("spc_bot")
@@ -398,34 +399,35 @@ class WatchesCog(commands.Cog):
             is_pds=is_pds,
         )
 
-        try:
-            files = _watch_files(watch_num, cache_path)
-            message = await channel.send(embed=embed, files=files)
-            # Do NOT add to active_watches here — let the NWS API poll
-            # populate it with real expiry/zone data on the next cycle.
-            # Adding partial nws_info now causes false cancellations when
-            # the NWS API hasn't indexed the watch yet.
-            await self.bot.state.add_posted_watch(str(watch_num))
-            self.bot.state.last_post_times["watch"] = now_utc
-            logger.info(f"iembot-triggered: posted watch #{watch_num}")
-            sounding_cog = self.bot.cogs.get("SoundingCog")
-            if sounding_cog and isinstance(nws_info, dict) and nws_info.get("affected_zones"):
-                t = asyncio.create_task(
-                    sounding_cog.post_soundings_for_watch(watch_num, nws_info, channel)
+        files = _watch_files(watch_num, cache_path)
+        message = await safe_send(
+            channel, context=f"watch #{watch_num} ({wtype})", embed=embed, files=files
+        )
+        if not message:
+            return
+        # Do NOT add to active_watches here — let the NWS API poll
+        # populate it with real expiry/zone data on the next cycle.
+        # Adding partial nws_info now causes false cancellations when
+        # the NWS API hasn't indexed the watch yet.
+        await self.bot.state.add_posted_watch(str(watch_num))
+        self.bot.state.last_post_times["watch"] = now_utc
+        logger.info(f"iembot-triggered: posted watch #{watch_num}")
+        sounding_cog = self.bot.cogs.get("SoundingCog")
+        if sounding_cog and isinstance(nws_info, dict) and nws_info.get("affected_zones"):
+            t = asyncio.create_task(
+                sounding_cog.post_soundings_for_watch(watch_num, nws_info, channel)
+            )
+            t.add_done_callback(_log_task_exception)
+        # Schedule upgrade edit once SPC data is available
+        has_prelim = probs and "preliminary" in probs
+        if not cache_path or has_prelim:
+            t = asyncio.create_task(
+                self._upgrade_watch_embed(
+                    watch_num, message, is_tornado, watch_label, color, expires
                 )
-                t.add_done_callback(_log_task_exception)
-            # Schedule upgrade edit once SPC data is available
-            has_prelim = probs and "preliminary" in probs
-            if not cache_path or has_prelim:
-                t = asyncio.create_task(
-                    self._upgrade_watch_embed(
-                        watch_num, message, is_tornado, watch_label, color, expires
-                    )
-                )
-                self._pending_tasks.add(t)
-                t.add_done_callback(self._pending_tasks.discard)
-        except discord.HTTPException as e:
-            logger.exception(f"iembot-triggered send failed for #{watch_num}: {e}")
+            )
+            self._pending_tasks.add(t)
+            t.add_done_callback(self._pending_tasks.discard)
 
     @tasks.loop(minutes=2)
     async def auto_post_watches(self):
@@ -481,12 +483,16 @@ class WatchesCog(commands.Cog):
                     timestamp=now_utc,
                 )
                 embed.set_footer(text="SPC Watch Monitor")
-                try:
-                    await channel.send(embed=embed)
-                    logger.info(f"Posted cancellation for #{watch_num}")
-                except discord.HTTPException as e:
-                    logger.exception(f"Failed to send cancellation for #{watch_num}: {e}")
+                msg = await safe_send(
+                    channel,
+                    context=f"watch cancellation #{watch_num}",
+                    embed=embed,
+                )
+                if msg is None:
+                    logger.warning(f"Failed to send cancellation for #{watch_num}")
                     self.bot.state.active_watches[watch_num] = info
+                else:
+                    logger.info(f"Posted cancellation for #{watch_num}")
 
             # ── New watches ────────────────────────────────────────────────
             for watch_num, nws_info in nws_watches.items():
@@ -534,9 +540,11 @@ class WatchesCog(commands.Cog):
                         is_pds=is_pds,
                     )
 
-                    try:
-                        files = _watch_files(watch_num, cache_path)
-                        message = await channel.send(embed=embed, files=files)
+                    files = _watch_files(watch_num, cache_path)
+                    message = await safe_send(
+                        channel, context=f"watch #{watch_num} ({wtype})", embed=embed, files=files
+                    )
+                    if message:
                         await self.bot.state.add_posted_watch(str(watch_num))
                         self.bot.state.last_post_times["watch"] = datetime.now(timezone.utc)
                         logger.info(f"Posted watch #{watch_num}")
@@ -556,8 +564,6 @@ class WatchesCog(commands.Cog):
                             )
                             self._pending_tasks.add(t)
                             t.add_done_callback(self._pending_tasks.discard)
-                    except discord.HTTPException as e:
-                        logger.exception(f"Discord send failed for #{watch_num}: {e}")
                 finally:
                     self._watch_inflight.discard(watch_num)
 

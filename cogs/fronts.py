@@ -7,6 +7,7 @@ from email.utils import parsedate_to_datetime
 import discord
 from discord.ext import commands, tasks
 
+from config import WEATHER_CHAT_CHANNEL_ID
 from utils.http import http_get_bytes, http_head_meta
 from utils.state_store import set_state
 
@@ -14,7 +15,6 @@ logger = logging.getLogger("spc_bot.fronts")
 
 FRONTS_PAGE_URL = "https://www.wpc.ncep.noaa.gov/#page=frt"
 FRONTS_SFC_DIR = "https://www.wpc.ncep.noaa.gov/sfc/"
-WEATHER_CHAT_CHANNEL_ID = 1016454846326513876
 FRONTS_CYCLES = ["00", "03", "06", "09", "12", "15", "18", "21"]  # 3-hourly analysis cycles
 
 

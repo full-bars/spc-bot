@@ -20,7 +20,7 @@ from typing import Optional
 
 from discord.ext import commands, tasks
 
-from config import IEM_NWSTEXT_URL, IEMBOT_BOTSTALK_URL, IEMBOT_FEED_URL
+from config import IEM_NWSTEXT_URL, IEMBOT_BOTSTALK_URL, IEMBOT_FEED_URL, IEMBOT_NHC_URL
 from utils.http import http_get_bytes
 from utils.state_store import get_product_cache, get_state, set_product_cache, set_state
 
@@ -104,20 +104,24 @@ class IEMBotCog(commands.Cog):
     MANAGED_TASK_NAMES = [
         ("poll_iembot_feed", "poll_iembot_feed"),
         ("poll_botstalk_feed", "poll_botstalk_feed"),
+        ("poll_nhc_feed", "poll_nhc_feed"),
     ]
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._seqnum_loaded = False
         self._botstalk_seqnum_loaded = False
+        self._nhc_seqnum_loaded = False
 
     async def cog_load(self):
         self.poll_iembot_feed.start()
         self.poll_botstalk_feed.start()
+        self.poll_nhc_feed.start()
 
     def cog_unload(self):
         self.poll_iembot_feed.cancel()
         self.poll_botstalk_feed.cancel()
+        self.poll_nhc_feed.cancel()
 
     @tasks.loop(seconds=15)
     async def poll_iembot_feed(self):
@@ -373,12 +377,82 @@ class IEMBotCog(commands.Cog):
                     t = asyncio.create_task(self._handle_warning(product_id, pil_match.group(1)))
                     t.add_done_callback(_log_task_exception)
 
+                # Route NHC tropical products
+                if any(
+                    pil in product_id.upper()
+                    for pil in ("-TCV", "-TCD", "-TWD", "-TCU", "-TWO", "-TCE", "-TCP")
+                ):
+                    tropical_cog = self.bot.get_cog("Tropical")
+                    if tropical_cog:
+                        text = await _fetch_product_text(product_id)
+                        t = asyncio.create_task(
+                            tropical_cog.post_tropical_product(
+                                product_id, text or "", source="IEMBot"
+                            )
+                        )
+                        t.add_done_callback(_log_task_exception)
+
             if new_seqnum > self.bot.state.iembot_botstalk_last_seqnum:
                 self.bot.state.iembot_botstalk_last_seqnum = new_seqnum
                 await set_state("iembot_botstalk_last_seqnum", str(new_seqnum))
 
         except Exception as e:
             logger.warning(f"Botstalk poll error: {e}")
+
+    # ── NHC feed poller ──────────────────────────────────────────
+
+    @tasks.loop(seconds=30)
+    async def poll_nhc_feed(self):
+        await self.bot.wait_until_ready()
+        if not self.bot.state.is_primary:
+            return
+
+        if not self._nhc_seqnum_loaded:
+            try:
+                val = await get_state("iembot_nhc_last_seqnum")
+                if val:
+                    self.bot.state.iembot_nhc_last_seqnum = int(val)
+                    logger.info(f"Resuming nhc from seqnum {self.bot.state.iembot_nhc_last_seqnum}")
+            except Exception as e:
+                logger.warning(f"Could not load nhc seqnum: {e}")
+            self._nhc_seqnum_loaded = True
+
+        try:
+            url = f"{IEMBOT_NHC_URL}?seqnum={getattr(self.bot.state, 'iembot_nhc_last_seqnum', 0)}"
+            content, status = await http_get_bytes(url, retries=2, timeout=10)
+            if not content or status != 200:
+                return
+
+            data = _json.loads(content)
+            messages = data.get("messages", [])
+            if not messages:
+                return
+
+            new_seqnum = getattr(self.bot.state, "iembot_nhc_last_seqnum", 0)
+            for msg in messages:
+                seqnum = msg.get("seqnum", 0)
+                if seqnum <= new_seqnum:
+                    continue
+                new_seqnum = max(new_seqnum, seqnum)
+
+                product_id = msg.get("product_id", "")
+                if not product_id:
+                    continue
+
+                text = await _fetch_product_text(product_id)
+                tropical_cog = self.bot.get_cog("Tropical")
+                if text and tropical_cog:
+                    t = asyncio.create_task(
+                        tropical_cog.post_tropical_product(product_id, text, source="IEMBot-NHC")
+                    )
+                    t.add_done_callback(_log_task_exception)
+
+            if new_seqnum > getattr(self.bot.state, "iembot_nhc_last_seqnum", 0):
+                self.bot.state.iembot_nhc_last_seqnum = new_seqnum
+                await set_state("iembot_nhc_last_seqnum", str(new_seqnum))
+
+        except Exception as e:
+            logger.warning(f"NHC poll error: {e}")
 
     _PIL_TO_EVENT = {
         "TOR": "Tornado Warning",
@@ -428,6 +502,21 @@ class IEMBotCog(commands.Cog):
         if exc:
             logger.error(
                 f"[TASK] poll_botstalk_feed stopped: {type(exc).__name__}: {exc}",
+                exc_info=exc,
+            )
+
+    @poll_nhc_feed.after_loop
+    async def after_nhc_loop(self):
+        if self.poll_nhc_feed.is_being_cancelled():
+            return
+        task = self.poll_nhc_feed.get_task()
+        try:
+            exc = task.exception() if task else None
+        except Exception:
+            exc = None
+        if exc:
+            logger.error(
+                f"[TASK] poll_nhc_feed stopped: {type(exc).__name__}: {exc}",
                 exc_info=exc,
             )
 

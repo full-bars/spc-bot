@@ -23,6 +23,7 @@ The following variables are required or optional in `.env`:
 | `SOUNDING_CHANNEL_ID` | (Optional) Receives auto-posted sounding plots near active watches. Defaults to `SPC_CHANNEL_ID` if not set. |
 | `HEALTH_CHANNEL_ID` | (Optional) Receives bot health alerts (watchdog degraded, task failures). Defaults to `SPC_CHANNEL_ID` if not set. |
 | `DEV_CHANNEL_ID` | (Optional) Receives watchdog probe-degradation alerts (2/3 warning and session-reset confirmation). Defaults to `HEALTH_CHANNEL_ID` if not set. |
+| `TROPICAL_CHANNEL_ID` | (Optional) Receives NHC tropical cyclone product posts. Defaults to a hardcoded production channel if not set. |
 
 Slash commands can be used from any channel — they always respond ephemerally
 or inline where invoked, not into the configured channels.
