@@ -66,6 +66,120 @@ def _parse_max_wind(text: str) -> float | None:
     return None
 
 
+def _clean_dots(s: str) -> str:
+    return re.sub(r"\.{2,}", " ", s).strip()
+
+
+def _parse_location(text: str) -> str | None:
+    m = re.search(r"LOCATION[\.\s:]+?([\d.]+[NS])\s+([\d.]+[EW])", text)
+    if m:
+        return _clean_dots(f"{m.group(1)} {m.group(2)}")
+    return None
+
+
+def _parse_location_desc(text: str) -> str | None:
+    m = re.search(r"ABOUT\s+(.+?)(?:\n|$)", text)
+    if m:
+        return _clean_dots(m.group(1))
+    return None
+
+
+def _parse_pressure(text: str) -> int | None:
+    m = re.search(r"MINIMUM\s+CENTRAL\s+PRESSURE[\.\s:]+?(\d+)\s*MB", text, re.IGNORECASE)
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def _parse_movement(text: str) -> str | None:
+    m = re.search(r"PRESENT\s+MOVEMENT[\.\s:]+?(.+?\d+)\s*MPH", text, re.IGNORECASE)
+    if m:
+        return _clean_dots(m.group(1))
+    return None
+
+
+def _build_compact_summary(
+    product_type: str,
+    parsed: dict,
+    wind_mph: float | None,
+    ss_cat: str | None,
+    storm_name: str | None,
+    storm_type: str | None,
+) -> str:
+    raw = parsed.get("raw_text", "")
+    summary = parsed.get("summary", "")
+
+    if product_type == "ADVISORY":
+        parts = []
+        loc = _parse_location(summary or raw)
+        loc_desc = _parse_location_desc(summary or raw)
+        if loc:
+            line = f"📍 {loc}"
+            if loc_desc:
+                line += f" — {loc_desc}"
+            parts.append(line)
+        data_bits = []
+        if wind_mph:
+            data_bits.append(f"💨 {wind_mph:.0f} MPH")
+        pressure = _parse_pressure(summary or raw)
+        if pressure:
+            data_bits.append(f"🌀 {pressure} MB")
+        movement = _parse_movement(summary or raw)
+        if movement:
+            data_bits.append(f"➡️ {movement}")
+        if data_bits:
+            parts.append(" | ".join(data_bits))
+        return "\n".join(parts)
+
+    elif product_type == "DISCUSSION":
+        lines = (summary or raw).splitlines()
+        for line in lines:
+            stripped = line.strip()
+            if (
+                stripped
+                and not stripped.startswith("SUMMARY")
+                and not stripped.startswith("-")
+                and not stripped.startswith("$$")
+            ):
+                return stripped[:200]
+        return ""
+
+    elif product_type == "TROPICAL WEATHER OUTLOOK":
+        lines = (summary or raw).splitlines()
+        for line in lines:
+            stripped = line.strip()
+            if "not expected" in stripped.lower() or "expected" in stripped.lower():
+                return stripped[:200]
+        for line in lines:
+            stripped = line.strip()
+            if (
+                stripped
+                and not stripped.startswith("NWS")
+                and not stripped.startswith("$$")
+                and not stripped.startswith("Forecaster")
+            ):
+                return stripped[:200]
+        return ""
+
+    elif product_type == "TROPICAL WEATHER DISCUSSION":
+        lines = (summary or raw).splitlines()
+        for line in lines:
+            stripped = line.strip()
+            if stripped and len(stripped) > 20 and not stripped.startswith("$$"):
+                return stripped[:200]
+        return ""
+
+    elif product_type == "UPDATE":
+        loc = _parse_location(summary or raw)
+        if loc and wind_mph:
+            return f"📍 {loc} | 💨 {wind_mph:.0f} MPH"
+        if loc:
+            return f"📍 {loc}"
+        return ""
+
+    return ""
+
+
 STORM_TYPE_ORDER = [
     "REMNANTS",
     "POST-TROPICAL CYCLONE",
@@ -229,26 +343,19 @@ class TropicalCog(commands.Cog, name="Tropical"):
         emoji = SAFFIR_EMOJI.get(ss_cat or "", "🌀")
         embed_color = SAFFIR_SIMPSON_COLORS.get(ss_cat or "", 0xF39C12)
 
-        title = f"{emoji} NHC {product_type}"
-        if storm_name:
-            title += f" — {storm_name}"
-        category_label = storm_type or ""
-        if ss_cat and ss_cat.startswith("CAT"):
-            cat_num = ss_cat.replace("CAT", "")
-            category_label = f"Cat {cat_num} {storm_type}" if storm_type else f"Cat {cat_num}"
-        elif ss_cat == "TS":
-            category_label = "Tropical Storm"
-        elif ss_cat == "TD":
-            category_label = "Tropical Depression"
-        if category_label:
-            title += f" ({category_label})"
+        title = f"{emoji} {storm_name or product_type}"
+        if product_type not in ("ADVISORY", "UPDATE"):
+            title = f"{emoji} NHC {product_type}"
+
+        compact = _build_compact_summary(
+            product_type, parsed, wind_mph, ss_cat, storm_name, storm_type
+        )
         embed = discord.Embed(
             title=title,
+            description=compact or None,
             color=embed_color,
             timestamp=datetime.now(timezone.utc),
         )
-        if parsed["summary"]:
-            embed.description = parsed["summary"][:2048]
         embed.set_footer(text=f"{source} | {product_id}")
 
         msg = await safe_send(
@@ -270,13 +377,26 @@ class TropicalCog(commands.Cog, name="Tropical"):
             auto_archive_duration=1440,
         )
 
-        full_text_embed = discord.Embed(
-            title=f"Full Text — {product_type}",
+        # Full summary embed goes in thread
+        summary_embed = (
+            discord.Embed(
+                title=f"{product_type} — {storm_name or ''}",
+                description=(parsed["summary"] or parsed["raw_text"])[:4096],
+                color=embed_color,
+            )
+            if parsed.get("summary")
+            else None
+        )
+
+        raw_text_embed = discord.Embed(
+            title=f"Full Text",
             description=parsed["raw_text"][:4096],
             color=discord.Color.dark_gray(),
         )
         target = thread or channel
-        await safe_send(target, context=f"tropical full text ({product_id})", embed=full_text_embed)
+        if summary_embed:
+            await safe_send(target, context=f"tropical summary ({product_id})", embed=summary_embed)
+        await safe_send(target, context=f"tropical full text ({product_id})", embed=raw_text_embed)
 
     async def route_from_product_id(
         self, product_id: str, raw_text: str = None, source: str = "IEMBot"
