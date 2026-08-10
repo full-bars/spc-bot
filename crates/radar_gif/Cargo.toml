@@ -11,7 +11,7 @@ data_source = { git = "https://github.com/FahrenheitResearch/bowecho" }
 render2d = { git = "https://github.com/FahrenheitResearch/bowecho" }
 product_engine = { git = "https://github.com/FahrenheitResearch/bowecho" }
 image = "0.25"
-imageproc = "0.25"
+imageproc = "0.27"
 ab_glyph = "0.2"
 chrono = "0.4"
 clap = { version = "4", features = ["derive"] }
