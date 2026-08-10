@@ -81,6 +81,36 @@ async def test_widens_past_empty_first_step():
     assert len(candidates) == 9
 
 
+async def test_does_not_reprobe_stations_across_steps():
+    """Stations confirmed silent in an earlier step are not checked again.
+
+    max_n=9 expands in steps [6, 9]. Stations KS00-KS05 are silent in the
+    first step; the second step must only check the newly added KS06-KS08.
+    We spy on ``get_available_sounding_times`` (the per-station availability
+    check) rather than HTTP: the per-hour cache absorbs repeat HTTP probes,
+    so call counts on the availability function are the true signal.
+    """
+    from collections import Counter
+
+    df = _station_df(9)
+
+    async def _available(station_id, hours_back=24, any_only=False):
+        # Station KS08 has data; everyone else is silent.
+        return [("2026", "08", "09", "12")] if station_id == "KS08" else []
+
+    with patch(
+        "cogs.sounding_utils.get_available_sounding_times",
+        side_effect=_available,
+    ) as mock_avail:
+        await sounding_utils.find_nearest_stations_with_data(35.0, -97.0, df, max_n=9, hours_back=4)
+
+    checked = Counter(call.args[0] for call in mock_avail.call_args_list)
+
+    assert set(checked) == {f"KS{i:02d}" for i in range(9)}, f"wrong stations: {set(checked)}"
+    over_checked = {s: c for s, c in checked.items() if c > 1}
+    assert not over_checked, f"stations re-checked across steps: {over_checked}"
+
+
 async def test_searches_effective_limit_when_not_a_step():
     """max_n between expansion steps still searches the full limit.
 

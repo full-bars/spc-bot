@@ -1231,6 +1231,7 @@ async def filter_stations_with_data(
     stations: list[dict],
     hours_back: int = 24,
     any_only: bool = True,
+    batch_size: Optional[int] = None,
 ) -> list[dict]:
     """
     Check each station in parallel for available sounding data.
@@ -1239,6 +1240,12 @@ async def filter_stations_with_data(
     ``hours_back`` controls the lookback window.  ``any_only`` stops probing a
     station as soon as one available time is found — every caller only cares
     whether data exists, and the per-hour detail is fetched separately.
+
+    ``batch_size`` bounds how many stations are probed concurrently: without it
+    the whole list fires via a single ``asyncio.gather`` (fine for the fixed
+    6-station callers, but the widening /sounding search can reach ~100
+    stations, and each station allows up to 5 concurrent probes — batching
+    keeps worst-case in-flight IEM requests bounded).
     """
 
     async def has_data(station: dict) -> tuple[dict, bool]:
@@ -1248,7 +1255,13 @@ async def filter_stations_with_data(
         )
         return station, len(available) > 0
 
-    results = await asyncio.gather(*[has_data(s) for s in stations])
+    if batch_size is None or len(stations) <= batch_size:
+        results = await asyncio.gather(*[has_data(s) for s in stations])
+    else:
+        results = []
+        for i in range(0, len(stations), batch_size):
+            chunk = stations[i : i + batch_size]
+            results.extend(await asyncio.gather(*[has_data(s) for s in chunk]))
     return [s for s, ok in results if ok]
 
 
@@ -1295,18 +1308,30 @@ async def find_nearest_stations_with_data(
     effective = min(max_n, n_max)
     steps = [s for s in STATION_EXPANSION_STEPS if s < effective]
     if steps:
-        if steps[-1] < effective:
-            steps.append(effective)
+        steps.append(effective)
     else:
         steps = [effective]
     candidates: list[dict] = []
+    checked_ids: set[str] = set()
     for n in steps:
         candidates = [
             s
             for s in find_nearest_stations(lat, lon, stations_df, n=n)
             if s.get("icao") or s.get("wmo")
         ]
-        verified = await filter_stations_with_data(candidates, hours_back=hours_back, any_only=True)
+        # Only re-probe stations added by this step. Stations already checked
+        # in an earlier (smaller) window were silent then; within this call the
+        # availability result cannot change, so re-probing them wastes requests
+        # in exactly the silent-region case this search exists for.
+        delta = [s for s in candidates if (s.get("icao") or s.get("wmo")) not in checked_ids]
+        verified = []
+        if delta:
+            verified = await filter_stations_with_data(
+                delta, hours_back=hours_back, any_only=True, batch_size=10
+            )
+            checked_ids.update(
+                sid for sid in (s.get("icao") or s.get("wmo") for s in delta) if sid is not None
+            )
         if verified:
             return verified[:MAX_VERIFIED_STATIONS], candidates
     return [], candidates
