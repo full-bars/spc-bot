@@ -38,8 +38,10 @@ def format_severity_line(
     """Format one 'Warning Labels' severity line: total + non-zero buckets.
 
     ``buckets`` is an ordered list of (label, count) pairs whose counts are
-    mutually exclusive (each warning lands in exactly one bucket), so the
-    shown sub-counts always sum to ``total``. Zero-count buckets are omitted.
+    mutually exclusive AND exhaustive — every warning counted in ``total``
+    must land in exactly one bucket (the stats query guarantees this via a
+    catch-all standard bucket), so the shown sub-counts always sum to
+    ``total``. Zero-count buckets are omitted.
     """
     parts = [f"{count} {label}" for label, count in buckets if count > 0]
     suffix = " · " + " · ".join(parts) if parts else ""

@@ -48,3 +48,13 @@ def test_format_severity_line_all_zero_buckets():
 def test_format_severity_line_omits_trailing_separator_when_no_buckets():
     line = format_severity_line("🌊", "ffw", 13, [("FFW", 0), ("FFWC", 0), ("FFE", 0)])
     assert line == "🌊 **13** ffw"
+
+
+def test_format_severity_line_single_nonzero_bucket():
+    line = format_severity_line("🌪️", "tor", 5, [("TOR", 5), ("TORP", 0), ("TORE", 0)])
+    assert line == "🌪️ **5** tor · 5 TOR"
+
+
+def test_format_severity_line_large_counts():
+    line = format_severity_line("⛈️", "svr", 10000, [("SVR", 9990), ("SVRC", 10), ("SVRD", 0)])
+    assert line == "⛈️ **10000** svr · 9990 SVR · 10 SVRC"
