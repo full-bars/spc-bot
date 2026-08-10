@@ -154,6 +154,7 @@ fi
 info "Installing/updating dependencies..."
 "${VENV_DIR}/bin/pip" install --upgrade pip --quiet
 REQS_FILE="${INSTALL_DIR}/requirements.txt"
+[ -f "$REQS_FILE" ] || error "requirements.txt not found at $REQS_FILE"
 if [ "$(uname -m)" = "aarch64" ] && grep -qi '^[[:space:]]*[Cc]artopy' "$REQS_FILE"; then
     # Cartopy has no aarch64 wheel; a source build needs GEOS/PROJ dev headers
     # that production boxes don't have, and pip aborts the ENTIRE install
@@ -168,7 +169,10 @@ if [ "$(uname -m)" = "aarch64" ] && grep -qi '^[[:space:]]*[Cc]artopy' "$REQS_FI
     if [ -z "$CART_VERSION" ] || ! "${VENV_DIR}/bin/python" -c 'import cartopy' 2>/dev/null; then
         error "Cartopy required but missing/unimportable on aarch64 (found '$CART_VERSION'). Install build deps (libgeos-dev libproj-dev) and 'pip install "Cartopy>=0.25.0,<0.26.0"' before deploying."
     fi
-    info "Cartopy present and importable: $CART_VERSION"
+    if ! "${VENV_DIR}/bin/python" -c "from packaging.version import Version; assert Version('$CART_VERSION') >= Version('0.25.0') and Version('$CART_VERSION') < Version('0.26.0')" 2>/dev/null; then
+        error "Cartopy $CART_VERSION is outside the required range >=0.25.0,<0.26.0. Upgrade it (source build with libgeos-dev libproj-dev, or a prebuilt wheel) before deploying."
+    fi
+    info "Cartopy present, importable, in range: $CART_VERSION"
 else
     "${VENV_DIR}/bin/pip" install -r "$REQS_FILE" --quiet
 fi
@@ -184,7 +188,9 @@ info "Dependency check passed."
 
 # pip check validates the dependency graph but not that compiled extensions
 # actually load — smoke-import the critical runtime packages before restart.
-if ! "${VENV_DIR}/bin/python" -c "import aiohttp, discord, numpy, pandas, metpy, sounderpy" 2>/dev/null; then
+# spc_rust_core is intentionally not listed: it is built by 'pip install .'
+# in the next step, so it does not exist yet on a fresh install.
+if ! "${VENV_DIR}/bin/python" -c "import aiohttp, discord, numpy, pandas, matplotlib, metpy, sounderpy" 2>/dev/null; then
     error "Runtime import smoke test failed — a package cannot be imported (e.g. a broken .so). Fix it before restarting the service."
 fi
 info "Runtime import smoke test passed."
