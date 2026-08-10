@@ -628,7 +628,7 @@ class SoundingCog(commands.Cog):
 
         # We don't post, just fetch to fill the internal/disk caches
         for station in candidates:
-            station_id = station.get("icao") or station.get("wmo")
+            station_id = station.get("icao") or station.get("wmo") or ""
             logger.debug(f"[SOUNDING-PREWARM] Pre-fetching IEM availability for {station_id}")
             # This fills the get_available_sounding_times_iem internal cache
             await get_available_sounding_times_iem(station_id, hours_back=24)
@@ -643,8 +643,11 @@ class SoundingCog(commands.Cog):
         if watch_num in self.bot.state.sounding_handled_watches:
             return
 
-        # Use SOUNDING_CHANNEL_ID if configured, fallback to passed channel
-        target_channel = self.bot.get_channel(SOUNDING_CHANNEL_ID) or channel
+        # Use SOUNDING_CHANNEL_ID if configured, fallback to passed channel.
+        # config.py may carry the ID as int or str, so cast for the lookup.
+        target_channel = (
+            self.bot.get_channel(int(SOUNDING_CHANNEL_ID)) if SOUNDING_CHANNEL_ID else channel
+        )
 
         affected_zones = nws_info.get("affected_zones", []) if isinstance(nws_info, dict) else []
         if not affected_zones:
@@ -742,7 +745,7 @@ class SoundingCog(commands.Cog):
                 png_path=png_path,
                 fallback_note=f" | {watches_frag}",
                 clean_data=data,
-                channel=target_channel,
+                channel=target_channel,  # type: ignore[arg-type]  # get_channel union incl. non-messageable
                 type_label="Auto Sounding",
                 autopost_summary=True,
             )
@@ -795,7 +798,7 @@ class SoundingCog(commands.Cog):
                 png_path=png_path,
                 fallback_note=f" | {watches_frag}",
                 clean_data=data,
-                channel=target_channel,
+                channel=target_channel,  # type: ignore[arg-type]  # get_channel union incl. non-messageable
                 is_acars=True,
                 type_label="Auto ACARS",
                 autopost_summary=True,
@@ -1101,7 +1104,7 @@ class SoundingCog(commands.Cog):
         if nearest:
             description_lines.append("**\U0001f4e1 RAOB Upper Air Stations:**")
             for s in nearest:
-                sid = s.get("icao") or s.get("wmo")
+                sid = s.get("icao") or s.get("wmo") or ""
                 avail = await get_available_sounding_times(sid, hours_back=36)
                 time_strs = [f"`{t[3]}z`" for t in avail[:4]]
                 times_note = " | ".join(time_strs) if time_strs else "no recent data"

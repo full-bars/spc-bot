@@ -196,13 +196,14 @@ async def is_owner(interaction: discord.Interaction) -> bool:
     """Check if the user is the bot owner."""
     if interaction.user.id == interaction.client.owner_id:
         return True
-    if not interaction.client.application:
-        await interaction.client.application_info()
+    application = interaction.client.application
+    if application is None:
+        application = await interaction.client.application_info()
 
-    owner = interaction.client.application.owner
+    owner = application.owner
     if isinstance(owner, discord.Team):
         return any(m.id == interaction.user.id for m in owner.members)
-    return owner.id == interaction.user.id
+    return owner is not None and owner.id == interaction.user.id
 
 
 class StatusView(discord.ui.View):
@@ -225,6 +226,8 @@ class StatusView(discord.ui.View):
             # Get all registered nodes
             nodes_data = await redis.hgetall("spcbot:nodes")
             lease_holder = await redis.get("spcbot:primary_url")
+            if isinstance(lease_holder, bytes):
+                lease_holder = lease_holder.decode()
 
             if not nodes_data:
                 return "*(No nodes registered)*"
@@ -233,7 +236,12 @@ class StatusView(discord.ui.View):
             stale_threshold = 90  # 3 sync cycles (30s each) + grace period
 
             lines = []
-            for identity, timestamp_str in sorted(nodes_data.items()):
+            for raw_identity, timestamp_str in sorted(nodes_data.items()):
+                # Redis may return bytes when decode_responses is off — normalize
+                # so the string parsing below is safe on either client config.
+                identity = (
+                    raw_identity.decode() if isinstance(raw_identity, bytes) else raw_identity
+                )
                 try:
                     timestamp = int(float(timestamp_str))
                     age = now - timestamp

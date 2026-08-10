@@ -13,6 +13,7 @@ import logging
 import re
 import sys
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from typing import Optional
 
 import aiohttp
@@ -112,8 +113,8 @@ def _compute_params_text(clean_data: dict) -> Optional[str]:
         except (ValueError, TypeError):
             return "N/A"
 
-    thermo: dict = {}
-    kinematics: dict = {}
+    thermo: Optional[dict] = {}
+    kinematics: Optional[dict] = {}
 
     # ── Fast path: try the Rust kernel ─────────────────────────────────
     try:
@@ -173,8 +174,12 @@ def _compute_params_text(clean_data: dict) -> Optional[str]:
             finally:
                 sys.stdout = old_stdout
 
-        thermo = params[1]
-        kinematics = params[2]
+        thermo = params[1] or {}
+        kinematics = params[2] or {}
+
+    # Both are guaranteed non-None here: the try path assigns dicts, and the
+    # fallback above defaults to {} on a failed computation.
+    assert thermo is not None and kinematics is not None
 
     summary = "SOUNDING PARAMETERS:\n\n"
     summary += "--- THERMODYNAMICS ---\n"
@@ -205,7 +210,9 @@ def _compute_params_text(clean_data: dict) -> Optional[str]:
     return summary
 
 
-async def get_sounding_params_text(clean_data: dict, cache_key: str = None) -> Optional[str]:
+async def get_sounding_params_text(
+    clean_data: dict, cache_key: Optional[str] = None
+) -> Optional[str]:
     """Extract thermodynamic/kinematic parameters for AI analysis.
 
     Checks the product cache first (keyed on ``cache_key``), then falls back
@@ -524,7 +531,7 @@ def _iem_level_is_valid(lv: dict) -> bool:
         dwpc = lv.get("dwpc")
         drct = lv.get("drct")
         sknt = lv.get("sknt")
-        if None in (pres, tmpc, dwpc, drct, sknt):
+        if pres is None or tmpc is None or dwpc is None or drct is None or sknt is None:
             return False
         pres = float(pres)
         tmpc = float(tmpc)
@@ -840,7 +847,7 @@ async def get_acars_profiles_near(
         try:
             loop = asyncio.get_running_loop()
             acars = await loop.run_in_executor(
-                None, lambda y=year, mo=month, d=day, hr=hour: spy.acars_data(y, mo, d, hr)
+                None, partial(spy.acars_data, year, month, day, hour)
             )
             profiles = await loop.run_in_executor(None, acars.list_profiles)
         except Exception as e:
@@ -858,7 +865,7 @@ async def get_acars_profiles_near(
                     # ACARS uses 3-letter codes; get_latlon needs K prefix for US airports
                     metar_code = airport_code if len(airport_code) == 4 else "K" + airport_code
                     latlon = await loop.run_in_executor(
-                        None, lambda code=metar_code: spy.get_latlon("metar", code)
+                        None, partial(spy.get_latlon, "metar", metar_code)
                     )
                     airport_latlon = (float(latlon[0]), float(latlon[1]))
                     _ACARS_STATION_COORDS[airport_code] = airport_latlon
@@ -931,7 +938,7 @@ async def get_acars_profiles_in_polygon(
         try:
             loop = asyncio.get_running_loop()
             acars = await loop.run_in_executor(
-                None, lambda y=year, mo=month, d=day, hr=hour: spy.acars_data(y, mo, d, hr)
+                None, partial(spy.acars_data, year, month, day, hour)
             )
             profiles = await loop.run_in_executor(None, acars.list_profiles)
         except Exception as e:
@@ -948,7 +955,7 @@ async def get_acars_profiles_in_polygon(
                 try:
                     metar_code = airport_code if len(airport_code) == 4 else "K" + airport_code
                     latlon = await loop.run_in_executor(
-                        None, lambda code=metar_code: spy.get_latlon("metar", code)
+                        None, partial(spy.get_latlon, "metar", metar_code)
                     )
                     airport_latlon = (float(latlon[0]), float(latlon[1]))
                     _ACARS_STATION_COORDS[airport_code] = airport_latlon
@@ -1249,7 +1256,7 @@ async def filter_stations_with_data(
     """
 
     async def has_data(station: dict) -> tuple[dict, bool]:
-        station_id = station.get("icao") or station.get("wmo")
+        station_id = station.get("icao") or station.get("wmo") or ""
         available = await get_available_sounding_times(
             station_id, hours_back=hours_back, any_only=any_only
         )
