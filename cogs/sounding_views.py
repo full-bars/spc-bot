@@ -525,7 +525,7 @@ class CombinedSoundingView(View):
         row = 0
 
         # RAOB station buttons (Row 0-1)
-        for i, station in enumerate(self.raob_stations[:3]):
+        for _i, station in enumerate(self.raob_stations[:3]):
             sid = station.get("icao") or station.get("wmo")
             label = f"📡 {station['name']} ({sid})"
             btn = Button(label=label[:80], style=ButtonStyle.blurple, row=row)

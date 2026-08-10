@@ -9,7 +9,7 @@ Verification math (Hitchens et al. 2013 / SPC):
 """
 
 import logging
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET  # safe parsing of untrusted SPC KML
 from datetime import datetime, timezone
 
 import discord
@@ -307,7 +307,7 @@ async def compute_verification(
         # Each report covers a 25-mile circle (5,077 km²), so:
         # expected = (area × probability) / coverage_per_report
         def _expected(prob: float) -> int:
-            return max(1, int(area_km2 * prob / _COVERAGE_KM2)) if prob > 0 else 0
+            return max(1, int(area_km2 * prob / _COVERAGE_KM2)) if prob > 0 else 0  # noqa: B023  # immediate-use per-iteration closure
 
         tor_exp = _expected(thresholds["tornado"])
         wind_exp = _expected(thresholds["wind"])

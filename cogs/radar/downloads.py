@@ -141,7 +141,7 @@ async def split_and_zip_files(
             if chunk_size + file_size > split_size and current_zip_files:
                 zip_path = Path(output_dir) / f"{site}_part{zip_counter}.zip"
                 with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-                    for fp, fi in current_zip_files:
+                    for fp, _fi in current_zip_files:
                         zipf.write(
                             fp,
                             os.path.join(site, os.path.basename(fp)),
@@ -155,7 +155,7 @@ async def split_and_zip_files(
         if current_zip_files:
             zip_path = Path(output_dir) / f"{site}_part{zip_counter}.zip"
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-                for fp, fi in current_zip_files:
+                for fp, _fi in current_zip_files:
                     zipf.write(
                         fp,
                         os.path.join(site, os.path.basename(fp)),

@@ -43,7 +43,7 @@ def get_cache_path_for_url(url: str) -> str:
     # Strip query / fragment before extracting an extension; splitext on
     # "x.gif?param=.." would otherwise return ".gif?param=..".
     clean = url.split("?", 1)[0].split("#", 1)[0]
-    md5 = hashlib.md5(url.encode()).hexdigest()
+    md5 = hashlib.md5(url.encode(), usedforsecurity=False).hexdigest()
     _, ext = os.path.splitext(clean)
     ext = ext.lower() if ext else ""
     if ext not in _ALLOWED_EXTS:
