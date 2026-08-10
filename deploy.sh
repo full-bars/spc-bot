@@ -3,6 +3,7 @@
 # Portable version: Installs to current directory by default, runs as current user.
 
 set -e
+set -o pipefail
 
 # Detect environment
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -153,13 +154,13 @@ fi
 info "Installing/updating dependencies..."
 "${VENV_DIR}/bin/pip" install --upgrade pip --quiet
 REQS_FILE="${INSTALL_DIR}/requirements.txt"
-if [ "$(uname -m)" = "aarch64" ] && grep -q '^Cartopy' "$REQS_FILE"; then
+if [ "$(uname -m)" = "aarch64" ] && grep -qi '^[[:space:]]*[Cc]artopy' "$REQS_FILE"; then
     # Cartopy has no aarch64 wheel; a source build needs GEOS/PROJ dev headers
     # that production boxes don't have, and pip aborts the ENTIRE install
     # (rolling back every pin, including security fixes) when a single package
     # fails to build. Install everything else; `pip check` below catches drift.
     warn "aarch64 detected — installing requirements with Cartopy excluded (no aarch64 wheel)."
-    grep -v '^Cartopy' "$REQS_FILE" | "${VENV_DIR}/bin/pip" install -r - --quiet
+    grep -vi '^[[:space:]]*[Cc]artopy' "$REQS_FILE" | "${VENV_DIR}/bin/pip" install -r - --quiet
 else
     "${VENV_DIR}/bin/pip" install -r "$REQS_FILE" --quiet
 fi
@@ -172,6 +173,13 @@ if ! "${VENV_DIR}/bin/pip" check --quiet; then
     error "Dependency check failed — the venv is in a broken/partial state. Fix the failing package before restarting the service."
 fi
 info "Dependency check passed."
+
+# pip check validates the dependency graph but not that compiled extensions
+# actually load — smoke-import the critical runtime packages before restart.
+if ! "${VENV_DIR}/bin/python" -c "import aiohttp, discord, numpy, pandas, metpy, sounderpy" 2>/dev/null; then
+    error "Runtime import smoke test failed — a package cannot be imported (e.g. a broken .so). Fix it before restarting the service."
+fi
+info "Runtime import smoke test passed."
 
 # ── Rust extension (spc_rust_core) ──────────────────────────────────────────────
 # pyproject.toml uses the maturin build backend, but `pip install -r
