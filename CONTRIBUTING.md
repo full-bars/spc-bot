@@ -23,7 +23,8 @@ The following variables are required or optional in `.env`:
 | `SOUNDING_CHANNEL_ID` | (Optional) Receives auto-posted sounding plots near active watches. Defaults to `SPC_CHANNEL_ID` if not set. |
 | `HEALTH_CHANNEL_ID` | (Optional) Receives bot health alerts (watchdog degraded, task failures). Defaults to `SPC_CHANNEL_ID` if not set. |
 | `DEV_CHANNEL_ID` | (Optional) Receives watchdog probe-degradation alerts (2/3 warning and session-reset confirmation). Defaults to `HEALTH_CHANNEL_ID` if not set. |
-| `TROPICAL_CHANNEL_ID` | (Optional) Receives NHC tropical cyclone product posts. Defaults to a hardcoded production channel if not set. |
+| `TROPICAL_CHANNEL_ID` | (Optional) Receives NHC tropical cyclone product posts. Defaults to `DEV_CHANNEL_ID`, then `HEALTH_CHANNEL_ID`, then `SPC_CHANNEL_ID` if not set. Can also be overridden at runtime via the `warning_channel:tropical` state key. |
+| `WEATHER_CHAT_CHANNEL_ID` | (Optional) Receives `/fronts` auto-posts. Defaults to `SPC_CHANNEL_ID` if not set. |
 
 Slash commands can be used from any channel — they always respond ephemerally
 or inline where invoked, not into the configured channels.
@@ -76,6 +77,7 @@ or inline where invoked, not into the configured channels.
 | `/download` | Open the NEXRAD Level 2 radar downloader UI. Optional `sites` (space or comma separated codes e.g. `KICT KUEX`), `time` (Last 1h/2h/3h/4h), and `count` (number of most recent files) for quick-start without interactive flow. |
 | `/downloaderstatus` | Check AWS downloader and S3 latency |
 | `/radarhistory` | Generate an animated historical radar reflectivity loop for any location and time. Parameters: `location` (city/state, zip, or coordinates), `date` (YYYY-MM-DD), `time` (local, e.g. `7:10 PM` or `19:10`), `timezone`, and optional `frames` (default 6, max 30) and `interval` (minutes between frames, default 5). Geocodes via OSM Nominatim, finds the nearest NEXRAD site via the R-tree spatial index, and fetches IEM national composite N0Q frames. |
+| `/radar` | Generate a live single-site NEXRAD Level II radar loop via the `radar_gif` Rust crate (BowEcho `nexrad_io`/`render2d`). Parameters: `site` (4-letter NEXRAD/TDWR ID), `product` (Reflectivity, Velocity, Spectrum Width, ZDR, CC, PHIDP, KDP, or experimental PTDS), `frames` (2–20, default 6), `zoom` (Storm-Scale ~75km, Regional ~150km default, Wide ~300km, Full Range ~460km), and `show_rotation` (default on — overlays Stumpf/Mitchell mesocyclone/TVS detection with Vrot/ΔV labels and reports the loop's peak rotation). |
 | `/hodograph` | Generate a VWP hodograph for any NEXRAD or TDWR site. Accepts a 4-letter site ID (e.g. `KTLX`). Displays the site's city/state alongside the code (e.g. **KOAX (Omaha, NE)**). Includes auto ASOS surface wind, storm parameter table, and persistent "🪄 AI Analysis" button for context-aware environmental assessment. |
 
 ### Analytics
@@ -187,6 +189,10 @@ The bot uses a multi-layered approach to ensure reliability:
 1. **NWWS-OI (Primary):** Immediate push; triggers `post_now` logic in alert cogs.
 2. **IEMBot (Secondary):** 15s poll of IEM's botstalk/spcchat feeds; used if NWWS is disconnected or misses a product.
 3. **NWS API (Tertiary):** warning polling every 30s, watch polling every 2m; provides final polygon/area truth and acts as the ultimate safety net.
+
+### NHC Tropical Cyclone Products
+
+`TropicalCog` (`cogs/tropical.py`) auto-posts NHC products — Public Advisory (`TCP`), Discussion (`TCD`), Tropical Weather Discussion (`TWD`), Tropical Weather Outlook (`TWO`), Update (`TCU`), Position Estimate (`TCE`), and Watch/Warning Summary (`TCV`) — routed from the IEMBot NHC feed, with NWWS-OI and IEMBot botstalk as fallback sources for the same authority sequence used elsewhere. Each product is fetched via `_fetch_nhc_product`, which parses storm type/name and bounds the "Summary" section (location/movement/pressure) to the next section header so Watches/Warnings and the full Discussion text don't leak into the channel embed. The full raw product text is posted to a discussion thread attached to the message. A product is only marked posted (deduplicated) after a confirmed successful send, so a failed post (e.g. a permissions issue) is retried rather than permanently skipped. Channel routing follows `TROPICAL_CHANNEL_ID`'s fallback chain, with a `warning_channel:tropical` state-key override available at runtime.
 
 ### SCP Graphics
 

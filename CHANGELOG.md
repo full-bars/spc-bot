@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **/sounding Offers Nothing When Nearest Stations Are Silent**: When all three nearest RAOB stations lacked recent data (e.g. the Tucson-area trio near KEMX), `/sounding` fell back to showing those silent stations — the user got "no recent data" for every option. The command now widens the station search outward (up to 100 candidates) until stations with live data are found, so the picker always offers a usable RAOB option when any nearby station has data. Availability checks gained an `any_only` fast path so the widening probe stops at the first hit instead of scanning the full lookback window per station.
+
 ## [5.43.0] - 2026-07-28
 
 ### Added
