@@ -6,6 +6,7 @@ Targets the get/set/add/prune family that had no direct coverage.
 """
 
 import json
+import time
 
 import pytest
 
@@ -119,14 +120,19 @@ async def test_product_ids_roundtrip_remove_and_prune(isolated_db, fake_redis):
 # ── Soundings ────────────────────────────────────────────────────────────────
 
 
-async def test_soundings_roundtrip_and_prune(isolated_db, fake_redis):
+async def test_soundings_roundtrip_and_prune(isolated_db):
+    # No fakeredis: the conftest autouse stub makes Redis unavailable, so
+    # reads fall back to SQLite — the path prune actually mutates.
     await state_store.add_posted_sounding("KOUN_20260810_00z")
     await state_store.add_posted_sounding("KOUN_20260810_12z")
+    await sqlite_backend.add_posted_sounding("OLD_20260801_00z", posted_at=time.time() - 5 * 86400)
     state_store._cache.clear()
     assert await state_store.get_posted_soundings() == {
         "KOUN_20260810_00z",
         "KOUN_20260810_12z",
+        "OLD_20260801_00z",
     }
+
     await state_store.prune_posted_soundings(max_days=2)
     state_store._cache.clear()
     assert await state_store.get_posted_soundings() == {
@@ -237,12 +243,14 @@ async def test_warnings_roundtrip_and_remove(isolated_db, fake_redis):
 
 
 async def test_warnings_drops_corrupt_redis_entry(isolated_db, fake_redis):
+    await state_store.add_posted_warning("KOUN.TO.W.0001", 1, 2, posted_at=1.0)
     await state_store._redis_cmd("HSET", state_store._k_posted_warnings(), "BOGUS", "not-json{")
     state_store._cache.clear()
 
     allw = await state_store.get_all_posted_warnings()
 
     assert "BOGUS" not in allw
+    assert allw["KOUN.TO.W.0001"]["message_id"] == 1
 
 
 async def test_prune_warnings_trims_redis_extras(isolated_db, fake_redis):

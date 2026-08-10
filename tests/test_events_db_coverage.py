@@ -87,6 +87,22 @@ async def test_link_dat_guid_no_events_returns_none(isolated_events_db):
     assert await events_db.link_dat_guid_to_tornado(today, "guid-new", "NORMAN") is None
 
 
+async def test_link_dat_guid_prefers_best_word_overlap(isolated_events_db):
+    now = time.time()
+    await events_db.add_significant_event("evt-weak", "Tornado", "NORMAN, OK", timestamp=now)
+    await events_db.add_significant_event(
+        "evt-strong", "Tornado", "NORMAN, CLEVELAND COUNTY, OK", timestamp=now
+    )
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+
+    result = await events_db.link_dat_guid_to_tornado(
+        today, "guid-x", "TORNADO IN NORMAN CLEVELAND COUNTY OK"
+    )
+
+    assert result is not None
+    assert result[0] == "evt-strong"
+
+
 # ── Reads ────────────────────────────────────────────────────────────────────
 
 
@@ -204,6 +220,7 @@ async def test_syncthing_mode_updates_folder(isolated_events_db, monkeypatch):
 
     assert session.get.call_count == 1
     assert session.put.call_count == 1
+    assert session.put.call_args.kwargs["json"]["type"] == "receiveonly"
 
 
 # ── DAT photo fetch / cache helpers ──────────────────────────────────────────
@@ -255,18 +272,34 @@ async def test_cache_dat_photos_downloads_and_lists(monkeypatch, tmp_path):
     assert photos[0].endswith(".png")
 
 
+async def test_fetch_dat_photos_http_error_returns_empty(monkeypatch):
+    async def _boom(*args, **kwargs):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(http, "http_get_json", _boom)
+
+    urls = await events_db.fetch_dat_photos(
+        location="NORMAN", magnitude="EF2", coords="35.22N 97.44W"
+    )
+
+    assert urls == []
+
+
 async def test_cache_dat_photos_skips_when_already_cached(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     cached_dir = os.path.join("cache", "tornado_photos", "evt-already")
     os.makedirs(cached_dir, exist_ok=True)
     with open(os.path.join(cached_dir, "photo_01.jpg"), "wb") as f:
         f.write(b"junk")
+    fetch = AsyncMock(return_value=["http://dat/x"])
+    monkeypatch.setattr(events_db, "fetch_dat_photos", fetch)
 
     count = await events_db.cache_dat_photos(
         "evt-already", location="NORMAN", coords="35.22N 97.44W"
     )
 
     assert count == 0
+    fetch.assert_not_awaited()
 
 
 async def test_cache_dat_photos_no_urls_returns_zero(monkeypatch, tmp_path):
@@ -274,6 +307,20 @@ async def test_cache_dat_photos_no_urls_returns_zero(monkeypatch, tmp_path):
     monkeypatch.setattr(events_db, "fetch_dat_photos", AsyncMock(return_value=[]))
 
     count = await events_db.cache_dat_photos("evt-none", location="NORMAN", coords="35.22N 97.44W")
+
+    assert count == 0
+
+
+async def test_cache_dat_photos_download_error_returns_zero(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(events_db, "fetch_dat_photos", AsyncMock(return_value=["http://dat/1"]))
+
+    async def _boom(*args, **kwargs):
+        raise RuntimeError("timeout")
+
+    monkeypatch.setattr(http, "http_get_bytes", _boom)
+
+    count = await events_db.cache_dat_photos("evt-err", location="NORMAN", coords="35.22N 97.44W")
 
     assert count == 0
 
