@@ -32,6 +32,22 @@ from utils.spc_urls import get_spc_urls
 logger = logging.getLogger("spc_bot")
 
 
+def format_severity_line(
+    emoji: str, phenom: str, total: int, buckets: list[tuple[str, int]]
+) -> str:
+    """Format one 'Warning Labels' severity line: total + non-zero buckets.
+
+    ``buckets`` is an ordered list of (label, count) pairs whose counts are
+    mutually exclusive AND exhaustive — every warning counted in ``total``
+    must land in exactly one bucket (the stats query guarantees this via a
+    catch-all standard bucket), so the shown sub-counts always sum to
+    ``total``. Zero-count buckets are omitted.
+    """
+    parts = [f"{count} {label}" for label, count in buckets if count > 0]
+    suffix = " · " + " · ".join(parts) if parts else ""
+    return f"{emoji} **{total}** {phenom}{suffix}"
+
+
 async def send_with_handling(source, content: str, file_paths=None, view=None):
     file_paths = file_paths or []
     files = []
@@ -490,13 +506,39 @@ class StatusView(discord.ui.View):
 
             stats = await get_warning_stats(since=(now - timedelta(hours=6)).timestamp())
             t, s, f = stats.get("tor", {}), stats.get("svr", {}), stats.get("ffw", {})
-            sev_val = (
-                f"🌪️ **{t.get('total', 0)}** tor"
-                f" · {t.get('emergency', 0)} TORE {t.get('pds', 0)} TORP {t.get('observed', 0)} TORR {t.get('radar_indicated', 0)} TOR\n"
-                f"⛈️ **{s.get('total', 0)}** svr"
-                f" · {s.get('destructive', 0)} SVRD {s.get('considerable', 0)} SVRC\n"
-                f"🌊 **{f.get('total', 0)}** ffw"
-                f" · {f.get('emergency', 0)} FFE {f.get('considerable', 0)} FFW-C"
+            sev_val = "\n".join(
+                (
+                    format_severity_line(
+                        "🌪️",
+                        "tor",
+                        t.get("total", 0),
+                        [
+                            ("TOR", t.get("standard", 0)),
+                            ("TORP", t.get("pds", 0)),
+                            ("TORE", t.get("emergency", 0)),
+                        ],
+                    ),
+                    format_severity_line(
+                        "⛈️",
+                        "svr",
+                        s.get("total", 0),
+                        [
+                            ("SVR", s.get("standard", 0)),
+                            ("SVRC", s.get("considerable", 0)),
+                            ("SVRD", s.get("destructive", 0)),
+                        ],
+                    ),
+                    format_severity_line(
+                        "🌊",
+                        "ffw",
+                        f.get("total", 0),
+                        [
+                            ("FFW", f.get("standard", 0)),
+                            ("FFWC", f.get("considerable", 0)),
+                            ("FFE", f.get("emergency", 0)),
+                        ],
+                    ),
+                )
             )
         except Exception as e:
             sev_val = f"⚠️ Error: {e}"
