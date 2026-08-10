@@ -113,7 +113,7 @@ def test_iem_to_clean_data_bad_valid_time_falls_back():
 def test_get_recent_sounding_times_returns_standard_hours_desc():
     times = sounding_utils.get_recent_sounding_times(n=4)
     assert len(times) == 4
-    for y, mo, d, h in times:
+    for _y, _mo, _d, h in times:
         assert int(h) in (0, 6, 12, 18)
     # newest first
     dt0 = datetime(
