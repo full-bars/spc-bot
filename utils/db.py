@@ -1332,14 +1332,16 @@ async def quarantine_dirty_writes(ids: list[int]):
         placeholders = ",".join("?" for _ in ids)
         async with _LOCK:
             await db.execute(
-                f"""INSERT INTO dirty_writes_dead
-                    (original_id, op, args, created, retry_count, quarantined)
-                    SELECT id, op, args, created, retry_count, ?
-                    FROM dirty_writes WHERE id IN ({placeholders})""",
+                (
+                    "INSERT INTO dirty_writes_dead "  # nosec B608  # parameterized; only literal '?' placeholders interpolated
+                    "(original_id, op, args, created, retry_count, quarantined) "
+                    "SELECT id, op, args, created, retry_count, ? "
+                    f"FROM dirty_writes WHERE id IN ({placeholders})"
+                ),
                 (time.time(), *ids),
             )
             await db.execute(
-                f"DELETE FROM dirty_writes WHERE id IN ({placeholders})",
+                f"DELETE FROM dirty_writes WHERE id IN ({placeholders})",  # nosec B608  # placeholders are literal '?' marks; values are bound parameters
                 tuple(ids),
             )
             await db.commit()

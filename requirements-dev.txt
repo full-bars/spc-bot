@@ -4,6 +4,7 @@ pytest-asyncio>=1.4.0,<2.0
 pytest-cov>=7.1.0,<8.0
 pytest-xdist>=3.8.0,<4.0
 ruff>=0.16.1,<0.17.0
+bandit>=1.8.0,<2.0
 maturin>=1.13,<2.0
 mypy>=2.3.0,<3.0
 fakeredis[lua]>=2.37.0,<3.0
