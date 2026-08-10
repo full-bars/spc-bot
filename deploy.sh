@@ -152,8 +152,26 @@ fi
 
 info "Installing/updating dependencies..."
 "${VENV_DIR}/bin/pip" install --upgrade pip --quiet
-"${VENV_DIR}/bin/pip" install -r "${INSTALL_DIR}/requirements.txt" --quiet
+REQS_FILE="${INSTALL_DIR}/requirements.txt"
+if [ "$(uname -m)" = "aarch64" ] && grep -q '^Cartopy' "$REQS_FILE"; then
+    # Cartopy has no aarch64 wheel; a source build needs GEOS/PROJ dev headers
+    # that production boxes don't have, and pip aborts the ENTIRE install
+    # (rolling back every pin, including security fixes) when a single package
+    # fails to build. Install everything else; `pip check` below catches drift.
+    warn "aarch64 detected — installing requirements with Cartopy excluded (no aarch64 wheel)."
+    grep -v '^Cartopy' "$REQS_FILE" | "${VENV_DIR}/bin/pip" install -r - --quiet
+else
+    "${VENV_DIR}/bin/pip" install -r "$REQS_FILE" --quiet
+fi
 info "Dependencies installed."
+
+# pip rolls back the whole transaction on a single build failure, which can
+# silently leave stale (even previously-vulnerable) versions in place. Verify
+# the environment is coherent before the bot restarts onto it.
+if ! "${VENV_DIR}/bin/pip" check --quiet; then
+    error "Dependency check failed — the venv is in a broken/partial state. Fix the failing package before restarting the service."
+fi
+info "Dependency check passed."
 
 # ── Rust extension (spc_rust_core) ──────────────────────────────────────────────
 # pyproject.toml uses the maturin build backend, but `pip install -r
