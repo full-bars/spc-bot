@@ -367,7 +367,7 @@ class TimeSelectionView(View):
         self,
         station: dict,
         dark_mode: bool,
-        original_user: discord.User,
+        original_user: discord.User | discord.Member,
         messages_to_delete: list = None,
     ):
         super().__init__(timeout=120)
@@ -427,7 +427,7 @@ class StationSelectionView(View):
         stations: list,
         time_args: tuple | None,
         dark_mode: bool,
-        original_user: discord.User,
+        original_user: discord.User | discord.Member,
     ):
         super().__init__(timeout=120)
         self.stations = stations
@@ -506,7 +506,7 @@ class CombinedSoundingView(View):
         acars_profiles: list,
         time_args: tuple | None,
         dark_mode: bool,
-        original_user: discord.User,
+        original_user: discord.User | discord.Member,
         location_desc: str = "",
         description: str = "",
     ):
@@ -734,7 +734,7 @@ class IEMTimeSelectionView(View):
         station: dict,
         times: list,
         dark_mode: bool,
-        original_user: discord.User,
+        original_user: discord.User | discord.Member,
         messages_to_delete: list = None,
     ):
         super().__init__(timeout=300)

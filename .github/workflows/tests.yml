@@ -70,9 +70,9 @@ jobs:
           cache: pip
           cache-dependency-path: requirements-dev.txt
       - run: pip install -r requirements-dev.txt
-      - name: mypy (utils + lib/vtec_parser — lenient, ignore-missing-imports)
-        # lib/vtec_parser.py added in v5.25.2; expand to cogs/ incrementally as annotations mature
-        run: mypy --ignore-missing-imports --follow-imports=silent utils/ lib/vtec_parser.py
+      - name: mypy (utils + lib/vtec_parser + first cogs — lenient, ignore-missing-imports)
+        # lib/vtec_parser.py added in v5.25.2; expand to more cogs/ incrementally as annotations mature
+        run: mypy --config-file mypy.ini utils/ lib/vtec_parser.py cogs/status.py cogs/sounding.py cogs/sounding_utils.py
 
   rust:
     runs-on: ubuntu-latest
