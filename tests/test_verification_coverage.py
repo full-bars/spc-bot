@@ -191,6 +191,8 @@ async def test_compute_verification_full_pipeline():
     ) as ma, patch("utils.geo.points_in_polygon_lookup", return_value=[0, 0, None]) as mlook:
         mw.return_value = [{"event": "Tornado Warning", "polygon": warning_poly}]
         mwat.return_value = [{"event": "Tornado Watch", "polygon": warning_poly}]
+        # Rust assignment: [0, 0, None] -> LSRs 0 (T) and 1 (G) land in area 0,
+        # LSR 2 (H) is outside -> tor=1, wind=1, hail=0.
         ml.return_value = [
             {"type": "T", "point": Point(-97.4, 35.2)},
             {"type": "G", "point": Point(-97.3, 35.1)},

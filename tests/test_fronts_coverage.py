@@ -76,6 +76,7 @@ async def test_fronts_command_happy_path():
     interaction.followup.send.assert_awaited_once()
     embed = interaction.followup.send.await_args.kwargs["embed"]
     assert "WPC Surface Fronts" in embed.title
+    assert embed.url == fronts.FRONTS_PAGE_URL
     assert "attachment://fronts.gif" in embed.image.url
     assert "Released 12:00 UTC" in embed.footer.text
 
