@@ -161,6 +161,14 @@ if [ "$(uname -m)" = "aarch64" ] && grep -qi '^[[:space:]]*[Cc]artopy' "$REQS_FI
     # fails to build. Install everything else; `pip check` below catches drift.
     warn "aarch64 detected — installing requirements with Cartopy excluded (no aarch64 wheel)."
     grep -vi '^[[:space:]]*[Cc]artopy' "$REQS_FILE" | "${VENV_DIR}/bin/pip" install -r - --quiet
+    # pip check does not validate direct pins from requirements.txt, so a fresh
+    # venv could pass with no Cartopy at all - but utils/map_utils.py imports it.
+    # Require an existing, in-range, importable Cartopy on aarch64.
+    CART_VERSION="$("${VENV_DIR}/bin/python" -c 'import importlib.metadata as m; print(m.version("Cartopy"))' 2>/dev/null || true)"
+    if [ -z "$CART_VERSION" ] || ! "${VENV_DIR}/bin/python" -c 'import cartopy' 2>/dev/null; then
+        error "Cartopy required but missing/unimportable on aarch64 (found '$CART_VERSION'). Install build deps (libgeos-dev libproj-dev) and 'pip install "Cartopy>=0.25.0,<0.26.0"' before deploying."
+    fi
+    info "Cartopy present and importable: $CART_VERSION"
 else
     "${VENV_DIR}/bin/pip" install -r "$REQS_FILE" --quiet
 fi
