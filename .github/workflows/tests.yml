@@ -140,4 +140,4 @@ jobs:
           docker run --rm \
             -e DISCORD_TOKEN -e SPC_CHANNEL_ID -e MODELS_CHANNEL_ID \
             -e GUILD_ID -e FAILOVER_TOKEN \
-            spc-bot:ci python -c "import main; print('import ok')"
+            spc-bot:ci python -c "import main, pkgutil, importlib, cogs; [importlib.import_module('cogs.' + m.name) for m in pkgutil.iter_modules(cogs.__path__)]; print('import ok; all cogs load')"
