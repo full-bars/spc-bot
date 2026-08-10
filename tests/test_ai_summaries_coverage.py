@@ -124,6 +124,22 @@ async def test_ensure_md_summary_fetches_html_when_no_raw():
     mock_summarize.assert_awaited_once_with("RAW MD TEXT")
 
 
+async def test_ensure_md_summary_html_without_pre_uses_whole_page():
+    with patch("utils.state_store.get_product_cache", new_callable=AsyncMock) as mock_cache, patch(
+        "utils.state_store._get_redis_client", return_value=None
+    ), patch("cogs.ai_summaries.http_get_text", new_callable=AsyncMock) as mock_text, patch(
+        "utils.ai.summarize_md", new_callable=AsyncMock
+    ) as mock_summarize:
+        mock_cache.side_effect = [None, None]
+        mock_text.return_value = "<html><body>RAW MD TEXT</body></html>"
+        mock_summarize.return_value = "MD summary"
+
+        result = await ensure_md_summary("1234")
+
+    assert result == "MD summary"
+    mock_summarize.assert_awaited_once_with("RAW MD TEXT")
+
+
 async def test_ensure_md_summary_no_raw_returns_none():
     with patch("utils.state_store.get_product_cache", new_callable=AsyncMock) as mock_cache, patch(
         "utils.state_store._get_redis_client", return_value=None
@@ -194,7 +210,9 @@ async def test_ensure_outlook_summary_generates():
         result = await ensure_outlook_summary("1", raw_text="RAW")
 
     assert result == regions
-    assert mock_set.await_count == 2
+    keys = [c.args[0] for c in mock_set.call_args_list]
+    assert f"ai_summary_outlook_day1_{'a' * 16}" in keys
+    assert "ai_regions_day1" in keys
 
 
 async def test_ensure_outlook_summary_no_raw_returns_none():
@@ -286,17 +304,24 @@ async def test_ensure_sounding_summary_inflight_dedup():
     import cogs.ai_summaries as ai_mod
 
     ai_mod._sounding_inflight["KOUN_20260810_00z"] = event
-    asyncio.get_running_loop().create_task(_set_event(event))
+    try:
+        asyncio.get_running_loop().create_task(_set_event(event))
 
-    with patch("utils.state_store.get_product_cache", new_callable=AsyncMock) as mock_cache, patch(
-        "utils.state_store._get_redis_client", return_value=None
-    ), patch("utils.ai.summarize_sounding", new_callable=AsyncMock) as mock_sum:
-        mock_cache.side_effect = [None, "generated-elsewhere"]
+        with patch(
+            "utils.state_store.get_product_cache", new_callable=AsyncMock
+        ) as mock_cache, patch("utils.state_store._get_redis_client", return_value=None), patch(
+            "utils.ai.summarize_sounding", new_callable=AsyncMock
+        ) as mock_sum:
+            mock_cache.side_effect = [None, "generated-elsewhere"]
 
-        result = await ensure_sounding_summary("KOUN_20260810_00z")
+            result = await ensure_sounding_summary("KOUN_20260810_00z")
 
-    assert result == "generated-elsewhere"
-    mock_sum.assert_not_awaited()
+        assert result == "generated-elsewhere"
+        mock_sum.assert_not_awaited()
+    finally:
+        # ensure_sounding_summary clears the inflight entry itself, but if the
+        # test body failed before the call the pre-seeded entry would linger.
+        ai_mod._sounding_inflight.pop("KOUN_20260810_00z", None)
 
 
 async def _set_event(event):
@@ -388,6 +413,8 @@ async def test_autopost_md_summary_channel_fallback():
         await autopost_md_summary(md_msg, "1234", delay=0.0)
 
     md_msg.channel.send.assert_awaited_once()
+    embed = md_msg.channel.send.await_args.kwargs["embed"]
+    assert "MD #1234" in embed.title
 
 
 async def test_autopost_sounding_summary_reply_fallback():
@@ -449,6 +476,9 @@ async def test_on_interaction_ignores_non_component():
     i.type = discord.InteractionType.application_command
     await cog.on_interaction(i)
     cog._handle_md_summary.assert_not_awaited()
+    cog._handle_outlook_summary.assert_not_awaited()
+    cog._handle_sounding_summary.assert_not_awaited()
+    cog._handle_region_pagination.assert_not_awaited()
 
 
 async def test_handle_md_summary_posts_to_thread():
@@ -479,6 +509,9 @@ async def test_handle_outlook_summary_str_fallback():
         await cog._handle_outlook_summary(interaction, "1")
 
     assert interaction.followup.send.await_args.kwargs["view"] is None
+    embed = interaction.followup.send.await_args.kwargs["embed"]
+    assert "Day 1" in embed.title
+    assert embed.description == "plain string summary"
 
 
 async def test_handle_region_pagination_valid():
@@ -490,6 +523,8 @@ async def test_handle_region_pagination_valid():
         await cog._handle_region_pagination(interaction, "1", 1)
 
     interaction.response.edit_message.assert_awaited_once()
+    embed = interaction.response.edit_message.await_args.kwargs["embed"]
+    assert "Region 2 of 2: B" in embed.description
 
 
 async def test_handle_region_pagination_expired():
@@ -501,6 +536,7 @@ async def test_handle_region_pagination_expired():
         await cog._handle_region_pagination(interaction, "1", 0)
 
     interaction.response.send_message.assert_awaited_once()
+    assert "expired" in interaction.response.send_message.await_args.args[0]
 
 
 async def test_daily_briefing_not_configured():
@@ -522,11 +558,29 @@ async def test_daily_briefing_generates():
     with patch("cogs.ai_summaries.GEMINI_API_KEY", "key"), patch(
         "cogs.ai_summaries.OPENCODE_API_KEY", "key"
     ), patch("cogs.ai_summaries.http_get_text", new_callable=AsyncMock) as mock_text, patch(
-        "utils.ai.generate_morning_briefing", new_callable=AsyncMock
-    ) as mock_brief:
+        "utils.state_store._get_redis_client", return_value=None
+    ), patch("cogs.ai_summaries.generate_morning_briefing", new_callable=AsyncMock) as mock_brief:
         mock_text.return_value = "<html>DAY1</html>"
         mock_brief.return_value = "BRIEFING"
         cog = AISummariesCog(MagicMock())
         await cog.daily_briefing.callback(cog, interaction)
 
     interaction.followup.send.assert_awaited_once()
+    embed = interaction.followup.send.await_args.kwargs["embed"]
+    assert "Morning Severe Weather Briefing" in embed.title
+    assert embed.description == "BRIEFING"
+
+
+async def test_daily_briefing_fetch_failure():
+    interaction = MagicMock()
+    interaction.response = AsyncMock()
+    interaction.followup = AsyncMock()
+    with patch("cogs.ai_summaries.GEMINI_API_KEY", "key"), patch(
+        "cogs.ai_summaries.OPENCODE_API_KEY", "key"
+    ), patch("cogs.ai_summaries.http_get_text", new_callable=AsyncMock) as mock_text:
+        mock_text.return_value = None
+        cog = AISummariesCog(MagicMock())
+        await cog.daily_briefing.callback(cog, interaction)
+
+    interaction.followup.send.assert_awaited_once()
+    assert "Failed to fetch" in interaction.followup.send.await_args.args[0]
