@@ -67,7 +67,8 @@ def test_iem_to_clean_data_basic_conversion():
     assert data["site_info"]["site-id"] == "KOUN"
     assert data["site_info"]["site-latlon"] == [35.2, -97.4]
     assert data["site_info"]["run-time"] == ["2026", "08", "10", "12:00"]
-    # u/v components: u = -speed*sin(dir), v = -speed*cos(dir)
+    # u/v components use the meteorological "from" direction:
+    # u = -speed*sin(dir), v = -speed*cos(dir)
     u0 = -10.0 * np.sin(np.deg2rad(200.0))
     v0 = -10.0 * np.cos(np.deg2rad(200.0))
     assert data["u"][0].magnitude == pytest.approx(u0)
@@ -84,6 +85,19 @@ def test_iem_to_clean_data_dedupes_near_pressures():
     )
     assert data is not None
     assert len(data["p"]) == 3  # 850.01 deduped against 850.0
+
+
+def test_iem_to_clean_data_keeps_distinct_pressures():
+    # 0.2 hPa apart is above the 0.1 dedupe threshold — must be kept.
+    profile = _sample_profile()
+    profile.insert(
+        1, {"pres": 850.2, "hght": 1502, "tmpc": 12.2, "dwpc": 5.2, "drct": 212.0, "sknt": 27.0}
+    )
+    data = sounding_utils._iem_to_clean_data(
+        profile, "KOUN", "NORMAN", 35.2, -97.4, 357.0, "2026-08-10T12:00:00Z"
+    )
+    assert data is not None
+    assert len(data["p"]) == 4
 
 
 def test_iem_to_clean_data_rejects_all_invalid():
@@ -156,8 +170,6 @@ async def test_is_owner_team_membership():
     interaction.user.id = 123
     interaction.client.owner_id = 999
     app = MagicMock()
-    app.owner = MagicMock()
-    app.owner.__class__.__name__ = "Team"
     import discord
 
     team = MagicMock(spec=discord.Team)
@@ -187,6 +199,16 @@ async def test_is_owner_handles_none_owner():
     assert await is_owner(interaction) is False
 
 
+async def test_is_owner_propagates_application_info_error():
+    interaction = MagicMock()
+    interaction.user.id = 123
+    interaction.client.owner_id = 999
+    interaction.client.application = None
+    interaction.client.application_info = AsyncMock(side_effect=RuntimeError("boom"))
+    with pytest.raises(RuntimeError):
+        await is_owner(interaction)
+
+
 # ── parse_sounding_time edge cases ───────────────────────────────────────────
 
 
@@ -205,6 +227,14 @@ def test_parse_sounding_time_invalid(bad):
 
 def test_parse_sounding_time_empty_returns_none():
     assert sounding_utils.parse_sounding_time("") is None
+
+
+def test_parse_sounding_time_valid():
+    assert sounding_utils.parse_sounding_time("04-10-2026 12z") == ("2026", "04", "10", "12")
+
+
+def test_parse_sounding_time_valid_leap_day():
+    assert sounding_utils.parse_sounding_time("02-29-2024 12z") == ("2024", "02", "29", "12")
 
 
 # ── db warning counts for date ───────────────────────────────────────────────
