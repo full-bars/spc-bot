@@ -9,9 +9,11 @@ import discord
 async def test_handle_outlook_summary_caching():
     bot = MagicMock()
 
-    with patch("utils.http.http_get_text", new_callable=AsyncMock) as mock_get_text, patch(
+    with patch("cogs.ai_summaries.http_get_text", new_callable=AsyncMock) as mock_get_text, patch(
         "utils.ai.summarize_outlook", new_callable=AsyncMock
-    ) as mock_summarize, patch("utils.ai.generate_morning_briefing", new_callable=AsyncMock), patch(
+    ) as mock_summarize, patch(
+        "cogs.ai_summaries.generate_morning_briefing", new_callable=AsyncMock
+    ), patch(
         "utils.state_store.get_product_cache", new_callable=AsyncMock
     ) as mock_get_cache, patch(
         "utils.state_store.set_product_cache", new_callable=AsyncMock
