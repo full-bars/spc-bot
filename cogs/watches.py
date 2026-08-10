@@ -24,6 +24,14 @@ from utils.cache import (
     download_single_image,
 )
 from utils.change_detection import get_cache_path_for_url, is_placeholder_image
+
+
+def _read_is_placeholder(path: str) -> bool:
+    """Read a file and check whether it is a placeholder image."""
+    with open(path, "rb") as f:
+        return is_placeholder_image(f.read())
+
+
 from utils.discord_send import safe_send
 from utils.http import http_get_bytes
 
@@ -233,9 +241,7 @@ class WatchesCog(commands.Cog):
 
                 image_missing = True
                 if cache_path and os.path.exists(cache_path):
-                    image_missing = await asyncio.to_thread(
-                        lambda p=cache_path: is_placeholder_image(open(p, "rb").read())
-                    )
+                    image_missing = await asyncio.to_thread(_read_is_placeholder, cache_path)
 
                 # If we have BOTH, we are fully upgraded.
                 if not image_missing and has_real_probs:
@@ -305,9 +311,7 @@ class WatchesCog(commands.Cog):
                 )
 
                 if cache_path and os.path.exists(cache_path):
-                    if await asyncio.to_thread(
-                        lambda p=cache_path: is_placeholder_image(open(p, "rb").read())
-                    ):
+                    if await asyncio.to_thread(_read_is_placeholder, cache_path):
                         continue
                 else:
                     continue
@@ -357,7 +361,7 @@ class WatchesCog(commands.Cog):
             self._watch_inflight.discard(watch_num)
 
     async def _post_watch_now_inner(self, watch_num: str, nws_info: dict):
-        channel = self.bot.get_channel(SPC_CHANNEL_ID)
+        channel = self.bot.get_channel(int(SPC_CHANNEL_ID)) if SPC_CHANNEL_ID else None
         if not channel:
             return
 

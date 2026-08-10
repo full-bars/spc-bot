@@ -23,7 +23,7 @@ logger = logging.getLogger("spc_bot.outlooks")
 class OutlookSummaryView(discord.ui.View):
     def __init__(self, day: str):
         super().__init__(timeout=None)
-        button = discord.ui.Button(
+        button: discord.ui.Button = discord.ui.Button(
             label="🪄 AI Analysis", style=discord.ButtonStyle.primary, custom_id=f"ai_outlook:{day}"
         )
         self.add_item(button)
@@ -60,7 +60,7 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
     try:
         urls = await get_spc_urls(day)
 
-        fallback_urls = SPC_URLS_FALLBACK.get(day, [])
+        fallback_urls = SPC_URLS_FALLBACK.get(str(day), [])
         if urls == fallback_urls and state.last_posted_urls.get(day_key) == urls:
             logger.info(f"Day {day}: Fallback URLs unchanged from last post — skipping")
             return
@@ -181,7 +181,7 @@ async def check_and_post_day(channel: discord.TextChannel, day: int, state):
                         text_embed = discord.Embed(
                             title=f"SPC Day {day} Outlook Discussion",
                             description=raw_text[:4096],
-                            color=discord.Color.dark_gray(),
+                            color=discord.Color.dark_gray(),  # type: ignore[misc]  # discord.Color generic-stub quirk
                         )
                         await thread.send(embed=text_embed)
 
