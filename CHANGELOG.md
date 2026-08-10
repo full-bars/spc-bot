@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [5.45.1] - 2026-08-10
+
+### Dependencies
+- Raised the `redis` floor to 8.1.0 (from 8.0.1) — shared state and leader-election client.
+- Updated `quick-xml` to 0.41.0 (from 0.39.4) — radar GIF pipeline XML parser; workspace compile + tests verified in CI.
+
 ## [5.45.0] - 2026-08-10
 
 ### Fixed
