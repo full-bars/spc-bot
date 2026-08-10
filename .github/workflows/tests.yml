@@ -29,8 +29,10 @@ jobs:
         run: ruff check --exclude=venv,lib,cache .
       - name: Ruff format check
         run: ruff format --check --exclude=venv,lib,cache .
-      - name: Shellcheck (deploy.sh)
-        run: shellcheck deploy.sh
+      - name: Shellcheck (scripts)
+        run: shellcheck deploy.sh install-hooks.sh .githooks/pre-push
+      - name: Bandit (security, medium+)
+        run: bandit -q -ll -r cogs utils config main.py
 
   test:
     runs-on: ubuntu-latest

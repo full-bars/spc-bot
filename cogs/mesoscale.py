@@ -820,7 +820,7 @@ class MesoscaleCog(commands.Cog):
                 if raw_text:
                     t = asyncio.create_task(self._check_prewarm(md_num, raw_text))
                     t.add_done_callback(
-                        lambda t: (
+                        lambda t, md_num=md_num: (
                             None
                             if t.cancelled()
                             else (
@@ -882,7 +882,7 @@ class MesoscaleCog(commands.Cog):
 
                     t = asyncio.create_task(autopost_md_summary(msg, str(md_num)))
                     t.add_done_callback(
-                        lambda t: (
+                        lambda t, md_num=md_num: (
                             logger.debug(f"[MD {md_num}] AI summary autopost finished")
                             if not t.exception()
                             else logger.exception(
