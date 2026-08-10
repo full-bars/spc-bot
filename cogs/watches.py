@@ -24,18 +24,16 @@ from utils.cache import (
     download_single_image,
 )
 from utils.change_detection import get_cache_path_for_url, is_placeholder_image
+from utils.discord_send import safe_send
+from utils.http import http_get_bytes
+
+logger = logging.getLogger("spc_bot")
 
 
 def _read_is_placeholder(path: str) -> bool:
     """Read a file and check whether it is a placeholder image."""
     with open(path, "rb") as f:
         return is_placeholder_image(f.read())
-
-
-from utils.discord_send import safe_send
-from utils.http import http_get_bytes
-
-logger = logging.getLogger("spc_bot")
 
 
 def _log_task_exception(task: asyncio.Task) -> None:
