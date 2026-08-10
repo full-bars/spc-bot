@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **/sounding Offers Nothing When Nearest Stations Are Silent**: When all three nearest RAOB stations lacked recent data (e.g. the Tucson-area trio near KEMX), `/sounding` fell back to showing those silent stations — the user got "no recent data" for every option. The command now widens the station search outward (up to 100 candidates) until stations with live data are found, so the picker always offers a usable RAOB option when any nearby station has data. Availability checks gained an `any_only` fast path so the widening probe stops at the first hit instead of scanning the full lookback window per station.
+
+## [5.43.0] - 2026-07-28
+
 ### Added
 - **NHC Tropical Cyclone Auto-Posting**: New `cogs/tropical.py` auto-posts National Hurricane Center products (Public Advisory, Discussion, Tropical Weather Discussion, Tropical Weather Outlook, Update, Position Estimate, Watch/Warning Summary) as they're issued, routed from the IEMBot NHC feed with NWWS XMPP and IEMBot botstalk as fallback sources. Posts include storm type/name detection, an emoji indicator, and a summary embed. Channel routing supports a runtime override (`warning_channel:tropical` state key), independent of any specific slash command.
 - **`TROPICAL_CHANNEL_ID`**: New optional `.env` variable for the tropical products channel, defaulting to `DEV_CHANNEL_ID` then `HEALTH_CHANNEL_ID` then `SPC_CHANNEL_ID` if unset (same fallback convention as every other channel in `config.py`).
@@ -28,6 +33,7 @@ All notable changes to this project will be documented in this file.
 - **Mesocyclone/TVS Rotation Detection**: `/radar` now runs BowEcho's operational rotation-detection algorithm (Stumpf/Mitchell) on every frame by default, overlaying color-coded markers (weak circulation through TVS) with Vrot labels, and reporting the loop's peak Vrot/ΔV (with timestamp) in the embed even when the strongest rotation occurred on an earlier frame than the most recent one.
 - **PTDS (Probability of Tornadic Debris Signature)**: New `/radar` product choice combining reflectivity, correlation coefficient, and differential reflectivity into a single 0–100% debris-signature confidence score, rendered with a dedicated probability color scale. Score is also sampled at each scan's strongest detected couplet and reported scan-by-scan in the embed. PTDS is explicitly experimental — the embed carries a visible disclaimer and a low score should not be read as ruling out a tornado.
 - **Missing `beautifulsoup4` Dependency**: `sounderpy`'s ACARS data module imports `bs4` directly but never declares it as a dependency, and the package was only ever present transitively. Pinned `beautifulsoup4` explicitly in `requirements.txt` so a fresh install (e.g. a rebuilt CI image) doesn't break every sounding-related test with `ModuleNotFoundError`.
+- **Rotation/TDS Detection Skipped When Display Moment Missing**: `build_moment_cache` returning `None` for an unavailable display product (e.g. ZDR/KDP/PHIDP on a given scan) previously short-circuited the entire volume via `continue`, silently skipping rotation and TDS detection for that scan too — even though `detect_rotation_sites` runs off velocity/dual-pol moments unrelated to the requested display product. Detection now runs unconditionally per volume before the display cache is built; only frame rendering is skipped on a cache miss. Rotation sidecar (`rotation.json`) serialization also now happens ahead of the no-frames-rendered early exit, so detection results are preserved even when no displayable moment exists for a scan (#617).
 
 ## [5.41.0] - 2026-07-19
 
