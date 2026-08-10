@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [5.45.0] - 2026-08-10
+
+### Fixed
+- **/status Warning Labels Did Not Sum to Totals**: The tornado line mixed severity buckets (TORE/TORP/TOR = emergency/pds/standard) with tornado-confidence buckets (observed/radar-indicated) — both tallied per warning — so the shown sub-counts could exceed the total (a 16-warning window displayed 0+1+1+15 = 17). The SVR/FFW lines omitted the plain (standard) count and always rendered zero-count categories. Each line now shows the total plus a severity-only breakdown whose buckets are mutually exclusive, zero-count buckets suppressed, so sub-counts always sum to the total. The flash-flood "considerable" tag is now labeled `FFWC` (was `FFW-C`, which read as "continued").
+
+### Dependencies
+- Updated `pytz` to 2026.3.post1 (from 2026.2) — timezone data refresh.
+- Raised the `beautifulsoup4` floor to 4.15 (from 4.12) — used by the ACARS parser.
+- Dev tooling: `ruff` to 0.16.x (from 0.15.x) and `fakeredis` to 2.37 (from 2.36).
+- Rust patch bumps: `pyo3` 0.29.2, `tokio` 1.53.1, `clap` 4.6.6, `serde_json` 1.0.151, `xxhash-rust` 0.8.18.
+- Radar stack: bowecho crates (`data_source`/`render2d`/`radar_core`/`color_tables`) to `6dfcb9f`, and `imageproc` 0.25.1 → 0.27.0.
+- No security advisories were outstanding; all updates are routine upstream maintenance.
+
 ## [5.44.0] - 2026-08-10
 
 ### Fixed
