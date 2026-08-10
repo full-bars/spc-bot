@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [5.45.3] - 2026-08-10
+
+### Changed
+- **Ruff Bugbear Family Enabled**: CI lint now also enforces the B (flake8-bugbear) rule set. Fixed all 21 findings, including one real late-binding closure bug in the MD AI-summary done-callback (callbacks logged the wrong MD number) and three exception-chaining gaps (`raise ... from None`).
+- **Bandit Security Scan Added**: CI runs bandit at medium+ severity. Fixed the four findings: image-cache MD5 marked `usedforsecurity=False`, untrusted SPC KML parsing moved to `defusedxml` (new runtime dependency), and two parameterized SQL f-strings in the dirty-writes quarantine path restructured/nosec'd (only literal `?` placeholders are interpolated; values are bound parameters).
+- **Shellcheck Across All Shell Scripts**: `deploy.sh`, `install-hooks.sh`, and the pre-push hook are shellcheck-clean; CI checks all three.
+- **mypy Gate Extended to Seven Cogs**: `warnings`, `watches`, `outlooks`, and `mesoscale` join the checked set. The wider check fixed a latent bug (outlook fallback-URL lookup used an int key against a str-keyed dict) plus 17 type errors.
+- **Coverage Floor Raised to 43%**: new DB-backed tests cover the warning-stats severity buckets (the /status Warning Labels source), the dirty-writes quarantine path, and the events DB roundtrip.
+- **Docker Smoke Imports Every Cog**: the image smoke test now imports all 33 cog modules, not just `main`, so a cog with a broken import fails the build instead of crashing on first boot.
+- **Pre-commit Synced**: ruff hook uses `ruff.toml`, mypy hook uses `mypy.ini` + expanded scope, shellcheck hook added.
+
 ## [5.45.2] - 2026-08-10
 
 ### Changed

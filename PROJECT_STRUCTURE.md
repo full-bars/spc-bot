@@ -97,7 +97,7 @@ spc-bot/
 │       ├── wsr88d.py        # Radar site info and filename utilities
 │       ├── asos.py          # ASOS surface wind fetching
 │       └── utils.py         # Shared exception types
-└── tests/                   # pytest suite (559 tests, see CONTRIBUTING.md)
+└── tests/                   # pytest suite (591 tests, see CONTRIBUTING.md)
     ├── conftest.py          # Fixtures: fake_bot (real BotState), isolated_db, global patches
     ├── test_analytics.py    # IEM analytics command URL/API behavior
     ├── test_fixtures.py     # Fixture invariants
@@ -193,7 +193,7 @@ See [High Availability & Failover](CONTRIBUTING.md#failover) in CONTRIBUTING.md 
 
 ## Testing
 
-The test suite has **559 tests** covering:
+The test suite has **591 tests** covering:
 - Unit tests for parsers (VTEC, polygons, narratives)
 - Integration tests for bot state and cog lifecycle
 - Failover scenarios and race conditions
@@ -208,4 +208,4 @@ VIRTUAL_ENV=venv maturin develop --release  # Build Rust extension
 python -m pytest tests/ -n auto -v          # pytest-xdist parallel execution
 ```
 
-CI additionally runs a **mypy gate** on `utils/` and a **Rust clippy/fmt** job on every push. See [CONTRIBUTING.md](CONTRIBUTING.md#running-tests) for coverage reports and lint checks.
+CI additionally runs a **mypy gate** on `utils/` + the checked cogs, a **Rust clippy/fmt** job, a **bandit** security scan, and a **shellcheck** pass on the shell scripts on every push. See [CONTRIBUTING.md](CONTRIBUTING.md#running-tests) for coverage reports and lint checks.

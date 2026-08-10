@@ -321,13 +321,19 @@ ruff check --exclude=venv,lib,cache .
 Static types (same scope CI uses):
 
 ```bash
-mypy --config-file mypy.ini utils/ lib/vtec_parser.py cogs/status.py cogs/sounding.py cogs/sounding_utils.py
+mypy --config-file mypy.ini utils/ lib/vtec_parser.py cogs/status.py cogs/sounding.py cogs/sounding_utils.py cogs/warnings.py cogs/watches.py cogs/outlooks.py cogs/mesoscale.py
 ```
 
-Deploy script shell check:
+Shell scripts check (deploy.sh, install-hooks.sh, .githooks/pre-push):
 
 ```bash
-shellcheck deploy.sh
+shellcheck deploy.sh install-hooks.sh .githooks/pre-push
+```
+
+Security scan (bandit, medium+ severity):
+
+```bash
+bandit -q -ll -r cogs utils config main.py
 ```
 
 ### CI pipeline
@@ -336,11 +342,11 @@ The GitHub Actions workflow runs the following jobs on every push and pull reque
 
 | Job | What it checks |
 |---|---|
-| **lint** | `ruff check` (E4/E7/E9/F rule set via `ruff.toml`), `ruff format --check`, and `shellcheck deploy.sh` |
-| **test** | Full test suite via `pytest -n auto` (pytest-xdist parallel execution) with coverage (floor 40%); gated on `lint` and `rust` passing first |
-| **mypy** | Static type check on `utils/`, `lib/vtec_parser.py`, and the first cogs (`status`, `sounding`, `sounding_utils`) — see `mypy.ini` |
+| **lint** | `ruff check` (E4/E7/E9/F/B rule set via `ruff.toml`), `ruff format --check`, `shellcheck` on all shell scripts, and `bandit -ll` security scan |
+| **test** | Full test suite via `pytest -n auto` (pytest-xdist parallel execution) with coverage (floor 43%); gated on `lint` and `rust` passing first |
+| **mypy** | Static type check on `utils/`, `lib/vtec_parser.py`, and 7 cogs (`status`, `sounding`, `sounding_utils`, `warnings`, `watches`, `outlooks`, `mesoscale`) — see `mypy.ini` |
 | **rust** | `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo test --no-default-features` on `src_rust/` |
-| **docker-build** | Builds the Docker image for `linux/amd64` and `linux/arm64`; gated on `test`, `mypy`, and `rust` passing first |
+| **docker-build** | Builds the Docker image for `linux/amd64` and `linux/arm64`, then smoke-tests that main **and every cog module** import; gated on `test`, `mypy`, and `rust` passing first |
 
 All jobs must pass before a PR can be merged.
 
