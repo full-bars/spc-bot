@@ -617,7 +617,7 @@ class StatusView(discord.ui.View):
                 "monitor_high_risk_soundings": "High-risk sounding sweep",
             }
             task_lines = []
-            for cog_name, cog in self.bot.cogs.items():
+            for _cog_name, cog in self.bot.cogs.items():
                 for task_name in dir(cog):
                     task = getattr(cog, task_name, None)
                     if isinstance(task, tasks.Loop):
@@ -706,7 +706,7 @@ class TaskMgrView(discord.ui.View):
         }
 
         task_lines = []
-        for cog_name, cog in self.bot.cogs.items():
+        for _cog_name, cog in self.bot.cogs.items():
             for task_name in dir(cog):
                 task = getattr(cog, task_name, None)
                 if isinstance(task, tasks.Loop):
@@ -1363,7 +1363,7 @@ class StatusCog(commands.Cog):
 
             # Send files
             files = []
-            for prod, version_path in all_files:
+            for _prod, version_path in all_files:
                 if version_path:
                     try:
                         # Extract timestamp from filename for ordering

@@ -8,9 +8,10 @@ extend-exclude = ["lib", "venv", ".venv", "docs", "*sync-conflict*"]
 
 [lint]
 # E4/E7/E9/F = import placement, statement-level correctness, runtime errors,
-# and pyflakes (unused imports/vars, redefinitions). Explicit so the rule set
-# stays stable across ruff versions (newer ruff expands its defaults).
-select = ["E4", "E7", "E9", "F"]
+# and pyflakes (unused imports/vars, redefinitions). B = flake8-bugbear
+# (late-binding closures, exception chaining, loop hygiene). Explicit so the
+# rule set stays stable across ruff versions (newer ruff expands its defaults).
+select = ["E4", "E7", "E9", "F", "B"]
 
 # Per-iteration try/except in loops is deliberate error isolation
 # (e.g. cogs/failover.py loading extensions — one bad ext must not

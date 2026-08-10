@@ -571,7 +571,7 @@ async def _run_radar_cli(
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
-        raise RuntimeError("Radar generation timed out after 180s")
+        raise RuntimeError("Radar generation timed out after 180s") from None
     except asyncio.CancelledError:
         proc.kill()
         await proc.wait()

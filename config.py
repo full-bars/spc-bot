@@ -68,7 +68,7 @@ def _require_int(name: str) -> int:
     try:
         return int(val)
     except ValueError:
-        raise ValueError(f"{name}={val!r} must be an integer")
+        raise ValueError(f"{name}={val!r} must be an integer") from None
 
 
 def _optional_int(*names: str) -> int:
@@ -83,7 +83,7 @@ def _optional_int(*names: str) -> int:
             try:
                 return int(val)
             except ValueError:
-                raise ValueError(f"{name}={val!r} must be an integer")
+                raise ValueError(f"{name}={val!r} must be an integer") from None
     return _require_int(names[-1])
 
 

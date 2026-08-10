@@ -12,6 +12,7 @@ chmod +x .githooks/pre-push
 
 echo "Installing dev dependencies..."
 if [ -f venv/bin/activate ]; then
+    # shellcheck disable=SC1091  # venv activate is intentionally sourced
     source venv/bin/activate
 fi
 pip install -r requirements-dev.txt -q

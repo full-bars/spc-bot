@@ -211,7 +211,7 @@ def _classify_storm_type(text: str) -> str:
 
 def _extract_storm_name(text: str) -> str:
     lines = text.splitlines()
-    for i, line in enumerate(lines):
+    for _i, line in enumerate(lines):
         upper = line.upper()
         for t in STORM_TYPE_ORDER:
             if t in upper:
