@@ -651,7 +651,7 @@ source = "git+https://github.com/FahrenheitResearch/bowecho#6dfcb9f7b27c79a5d0cb
 dependencies = [
  "chrono",
  "nexrad_io",
- "quick-xml",
+ "quick-xml 0.39.4",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -2349,6 +2349,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "quick-xml"
+version = "0.41.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e660451e55124f798a69a5af3f49ccfbefbd41910eefd25caf2393e1f3473ec1"
+dependencies = [
+ "memchr",
+ "serde",
+]
+
+[[package]]
 name = "quinn"
 version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2449,7 +2459,7 @@ dependencies = [
  "imageproc",
  "nexrad_io",
  "product_engine",
- "quick-xml",
+ "quick-xml 0.41.0",
  "radar_core",
  "render2d",
  "reqwest 0.12.28",
