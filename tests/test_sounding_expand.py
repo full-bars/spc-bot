@@ -81,6 +81,36 @@ async def test_widens_past_empty_first_step():
     assert len(candidates) == 9
 
 
+async def test_searches_effective_limit_when_not_a_step():
+    """max_n between expansion steps still searches the full limit.
+
+    max_n=7 is not in STATION_EXPANSION_STEPS, so the 7th-nearest station
+    must still be reached (steps become [6, 7]).
+    """
+    df = _station_df(7)
+    mock_iem = _mock_iem_for({"KS06"})  # only the 7th-nearest has data
+    with patch("cogs.sounding_utils.http_get_json", mock_iem):
+        verified, candidates = await sounding_utils.find_nearest_stations_with_data(
+            35.0, -97.0, df, max_n=7, hours_back=4
+        )
+
+    assert [s["icao"] for s in verified] == ["KS06"]
+    assert len(candidates) == 7
+
+
+async def test_small_station_table_bounded_by_table_size():
+    """A station table smaller than the expansion cap is searched in full."""
+    df = _station_df(4)
+    mock_iem = _mock_iem_for({"KS03"})  # only the 4th (last) has data
+    with patch("cogs.sounding_utils.http_get_json", mock_iem):
+        verified, candidates = await sounding_utils.find_nearest_stations_with_data(
+            35.0, -97.0, df, max_n=100, hours_back=4
+        )
+
+    assert [s["icao"] for s in verified] == ["KS03"]
+    assert len(candidates) == 4
+
+
 async def test_caps_verified_stations_at_three():
     """Even with many data stations, only the 3 nearest are returned."""
     df = _station_df(12)

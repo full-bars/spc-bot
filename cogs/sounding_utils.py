@@ -758,6 +758,10 @@ async def get_available_sounding_times_iem(
         if any_only and hit_event.is_set():
             return None
         async with semaphore:
+            # Re-check after acquiring the semaphore: a queued task must not
+            # issue an HTTP probe once another task has recorded a hit.
+            if any_only and hit_event.is_set():
+                return None
             ts = dt.strftime("%Y-%m-%dT%H:00:00Z")
             url = f"{IEM_RAOB_URL}?station={station_id}&ts={ts}"
             hour_key = f"{station_id}:{dt.strftime('%Y%m%d%H')}"
@@ -1288,9 +1292,13 @@ async def find_nearest_stations_with_data(
     has data).  Returns ([], last_candidates) when even the cap finds nothing.
     """
     n_max = len(stations_df)
-    steps = tuple(s for s in STATION_EXPANSION_STEPS if s <= min(max_n, n_max)) or (
-        min(max_n, n_max),
-    )
+    effective = min(max_n, n_max)
+    steps = [s for s in STATION_EXPANSION_STEPS if s < effective]
+    if steps:
+        if steps[-1] < effective:
+            steps.append(effective)
+    else:
+        steps = [effective]
     candidates: list[dict] = []
     for n in steps:
         candidates = [
