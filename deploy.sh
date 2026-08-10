@@ -3,6 +3,7 @@
 # Portable version: Installs to current directory by default, runs as current user.
 
 set -e
+set -o pipefail
 
 # Detect environment
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -152,8 +153,47 @@ fi
 
 info "Installing/updating dependencies..."
 "${VENV_DIR}/bin/pip" install --upgrade pip --quiet
-"${VENV_DIR}/bin/pip" install -r "${INSTALL_DIR}/requirements.txt" --quiet
+REQS_FILE="${INSTALL_DIR}/requirements.txt"
+[ -f "$REQS_FILE" ] || error "requirements.txt not found at $REQS_FILE"
+if [ "$(uname -m)" = "aarch64" ] && grep -qi '^[[:space:]]*[Cc]artopy' "$REQS_FILE"; then
+    # Cartopy has no aarch64 wheel; a source build needs GEOS/PROJ dev headers
+    # that production boxes don't have, and pip aborts the ENTIRE install
+    # (rolling back every pin, including security fixes) when a single package
+    # fails to build. Install everything else; `pip check` below catches drift.
+    warn "aarch64 detected — installing requirements with Cartopy excluded (no aarch64 wheel)."
+    grep -vi '^[[:space:]]*[Cc]artopy' "$REQS_FILE" | "${VENV_DIR}/bin/pip" install -r - --quiet
+    # pip check does not validate direct pins from requirements.txt, so a fresh
+    # venv could pass with no Cartopy at all - but utils/map_utils.py imports it.
+    # Require an existing, in-range, importable Cartopy on aarch64.
+    CART_VERSION="$("${VENV_DIR}/bin/python" -c 'import importlib.metadata as m; print(m.version("Cartopy"))' 2>/dev/null || true)"
+    if [ -z "$CART_VERSION" ] || ! "${VENV_DIR}/bin/python" -c 'import cartopy' 2>/dev/null; then
+        error "Cartopy required but missing/unimportable on aarch64 (found '$CART_VERSION'). Install build deps (libgeos-dev libproj-dev) and 'pip install "Cartopy>=0.25.0,<0.26.0"' before deploying."
+    fi
+    if ! "${VENV_DIR}/bin/python" -c "from packaging.version import Version; assert Version('$CART_VERSION') >= Version('0.25.0') and Version('$CART_VERSION') < Version('0.26.0')" 2>/dev/null; then
+        error "Cartopy $CART_VERSION is outside the required range >=0.25.0,<0.26.0. Upgrade it (source build with libgeos-dev libproj-dev, or a prebuilt wheel) before deploying."
+    fi
+    info "Cartopy present, importable, in range: $CART_VERSION"
+else
+    "${VENV_DIR}/bin/pip" install -r "$REQS_FILE" --quiet
+fi
 info "Dependencies installed."
+
+# pip rolls back the whole transaction on a single build failure, which can
+# silently leave stale (even previously-vulnerable) versions in place. Verify
+# the environment is coherent before the bot restarts onto it.
+if ! "${VENV_DIR}/bin/pip" check --quiet; then
+    error "Dependency check failed — the venv is in a broken/partial state. Fix the failing package before restarting the service."
+fi
+info "Dependency check passed."
+
+# pip check validates the dependency graph but not that compiled extensions
+# actually load — smoke-import the critical runtime packages before restart.
+# spc_rust_core is intentionally not listed: it is built by 'pip install .'
+# in the next step, so it does not exist yet on a fresh install.
+if ! "${VENV_DIR}/bin/python" -c "import aiohttp, discord, numpy, pandas, matplotlib, metpy, sounderpy" 2>/dev/null; then
+    error "Runtime import smoke test failed — a package cannot be imported (e.g. a broken .so). Fix it before restarting the service."
+fi
+info "Runtime import smoke test passed."
 
 # ── Rust extension (spc_rust_core) ──────────────────────────────────────────────
 # pyproject.toml uses the maturin build backend, but `pip install -r

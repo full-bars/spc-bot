@@ -29,6 +29,8 @@ jobs:
         run: ruff check --exclude=venv,lib,cache .
       - name: Ruff format check
         run: ruff format --check --exclude=venv,lib,cache .
+      - name: Shellcheck (deploy.sh)
+        run: shellcheck deploy.sh
 
   test:
     runs-on: ubuntu-latest
