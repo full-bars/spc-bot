@@ -312,10 +312,22 @@ python -m pytest tests/ \
 
 The suite currently collects **559 tests**.
 
-Lint (same selection CI uses):
+Lint (same selection CI uses — rule set configured in `ruff.toml`):
 
 ```bash
-ruff check --select=E9,F63,F7,F82,F401 --exclude=venv,lib,cache .
+ruff check --exclude=venv,lib,cache .
+```
+
+Static types (same scope CI uses):
+
+```bash
+mypy --config-file mypy.ini utils/ lib/vtec_parser.py cogs/status.py cogs/sounding.py cogs/sounding_utils.py
+```
+
+Deploy script shell check:
+
+```bash
+shellcheck deploy.sh
 ```
 
 ### CI pipeline
@@ -324,9 +336,9 @@ The GitHub Actions workflow runs the following jobs on every push and pull reque
 
 | Job | What it checks |
 |---|---|
-| **lint** | `ruff check` (syntax/undefined-name/unused-imports) and `ruff format --check` |
-| **test** | Full test suite via `pytest -n auto` (pytest-xdist parallel execution) with coverage; gated on `lint` and `rust` passing first |
-| **mypy** | Static type check on `utils/` and `lib/vtec_parser.py` |
+| **lint** | `ruff check` (E4/E7/E9/F rule set via `ruff.toml`), `ruff format --check`, and `shellcheck deploy.sh` |
+| **test** | Full test suite via `pytest -n auto` (pytest-xdist parallel execution) with coverage (floor 40%); gated on `lint` and `rust` passing first |
+| **mypy** | Static type check on `utils/`, `lib/vtec_parser.py`, and the first cogs (`status`, `sounding`, `sounding_utils`) — see `mypy.ini` |
 | **rust** | `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo test --no-default-features` on `src_rust/` |
 | **docker-build** | Builds the Docker image for `linux/amd64` and `linux/arm64`; gated on `test`, `mypy`, and `rust` passing first |
 

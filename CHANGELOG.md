@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [5.45.2] - 2026-08-10
+
+### Changed
+- **deploy.sh Installs Dependencies on aarch64**: Cartopy ships no aarch64 wheel, so `pip install -r requirements.txt` on ARM failed a source build and rolled back the entire install — silently leaving stale (even vulnerable) pins. deploy.sh now excludes Cartopy on aarch64, validates an existing in-range Cartopy, runs `pip check` plus a runtime import smoke test, and enforces `set -o pipefail`. `shellcheck deploy.sh` added to CI.
+- **PR Template Cleanup**: removed the AI-attribution checklist line and references to nonexistent `GEMINI.md`/`CLAUDE.md`.
+- **Ruff Gate Widened**: CI lint now enforces the E4/E7/E9/F rule set (import placement, statement-level correctness, runtime errors, full pyflakes) via an explicit `ruff.toml` select instead of a six-rule subset.
+- **mypy Gate Extended**: `cogs/status.py`, `cogs/sounding.py`, and `cogs/sounding_utils.py` are now type-checked (`mypy.ini` documents the runtime-attached `bot.state` pattern). The wider check surfaced three latent bugs: a bytes/str split in the cluster status view, a discarded `application_info()` result in `is_owner`, and a `None` thermodynamic fallback.
+- **Coverage Floor Raised**: `--cov-fail-under` 30% → 40% (measured CI coverage 43.05%).
+
 ## [5.45.1] - 2026-08-10
 
 ### Dependencies
