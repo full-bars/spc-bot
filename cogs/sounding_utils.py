@@ -697,6 +697,7 @@ async def fetch_iem_sounding(
 async def get_available_sounding_times_iem(
     station_id: str,
     hours_back: int = 24,
+    any_only: bool = False,
 ) -> list[tuple[str, str, str, str]]:
     """
     Check IEM for all available sounding times for a station in the last
@@ -705,6 +706,11 @@ async def get_available_sounding_times_iem(
     Uses a per-hour cache: past hours (>2 h old) are cached permanently
     (soundings are immutable once indexed); only the most recent 1-2 hours
     are ever re-probed.  Limits concurrency to 5 simultaneous requests.
+
+    When ``any_only`` is True, stop as soon as one available time is found.
+    The nearest-station expansion only needs to know whether a station has
+    data, so this avoids probing the full lookback window for every station.
+    The returned list is still sorted newest-first (capped at one entry).
     """
     now = datetime.now(timezone.utc)
 
@@ -735,11 +741,22 @@ async def get_available_sounding_times_iem(
                 continue
         uncached.append(dt)
 
+    # any_only: a cached hit is already enough — skip probing entirely.
+    if any_only and results:
+        results.sort(key=lambda x: (x[0], x[1], x[2], x[3]), reverse=True)
+        return results[:1]
+
     if not uncached:
         results.sort(key=lambda x: (x[0], x[1], x[2], x[3]), reverse=True)
-        return results
+        return results[:1] if any_only else results
+
+    # Shared "first hit found" event: once any_only has what it needs, later
+    # hours skip their probes instead of checking every hour in the window.
+    hit_event = asyncio.Event()
 
     async def check_hour(dt: datetime, semaphore: asyncio.Semaphore) -> Optional[tuple]:
+        if any_only and hit_event.is_set():
+            return None
         async with semaphore:
             ts = dt.strftime("%Y-%m-%dT%H:00:00Z")
             url = f"{IEM_RAOB_URL}?station={station_id}&ts={ts}"
@@ -758,6 +775,8 @@ async def get_available_sounding_times_iem(
                         str(dt.hour).zfill(2),
                     )
                     _HOUR_CACHE[hour_key] = (now, result)
+                    if any_only:
+                        hit_event.set()
                     return result
                 _HOUR_CACHE[hour_key] = (now, None)
             except Exception as e:
@@ -769,6 +788,8 @@ async def get_available_sounding_times_iem(
     for r in new_results:
         if r is not None:
             results.append(r)
+            if any_only:
+                break
 
     # Prune stale cache entries if total grows too large
     if len(_HOUR_CACHE) > 5000:
@@ -779,7 +800,7 @@ async def get_available_sounding_times_iem(
             del _HOUR_CACHE[k]
 
     results.sort(key=lambda x: (x[0], x[1], x[2], x[3]), reverse=True)
-    return results
+    return results[:1] if any_only else results
 
 
 # ── ACARS functions ───────────────────────────────────────────────────────────
@@ -1151,13 +1172,17 @@ async def fetch_acars_sounding(
 async def get_available_sounding_times(
     station_id: str,
     hours_back: int = 24,
+    any_only: bool = False,
 ) -> list[tuple[str, str, str, str]]:
     """
     Unified availability check: Try IEM first, fall back to a direct
     Wyoming/GSL probe for standard hours.
+
+    When ``any_only`` is True, return as soon as the first available time is
+    found (used by the /sounding nearest-station expansion).
     """
     # 1. Try IEM (Fastest, covers all hours)
-    avail = await get_available_sounding_times_iem(station_id, hours_back)
+    avail = await get_available_sounding_times_iem(station_id, hours_back, any_only=any_only)
     if avail:
         return avail
 
@@ -1181,6 +1206,15 @@ async def get_available_sounding_times(
     if not valid_probe_times:
         return []
 
+    if any_only:
+        # Sequential probe; stop at the first hit.  Only reached for
+        # non-CONUS stations, and valid_probe_times is small.
+        for y, mo, d, h in valid_probe_times:
+            res = await fetch_sounding(station_id, y, mo, d, h)
+            if res is not None:
+                return [(y, mo, d, h)]
+        return []
+
     # Parallel probe Wyoming/GSL
     results = await asyncio.gather(
         *[fetch_sounding(station_id, y, mo, d, h) for y, mo, d, h in valid_probe_times]
@@ -1189,19 +1223,75 @@ async def get_available_sounding_times(
     return [valid_probe_times[i] for i, res in enumerate(results) if res is not None]
 
 
-async def filter_stations_with_data(stations: list[dict]) -> list[dict]:
+async def filter_stations_with_data(
+    stations: list[dict],
+    hours_back: int = 24,
+    any_only: bool = True,
+) -> list[dict]:
     """
     Check each station in parallel for available sounding data.
     Uses unified availability check (IEM + Wyoming probe).
+
+    ``hours_back`` controls the lookback window.  ``any_only`` stops probing a
+    station as soon as one available time is found — every caller only cares
+    whether data exists, and the per-hour detail is fetched separately.
     """
 
     async def has_data(station: dict) -> tuple[dict, bool]:
         station_id = station.get("icao") or station.get("wmo")
-        available = await get_available_sounding_times(station_id, hours_back=24)
+        available = await get_available_sounding_times(
+            station_id, hours_back=hours_back, any_only=any_only
+        )
         return station, len(available) > 0
 
     results = await asyncio.gather(*[has_data(s) for s in stations])
     return [s for s, ok in results if ok]
+
+
+# ── Progressive nearest-station search ───────────────────────────────────────
+# CONUS RAOB stations are ~400 km apart, so the nearest handful can all be
+# silent at once (e.g. the three Tucson-area stations nearest KEMX).  The
+# /sounding command widens the search through these steps until a station
+# with live data is found, so the user always has something to select.  The
+# cap protects the IEM/Wyoming probe load when an entire region is quiet.
+STATION_EXPANSION_STEPS: tuple[int, ...] = (
+    6, 9, 12, 15, 20, 25, 30, 40, 50, 65, 80, 100,
+)
+MAX_VERIFIED_STATIONS = 3
+
+
+async def find_nearest_stations_with_data(
+    lat: float,
+    lon: float,
+    stations_df: pd.DataFrame,
+    max_n: int = 100,
+    hours_back: int = 36,
+) -> tuple[list[dict], list[dict]]:
+    """
+    Return (verified, candidates) for the nearest RAOB stations that actually
+    have sounding data, widening the search outward until data is found.
+
+    ``verified`` holds up to ``MAX_VERIFIED_STATIONS`` stations with at least
+    one available time within ``hours_back``, sorted by distance.  ``candidates``
+    is the widest pool searched (used as a last-resort fallback when nothing
+    has data).  Returns ([], last_candidates) when even the cap finds nothing.
+    """
+    n_max = len(stations_df)
+    steps = tuple(s for s in STATION_EXPANSION_STEPS if s <= min(max_n, n_max)) or (
+        min(max_n, n_max),
+    )
+    candidates: list[dict] = []
+    for n in steps:
+        candidates = [
+            s for s in find_nearest_stations(lat, lon, stations_df, n=n)
+            if s.get("icao") or s.get("wmo")
+        ]
+        verified = await filter_stations_with_data(
+            candidates, hours_back=hours_back, any_only=True
+        )
+        if verified:
+            return verified[:MAX_VERIFIED_STATIONS], candidates
+    return [], candidates
 
 
 def validate_sounding_data(data: Optional[dict], min_levels: int = 5) -> bool:

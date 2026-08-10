@@ -19,6 +19,7 @@ from cogs.sounding_utils import (
     fetch_sounding,
     filter_stations_with_data,
     find_nearest_stations,
+    find_nearest_stations_with_data,
     generate_plot,
     get_acars_profiles_in_polygon,
     get_acars_profiles_near,
@@ -1044,11 +1045,6 @@ class SoundingCog(commands.Cog):
             )
             return
 
-        # Verify stations actually have data in Wyoming archive
-        # Search wider if needed (up to 10 candidates)
-        candidates = find_nearest_stations(lat, lon, stations_df, n=6)
-        candidates = [s for s in candidates if s.get("icao") or s.get("wmo")]
-
         checking_embed = discord.Embed(
             title="⏳ Checking Station Availability...",
             description="Verifying which nearby stations have sounding data...",
@@ -1057,14 +1053,19 @@ class SoundingCog(commands.Cog):
         await interaction.followup.send(embed=checking_embed)
         status_msg = await interaction.original_response()
 
-        # Run RAOB verification and ACARS search concurrently
+        # Run RAOB verification and ACARS search concurrently.  The RAOB search
+        # widens outward (up to the configured cap) until stations with live
+        # data are found — all three nearest stations can be silent at once
+        # (e.g. the Tucson-area trio near KEMX), and a fixed window would
+        # leave the user with nothing to select.
         acars_task = asyncio.create_task(get_acars_profiles_near(lat, lon, max_dist_km=400))
-        verified = await filter_stations_with_data(candidates)
+        verified, candidates = await find_nearest_stations_with_data(lat, lon, stations_df)
         acars_profiles = await acars_task
-        # Fall back to unverified nearest stations if availability check found nothing.
-        # Sources may be temporarily unavailable — still offer the picker so the
-        # user can attempt a fetch (post_sounding handles the "no data" case).
-        nearest = (verified or candidates)[:3]
+        # Fall back to unverified nearest stations if even a wide search found
+        # nothing. Sources may be temporarily unavailable — still offer the
+        # picker so the user can attempt a fetch (post_sounding handles the
+        # "no data" case).
+        nearest = (verified or candidates[:3])
 
         if not nearest and not acars_profiles:
             error_embed = discord.Embed(
