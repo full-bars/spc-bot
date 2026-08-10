@@ -133,7 +133,7 @@ class RecorderCog(commands.Cog):
 
         # 1. Fetch data for all active missions
         tasks_list = []
-        for site_id, mission in self.active_missions.items():
+        for _site_id, mission in self.active_missions.items():
             tasks_list.append(self._record_step(mission))
 
         if tasks_list:
@@ -162,7 +162,7 @@ class RecorderCog(commands.Cog):
             mission_start = datetime.fromtimestamp(mission.start_ts, timezone.utc)
             mission_end = datetime.fromtimestamp(mission.end_ts, timezone.utc)
 
-            for fn, dt in available_times:
+            for _fn, dt in available_times:
                 dt_utc = dt.replace(tzinfo=timezone.utc) if not dt.tzinfo else dt
                 ts = dt_utc.timestamp()
 

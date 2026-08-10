@@ -1,5 +1,9 @@
 #!/bin/bash
-while read local_ref local_sha remote_ref remote_sha; do
+# shellcheck disable=SC2034  # standard hook args (local_ref/remote_sha unused)
+# shellcheck disable=SC2181  # hook uses the conventional `if [ $? -ne 0 ]` style
+# shellcheck disable=SC1091  # venv activate is intentionally sourced
+# shellcheck disable=SC1083  # git @{upstream} ref syntax is intentional
+while read -r local_ref local_sha remote_ref remote_sha; do
     if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
         exit 0
     fi
@@ -9,7 +13,7 @@ while read local_ref local_sha remote_ref remote_sha; do
 done
 
 echo "Running pre-push checks..."
-cd "$(git rev-parse --show-toplevel)"
+cd "$(git rev-parse --show-toplevel)" || exit 1
 source venv/bin/activate 2>/dev/null || true
 
 # Ensure dev dependencies are present (safe after a venv rebuild that only ran requirements.txt)
@@ -43,7 +47,7 @@ for commit in $(git rev-list HEAD @{upstream}..HEAD 2>/dev/null); do
   msg=$(git log -1 --format=%B "$commit")
   for pattern in "${ai_patterns[@]}"; do
     if echo "$msg" | grep -qiF "$pattern"; then
-      echo "❌ VIOLATION in commit $(git rev-parse --short $commit): Found '$pattern' in commit message"
+      echo "❌ VIOLATION in commit $(git rev-parse --short "$commit"): Found '$pattern' in commit message"
       echo "   Message: $(echo "$msg" | head -1)"
       echo "   PUSH ABORTED — Remove all AI attribution and try again"
       violation_found=1
@@ -116,7 +120,7 @@ done
 # 7. Tests
 echo "Testing..."
 python -m pytest tests/ -q 2>&1 | tail -3
-if [ ${PIPESTATUS[0]} -ne 0 ]; then
+if [ "${PIPESTATUS[0]}" -ne 0 ]; then
     echo "TESTS FAILED — push aborted"
     exit 1
 fi

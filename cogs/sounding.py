@@ -760,7 +760,7 @@ class SoundingCog(commands.Cog):
                 acars_eligible.append(profile)
 
         async def _fetch_acars(p):
-            logger.info(f"Fetching ACARS {p['airport']} near {watch_label} #{watch_num}")
+            logger.info(f"Fetching ACARS {p['airport']} near {watch_label} #{watch_num}")  # noqa: B023  # immediate-use per-iteration closure
             data = await fetch_acars_sounding(
                 p["profile_id"], p["year"], p["month"], p["day"], p["acars_hour"]
             )
@@ -876,7 +876,7 @@ class SoundingCog(commands.Cog):
 
             # ── Phase 1: fetch all RAOB data concurrently ─────────────────
             async def _fetch_std(station, sid):
-                logger.info(f"Fetching {sid} {sounding_time}z near {watch_label} #{watch_num}")
+                logger.info(f"Fetching {sid} {sounding_time}z near {watch_label} #{watch_num}")  # noqa: B023  # immediate-use per-iteration closure
                 data = await fetch_sounding(sid, year, month, day, sounding_time)
                 if not data:
                     logger.warning(f"No data for {sid} at {time_key}")
@@ -933,7 +933,7 @@ class SoundingCog(commands.Cog):
                     acars_eligible2.append(profile)
 
             async def _fetch_acars2(p):
-                logger.info(f"Fetching ACARS {p['airport']} near {watch_label} #{watch_num}")
+                logger.info(f"Fetching ACARS {p['airport']} near {watch_label} #{watch_num}")  # noqa: B023  # immediate-use per-iteration closure
                 data = await fetch_acars_sounding(
                     p["profile_id"], p["year"], p["month"], p["day"], p["acars_hour"]
                 )

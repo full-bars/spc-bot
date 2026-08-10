@@ -172,7 +172,7 @@ async def _get_environmental_context(lat: float, lon: float, bot: commands.Bot) 
     applicable_watches = []
     from utils.db import get_watch_centroid_cache
 
-    for watch_num, info in list(bot.state.active_watches.items()):
+    for watch_num, _info in list(bot.state.active_watches.items()):
         centroid = await get_watch_centroid_cache(watch_num)
         if centroid:
             dist = haversine(lat, lon, centroid[0], centroid[1])

@@ -296,7 +296,7 @@ class WatchesCog(commands.Cog):
 
         # ── Stage 2: Slow poll specifically for the Image ──────────────────
         # Sometimes SPC takes 15-20 minutes to generate the GIF during high load.
-        for attempt in range(20):
+        for _attempt in range(20):
             await asyncio.sleep(_WATCH_SLOW_POLL_INTERVAL_SEC)
             try:
                 # We only care about the image now
