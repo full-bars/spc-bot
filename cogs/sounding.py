@@ -1065,7 +1065,7 @@ class SoundingCog(commands.Cog):
         # nothing. Sources may be temporarily unavailable — still offer the
         # picker so the user can attempt a fetch (post_sounding handles the
         # "no data" case).
-        nearest = (verified or candidates[:3])
+        nearest = verified or candidates[:3]
 
         if not nearest and not acars_profiles:
             error_embed = discord.Embed(

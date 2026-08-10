@@ -1255,7 +1255,18 @@ async def filter_stations_with_data(
 # with live data is found, so the user always has something to select.  The
 # cap protects the IEM/Wyoming probe load when an entire region is quiet.
 STATION_EXPANSION_STEPS: tuple[int, ...] = (
-    6, 9, 12, 15, 20, 25, 30, 40, 50, 65, 80, 100,
+    6,
+    9,
+    12,
+    15,
+    20,
+    25,
+    30,
+    40,
+    50,
+    65,
+    80,
+    100,
 )
 MAX_VERIFIED_STATIONS = 3
 
@@ -1283,12 +1294,11 @@ async def find_nearest_stations_with_data(
     candidates: list[dict] = []
     for n in steps:
         candidates = [
-            s for s in find_nearest_stations(lat, lon, stations_df, n=n)
+            s
+            for s in find_nearest_stations(lat, lon, stations_df, n=n)
             if s.get("icao") or s.get("wmo")
         ]
-        verified = await filter_stations_with_data(
-            candidates, hours_back=hours_back, any_only=True
-        )
+        verified = await filter_stations_with_data(candidates, hours_back=hours_back, any_only=True)
         if verified:
             return verified[:MAX_VERIFIED_STATIONS], candidates
     return [], candidates
