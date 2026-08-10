@@ -481,8 +481,8 @@ checksum = "3d7b894f5411737b7867f4827955924d7c254fc9f4d91a6aad6b097804b1018b"
 
 [[package]]
 name = "color_tables"
-version = "0.34.4"
-source = "git+https://github.com/FahrenheitResearch/bowecho#aee5574c6008cd581a91d4576bb89f629cfdfe33"
+version = "0.34.12"
+source = "git+https://github.com/FahrenheitResearch/bowecho#6dfcb9f7b27c79a5d0cba68ba4e6743886d054ad"
 
 [[package]]
 name = "colorchoice"
@@ -646,8 +646,8 @@ checksum = "a4ae5f15dda3c708c0ade84bfee31ccab44a3da4f88015ed22f63732abe300c8"
 
 [[package]]
 name = "data_source"
-version = "0.34.4"
-source = "git+https://github.com/FahrenheitResearch/bowecho#aee5574c6008cd581a91d4576bb89f629cfdfe33"
+version = "0.34.12"
+source = "git+https://github.com/FahrenheitResearch/bowecho#6dfcb9f7b27c79a5d0cba68ba4e6743886d054ad"
 dependencies = [
  "chrono",
  "nexrad_io",
@@ -1899,8 +1899,8 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nexrad_io"
-version = "0.34.4"
-source = "git+https://github.com/FahrenheitResearch/bowecho#aee5574c6008cd581a91d4576bb89f629cfdfe33"
+version = "0.34.12"
+source = "git+https://github.com/FahrenheitResearch/bowecho#6dfcb9f7b27c79a5d0cba68ba4e6743886d054ad"
 dependencies = [
  "byteorder",
  "bzip2",
@@ -2184,8 +2184,8 @@ dependencies = [
 
 [[package]]
 name = "product_engine"
-version = "0.34.4"
-source = "git+https://github.com/FahrenheitResearch/bowecho#aee5574c6008cd581a91d4576bb89f629cfdfe33"
+version = "0.34.12"
+source = "git+https://github.com/FahrenheitResearch/bowecho#6dfcb9f7b27c79a5d0cba68ba4e6743886d054ad"
 dependencies = [
  "radar_core",
 ]
@@ -2400,8 +2400,8 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "radar_core"
-version = "0.34.4"
-source = "git+https://github.com/FahrenheitResearch/bowecho#aee5574c6008cd581a91d4576bb89f629cfdfe33"
+version = "0.34.12"
+source = "git+https://github.com/FahrenheitResearch/bowecho#6dfcb9f7b27c79a5d0cba68ba4e6743886d054ad"
 dependencies = [
  "chrono",
  "serde",
@@ -2655,14 +2655,15 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "render2d"
-version = "0.34.4"
-source = "git+https://github.com/FahrenheitResearch/bowecho#aee5574c6008cd581a91d4576bb89f629cfdfe33"
+version = "0.34.12"
+source = "git+https://github.com/FahrenheitResearch/bowecho#6dfcb9f7b27c79a5d0cba68ba4e6743886d054ad"
 dependencies = [
  "chrono",
  "color_tables",
  "image",
  "radar_core",
  "rayon",
+ "serde",
  "thiserror",
 ]
 
