@@ -51,6 +51,19 @@ async def test_get_current_fronts_url_skips_bad_dates():
     assert modified is None
 
 
+async def test_get_current_fronts_url_first_cycle_wins_on_tie():
+    same = "Thu, 01 Jan 2026 12:00:00 GMT"
+
+    async def fake_head(url, timeout=None):
+        return {"last_modified": same}
+
+    with patch("cogs.fronts.http_head_meta", side_effect=fake_head):
+        url, modified = await fronts.get_current_fronts_url()
+
+    # Strict > keeps the first cycle when timestamps are equal (00Z wins).
+    assert url == f"{fronts.FRONTS_SFC_DIR}usfntsfc00wbg.gif"
+
+
 def _fronts_cog():
     cog = fronts.FrontsCog.__new__(fronts.FrontsCog)
     cog.bot = MagicMock()

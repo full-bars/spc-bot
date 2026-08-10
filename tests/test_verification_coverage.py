@@ -158,14 +158,21 @@ async def test_fetch_spc_outlook_areas_tries_issuances_in_order():
 <Placemark><ExtendedData><Data name="LABEL"><value>SLGT</value></Data></ExtendedData>
 <Polygon><outerBoundaryIs><LinearRing><coordinates>-98,35,0 -97,35,0 -97,36,0 -98,35,0</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>
 </Document></kml>"""
-    with patch("cogs.verification.http_get_bytes", new_callable=AsyncMock) as mock_bytes:
-        # 0100 404, 0600 404, 1200 200 -> stops there
-        mock_bytes.side_effect = [(None, 404), (None, 404), (kml, 200)]
+    requested = []
+
+    async def fake_bytes(url, retries=1, timeout=10):
+        requested.append(url)
+        if url.endswith("1200_cat.kml"):
+            return (kml, 200)
+        return (None, 404)
+
+    with patch("cogs.verification.http_get_bytes", side_effect=fake_bytes):
         areas = await verification.fetch_spc_outlook_areas(date_str="2026-08-10")
 
     assert len(areas) == 1
     assert areas[0]["label"] == "SLGT"
-    assert mock_bytes.await_count == 3
+    # Newest issuance first (2000, 1630, 1200) — stops at the first 200.
+    assert [u.rsplit("_", 2)[1] for u in requested] == ["2000", "1630", "1200"]
 
 
 async def test_fetch_spc_outlook_areas_all_missing_returns_empty():
@@ -247,6 +254,43 @@ async def test_compute_verification_tstm_thresholds_zero():
     assert r["tor_expected"] == 0
     assert r["tor_verdict"] == ""
     assert r["wind_verdict"] == ""
+
+
+async def test_compute_verification_mrgl_thresholds():
+    # MRGL: tornado 0.02 / wind 0.05 / hail 0.05.
+    with patch("cogs.verification.fetch_active_warnings", new_callable=AsyncMock), patch(
+        "cogs.verification.fetch_active_watches", new_callable=AsyncMock
+    ), patch("cogs.verification.fetch_lsr_reports", new_callable=AsyncMock) as ml, patch(
+        "cogs.verification.fetch_spc_outlook_areas", new_callable=AsyncMock
+    ) as ma:
+        ml.return_value = []
+        ma.return_value = [_area("MRGL", km2=500000)]
+        result = await verification.compute_verification()
+
+    r = result["results"][0]
+    assert r["tor_expected"] == 1  # int(500000 * 0.02 / 5077) = 1
+    assert r["wind_expected"] == 4  # int(500000 * 0.05 / 5077) = 4
+    assert r["hail_expected"] == 4
+
+
+async def test_compute_verification_nested_areas_reversal():
+    # Rust sees areas REVERSED (nested ENH first); poly_idx 0 maps to the
+    # original ENH index via reversal_map.
+    enh = _area("ENH", km2=50000, ring=[(-97.8, 35.2), (-97.2, 35.2), (-97.2, 35.8), (-97.8, 35.2)])
+    slgt = _area(
+        "SLGT", km2=200000, ring=[(-98.5, 34.5), (-96.5, 34.5), (-96.5, 36.5), (-98.5, 34.5)]
+    )
+    with patch("cogs.verification.fetch_active_warnings", new_callable=AsyncMock), patch(
+        "cogs.verification.fetch_active_watches", new_callable=AsyncMock
+    ), patch("cogs.verification.fetch_lsr_reports", new_callable=AsyncMock) as ml, patch(
+        "cogs.verification.fetch_spc_outlook_areas", new_callable=AsyncMock
+    ) as ma, patch("utils.geo.points_in_polygon_lookup", return_value=[0]):
+        ml.return_value = [{"type": "T", "point": Point(-97.4, 35.4)}]
+        ma.return_value = [slgt, enh]
+        result = await verification.compute_verification()
+
+    assert result["results"][0]["tor_lsrs"] == 0  # SLGT
+    assert result["results"][1]["tor_lsrs"] == 1  # ENH
 
 
 async def test_compute_verification_verdict_pct_caps():

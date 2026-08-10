@@ -61,6 +61,19 @@ async def test_cleanup_old_cache_files_evicts(tmp_path):
     assert freed == 200
 
 
+def test_cleanup_sync_handles_delete_failure(tmp_path, monkeypatch):
+    _write_file(str(tmp_path / "old.bin"), size=50, mtime=time.time() - 10 * 86400)
+
+    def _boom(path, **kwargs):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(os, "remove", _boom)
+
+    deleted, freed = cache_utils._cleanup_sync(str(tmp_path), max_age_seconds=100)
+
+    assert (deleted, freed) == (0, 0)
+
+
 def test_get_cache_size_sums_files(tmp_path):
     _write_file(str(tmp_path / "a.bin"), size=10)
     _write_file(str(tmp_path / "b.bin"), size=20)
