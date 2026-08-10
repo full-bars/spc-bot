@@ -4,8 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [5.44.0] - 2026-08-10
+
 ### Fixed
 - **/sounding Offers Nothing When Nearest Stations Are Silent**: When all three nearest RAOB stations lacked recent data (e.g. the Tucson-area trio near KEMX), `/sounding` fell back to showing those silent stations — the user got "no recent data" for every option. The command now widens the station search outward (up to 100 candidates) until stations with live data are found, so the picker always offers a usable RAOB option when any nearby station has data. Availability checks gained an `any_only` fast path so the widening probe stops at the first hit instead of scanning the full lookback window per station.
+
+### Dependencies
+- Updated `aiohttp` to 3.14.3 (from 3.14.1), fixing CVE-2026-69244 (out-of-bounds heap read, HIGH), CVE-2026-69243 (WebSocket smuggling, MEDIUM), and CVE-2026-59881 (WebSocket compression, MEDIUM).
+- Updated `quinn-proto` to 0.11.16 (from 0.11.14), fixing a HIGH memory exhaustion vulnerability (GHSA-4w2j-m93h-cj5j, patched in 0.11.15).
 
 ## [5.43.0] - 2026-07-28
 
