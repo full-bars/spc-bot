@@ -205,7 +205,7 @@ class WarningsCog(commands.Cog):
         logger.debug(
             f"[CH_RESOLVE] using static channel {static_id} for {phenom} (default fallback: {static_id == WARNINGS_CHANNEL_ID})"
         )
-        channel = self.bot.get_channel(static_id)
+        channel = self.bot.get_channel(int(static_id)) if static_id else None
         if channel:
             missing = self._check_channel_perms(channel)
             if missing:
@@ -425,7 +425,10 @@ class WarningsCog(commands.Cog):
                 ) == "SPS"
 
                 try:
-                    msg = await channel.send(embed=embed, view=view)
+                    if view is not None:
+                        msg = await channel.send(embed=embed, view=view)
+                    else:
+                        msg = await channel.send(embed=embed)
                     logger.info(
                         f"Posted (iembot) {event} {vtec_id} ({'Update' if is_update else 'Issuance'})"
                     )
@@ -474,7 +477,7 @@ class WarningsCog(commands.Cog):
             self._in_flight_vtecs.discard(vtec_id)
 
     async def _check_and_log_significant_event(
-        self, event: str, raw_text: str, vtec: dict, params: dict = None
+        self, event: str, raw_text: str, vtec: dict, params: Optional[dict] = None
     ):
         """Parse warning text for confirmed tornadoes and log to DB."""
         text_upper = (raw_text or "").upper()
@@ -540,6 +543,8 @@ class WarningsCog(commands.Cog):
             # 2. Trigger VAD Recorder mission
             try:
                 poly_coords = parse_warning_polygon(raw_text)
+                if not poly_coords:
+                    return
                 centroid = get_polygon_centroid(poly_coords)
                 if centroid:
                     lat, lon = centroid
@@ -680,7 +685,7 @@ class WarningsCog(commands.Cog):
         if event_base:
             channel = await self._resolve_warning_channel(event_base, vtec_phenom=phenom)
         if not channel:
-            channel = self.bot.get_channel(channel_id)
+            channel = cast(Optional[discord.abc.Messageable], self.bot.get_channel(channel_id))
         if not channel:
             return
 
@@ -696,7 +701,7 @@ class WarningsCog(commands.Cog):
         # unless it's a Tornado Warning, but we can't easily distinguish Emergency vs PDS
         # without the text or params.
         event_base = self._PHENOM_EVENT.get((phenom, sig), f"{phenom}.{sig} Warning")
-        _, display_event, _, footer_id = get_warning_style(event_base, "", vtec=vtec)
+        _, display_event, _, footer_id = get_warning_style(event_base, "", vtec=vtec or {})
 
         action_verb = "cancels" if reason == "Cancelled" else "expires"
         area_str = f" for {area}" if area else ""
@@ -757,7 +762,7 @@ class WarningsCog(commands.Cog):
 
         embed = discord.Embed(
             description=description,
-            color=discord.Color.dark_gray(),
+            color=discord.Color.dark_gray(),  # type: ignore[misc]  # discord.Color generic-stub quirk
             timestamp=datetime.now(timezone.utc),
         )
         if files:

@@ -76,7 +76,7 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - name: mypy (utils + lib/vtec_parser + first cogs — lenient, ignore-missing-imports)
         # lib/vtec_parser.py added in v5.25.2; expand to more cogs/ incrementally as annotations mature
-        run: mypy --config-file mypy.ini utils/ lib/vtec_parser.py cogs/status.py cogs/sounding.py cogs/sounding_utils.py
+        run: mypy --config-file mypy.ini utils/ lib/vtec_parser.py cogs/status.py cogs/sounding.py cogs/sounding_utils.py cogs/warnings.py cogs/watches.py cogs/outlooks.py cogs/mesoscale.py
 
   rust:
     runs-on: ubuntu-latest

@@ -24,13 +24,13 @@ from utils.state_store import get_state, set_state
 
 logger = logging.getLogger("spc_bot.mesoscale")
 
-_MD_SUMMARY_CACHE = {}
+_MD_SUMMARY_CACHE: dict = {}
 
 
 class MDSummaryView(discord.ui.View):
     def __init__(self, md_num: str, raw_text: str = ""):
         super().__init__(timeout=None)
-        button = discord.ui.Button(
+        button: discord.ui.Button = discord.ui.Button(
             label="🪄 AI Analysis", style=discord.ButtonStyle.secondary, custom_id=f"ai_md:{md_num}"
         )
         self.add_item(button)
@@ -592,7 +592,7 @@ class MesoscaleCog(commands.Cog):
                 files.append(discord.File(cache_path, filename=filename))
                 img_embed.set_image(url=f"attachment://{filename}")
 
-            cleaned_text = clean_md_text_for_discord(full_text)
+            cleaned_text = clean_md_text_for_discord(full_text) if full_text else ""
             text_embed = discord.Embed(
                 description=cleaned_text[:4090] if cleaned_text else "Fetching discussion text...",
                 color=discord.Color.dark_orange(),
@@ -670,7 +670,7 @@ class MesoscaleCog(commands.Cog):
             self._md_inflight.discard(md_num)
 
     async def _post_md_now_inner(self, md_num: str):
-        channel = self.bot.get_channel(SPC_CHANNEL_ID)
+        channel = self.bot.get_channel(int(SPC_CHANNEL_ID)) if SPC_CHANNEL_ID else None
         if not channel:
             return
         logger.info(f"iembot-triggered post for #{md_num}")
@@ -695,7 +695,7 @@ class MesoscaleCog(commands.Cog):
         if cache_path:
             files.append(discord.File(cache_path, filename=filename))
             img_embed.set_image(url=f"attachment://{filename}")
-        cleaned_text = clean_md_text_for_discord(full_text)
+        cleaned_text = clean_md_text_for_discord(full_text) if full_text else ""
         text_embed = discord.Embed(
             description=cleaned_text[:4090] if cleaned_text else "Fetching discussion text...",
             color=discord.Color.dark_orange(),
