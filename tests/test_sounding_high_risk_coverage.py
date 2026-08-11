@@ -17,8 +17,9 @@ def _station_df():
         [
             {"ICAO": "KOUN", "WMO": 72553, "NAME": "Norman", "lat": 35.2, "lon": -97.4},
             {"ICAO": "KICT", "WMO": None, "NAME": "Wichita", "lat": 37.7, "lon": -97.4},
-            {"ICAO": None, "WMO": "----", "NAME": "Bad", "lat": 40.0, "lon": -95.0},
-            {"ICAO": np.nan, "WMO": np.nan, "NAME": "Missing", "lat": 41.0, "lon": -96.0},
+            # Inside the polygon but has no usable identifier — _clean must skip it.
+            {"ICAO": None, "WMO": "----", "NAME": "InPolyBad", "lat": 36.0, "lon": -97.0},
+            {"ICAO": None, "WMO": np.nan, "NAME": "Missing", "lat": 41.0, "lon": -96.0},
         ]
     )
 
@@ -113,6 +114,65 @@ async def test_tick_high_risk_posts_mdt():
     # Only KOUN (35.2) and KICT (37.7) are inside the polygon; the '----' and
     # NaN rows are filtered by _clean.
     assert mock_send.await_count == 2
+
+
+async def test_tick_high_risk_generate_plot_failure_skips_send():
+    bot = _bot_primary()
+    cog = _cog(bot)
+    cog._restore_attempted = True
+    station = _station_df()
+
+    with patch(
+        "cogs.sounding.get_high_risk_polygon",
+        new_callable=AsyncMock,
+        return_value=(object(), ["MDT"]),
+    ), patch(
+        "cogs.sounding.get_raob_stations", new_callable=AsyncMock, return_value=station
+    ), patch("cogs.sounding.is_inside_polygon", side_effect=lambda lat, lon, poly: lat < 38), patch(
+        "cogs.sounding.get_available_sounding_times_iem",
+        new_callable=AsyncMock,
+        return_value=[(2026, 8, 11, 12)],
+    ), patch(
+        "cogs.sounding.fetch_sounding", new_callable=AsyncMock, return_value={"dummy": True}
+    ), patch("cogs.sounding.generate_plot", new_callable=AsyncMock, return_value=False), patch(
+        "cogs.sounding.send_sounding_embed", new_callable=AsyncMock
+    ) as mock_send, patch(
+        "cogs.sounding.get_acars_profiles_in_polygon", new_callable=AsyncMock, return_value=[]
+    ), patch("os.path.exists", return_value=True):
+        await cog._tick_high_risk_soundings()
+
+    mock_send.assert_not_awaited()
+
+
+async def test_tick_high_risk_padded_pkey_does_not_dedup():
+    # Production pkeys use UNPADDED ints; a padded key in the posted set does
+    # not match and the station is posted again (documents current behavior).
+    bot = _bot_primary()
+    cog = _cog(bot)
+    cog._restore_attempted = True
+    bot.state.posted_soundings = {"raob:KOUN:2026-08-11_12z"}
+    station = _station_df()
+
+    with patch(
+        "cogs.sounding.get_high_risk_polygon",
+        new_callable=AsyncMock,
+        return_value=(object(), ["MDT"]),
+    ), patch(
+        "cogs.sounding.get_raob_stations", new_callable=AsyncMock, return_value=station
+    ), patch("cogs.sounding.is_inside_polygon", side_effect=lambda lat, lon, poly: lat < 38), patch(
+        "cogs.sounding.get_available_sounding_times_iem",
+        new_callable=AsyncMock,
+        return_value=[(2026, 8, 11, 12)],
+    ), patch(
+        "cogs.sounding.fetch_sounding", new_callable=AsyncMock, return_value={"dummy": True}
+    ), patch("cogs.sounding.generate_plot", new_callable=AsyncMock, return_value=True), patch(
+        "cogs.sounding.send_sounding_embed", new_callable=AsyncMock
+    ) as mock_send, patch(
+        "cogs.sounding.get_acars_profiles_in_polygon", new_callable=AsyncMock, return_value=[]
+    ), patch("os.path.exists", return_value=True):
+        await cog._tick_high_risk_soundings()
+
+    assert mock_send.await_count == 2  # both KOUN (padded key missed) and KICT
 
 
 async def test_tick_high_risk_posts_high_prefix():

@@ -37,6 +37,9 @@ def test_mission_extend(tmp_recording_dir):
     mission.extend(500.0, event_id="EVT-2")
     assert mission.end_ts == 2000.0 + 5400
     assert mission.event_ids == {"EVT-1", "EVT-2"}
+    # Same trigger does not change the window.
+    mission.extend(2000.0)
+    assert mission.end_ts == 2000.0 + 5400
 
 
 def test_mission_to_from_dict_roundtrip(tmp_recording_dir):
@@ -79,6 +82,13 @@ def test_extract_product_from_url_case_insensitive():
             "https://spc.noaa.gov/products/outlook/DAY2PROBOTLK_20260811_1200_TORN.GIF", 2
         )
         == "tornado"
+    )
+    # Mixed-case day prefix too.
+    assert (
+        outlooks._extract_product_from_url(
+            "https://spc.noaa.gov/products/outlook/Day1Otlk_20260811_1630.gif", 1
+        )
+        == "categorical"
     )
 
 
