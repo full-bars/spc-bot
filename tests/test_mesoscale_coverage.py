@@ -215,10 +215,15 @@ async def test_fetch_latest_md_numbers_iem_fallback(isolated_db):
     iem_text = "ACUS11 KWNS 101200\nMESOSCALE DISCUSSION 1234\nMESOSCALE DISCUSSION 567"
 
     spc_host = (urlparse(SPC_MD_INDEX_URL).hostname or "").lower()
+    iem_host = "mesonet.agron.iastate.edu"
 
     async def _route(url, retries=1, timeout=15):
         host = (urlparse(url).hostname or "").lower()
-        return None if host == spc_host else iem_text
+        if host == spc_host:
+            return None
+        if host == iem_host:
+            return iem_text
+        raise AssertionError(f"Unexpected host: {host}")
 
     with patch("cogs.mesoscale.http_head_meta", new_callable=AsyncMock) as mock_head, patch(
         "cogs.mesoscale.http_get_text", side_effect=_route
