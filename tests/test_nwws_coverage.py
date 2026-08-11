@@ -1,7 +1,5 @@
 """Coverage round 5: NWWS product parsing helpers (pure logic + Rust fallback wrappers)."""
 
-from unittest.mock import patch
-
 from cogs import nwws
 
 
