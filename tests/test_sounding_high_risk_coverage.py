@@ -145,8 +145,9 @@ async def test_tick_high_risk_generate_plot_failure_skips_send():
 
 
 async def test_tick_high_risk_padded_pkey_does_not_dedup():
-    # Production pkeys use UNPADDED ints; a padded key in the posted set does
-    # not match and the station is posted again (documents current behavior).
+    # Known gap (not passing-by-design): production pkeys use UNPADDED ints, so
+    # a padded key in the posted set does NOT match and the station is posted
+    # again. Worth revisiting dedup key normalization.
     bot = _bot_primary()
     cog = _cog(bot)
     cog._restore_attempted = True

@@ -37,9 +37,10 @@ def test_mission_extend(tmp_recording_dir):
     mission.extend(500.0, event_id="EVT-2")
     assert mission.end_ts == 2000.0 + 5400
     assert mission.event_ids == {"EVT-1", "EVT-2"}
-    # Same trigger does not change the window.
+    # Same trigger does not change the window or the event set.
     mission.extend(2000.0)
     assert mission.end_ts == 2000.0 + 5400
+    assert mission.event_ids == {"EVT-1", "EVT-2"}
 
 
 def test_mission_to_from_dict_roundtrip(tmp_recording_dir):
