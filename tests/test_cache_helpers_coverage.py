@@ -167,9 +167,10 @@ async def test_should_use_cache_old_files():
 
 async def test_should_use_cache_three_hour_boundary():
     now = time.time()
-    # Exactly 3h is NOT > 3h -> cache still used; just past 3h -> refresh.
+    # Just under 3h is NOT > 3h -> cache still used; just past 3h -> refresh.
+    # (Use ±1s margins — time.time() and datetime.now() have sub-second skew.)
     with patch("utils.cache.is_near_spc_update", return_value=False), patch(
-        "utils.cache._stat_mtimes", return_value=[now - 3 * 3600]
+        "utils.cache._stat_mtimes", return_value=[now - (3 * 3600 - 1)]
     ):
         assert await should_use_cache_for_manual(["http://x/day1otlk.gif"]) is True
     with patch("utils.cache.is_near_spc_update", return_value=False), patch(
