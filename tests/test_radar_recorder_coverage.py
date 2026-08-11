@@ -80,7 +80,7 @@ def test_format_site_line_tvs():
 
 def test_format_rotation_field_missing_sidecar():
     text = _format_rotation_field(Path("/nonexistent/sidecar.json"))
-    assert "No rotation data" in text
+    assert text == "No rotation data (detection may have failed or found nothing)."
 
 
 def test_format_rotation_field_bad_json(tmp_path):
