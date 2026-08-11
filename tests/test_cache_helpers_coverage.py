@@ -46,6 +46,17 @@ def test_validators_cache_evicts_oldest():
     assert _validators_get(f"http://u{max_n}") == {"etag": f"e{max_n}"}
 
 
+def test_validators_cache_get_promotes_hit():
+    # A get() must promote the entry to MRU: read u1, then insert enough
+    # entries to overflow — u1 must survive while u0 (never re-read) is evicted.
+    for i in range(cache_mod._VALIDATORS_CACHE_MAX):
+        _validators_set(f"http://u{i}", {"etag": f"e{i}"})
+    assert _validators_get("http://u1") == {"etag": "e1"}
+    _validators_set("http://overflow", {"etag": "eX"})
+    assert _validators_get("http://u1") == {"etag": "e1"}
+    assert _validators_get("http://u0") == {}
+
+
 # ── Validator hydration ──────────────────────────────────────────────────────
 
 
