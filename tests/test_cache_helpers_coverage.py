@@ -1,7 +1,7 @@
 """Coverage round 10: cache helpers — validators LRU, timedelta, SPC windows, conditional GET."""
 
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -51,13 +51,16 @@ def test_validators_cache_evicts_oldest():
 
 async def test_hydrate_validators_from_store():
     stored = {"http://a": {"etag": "e1"}, "http://b": {"etag": "e2"}}
-    with patch("utils.cache.get_all_validators", new_callable=AsyncMock, return_value=stored):
+    with patch(
+        "utils.cache.get_all_validators", new_callable=AsyncMock, return_value=stored
+    ) as mock_get:
         n = await hydrate_validators_from_store()
         n2 = await hydrate_validators_from_store()
 
     assert n == 2
     assert n2 == 2
     assert _validators_get("http://a") == {"etag": "e1"}
+    mock_get.assert_awaited_once()  # idempotent — only the first call hits the store
 
 
 # ── SPC update window ────────────────────────────────────────────────────────
@@ -80,19 +83,19 @@ def fake_now(monkeypatch):
 
 
 def test_is_near_spc_update_unknown_day(fake_now):
-    fake_now.fixed = datetime(2026, 8, 11, 12, 0)
+    fake_now.fixed = datetime(2026, 8, 11, 12, 0, tzinfo=timezone.utc)
     assert is_near_spc_update(9) is False
 
 
 def test_is_near_spc_update_within_window(fake_now):
     # Day 1 schedule includes 20:00 Central; 20:30 is within the ±60m window.
-    fake_now.fixed = datetime(2026, 8, 11, 20, 30)
+    fake_now.fixed = datetime(2026, 8, 11, 20, 30, tzinfo=timezone.utc)
     assert is_near_spc_update(1) is True
 
 
 def test_is_near_spc_update_outside_window(fake_now):
     # 22:30 is 2.5h from the 20:00 update and 2.5h from the next-day 01:00.
-    fake_now.fixed = datetime(2026, 8, 11, 22, 30)
+    fake_now.fixed = datetime(2026, 8, 11, 22, 30, tzinfo=timezone.utc)
     assert is_near_spc_update(1) is False
 
 
@@ -158,6 +161,19 @@ async def test_should_use_cache_old_files():
     now = time.time()
     with patch("utils.cache.is_near_spc_update", return_value=False), patch(
         "utils.cache._stat_mtimes", return_value=[now - 4 * 3600]
+    ):
+        assert await should_use_cache_for_manual(["http://x/day1otlk.gif"]) is False
+
+
+async def test_should_use_cache_three_hour_boundary():
+    now = time.time()
+    # Exactly 3h is NOT > 3h -> cache still used; just past 3h -> refresh.
+    with patch("utils.cache.is_near_spc_update", return_value=False), patch(
+        "utils.cache._stat_mtimes", return_value=[now - 3 * 3600]
+    ):
+        assert await should_use_cache_for_manual(["http://x/day1otlk.gif"]) is True
+    with patch("utils.cache.is_near_spc_update", return_value=False), patch(
+        "utils.cache._stat_mtimes", return_value=[now - (3 * 3600 + 1)]
     ):
         assert await should_use_cache_for_manual(["http://x/day1otlk.gif"]) is False
 
