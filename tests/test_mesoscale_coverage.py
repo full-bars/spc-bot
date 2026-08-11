@@ -21,8 +21,9 @@ async def test_log_task_exception_handles_failed_task():
 
     task = asyncio.create_task(_boom())
     await asyncio.sleep(0)
-    # Task has a stored exception; the logger must not raise.
-    mesoscale._log_task_exception(task)
+    with patch("cogs.mesoscale.logger") as mock_logger:
+        mesoscale._log_task_exception(task)
+    assert mock_logger.exception.call_count == 1
     await asyncio.sleep(0)
 
 
@@ -45,6 +46,13 @@ def test_extract_md_body_html_pre():
     assert body is not None
     assert "Areas affected" in body
     assert "TEXT & MORE" in body  # HTML entities unescaped
+
+
+def test_extract_md_body_probability_marker():
+    raw = "<html><pre>PROBABILITY OF WATCH ISSUANCE...\nbody text</pre></html>"
+    body = mesoscale.extract_md_body(raw)
+    assert body is not None
+    assert body.startswith("PROBABILITY OF WATCH ISSUANCE")
 
 
 def test_extract_md_body_html_without_marker_returns_none():
@@ -97,6 +105,12 @@ def test_clean_md_text_passthrough_lines():
     assert "**Concerning tornado watch issuance**" in cleaned
 
 
+def test_clean_md_text_probability_header():
+    text = "Probability of watch issuance 40 percent\n\nSome body."
+    cleaned = mesoscale.clean_md_text_for_discord(text)
+    assert "**Probability of watch issuance 40 percent**" in cleaned
+
+
 # ── Chunking ─────────────────────────────────────────────────────────────────
 
 
@@ -137,6 +151,12 @@ def test_build_md_embeds_single_with_image():
     assert embeds[0].title == "🌩️ SPC Mesoscale Discussion #1234"
     assert embeds[0].description == "```\nshort body\n```"
     assert embeds[0].image.url == "attachment://mcd1234.png"
+
+
+def test_build_md_embeds_none_text():
+    embeds = mesoscale.build_md_embeds("1234", None)
+    assert len(embeds) == 1
+    assert embeds[0].description is None
 
 
 def test_build_md_embeds_multiple_image_only_first():
@@ -189,11 +209,14 @@ async def test_fetch_latest_md_numbers_scrapes_spc(isolated_db):
 async def test_fetch_latest_md_numbers_iem_fallback(isolated_db):
     _reset_md_index()
     iem_text = "ACUS11 KWNS 101200\nMESOSCALE DISCUSSION 1234\nMESOSCALE DISCUSSION 567"
+
+    async def _route(url, retries=1, timeout=15):
+        return None if "spc.noaa.gov" in url else iem_text
+
     with patch("cogs.mesoscale.http_head_meta", new_callable=AsyncMock) as mock_head, patch(
-        "cogs.mesoscale.http_get_text", new_callable=AsyncMock
-    ) as mock_text:
+        "cogs.mesoscale.http_get_text", side_effect=_route
+    ):
         mock_head.return_value = {"etag": "x"}
-        mock_text.side_effect = [None, iem_text]
         numbers, fallback = await mesoscale.fetch_latest_md_numbers()
 
     assert numbers == ["1234", "0567"]

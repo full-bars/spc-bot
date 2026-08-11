@@ -43,6 +43,10 @@ def test_parse_md_number_py_matches():
     assert nwws.parse_md_number_py("Mesoscale Discussion 1234 text") == "1234"
 
 
+def test_parse_md_number_py_pads_short_numbers():
+    assert nwws.parse_md_number_py("Mesoscale Discussion 7") == "0007"
+
+
 def test_parse_md_number_py_no_match():
     assert nwws.parse_md_number_py("no discussion here") is None
 
@@ -91,6 +95,8 @@ def test_parse_watch_number_rust_error_falls_back(monkeypatch):
 
 
 def test_ensure_product_log_creates_and_is_idempotent(monkeypatch, tmp_path):
+    from logging.handlers import RotatingFileHandler
+
     monkeypatch.chdir(tmp_path)
     (tmp_path / "cache").mkdir()
     monkeypatch.setattr(nwws, "_NWWS_PRODUCT_LOG", None)
@@ -99,5 +105,7 @@ def test_ensure_product_log_creates_and_is_idempotent(monkeypatch, tmp_path):
     second = nwws._ensure_product_log()
 
     assert first is second
-    assert len(first.handlers) >= 1
+    handler = next(h for h in first.handlers if isinstance(h, RotatingFileHandler))
+    assert handler.maxBytes == 5 * 1024 * 1024
+    assert handler.backupCount == 2
     assert (tmp_path / "cache" / "nwws_products.log").parent.exists()
