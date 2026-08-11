@@ -108,4 +108,5 @@ def test_ensure_product_log_creates_and_is_idempotent(monkeypatch, tmp_path):
     handler = next(h for h in first.handlers if isinstance(h, RotatingFileHandler))
     assert handler.maxBytes == 5 * 1024 * 1024
     assert handler.backupCount == 2
-    assert (tmp_path / "cache" / "nwws_products.log").parent.exists()
+    log_path = tmp_path / "cache" / "nwws_products.log"
+    assert log_path.is_file()

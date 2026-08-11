@@ -5,12 +5,12 @@ race-deterministic fetch tests for the MD index and details.
 """
 
 import asyncio
-import pytest
+from urllib.parse import urlparse
 from unittest.mock import AsyncMock, patch
 
+import pytest
 
 from cogs import mesoscale
-
 # ── Task-exception logger ────────────────────────────────────────────────────
 
 
@@ -172,13 +172,17 @@ def test_build_md_embeds_multiple_image_only_first():
 # ── MD index fetch ───────────────────────────────────────────────────────────
 
 
+@pytest.fixture(autouse=True)
 def _reset_md_index():
+    mesoscale._md_index_head = None
+    mesoscale._md_index_unreachable = None
+    yield
+    # Restore after the test too so later tests never inherit stale state.
     mesoscale._md_index_head = None
     mesoscale._md_index_unreachable = None
 
 
 async def test_fetch_latest_md_numbers_head_unchanged_returns_none(isolated_db):
-    _reset_md_index()
     mesoscale._md_index_head = {"etag": "e1", "last_modified": "lm"}
     with patch("cogs.mesoscale.http_head_meta", new_callable=AsyncMock) as mock_head, patch(
         "cogs.mesoscale.http_get_text", new_callable=AsyncMock
@@ -191,7 +195,6 @@ async def test_fetch_latest_md_numbers_head_unchanged_returns_none(isolated_db):
 
 
 async def test_fetch_latest_md_numbers_scrapes_spc(isolated_db):
-    _reset_md_index()
     mesoscale._md_index_head = {"etag": "old"}
     html = '<a href="md1234.html">1</a><a href="/products/md/md1234.html">1</a><a href="md0567.html">2</a>'
     with patch("cogs.mesoscale.http_head_meta", new_callable=AsyncMock) as mock_head, patch(
@@ -207,11 +210,15 @@ async def test_fetch_latest_md_numbers_scrapes_spc(isolated_db):
 
 
 async def test_fetch_latest_md_numbers_iem_fallback(isolated_db):
-    _reset_md_index()
+    from config import SPC_MD_INDEX_URL
+
     iem_text = "ACUS11 KWNS 101200\nMESOSCALE DISCUSSION 1234\nMESOSCALE DISCUSSION 567"
 
+    spc_host = (urlparse(SPC_MD_INDEX_URL).hostname or "").lower()
+
     async def _route(url, retries=1, timeout=15):
-        return None if "spc.noaa.gov" in url else iem_text
+        host = (urlparse(url).hostname or "").lower()
+        return None if host == spc_host else iem_text
 
     with patch("cogs.mesoscale.http_head_meta", new_callable=AsyncMock) as mock_head, patch(
         "cogs.mesoscale.http_get_text", side_effect=_route
@@ -225,7 +232,6 @@ async def test_fetch_latest_md_numbers_iem_fallback(isolated_db):
 
 
 async def test_fetch_latest_md_numbers_spc_reachable_again(isolated_db):
-    _reset_md_index()
     mesoscale._md_index_unreachable = True
     with patch("cogs.mesoscale.http_head_meta", new_callable=AsyncMock) as mock_head, patch(
         "cogs.mesoscale.http_get_text", new_callable=AsyncMock
