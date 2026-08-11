@@ -153,7 +153,7 @@ def test_format_tds_timeline_scans():
     assert lines[0] == "**PTDS (debris signature) by scan:**"
     assert "Peak: 🔴 55% @ 20:10Z" in lines[1]
     assert any("20:15Z — 30%" in ln for ln in lines)
-    assert any("experimental and unvalidated" in l for l in lines)
+    assert any("experimental and unvalidated" in ln for ln in lines)
 
 
 # ── Recorder mission persistence ─────────────────────────────────────────────
