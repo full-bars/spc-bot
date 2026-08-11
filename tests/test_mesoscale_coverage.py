@@ -307,6 +307,7 @@ async def test_fetch_md_details_spc_wins():
     assert raw is not None
 
 
+@pytest.mark.real_create_task
 async def test_fetch_md_details_summary_from_pre_block():
     # No CONCERNING line -> summary falls back to the first <pre> block lines.
     html = (
