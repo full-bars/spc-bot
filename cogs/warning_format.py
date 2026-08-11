@@ -389,8 +389,8 @@ def iem_autoplot_url(vtec: dict, valid_time: Optional[str] = None) -> str:
                     int(start[0:2]),
                     int(start[2:4]),
                     int(start[4:6]),
-                    int(start[8:10]),
-                    int(start[10:12]),
+                    int(start[7:9]),
+                    int(start[9:11]),
                 )
                 yyyy = 2000 + yy
                 valid_time_str = f"{yyyy:04d}-{mm:02d}-{dd:02d}%20{hh:02d}{min_:02d}"
