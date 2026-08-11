@@ -284,6 +284,27 @@ async def test_fetch_md_details_spc_wins():
     assert raw is not None
 
 
+async def test_fetch_md_details_summary_from_pre_block():
+    # No CONCERNING line -> summary falls back to the first <pre> block lines.
+    html = (
+        b'<html><img src="mcd1234.png"><pre>'
+        b"MESOSCALE DISCUSSION 1234\nline one\nline two\nline three</pre></html>"
+    )
+    with patch("utils.cache.fetch_with_validators", new_callable=AsyncMock) as mock_fv, patch(
+        "cogs.mesoscale.fetch_md_details_iem", new_callable=AsyncMock
+    ) as mock_iem, patch(
+        "cogs.mesoscale.get_cached_md_text", new_callable=AsyncMock
+    ) as mock_cache, patch("os.path.exists", return_value=False):
+        mock_fv.return_value = (html, 200)
+        mock_iem.return_value = (None, None, None)
+        mock_cache.return_value = None
+
+        image_url, summary, _from_cache, raw = await mesoscale.fetch_md_details("1234")
+
+    assert summary == "MESOSCALE DISCUSSION 1234 line one line two"
+    assert raw is not None
+
+
 @pytest.mark.real_create_task
 async def test_fetch_md_details_iem_fallback_when_spc_down():
     async def _slow_iem(*args, **kwargs):
