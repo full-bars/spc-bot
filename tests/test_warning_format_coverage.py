@@ -220,8 +220,12 @@ def test_vtec_url_uses_end_when_start_null():
 
 
 def test_vtec_url_missing_times_uses_now():
+    now = datetime.now(timezone.utc)
     url = wf._vtec_url({"action": "NEW", "office": "OUN", "phenom": "TO", "sig": "W", "etn": "5"})
-    assert url.startswith("https://mesonet.agron.iastate.edu/vtec/f/2026-O-NEW-OUN-TO-W-0005_")
+    assert url.startswith(
+        f"https://mesonet.agron.iastate.edu/vtec/f/{now.year}-O-NEW-OUN-TO-W-0005_"
+    )
+    assert url.endswith("Z")
 
 
 def test_vtec_unix_ts():
