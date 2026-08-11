@@ -100,10 +100,16 @@ def test_compute_params_text_formats_values():
     assert "MU 0-3km CAPE: 1800 J/kg" in summary
     assert "SBCIN: 0 J/kg" in summary
     assert "MUCIN: -50 J/kg" in summary
+    assert "DCAPE: N/A" in summary
+    assert "MUECAPE: N/A" in summary
     assert "SB LCL Pressure: 900 hPa" in summary
+    assert "SB LFC Pressure: N/A" in summary
     assert "Lapse Rate (0-3km): 7 K/km" in summary
+    assert "Lapse Rate (3-6km): N/A" in summary
     assert "Effective Inflow Layer (EIL): 800 mb" in summary
     assert "Bulk Shear (0-1km): 35 kts" in summary
+    assert "Bulk Shear (0-6km): N/A" in summary
+    assert "SRH (0-1km): N/A" in summary  # masked
     assert "SRH (0-3km): 150 m²/s²" in summary
     assert "STP (Effective): 2" in summary
     assert "SCP: 1" in summary

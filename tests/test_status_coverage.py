@@ -87,11 +87,13 @@ async def test_md_paginator_next_prev_edit_message():
     await view.next_btn.callback(interaction)
     assert view.index == 1
     interaction.response.edit_message.assert_awaited_once()
+    assert interaction.response.edit_message.await_args.kwargs["embeds"]
 
     interaction.response.reset_mock()
     await view.prev_btn.callback(interaction)
     assert view.index == 0
     interaction.response.edit_message.assert_awaited_once()
+    assert interaction.response.edit_message.await_args.kwargs["embeds"]
 
 
 async def test_md_paginator_tldr_without_cog():
@@ -107,6 +109,7 @@ async def test_md_paginator_tldr_without_cog():
         "AI features not currently available"
         in interaction.response.send_message.await_args.args[0]
     )
+    assert interaction.response.send_message.await_args.kwargs["ephemeral"] is True
 
 
 async def test_md_paginator_on_timeout_disables():
@@ -124,13 +127,36 @@ async def test_md_paginator_on_timeout_disables():
 
 
 def _status_view(bot):
-    view = status.StatusView.__new__(status.StatusView)
-    view.bot = bot
-    view.interaction = MagicMock()
-    view.message = None
+    view = status.StatusView(bot, MagicMock())
     view.detailed = False
     view.should_update = True
     return view
+
+
+async def test_status_view_stop_btn():
+    bot = _bot_with_state()
+    view = _status_view(bot)
+    interaction = MagicMock()
+    interaction.response = AsyncMock()
+
+    await view.stop_btn.callback(interaction)
+
+    assert view.should_update is False
+    assert all(item.disabled for item in view.children)
+    interaction.response.edit_message.assert_awaited_once()
+
+
+async def test_status_view_on_timeout():
+    bot = _bot_with_state()
+    view = _status_view(bot)
+    view.message = MagicMock()
+    view.message.edit = AsyncMock()
+
+    await view.on_timeout()
+
+    assert view.should_update is False
+    assert all(item.disabled for item in view.children)
+    view.message.edit.assert_awaited_once()
 
 
 async def test_cluster_status_parses_nodes():
@@ -154,7 +180,7 @@ async def test_cluster_status_parses_nodes():
 
     assert "🟢 PRIMARY" in text
     assert "box-a" in text
-    assert "(holds lease)" in text
+    assert "🟢 PRIMARY `box-a` ✓ (holds lease)" in text
     assert "🟡 STANDBY" in text
     assert "box-b" in text
     assert "box-c" not in text
@@ -234,6 +260,8 @@ async def test_build_embeds_primary_role():
     resp.status = 200
     resp.text = AsyncMock(return_value="1.2.3.4")
     session.get.return_value.__aenter__ = AsyncMock(return_value=resp)
+    redis = AsyncMock()
+    redis.get.side_effect = ["10", "5"]  # ai_api_calls, ai_cache_hits
     with patch(
         "cogs.status._http.ensure_session", new_callable=AsyncMock, return_value=session
     ), patch("cogs.status.get_high_risk_polygon", new_callable=AsyncMock), patch(
@@ -241,7 +269,7 @@ async def test_build_embeds_primary_role():
     ), patch("cogs.status.peek_active_labels", return_value=None), patch(
         "cogs.status.get_write_failure_count", return_value=0
     ), patch("utils.db.get_warning_stats", new_callable=AsyncMock) as mock_stats, patch(
-        "utils.state_store._get_redis_client", return_value=AsyncMock()
+        "utils.state_store._get_redis_client", return_value=redis
     ), patch("config.OPENCODE_API_KEY", "key"), patch("config.GEMINI_API_KEY", ""):
         mock_stats.return_value = {
             "tor": {"total": 1, "standard": 1, "pds": 0, "emergency": 0},
@@ -266,6 +294,8 @@ async def test_build_embeds_primary_role():
     assert "🌪️" in fields["📋 Warning Labels (6h)"]
     assert "🧠 AI Subsystem" in fields
     assert "🟢 ACTIVE" in fields["🧠 AI Subsystem"]
+    assert "**Daily Calls:** `10`" in fields["🧠 AI Subsystem"]
+    assert "**Cache Hits:** `5` (`33%`)" in fields["🧠 AI Subsystem"]
     assert "🔄 Recent Activity" in fields
     assert "Live Auto-refresh" in embed.footer.text
 
@@ -329,5 +359,4 @@ async def test_build_embeds_detailed_task_view():
 
     assert len(embeds) == 2
     assert embeds[1].title == "📋 Bot Task Details"
-    assert "🟢" in embeds[1].description
-    assert "NOAA-SPC mesoscale discussions" in embeds[1].description
+    assert "🟢 `NOAA-SPC mesoscale discussions`" in embeds[1].description
