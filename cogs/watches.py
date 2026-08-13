@@ -484,7 +484,7 @@ class WatchesCog(commands.Cog):
                 msg = await safe_send(
                     channel,
                     context=f"watch cancellation #{watch_num}",
-                    content=f"~~{watch_label} #{int(watch_num)}~~ expired <t:{end_ts}:R>",
+                    content=f"{watch_label} #{int(watch_num)} expired <t:{end_ts}:R>",
                 )
                 if msg is None:
                     logger.warning(f"Failed to send cancellation for #{watch_num}")

@@ -783,7 +783,7 @@ class MesoscaleCog(commands.Cog):
                     msg = await safe_send(
                         channel,
                         context=f"MD #{md_num} cancellation",
-                        content=f"~~Mesoscale Discussion #{int(md_num)}~~ cancelled <t:{md_end_ts}:R>",
+                        content=f"Mesoscale Discussion #{int(md_num)} cancelled <t:{md_end_ts}:R>",
                     )
                     if not msg:
                         continue
