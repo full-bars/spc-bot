@@ -42,6 +42,7 @@ async def test_cancellation_fires_when_index_empty():
     content = channel.send.call_args.kwargs["content"]
     assert "100" in content
     assert "cancelled" in content
+    assert "<t:" in content and ":R>" in content
     assert "0100" not in bot.state.active_mds
 
 
