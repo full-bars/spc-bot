@@ -1,12 +1,10 @@
 """Tests for the EF scale damage-indicator data + /damageindicators command."""
 
-import re
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from cogs.efscale import (
-    _index_grid,
     _resolve_indicator,
     build_dod_embed,
     build_full_embed,
@@ -169,26 +167,22 @@ def test_resolve_indicator():
     assert _resolve_indicator("nope-zz") is None
 
 
-def test_index_grid_shape():
-    grid = _index_grid()
-    lines = grid.splitlines()
-    assert len(lines) == 7
-    # cells are separated by 3+ spaces (short abbrs like "M" widen the gap)
-    assert all(len(re.split(r"\s{3,}", line.strip())) == 4 for line in lines)
-    assert "1 SBO" in lines[0]
-    assert "2 FR12" in lines[0]
-    assert "4 MHDW" in lines[0]
-    assert "13 ASR" in lines[3]
-    assert "28 TS" in lines[-1]
-    assert all(len(line) <= 40 for line in lines)
+def test_index_description_lists_all_names():
+    lines = build_index_embed().description.splitlines()
+    assert len(lines) == 28
+    assert lines[0] == "1. Small barns or farm outbuildings (SBO)"
+    assert lines[1] == "2. One- or two-family residences (FR12)"
+    assert lines[12] == "13. Automobile showroom (ASR)"
+    assert lines[-1] == "28. Trees: softwood (TS)"
 
 
 def test_index_embed():
     embed = build_index_embed()
     assert embed.title == "🌪️ EF Scale — Damage Indicators"
     assert int(embed.color) == 0xCCCCCC  # EFU grey
-    assert "```" in embed.fields[0].value
-    assert "25 FST" in embed.fields[0].value
+    assert len(embed.description) <= 4096
+    assert "25. Free-standing towers (FST)" in embed.description
+    assert "Large, isolated retail building" in embed.description  # full name, not abbr
 
 
 @pytest.mark.asyncio

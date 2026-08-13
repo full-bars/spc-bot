@@ -6,7 +6,7 @@ speed estimates and the EF rating per bound, color coded with Wikipedia's
 EF palette (see utils/ef_scale.py).
 
 Usage:
-    /damageindicators                              -> 4x7 grid of all 28 DIs
+    /damageindicators                              -> numbered list of all 28 DIs
     /damageindicators indicator:FR12              -> full DoD breakdown
                                                      (text fields + color-coded
                                                      table image)
@@ -30,7 +30,6 @@ from utils.ef_scale import (
     DegreeOfDamage,
     DamageIndicator,
     ef_color,
-    extract_abbr,
     get_di,
     get_dod,
     search_damage_indicators,
@@ -77,44 +76,21 @@ def _resolve_indicator(token: str) -> DamageIndicator | None:
 
 
 def build_index_embed() -> discord.Embed:
-    """No-argument view: compact 4x7 grid of every damage indicator."""
-    grid = _index_grid()
+    """No-argument view: every damage indicator by number with its full name.
+
+    Discord's constraints shape this: a code block can't fit four full-name
+    columns (monospace width), and embeds cap at 25 fields, so a numbered
+    list in the description is the layout that fits all 28 names on one
+    line each at the embed's real width.
+    """
+    lines = [f"{d['di']}. {d['name']}" for d in DAMAGE_INDICATORS]
     embed = discord.Embed(
         title="🌪️ EF Scale — Damage Indicators",
+        description="\n".join(lines),
         color=ef_color("EFU"),
-    )
-    embed.add_field(
-        name=f"All {len(DAMAGE_INDICATORS)} damage indicators — pick one for the "
-        "full breakdown (number, abbreviation, or name)",
-        value=f"```\n{grid}\n```",
-        inline=False,
     )
     embed.set_footer(text=_SOURCE_FOOTER)
     return embed
-
-
-def _index_grid() -> str:
-    """Render all 28 DIs as a 4x7 monospace grid: '12 LIRB' style cells.
-
-    Row-major (1-4 on the first row, 5-8 on the second, ...), abbreviations
-    as used by NWS damage surveys. Discord embeds max out at 3 inline fields
-    per row, so a code block is the only way to get 4 columns.
-    """
-    cols = 4
-    rows = (len(DAMAGE_INDICATORS) + cols - 1) // cols
-    lines: list[str] = []
-    for r in range(rows):
-        cells = []
-        for c in range(cols):
-            idx = r * cols + c
-            if idx < len(DAMAGE_INDICATORS):
-                di = DAMAGE_INDICATORS[idx]
-                abbr = extract_abbr(di["name"]) or ""
-                cells.append(f"{di['di']:>2} {abbr:<4}")
-            else:
-                cells.append("")
-        lines.append("   ".join(cells))
-    return "\n".join(lines)
 
 
 def build_full_embed(di: DamageIndicator) -> tuple[discord.Embed, io.BytesIO]:
