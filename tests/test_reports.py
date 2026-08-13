@@ -312,6 +312,46 @@ $$
 
 
 @pytest.mark.asyncio
+async def test_handle_pns_derecho_flags_message():
+    """PNS mentioning 'derecho' gets tagged, a warning line, and a red embed."""
+    cog, channel = _make_cog()
+
+    derecho_pns = """\
+...NWS DAMAGE SURVEY FOR 04/29/2026 DERECHO EVENT...
+
+Rating: EF1
+Estimated Peak Wind: 100 mph
+
+SUMMARY: Extensive damage from the derecho across the region.
+$$
+"""
+    with patch("cogs.reports.add_significant_event", AsyncMock()), patch(
+        "utils.state_store.find_matching_tornado", AsyncMock(return_value=None)
+    ), patch.object(cog, "_check_for_surveys", AsyncMock()):
+        await cog._handle_pns("202604292200-KOUN-PNSOUN", derecho_pns)
+
+    embed: discord.Embed = channel.send.call_args.kwargs["embed"]
+    assert "Derecho event" in embed.description
+    assert "⚠️ Derecho-related damage survey" in embed.description
+    assert embed.color == discord.Color.red()
+
+
+@pytest.mark.asyncio
+async def test_handle_pns_non_derecho_stays_teal():
+    """PNS without 'derecho' keeps the normal teal embed and no tag."""
+    cog, channel = _make_cog()
+
+    with patch("cogs.reports.add_significant_event", AsyncMock()), patch(
+        "utils.state_store.find_matching_tornado", AsyncMock(return_value=None)
+    ), patch.object(cog, "_check_for_surveys", AsyncMock()):
+        await cog._handle_pns("202604292200-KOUN-PNSOUN", SAMPLE_PNS)
+
+    embed: discord.Embed = channel.send.call_args.kwargs["embed"]
+    assert "Derecho" not in embed.description
+    assert embed.color == discord.Color.teal()
+
+
+@pytest.mark.asyncio
 async def test_handle_pns_parses_numerical_date_for_survey_check():
     """MM/DD/YYYY date triggers _check_for_surveys with the correct ISO date."""
     cog, channel = _make_cog()

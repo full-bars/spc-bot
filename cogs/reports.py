@@ -358,15 +358,24 @@ class ReportsCog(commands.Cog):
             except Exception:
                 logger.debug("PNS timestamp parse failed for product_id %r", product_id)
 
-        desc = (
-            f"{office} issues [Damage Survey PNS]({pns_url}) (Max: {rating_str}){tor_count_msg} at {pns_time_str}\n"
-            f"> {summary_snippet if summary_snippet else 'Multi-event damage survey summary.'}\n"
-            f"[<t:{int(pns_ts)}:R>]"
+        is_derecho = bool(re.search(r"\bderecho", raw_text, re.I))
+        derecho_tag = " — Derecho event" if is_derecho else ""
+        desc_lines = [
+            f"{office} issues [Damage Survey PNS]({pns_url}) (Max: {rating_str}){tor_count_msg} at {pns_time_str}{derecho_tag}"
+        ]
+        if is_derecho:
+            desc_lines.append("> **⚠️ Derecho-related damage survey**")
+        desc_lines.append(
+            f"> {summary_snippet if summary_snippet else 'Multi-event damage survey summary.'}"
         )
+        desc_lines.append(f"[<t:{int(pns_ts)}:R>]")
+        desc = "\n".join(desc_lines)
 
         view = PNSView()
         embed = discord.Embed(
-            description=desc, color=discord.Color.teal(), timestamp=datetime.now(timezone.utc)
+            description=desc,
+            color=discord.Color.red() if is_derecho else discord.Color.teal(),
+            timestamp=datetime.now(timezone.utc),
         )
         embed.set_footer(text=f"{office} PNS | {product_id}")
 
