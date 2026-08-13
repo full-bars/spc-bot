@@ -198,3 +198,41 @@ async def test_autocomplete():
     choices = await cog._indicator_autocomplete(interaction, "FR")
     assert choices[0].name.startswith("2.")
     assert choices[0].value == "2"
+
+
+@pytest.mark.asyncio
+async def test_dod_autocomplete_lists_selected_indicators_dods():
+    cog = EfScaleCog.__new__(EfScaleCog)
+    interaction = MagicMock()
+    interaction.namespace.indicator = "2"
+    choices = await cog._dod_autocomplete(interaction, 0)
+    assert len(choices) == 10
+    assert choices[0].name == "DoD 1/10 — Threshold of visible damage"
+    assert choices[0].value == 1
+    assert "slab swept clean" in choices[-1].name
+    assert choices[-1].value == 10
+    # every name is inside Discord's choice-name limit
+    assert all(len(c.name) <= 100 for c in choices)
+
+
+@pytest.mark.asyncio
+async def test_dod_autocomplete_hint_when_no_indicator():
+    cog = EfScaleCog.__new__(EfScaleCog)
+    interaction = MagicMock()
+    interaction.namespace.indicator = ""
+    choices = await cog._dod_autocomplete(interaction, 0)
+    assert len(choices) == 1
+    assert choices[0].value == 0
+    assert "Pick an indicator" in choices[0].name
+
+
+@pytest.mark.asyncio
+async def test_dod_autocomplete_respects_di_specific_scale():
+    cog = EfScaleCog.__new__(EfScaleCog)
+    interaction = MagicMock()
+    # DI 25 (free-standing towers) only has 3 DoDs
+    interaction.namespace.indicator = "25"
+    choices = await cog._dod_autocomplete(interaction, 0)
+    assert len(choices) == 3
+    assert choices[0].name == "DoD 1/3 — Threshold of visible damage"
+    assert choices[-1].name == "DoD 3/3 — Collapsed micro-wave tower"

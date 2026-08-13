@@ -21,7 +21,6 @@ from discord import app_commands
 from discord.ext import commands
 
 from utils.ef_scale import (
-    DAMAGE_INDICATORS,
     EF_COLORS,
     DegreeOfDamage,
     DamageIndicator,
@@ -33,14 +32,14 @@ from utils.ef_scale import (
 
 logger = logging.getLogger("spc_bot.efscale")
 
-_MAX_DOD = max(len(di["dods"]) for di in DAMAGE_INDICATORS)
-
 _SOURCE_FOOTER = (
     "3-second-gust estimates for typical construction (LB/EXP/UB) · "
     "Wikipedia: Enhanced Fujita scale — https://en.wikipedia.org/wiki/Enhanced_Fujita_scale"
 )
 
 _KMH_PER_MPH = 1.60934
+
+_CHOICE_NAME_MAX = 100
 
 
 def _bound_text(bound: Any) -> str:
@@ -174,13 +173,16 @@ class EfScaleCog(commands.Cog):
     )
     @app_commands.describe(
         indicator="Damage indicator: number (2), abbreviation (FR12, MHSW), or name",
-        dod="Degree of damage 1..max for that indicator — omit for the full breakdown",
+        dod=(
+            "Degree of damage for the selected indicator — pick from the "
+            "suggestions, or omit for the full breakdown"
+        ),
     )
     async def damageindicators(
         self,
         interaction: discord.Interaction,
         indicator: str,
-        dod: app_commands.Range[int, 1, _MAX_DOD] | None = None,
+        dod: int | None = None,
     ) -> None:
         di = _resolve_indicator(indicator)
         if di is None:
@@ -217,6 +219,26 @@ class EfScaleCog(commands.Cog):
         return [
             app_commands.Choice(name=f"{d['di']}. {d['name']}", value=str(d["di"])) for d in results
         ]
+
+    @damageindicators.autocomplete("dod")
+    async def _dod_autocomplete(
+        self,
+        interaction: discord.Interaction,
+        current: int,
+    ) -> list[app_commands.Choice[int]]:
+        """List the selected indicator's DoDs with their damage descriptions."""
+        indicator = (getattr(interaction.namespace, "indicator", "") or "").strip()
+        di = _resolve_indicator(indicator) if indicator else None
+        if di is None:
+            return [app_commands.Choice(name="↖️ Pick an indicator first", value=0)]
+        total = len(di["dods"])
+        choices: list[app_commands.Choice[int]] = []
+        for dod in di["dods"]:
+            name = f"DoD {dod['dod']}/{total} — {dod['desc']}"
+            if len(name) > _CHOICE_NAME_MAX:
+                name = name[: _CHOICE_NAME_MAX - 3] + "..."
+            choices.append(app_commands.Choice(name=name, value=dod["dod"]))
+        return choices
 
 
 async def setup(bot: commands.Bot) -> None:
