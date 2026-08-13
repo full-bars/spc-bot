@@ -313,7 +313,7 @@ $$
 
 @pytest.mark.asyncio
 async def test_handle_pns_derecho_flags_message():
-    """PNS mentioning 'derecho' gets tagged, a warning line, and a red embed."""
+    """PNS mentioning 'derecho' gets tagged, a warning line, and EF-based color."""
     cog, channel = _make_cog()
 
     derecho_pns = """\
@@ -333,18 +333,78 @@ $$
     embed: discord.Embed = channel.send.call_args.kwargs["embed"]
     assert "Derecho event" in embed.description
     assert "⚠️ Derecho-related damage survey" in embed.description
-    assert embed.color == discord.Color.red()
+    assert embed.color == discord.Color(0x00CD00)  # EF1 green
 
 
 @pytest.mark.asyncio
-async def test_handle_pns_non_derecho_stays_teal():
-    """PNS without 'derecho' keeps the normal teal embed and no tag."""
+async def test_handle_pns_embed_color_matches_highest_ef():
+    """Embed color follows the EF palette of the highest-rated tornado."""
+    expected = {
+        0: 0x90EE90,  # light green
+        1: 0x00CD00,  # green
+        2: 0xFFFF00,  # yellow
+        3: 0xFFA500,  # orange
+        4: 0xFF0000,  # red
+        5: 0xFF00FF,  # magenta
+    }
+    for ef, color in expected.items():
+        cog, channel = _make_cog()
+        pns = f"""\
+...NWS DAMAGE SURVEY FOR 04/29/2026 TORNADO EVENT...
+
+Rating: EF{ef}
+Estimated Peak Wind: 100 mph
+
+SUMMARY: Tornado confirmed near Example City OK.
+$$
+"""
+        with patch("cogs.reports.add_significant_event", AsyncMock()), patch(
+            "utils.state_store.find_matching_tornado", AsyncMock(return_value=None)
+        ), patch.object(cog, "_check_for_surveys", AsyncMock()):
+            await cog._handle_pns("202604292200-KOUN-PNSOUN", pns)
+
+        embed: discord.Embed = channel.send.call_args.kwargs["embed"]
+        assert embed.color == discord.Color(color), f"EF{ef} expected {color:#x}"
+
+
+@pytest.mark.asyncio
+async def test_handle_pns_efu_uses_gray():
+    """PNS with only EFU ratings uses gray."""
     cog, channel = _make_cog()
 
+    pns = """\
+...NWS DAMAGE SURVEY FOR 04/29/2026 TORNADO EVENT...
+
+Rating: EFU
+Estimated Peak Wind: N/A
+
+SUMMARY: Tornado tracked through open country.
+$$
+"""
     with patch("cogs.reports.add_significant_event", AsyncMock()), patch(
         "utils.state_store.find_matching_tornado", AsyncMock(return_value=None)
     ), patch.object(cog, "_check_for_surveys", AsyncMock()):
-        await cog._handle_pns("202604292200-KOUN-PNSOUN", SAMPLE_PNS)
+        await cog._handle_pns("202604292200-KOUN-PNSOUN", pns)
+
+    embed: discord.Embed = channel.send.call_args.kwargs["embed"]
+    assert embed.color == discord.Color(0xCCCCCC)
+
+
+@pytest.mark.asyncio
+async def test_handle_pns_no_rating_uses_teal():
+    """PNS with no EF ratings falls back to teal (unless derecho)."""
+    cog, channel = _make_cog()
+
+    pns = """\
+...NWS DAMAGE SURVEY FOR 04/29/2026 WIND EVENT...
+
+SUMMARY: Damage assessment in progress.
+$$
+"""
+    with patch("cogs.reports.add_significant_event", AsyncMock()), patch(
+        "utils.state_store.find_matching_tornado", AsyncMock(return_value=None)
+    ), patch.object(cog, "_check_for_surveys", AsyncMock()):
+        await cog._handle_pns("202604292200-KOUN-PNSOUN", pns)
 
     embed: discord.Embed = channel.send.call_args.kwargs["embed"]
     assert "Derecho" not in embed.description
