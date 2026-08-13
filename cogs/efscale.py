@@ -7,6 +7,8 @@ EF palette (see utils/ef_scale.py).
 
 Usage:
     /damageindicators indicator:FR12              -> full DoD breakdown
+                                                     (text fields + color-coded
+                                                     table image)
     /damageindicators indicator:2 dod:10          -> single-DoD card + color swatch
 """
 
@@ -14,6 +16,7 @@ from __future__ import annotations
 
 import io
 import logging
+import textwrap
 from typing import Any
 
 import discord
@@ -70,8 +73,13 @@ def _resolve_indicator(token: str) -> DamageIndicator | None:
     return matches[0] if matches else None
 
 
-def build_full_embed(di: DamageIndicator) -> discord.Embed:
-    """One field per DoD — the whole breakdown for a damage indicator."""
+def build_full_embed(di: DamageIndicator) -> tuple[discord.Embed, io.BytesIO]:
+    """Full breakdown: one field per DoD, plus a color-coded table image.
+
+    The embed text is the copyable reference; the attached table renders the
+    same data with Wikipedia's per-bound EF colors so the color escalation
+    across DoDs is visible at a glance (Discord embeds only carry one color).
+    """
     embed = discord.Embed(
         title=f"🌪️ EF Scale — DI {di['di']}: {di['name']}",
         color=ef_color(_max_exp_ef(di)),
@@ -85,7 +93,133 @@ def build_full_embed(di: DamageIndicator) -> discord.Embed:
             f"UB {_bound_text(dod['ub'])}"
         )
         embed.add_field(name=f"DoD {dod['dod']}/{total}", value=value, inline=False)
-    return embed
+    embed.set_image(url="attachment://ef_di_table.png")
+    return embed, render_breakdown_table(di)
+
+
+def render_breakdown_table(di: DamageIndicator) -> io.BytesIO:
+    """Render a DI's DoDs as a Wikipedia-style color-coded table (PNG).
+
+    Columns: DoD | Damage description | LB | EXP | UB. Each wind-speed cell
+    is filled with the Wikipedia EF color of that bound's rating so the
+    cyan -> yellow -> orange -> salmon -> purple escalation matches the
+    article's table exactly.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+
+    dods = di["dods"]
+    n = len(dods)
+
+    row_h = 0.85
+    fig, ax = plt.subplots(figsize=(9.6, 0.5 + (n + 1.6) * row_h), dpi=110)
+    top = (n + 1.6) * row_h
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, top)
+    ax.axis("off")
+
+    # title band
+    ax.add_patch(Rectangle((0, top - 0.9), 1, 0.9, facecolor="#1c1e26"))
+    ax.text(
+        0.01,
+        top - 0.45,
+        f"DI {di['di']} — {di['name']}",
+        color="white",
+        fontsize=14,
+        fontweight="bold",
+        va="center",
+    )
+
+    # column headers
+    hdr_y = top - 0.9 - row_h
+    for name, w, x0 in (
+        ("DoD", 0.055, 0.0),
+        ("Damage description", 0.535, 0.055),
+        ("LB", 0.137, 0.59),
+        ("EXP", 0.137, 0.727),
+        ("UB", 0.137, 0.864),
+    ):
+        ax.add_patch(
+            Rectangle((x0, hdr_y), w, row_h, facecolor="#e4e5ea", edgecolor="black", linewidth=0.6)
+        )
+        ax.text(
+            x0 + w / 2,
+            hdr_y + row_h / 2,
+            name,
+            ha="center",
+            va="center",
+            fontsize=9,
+            fontweight="bold",
+        )
+
+    for i, dod in enumerate(dods):
+        y = hdr_y - (i + 1) * row_h
+        # DoD number
+        ax.add_patch(
+            Rectangle((0.0, y), 0.055, row_h, facecolor="#ffffff", edgecolor="black", linewidth=0.6)
+        )
+        ax.text(
+            0.0275,
+            y + row_h / 2,
+            str(dod["dod"]),
+            ha="center",
+            va="center",
+            fontsize=9,
+            fontweight="bold",
+        )
+        # damage description
+        ax.add_patch(
+            Rectangle(
+                (0.055, y), 0.535, row_h, facecolor="#ffffff", edgecolor="black", linewidth=0.6
+            )
+        )
+        wrapped = "\n".join(textwrap.wrap(dod["desc"], 64))
+        ax.text(
+            0.063, y + row_h / 2, wrapped, ha="left", va="center", fontsize=8.2, color="#1c1e26"
+        )
+        # LB / EXP / UB colored cells
+        for j, est in enumerate((dod["lb"], dod["exp"], dod["ub"])):
+            x0 = 0.59 + j * 0.137
+            ef = est["ef"] or "EFU"
+            ax.add_patch(
+                Rectangle(
+                    (x0, y),
+                    0.137,
+                    row_h,
+                    facecolor="#" + EF_COLORS.get(ef, "CCCCCC"),
+                    edgecolor="black",
+                    linewidth=0.6,
+                )
+            )
+            mph = "N/A" if est["mph"] is None else f"{est['mph']} mph"
+            ax.text(
+                x0 + 0.0685,
+                y + 0.62 * row_h,
+                mph,
+                ha="center",
+                va="center",
+                fontsize=8,
+                fontweight="bold",
+            )
+            ax.text(
+                x0 + 0.0685,
+                y + 0.28 * row_h,
+                ef,
+                ha="center",
+                va="center",
+                fontsize=7.5,
+                fontweight="bold",
+            )
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    buf.seek(0)
+    return buf
 
 
 def build_dod_embed(di: DamageIndicator, dod: DegreeOfDamage) -> tuple[discord.Embed, io.BytesIO]:
@@ -206,8 +340,9 @@ class EfScaleCog(commands.Cog):
             await interaction.response.send_message(embed=embed, file=file)
             return
 
-        embed = build_full_embed(di)
-        await interaction.response.send_message(embed=embed)
+        embed, buf = build_full_embed(di)
+        file = discord.File(buf, filename="ef_di_table.png")
+        await interaction.response.send_message(embed=embed, file=file)
 
     @damageindicators.autocomplete("indicator")
     async def _indicator_autocomplete(

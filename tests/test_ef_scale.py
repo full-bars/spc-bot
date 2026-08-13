@@ -8,6 +8,7 @@ from cogs.efscale import (
     _resolve_indicator,
     build_dod_embed,
     build_full_embed,
+    render_breakdown_table,
     render_swatch,
     EfScaleCog,
 )
@@ -90,13 +91,32 @@ def test_ef_color():
 def test_full_embed_shape():
     di = get_di(2)
     assert di is not None
-    embed = build_full_embed(di)
+    embed, buf = build_full_embed(di)
     assert embed.title == "🌪️ EF Scale — DI 2: One- or two-family residences (FR12)"
     assert int(embed.color) == 0xFF738A  # max EXP = EF4
     assert len(embed.fields) == 10
     assert embed.fields[0].name == "DoD 1/10"
     assert "53 mph (85 km/h) EF0" in embed.fields[0].value
     assert "200 mph (322 km/h) EF4" in embed.fields[-1].value
+    assert embed.image.url == "attachment://ef_di_table.png"
+    assert buf is not None
+
+
+def test_render_breakdown_table_is_png():
+    di = get_di(2)
+    assert di is not None
+    buf = render_breakdown_table(di)
+    data = buf.getvalue()
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+    assert len(data) > 5000
+
+
+def test_render_breakdown_table_handles_12_dod_di():
+    di = get_di(4)  # Manufactured home – double wide, 12 DoDs
+    assert di is not None
+    buf = render_breakdown_table(di)
+    assert buf.getvalue()[:8] == b"\x89PNG\r\n\x1a\n"
+    assert len(buf.getvalue()) > 5000
 
 
 def test_dod_embed_shape():
@@ -153,8 +173,10 @@ async def test_command_full_breakdown():
     interaction.response.send_message = AsyncMock()
     await cog.damageindicators.callback(cog, interaction, "2")
     kwargs = interaction.response.send_message.await_args.kwargs
-    assert "file" not in kwargs
+    assert kwargs["file"] is not None
+    assert kwargs["file"].filename == "ef_di_table.png"
     assert kwargs["embed"].title == ("🌪️ EF Scale — DI 2: One- or two-family residences (FR12)")
+    assert kwargs["embed"].image.url == "attachment://ef_di_table.png"
 
 
 @pytest.mark.asyncio
