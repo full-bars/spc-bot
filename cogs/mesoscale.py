@@ -779,14 +779,11 @@ class MesoscaleCog(commands.Cog):
                             continue
 
                     logger.info(f"MD #{md_num} no longer on index — posting cancellation")
-                    embed = discord.Embed(
-                        title=(f"✅  Mesoscale Discussion #{int(md_num)} — Cancelled"),
-                        color=discord.Color.green(),
-                        timestamp=datetime.now(timezone.utc),
-                    )
-                    embed.set_footer(text="SPC MD Monitor")
+                    md_end_ts = int(datetime.now(timezone.utc).timestamp())
                     msg = await safe_send(
-                        channel, context=f"MD #{md_num} cancellation", embed=embed
+                        channel,
+                        context=f"MD #{md_num} cancellation",
+                        content=f"~~Mesoscale Discussion #{int(md_num)}~~ cancelled <t:{md_end_ts}:R>",
                     )
                     if not msg:
                         continue
