@@ -116,8 +116,8 @@ def render_breakdown_table(di: DamageIndicator) -> io.BytesIO:
     n = len(dods)
 
     row_h = 0.85
-    fig, ax = plt.subplots(figsize=(9.6, 0.5 + (n + 1.6) * row_h), dpi=110)
-    top = (n + 1.6) * row_h
+    top = 0.9 + (n + 1) * row_h + 0.2  # title band + header + n rows + bottom pad
+    fig, ax = plt.subplots(figsize=(9.6, 0.3 + top), dpi=110)
     ax.set_xlim(0, 1)
     ax.set_ylim(0, top)
     ax.axis("off")
