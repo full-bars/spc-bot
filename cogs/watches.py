@@ -479,16 +479,12 @@ class WatchesCog(commands.Cog):
                 reason = "expired" if expired_by_time else "no longer active"
                 logger.info(f"Watch #{watch_num} {reason} — posting cancellation")
                 watch_label = "Tornado Watch" if wtype == "TORNADO" else "Severe Thunderstorm Watch"
-                embed = discord.Embed(
-                    title=(f"✅  {watch_label} #{int(watch_num)} — Expired / Cancelled"),
-                    color=discord.Color.green(),
-                    timestamp=now_utc,
-                )
-                embed.set_footer(text="SPC Watch Monitor")
+                end_time = expires or now_utc
+                end_ts = int(end_time.timestamp())
                 msg = await safe_send(
                     channel,
                     context=f"watch cancellation #{watch_num}",
-                    embed=embed,
+                    content=f"{watch_label} #{int(watch_num)} expired <t:{end_ts}:R>",
                 )
                 if msg is None:
                     logger.warning(f"Failed to send cancellation for #{watch_num}")

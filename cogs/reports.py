@@ -43,6 +43,17 @@ _PNS_LATLON_RE = re.compile(r"START LAT/LON:\s*([\d\.\-]+)\s*/\s*([\d\.\-]+)", r
 _PNS_MONTHS_STR = "JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC"
 _PNS_NARR_DATE_RE = re.compile(rf"({_PNS_MONTHS_STR})\w*\s+(\d{{1,2}})\s*,\s*(\d{{4}})", re.I)
 
+# Enhanced Fujita scale color palette (SPC/NWS scheme used on Wikipedia and SPC maps)
+_EF_EMBED_COLORS = {
+    0: 0x90EE90,  # light green
+    1: 0x00CD00,  # green
+    2: 0xFFFF00,  # yellow
+    3: 0xFFA500,  # orange
+    4: 0xFF0000,  # red
+    5: 0xFF00FF,  # magenta
+}
+_EFU_EMBED_COLOR = 0xCCCCCC  # gray
+
 
 class PNSView(discord.ui.View):
     def __init__(self):
@@ -358,15 +369,32 @@ class ReportsCog(commands.Cog):
             except Exception:
                 logger.debug("PNS timestamp parse failed for product_id %r", product_id)
 
-        desc = (
-            f"{office} issues [Damage Survey PNS]({pns_url}) (Max: {rating_str}){tor_count_msg} at {pns_time_str}\n"
-            f"> {summary_snippet if summary_snippet else 'Multi-event damage survey summary.'}\n"
-            f"[<t:{int(pns_ts)}:R>]"
+        is_derecho = bool(re.search(r"\bderecho", raw_text, re.I))
+        derecho_tag = " — Derecho event" if is_derecho else ""
+        desc_lines = [
+            f"{office} issues [Damage Survey PNS]({pns_url}) (Max: {rating_str}){tor_count_msg} at {pns_time_str}{derecho_tag}"
+        ]
+        if is_derecho:
+            desc_lines.append("> **⚠️ Derecho-related damage survey**")
+        desc_lines.append(
+            f"> {summary_snippet if summary_snippet else 'Multi-event damage survey summary.'}"
         )
+        desc_lines.append(f"[<t:{int(pns_ts)}:R>]")
+        desc = "\n".join(desc_lines)
 
         view = PNSView()
+        if max_ef is not None and max_ef >= 0:
+            embed_color = discord.Color(_EF_EMBED_COLORS[max_ef])
+        elif max_ef == -1:
+            embed_color = discord.Color(_EFU_EMBED_COLOR)
+        elif is_derecho:
+            embed_color = discord.Color.red()
+        else:
+            embed_color = discord.Color.teal()
         embed = discord.Embed(
-            description=desc, color=discord.Color.teal(), timestamp=datetime.now(timezone.utc)
+            description=desc,
+            color=embed_color,
+            timestamp=datetime.now(timezone.utc),
         )
         embed.set_footer(text=f"{office} PNS | {product_id}")
 
