@@ -1,13 +1,16 @@
 """Tests for the EF scale damage-indicator data + /damageindicators command."""
 
+import re
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from cogs.efscale import (
+    _index_grid,
     _resolve_indicator,
     build_dod_embed,
     build_full_embed,
+    build_index_embed,
     render_breakdown_table,
     render_swatch,
     EfScaleCog,
@@ -164,6 +167,39 @@ def test_resolve_indicator():
     assert _resolve_indicator(" 2 ") is not None
     assert _resolve_indicator(" 2 ")["di"] == 2
     assert _resolve_indicator("nope-zz") is None
+
+
+def test_index_grid_shape():
+    grid = _index_grid()
+    lines = grid.splitlines()
+    assert len(lines) == 7
+    # cells are separated by 3+ spaces (short abbrs like "M" widen the gap)
+    assert all(len(re.split(r"\s{3,}", line.strip())) == 4 for line in lines)
+    assert "1 SBO" in lines[0]
+    assert "2 FR12" in lines[0]
+    assert "4 MHDW" in lines[0]
+    assert "13 ASR" in lines[3]
+    assert "28 TS" in lines[-1]
+    assert all(len(line) <= 40 for line in lines)
+
+
+def test_index_embed():
+    embed = build_index_embed()
+    assert embed.title == "🌪️ EF Scale — Damage Indicators"
+    assert int(embed.color) == 0xCCCCCC  # EFU grey
+    assert "```" in embed.fields[0].value
+    assert "25 FST" in embed.fields[0].value
+
+
+@pytest.mark.asyncio
+async def test_command_no_indicator_shows_index():
+    cog = EfScaleCog.__new__(EfScaleCog)
+    interaction = MagicMock()
+    interaction.response.send_message = AsyncMock()
+    await cog.damageindicators.callback(cog, interaction, "")
+    kwargs = interaction.response.send_message.await_args.kwargs
+    assert kwargs["embed"].title == "🌪️ EF Scale — Damage Indicators"
+    assert "file" not in kwargs
 
 
 @pytest.mark.asyncio

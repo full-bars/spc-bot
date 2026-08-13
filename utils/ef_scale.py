@@ -71,7 +71,7 @@ with open(_EF_SCALE_JSON, encoding="utf-8") as _f:
     DAMAGE_INDICATORS: list[DamageIndicator] = json.load(_f)
 
 
-def _extract_abbr(name: str) -> str | None:
+def extract_abbr(name: str) -> str | None:
     """Return the parenthesised abbreviation of a DI name, if present.
 
     e.g. "One- or two-family residences (FR12)" -> "FR12".
@@ -134,7 +134,7 @@ def search_damage_indicators(query: str) -> list[DamageIndicator]:
             return (0, di["di"])
         if no.startswith(q):
             return (1, di["di"])
-        abbr = _extract_abbr(di["name"])
+        abbr = extract_abbr(di["name"])
         if abbr and abbr.lower().startswith(q):
             return (2, di["di"])
         if q in name:
