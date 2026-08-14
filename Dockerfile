@@ -2,7 +2,7 @@
 # The digest is the multi-arch INDEX digest (works for amd64 + arm64).
 # Pinning a platform-specific sub-manifest digest breaks the other arch
 # with "exec format error" (verified 2026-08-14, PR #667 CI).
-FROM python:3.13-slim-bookworm@sha256:00faa2debb87529f9f0764e9491d8ba400a3678976616c3bd7cb193745ac20d1 AS builder
+FROM python:3.13-slim-trixie@sha256:ffb752e139c0a19692a43af8d8523b274222dd68eebad5d583b45c2201c6e30a AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get upgrade -y --no-install-recommends && apt-get install -y --no-install-recommends \
@@ -37,15 +37,15 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip wheel --wheel-dir /build/wheels -r requirements.txt
 
 # Runtime stage
-FROM python:3.13-slim-bookworm@sha256:00faa2debb87529f9f0764e9491d8ba400a3678976616c3bd7cb193745ac20d1
+FROM python:3.13-slim-trixie@sha256:ffb752e139c0a19692a43af8d8523b274222dd68eebad5d583b45c2201c6e30a
 
 # Install runtime dependencies before copying wheels so this layer is only
 # invalidated by apt changes, not by code or dependency updates.
 RUN apt-get update && apt-get upgrade -y --no-install-recommends && apt-get install -y --no-install-recommends \
-    libgeos-c1v5 \
+    libgeos3.13.1 \
     libproj25 \
     proj-data \
-    libgdal32 \
+    libgdal36 \
     libfreetype6 \
     libpng16-16 \
     libjpeg62-turbo \
@@ -56,8 +56,8 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends && apt-get inst
     libgfortran5 \
     ca-certificates \
     curl \
-    libhdf5-103-1 \
-    libnetcdf19 \
+    libhdf5-310 \
+    libnetcdf22 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set environment variables
