@@ -112,6 +112,8 @@ jobs:
 
       - name: Checkout for Trivy ignorefile
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Trivy scan per-arch digests (fail on new fixable CRITICAL/HIGH)
         # True pre-publish gate: scans each per-arch image by digest BEFORE
@@ -133,13 +135,17 @@ jobs:
             echo "trivy checksum mismatch: expected $EXPECTED got $ACTUAL"
             exit 1
           fi
-          tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy
+          # Extract to $RUNNER_TEMP: /usr/local/bin is not guaranteed writable
+          # by the workflow user, and a failed extract would block the release.
+          mkdir -p "$RUNNER_TEMP/trivy"
+          tar -xzf /tmp/trivy.tar.gz -C "$RUNNER_TEMP/trivy" trivy
+          TRIVY_BIN="$RUNNER_TEMP/trivy/trivy"
           FAILED=0
           for digest in /tmp/digests/*; do
             sha="$(basename "$digest")"
             echo "=== Trivy scan $REPO@sha256:$sha ==="
             set +e
-            trivy image \
+            "$TRIVY_BIN" image \
               --scanners vuln,secret \
               --severity CRITICAL,HIGH \
               --ignore-unfixed \
