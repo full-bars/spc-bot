@@ -4,7 +4,7 @@ FROM python:3.13-slim-bookworm
 
 # Install system build dependencies and Rust toolchain in one layer so
 # apt caches and the rustup installer are cleaned up together.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     libgeos-dev \
