@@ -50,6 +50,22 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Build Rust extensions
         run: maturin build --release --out dist && pip install dist/*.whl
+      - name: VirusTotal scan of compiled wheel (main pushes only)
+        if: ${{ github.event_name == 'push' }}
+        env:
+          VT_API_KEY: ${{ secrets.VIRUS_TOTAL }}
+          VT_FAIL_THRESHOLD: "10"
+          VT_REVIEW_THRESHOLD: "2"
+          VT_SUMMARY_FILE: ${{ github.workspace }}/vt-scan-report.md
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          if [ -z "$VT_API_KEY" ]; then
+            echo "VIRUS_TOTAL secret not set, skipping VirusTotal scan"
+            exit 0
+          fi
+          python3 .github/scripts/vt-scan.py dist/*.whl
       - name: Run tests with coverage
         run: |
           python -m pytest tests/ -n auto \
