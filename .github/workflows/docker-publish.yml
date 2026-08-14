@@ -130,6 +130,93 @@ jobs:
             docker save ghcr.io/${{ github.repository }}:${{ github.ref_name }} | gzip > spcbot-${{ github.ref_name }}-linux-$plat.tar.gz
           done
 
+      - name: Install ClamAV
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clamav
+          # Update signatures. Use a generous timeout: freshclam can be slow on
+          # first run (downloads the full CVD database).
+          sudo freshclam --quiet || true
+          clamscan --version
+
+      - name: ClamAV self-test (EICAR)
+        run: |
+          echo -n 'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*' > /tmp/eicar.com
+          set +e
+          clamscan --no-summary /tmp/eicar.com
+          RC=$?
+          set -e
+          if [ "$RC" -ne 1 ]; then
+            echo "EICAR self-test failed: expected exit 1 (virus found), got $RC"
+            exit 1
+          fi
+          echo "ClamAV self-test OK: EICAR detected"
+
+      - name: ClamAV scan of docker tarballs
+        run: |
+          FAILED=0
+          for f in spcbot-*.tar.gz; do
+            echo "=== clamscan $f (this can take a few minutes on ~500MB) ==="
+            set +e
+            clamscan --infected --no-summary "$f"
+            RC=$?
+            set -e
+            if [ "$RC" -eq 1 ]; then
+              echo "INFECTED: $f"
+              FAILED=1
+            elif [ "$RC" -gt 1 ]; then
+              echo "CLAMSCAN ERROR ($RC): $f"
+              FAILED=1
+            else
+              echo "CLEAN: $f"
+            fi
+          done
+          exit "$FAILED"
+
+      - name: VirusTotal scan of source archive (tags only)
+        if: ${{ secrets.VIRUS_TOTAL != '' }}
+        env:
+          VT_API_KEY: ${{ secrets.VIRUS_TOTAL }}
+          VT_FAIL_THRESHOLD: "2"
+          VT_SUMMARY_FILE: ${{ github.workspace }}/vt-scan-report.md
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          git archive --format=zip --prefix=spc-bot/ -o /tmp/spc-bot-src-${{ github.ref_name }}.zip HEAD
+          python3 .github/scripts/vt-scan.py /tmp/spc-bot-src-${{ github.ref_name }}.zip
+
+      - name: Append scan report to release notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPORT="${{ github.workspace }}/vt-scan-report.md"
+          if [ ! -f "$REPORT" ]; then
+            echo "No scan report found; release notes unchanged"
+            exit 0
+          fi
+          # Append ClamAV result line to the VT report (ClamAV has no
+          # permalink; its pass/fail is represented by the step result).
+          {
+            echo ""
+            echo "## ClamAV Scan"
+            echo ""
+            echo "The docker image tarballs were scanned with ClamAV (Cisco Talos signatures) during CI."
+            echo ""
+          } >> "$REPORT"
+          BODY_FILE=$(mktemp)
+          # The release page may not exist yet if this workflow beats the
+          # release-creation step. Non-fatal: the Upload Release Assets step
+          # below is the authoritative gate for a missing release.
+          if ! gh release view "${{ github.ref_name }}" --json body --jq .body > "$BODY_FILE" 2>/dev/null; then
+            echo "Release page not found yet; skipping notes append"
+            exit 0
+          fi
+          echo "" >> "$BODY_FILE"
+          cat "$REPORT" >> "$BODY_FILE"
+          gh release edit "${{ github.ref_name }}" --notes-file "$BODY_FILE"
+          echo "Appended scan report to release notes"
+
       - name: Upload Release Assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
