@@ -123,6 +123,25 @@ jobs:
       - name: Checkout for Export
         uses: actions/checkout@v7
 
+      - name: Trivy scan (fail on new fixable CRITICAL/HIGH)
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.version }}
+        run: |
+          # Release gate: no NEW FIXABLE CRITICAL/HIGH may ship. --ignore-unfixed
+          # filters to vulnerabilities with a published fix; the accepted no-fix
+          # risk is documented in .trivyignore and by the ignore-unfixed flag.
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.73.0
+          trivy image \
+            --scanners vuln,secret \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --exit-code 1 \
+            --no-progress \
+            --timeout 10m \
+            --ignorefile .trivyignore \
+            "$IMAGE"
+          echo "Trivy gate passed: no new fixable CRITICAL/HIGH vulnerabilities"
+
       - name: Export Tarballs
         run: |
           for plat in amd64 arm64; do

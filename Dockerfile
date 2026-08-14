@@ -27,8 +27,10 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends && apt-get inst
 WORKDIR /build
 
 # Upgrade pip and install build-time requirements
+# setuptools pinned >=78.1.1: CVE-2025-47273 (Path Traversal in
+# PackageIndex) fixed in 78.1.1. Trivy flagged 70.3.0.
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --upgrade pip setuptools wheel
+    pip install --upgrade pip "setuptools>=78.1.1" wheel
 
 COPY requirements.txt .
 
