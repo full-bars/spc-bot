@@ -1,5 +1,8 @@
 # Build stage
-FROM python:3.13-slim-bookworm@sha256:0f16c5d35fe6464ee471792ab3bb9116f911b65b3fbf10120c98d2bdc6332f48 AS builder
+# The digest is the multi-arch INDEX digest (works for amd64 + arm64).
+# Pinning a platform-specific sub-manifest digest breaks the other arch
+# with "exec format error" (verified 2026-08-14, PR #667 CI).
+FROM python:3.13-slim-bookworm@sha256:00faa2debb87529f9f0764e9491d8ba400a3678976616c3bd7cb193745ac20d1 AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get upgrade -y --no-install-recommends && apt-get install -y --no-install-recommends \
@@ -34,7 +37,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip wheel --wheel-dir /build/wheels -r requirements.txt
 
 # Runtime stage
-FROM python:3.13-slim-bookworm@sha256:0f16c5d35fe6464ee471792ab3bb9116f911b65b3fbf10120c98d2bdc6332f48
+FROM python:3.13-slim-bookworm@sha256:00faa2debb87529f9f0764e9491d8ba400a3678976616c3bd7cb193745ac20d1
 
 # Install runtime dependencies before copying wheels so this layer is only
 # invalidated by apt changes, not by code or dependency updates.
