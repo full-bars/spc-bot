@@ -174,7 +174,6 @@ jobs:
           exit "$FAILED"
 
       - name: VirusTotal scan of source archive (tags only)
-        if: ${{ secrets.VIRUS_TOTAL != '' }}
         env:
           VT_API_KEY: ${{ secrets.VIRUS_TOTAL }}
           VT_FAIL_THRESHOLD: "10"
@@ -184,6 +183,10 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
+          if [ -z "$VT_API_KEY" ]; then
+            echo "VIRUS_TOTAL secret not set, skipping VirusTotal scan"
+            exit 0
+          fi
           git archive --format=zip --prefix=spc-bot/ -o /tmp/spc-bot-src-${{ github.ref_name }}.zip HEAD
           python3 .github/scripts/vt-scan.py /tmp/spc-bot-src-${{ github.ref_name }}.zip
 
