@@ -110,6 +110,57 @@ jobs:
             type=ref,event=tag
             type=raw,value=latest
 
+      - name: Checkout for Trivy ignorefile
+        uses: actions/checkout@v7
+
+      - name: Trivy scan per-arch digests (fail on new fixable CRITICAL/HIGH)
+        # True pre-publish gate: scans each per-arch image by digest BEFORE
+        # imagetools create tags them. Covers amd64 AND arm64 (a scan of the
+        # final multi-arch ref without --platform would only check the runner
+        # host arch). --ignore-unfixed filters to vulnerabilities with a
+        # published fix; accepted no-fix risk is documented in .trivyignore.
+        env:
+          REPO: ghcr.io/${{ github.repository }}
+        run: |
+          # Install trivy from the pinned release with checksum verification
+          # (avoids curl-pipe-shell from the mutable main branch).
+          TRIVY_VERSION=v0.73.0
+          curl -sfL "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/trivy_${TRIVY_VERSION#v}_Linux-64bit.tar.gz" -o /tmp/trivy.tar.gz
+          curl -sfL "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/trivy_${TRIVY_VERSION#v}_checksums.txt" -o /tmp/trivy-checksums.txt
+          EXPECTED=$(grep "trivy_${TRIVY_VERSION#v}_Linux-64bit.tar.gz" /tmp/trivy-checksums.txt | awk '{print $1}')
+          ACTUAL=$(sha256sum /tmp/trivy.tar.gz | awk '{print $1}')
+          if [ "$EXPECTED" != "$ACTUAL" ]; then
+            echo "trivy checksum mismatch: expected $EXPECTED got $ACTUAL"
+            exit 1
+          fi
+          tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy
+          FAILED=0
+          for digest in /tmp/digests/*; do
+            sha="$(basename "$digest")"
+            echo "=== Trivy scan $REPO@sha256:$sha ==="
+            set +e
+            trivy image \
+              --scanners vuln,secret \
+              --severity CRITICAL,HIGH \
+              --ignore-unfixed \
+              --exit-code 1 \
+              --no-progress \
+              --timeout 10m \
+              --ignorefile .trivyignore \
+              "$REPO@sha256:$sha"
+            RC=$?
+            set -e
+            if [ "$RC" -ne 0 ]; then
+              echo "FAILED: $REPO@sha256:$sha"
+              FAILED=1
+            fi
+          done
+          if [ "$FAILED" -ne 0 ]; then
+            echo "Trivy gate failed: new fixable CRITICAL/HIGH found"
+            exit 1
+          fi
+          echo "Trivy gate passed: no new fixable CRITICAL/HIGH vulnerabilities"
+
       - name: Create manifest list and push
         working-directory: /tmp/digests
         run: |
@@ -119,28 +170,6 @@ jobs:
       - name: Inspect image
         run: |
           docker buildx imagetools inspect ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.version }}
-
-      - name: Checkout for Export
-        uses: actions/checkout@v7
-
-      - name: Trivy scan (fail on new fixable CRITICAL/HIGH)
-        env:
-          IMAGE: ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.version }}
-        run: |
-          # Release gate: no NEW FIXABLE CRITICAL/HIGH may ship. --ignore-unfixed
-          # filters to vulnerabilities with a published fix; the accepted no-fix
-          # risk is documented in .trivyignore and by the ignore-unfixed flag.
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.73.0
-          trivy image \
-            --scanners vuln,secret \
-            --severity CRITICAL,HIGH \
-            --ignore-unfixed \
-            --exit-code 1 \
-            --no-progress \
-            --timeout 10m \
-            --ignorefile .trivyignore \
-            "$IMAGE"
-          echo "Trivy gate passed: no new fixable CRITICAL/HIGH vulnerabilities"
 
       - name: Export Tarballs
         run: |

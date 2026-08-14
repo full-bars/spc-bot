@@ -1,64 +1,27 @@
-# Trivy ignore file — accepted-risk vulnerabilities in the spc-bot image.
+# Trivy ignore file — spc-bot image.
 #
-# Policy: the release gate fails on NEW FIXABLE CRITICAL/HIGH (scan with
-# --ignore-unfixed --severity CRITICAL,HIGH --exit-code 1). The entries
-# below are either CVEs with NO FIX AVAILABLE in the Debian trixie package
-# pool as of 2026-08-14, or build-layer ghosts verified absent from the
-# final runtime filesystem. Accepted risk for one of these reasons:
+# Policy (enforced by the docker-publish Trivy gate): the release is blocked
+# when the image contains a NEW FIXABLE CRITICAL/HIGH vulnerability. The gate
+# runs `trivy image --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1`.
 #
-#   1. MEDIA CODEC / render-path libs the bot does not exercise at
-#      runtime (matplotlib/cartopy render plots; the bot never decodes
-#      untrusted H.265/HEIF/TIFF/AVIF streams).
-#   2. TRANSITIVE deps of the geo stack (libgdal36's optional MariaDB
-#      driver, libssh2, gnupg/dirmngr) that nothing in the bot calls.
-#   3. PENDING DEBIAN: the fix exists upstream but trixie has not
-#      shipped a patched package yet. These clear via apt-get upgrade
-#      on the next image rebuild; re-check periodically and remove from
-#      this file once Debian publishes the fix.
-#   4. BUILD-LAYER GHOST (verified 2026-08-14): present in the wheel
-#      COPY layer (FROM builder /build/wheels) but NOT importable in
-#      the final image (pip show/import both fail). The wheels dir is
-#      rm'd at runtime; only the layer history carries the files.
+# --ignore-unfixed already excludes every CVE with NO published fix, so
+# no-fix CVEs (media codecs, transitive geo-stack deps, pending-Debian core
+# libs) never reach the gate and are NOT listed here. Do NOT add no-fix CVEs
+# to this file: the moment Debian publishes a fix, --ignore-unfixed stops
+# suppressing them and this file must not silently swallow them instead.
 #
-# Re-check cadence: run `trivy image ghcr.io/full-bars/spc-bot:<tag>`
-# before each release; remove entries whose CVE now has a FixedVersion.
+# This file lists ONLY fixable CVEs that are accepted risk with evidence:
 
-# --- Build-layer ghosts: verified not present in final runtime image ---
-CVE-2025-47273   # setuptools 70.3.0 in wheel COPY layer; not importable
-GHSA-6v7p-g79w-8964 # msgpack 1.1.2 in wheel COPY layer; not importable
-
-# --- Media codec / render path (not exercised by the bot) ---
-CVE-2026-33164   # libde265: H.265 video codec
-CVE-2026-36849   # libtiff6: DoS via SamplesPerPixel (TIFF decoding)
-CVE-2026-41992   # gzip: LZH decompression (no untrusted gzip input path)
-
-# --- Transitive deps of the geo stack (unused at runtime) ---
-CVE-2026-44168   # mariadb-common: gdal's optional MariaDB driver
-CVE-2026-44171   # mariadb-common: mbstream path traversal
-CVE-2026-44172   # mariadb-common: SQL injection
-CVE-2026-48163   # mariadb-common: parameter validation
-CVE-2026-48165   # mariadb-common: global system variable
-CVE-2026-49261   # mariadb-common: wsrep_notify_cmd
-CVE-2026-49014   # libgdal36: netCDF container parsing
-CVE-2026-8086    # libgdal36: OSGeo gdal
-CVE-2026-8087    # libgdal36: OSGeo gdal
-CVE-2026-58050   # libssh2: heap overflow (bot does not use SSH)
-CVE-2026-24882   # gpgsm (gnupg): tpm2daemon stack overflow (no GPG use)
-CVE-2026-54369   # libacl1: symlink traversal (no acl-tooling use)
-CVE-2026-53615   # util-linux: libblkid integer overflow (boot-time tool)
-
-# --- Core libs, pending Debian trixie security updates ---
-CVE-2026-12064   # libcurl4t64: SSH host verification (schemeless URLs)
-CVE-2026-8286    # libcurl4t64: TLS configuration
-CVE-2026-8458    # libcurl4t64: connection reuse
-CVE-2026-8927    # libcurl4t64: proxy auth state leak
-CVE-2026-69720   # ncurses-bin: buffer overflow
-CVE-2026-57432   # perl-base: integer overflow in pack/unpack
-CVE-2026-42497   # perl-base: Archive-Tar arbitrary file modification
-CVE-2026-48962   # perl-base: IO-Compress arbitrary code execution
-CVE-2026-9538    # perl-base: Archive-Tar DoS
-CVE-2026-13221   # perl-base: regex silent incorrect results
-CVE-2026-42496   # perl-base: Archive-Tar path traversal
-CVE-2026-57433   # perl-base: Storable integer overflow
-CVE-2026-8376    # perl-base: regex heap overflow
-CVE-2026-6653    # libxml2: DoS via crafted XML (mingw variant)
+# Build-layer ghosts (verified 2026-08-14): these packages exist only in the
+# wheel COPY layer of the image history, not in the final runtime filesystem
+# (pip show / import both fail in the built image). The wheels dir is rm'd at
+# runtime; only the layer history carries the vulnerable files. They are
+# fixable, so --ignore-unfixed does NOT exclude them — hence the entries.
+CVE-2025-47273
+# setuptools 70.3.0 wheel in COPY layer; not importable in final image.
+# Builder pins setuptools>=78.1.1; remove this entry after a clean rebuild
+# confirms the wheel layer no longer carries 70.3.0.
+GHSA-6v7p-g79w-8964
+# msgpack 1.1.2 wheel in COPY layer; not importable in final image.
+# Transitive via sounderpy build; remove this entry after a clean rebuild
+# confirms the wheel layer no longer carries 1.1.2.
