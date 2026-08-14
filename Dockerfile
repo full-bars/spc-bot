@@ -1,8 +1,8 @@
 # Build stage
-FROM python:3.13-slim-bookworm@sha256:386df64585134ba00b1d5e307acb1e72f33e9e87dbbb00aad9b8f24dbb51db72 AS builder
+FROM python:3.13-slim-bookworm@sha256:0f16c5d35fe6464ee471792ab3bb9116f911b65b3fbf10120c98d2bdc6332f48 AS builder
 
 # Install build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     libgeos-dev \
@@ -34,11 +34,11 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip wheel --wheel-dir /build/wheels -r requirements.txt
 
 # Runtime stage
-FROM python:3.13-slim-bookworm@sha256:386df64585134ba00b1d5e307acb1e72f33e9e87dbbb00aad9b8f24dbb51db72
+FROM python:3.13-slim-bookworm@sha256:0f16c5d35fe6464ee471792ab3bb9116f911b65b3fbf10120c98d2bdc6332f48
 
 # Install runtime dependencies before copying wheels so this layer is only
 # invalidated by apt changes, not by code or dependency updates.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && apt-get install -y --no-install-recommends \
     libgeos-c1v5 \
     libproj25 \
     proj-data \
