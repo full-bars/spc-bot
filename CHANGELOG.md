@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [5.46.0] - 2026-08-14
+
+### Added
+- **Plaintext watch/MD cancellation messages with relative timestamps**: watch and mesoscale discussion cancellations drop the old strikethrough formatting for plain text plus a relative timestamp (e.g. "cancelled 3m ago"), so it is obvious at a glance when and what was cancelled.
+- **Derecho damage surveys flagged in PNS posts**: damage surveys tied to a derecho are called out so responders can spot the pattern faster.
+- **PNS damage survey embeds colored by highest EF rating**: the embed color now reflects the worst damage in the survey.
+
+### Changed
+- **Release binaries scanned before they ship**: every release artifact runs through VirusTotal (70+ engines) and ClamAV (Cisco Talos signatures), with scan results appended to the release notes as proof. Two-tier gate: PASS at 0-2 detections, REVIEW at 3-10, FAIL at 11+.
+- **Docker image CVE count reduced**: base image digest bumped and `apt-get upgrade` added to both Dockerfile stages, clearing 25 CRITICAL/HIGH CVEs (Trivy 74 -> 49).
+
+### Testing
+- **Coverage floor raised 44% -> 52%** across eleven test-only rounds: IEM QC, owner check, state store, events DB; watch fetch and AI summaries; outlook verification, cache utils, fronts discovery; NWWS parsing and mesoscale MD text/fetch; status embeds, cluster logic, sounding param formatting; warnings channel logic, sounding watch captions; warning format helpers, radar/historical utils; VAD missions, high-risk sweep, outlook URL parsing; cache helpers, iembot parsing, failover identity; radar rotation formatting, recorder missions; outlook day-posting flow.
+- One round caught a real bug: an off-by-one character in `iem_autoplot_url` valid-time parsing, now fixed.
+
 ## [5.45.3] - 2026-08-10
 
 ### Changed
