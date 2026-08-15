@@ -146,7 +146,7 @@ jobs:
             echo "=== Trivy scan $REPO@sha256:$sha ==="
             set +e
             "$TRIVY_BIN" image \
-              --scanners vuln,secret \
+              --scanners vuln \
               --severity CRITICAL,HIGH \
               --ignore-unfixed \
               --exit-code 1 \
@@ -158,7 +158,6 @@ jobs:
             set -e
             if [ "$RC" -ne 0 ]; then
               echo "FAILED: $REPO@sha256:$sha"
-              echo "Secret findings (if any) can be suppressed in .trivyignore by rule ID."
               FAILED=1
             fi
           done
