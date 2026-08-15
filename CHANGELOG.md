@@ -4,8 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [5.47.0] - 2026-08-15
+
 ### Added
-- **EF Scale Damage Indicator Lookup**: new `/damageindicators` command exposes the Enhanced Fujita scale's 28 damage indicators and 224 degrees of damage, each with lower-bound / expected / upper-bound 3-second-gust wind estimates (mph + km/h) and the EF rating per bound, color coded with the Wikipedia EF palette. Pick an indicator by number, abbreviation (FR12, MHSW), or name (autocomplete); with a DoD argument the reply attaches a color swatch rendering the LB/EXP/UB strip, matching the article's table cells. Data is vendored in `config/ef_scale.json` (attribution in CREDITS.md) with a typed accessor module (`utils/ef_scale.py`).
+- **EF Scale Damage Indicator Lookup**: new `/damageindicators` command exposes the Enhanced Fujita scale's 28 damage indicators and 224 degrees of damage, each with lower-bound / expected / upper-bound 3-second-gust wind estimates (mph + km/h) and the EF rating per bound, color coded with the Wikipedia EF palette. Pick an indicator by number, abbreviation (FR12, MHSW), or name (autocomplete); with a DoD argument the reply attaches a color swatch rendering the LB/EXP/UB strip, matching the article's table cells. Data is vendored in `config/ef_scale.json` (attribution in CREDITS.md) with a typed accessor module (`utils/ef_scale.py`). matplotlib rendering runs off the event loop (object-oriented Agg API + `asyncio.to_thread` + deferred interaction), so the command does not block other cogs.
+
+### Changed
+- **Base image moved to Debian 13 (trixie)**: runtime libraries renamed per trixie (`libgeos3.13.1`, `libgdal36`, `libhdf5-310`, `libnetcdf22`); `apt-get upgrade` retained in both stages; multi-arch index digest pinned so amd64 and arm64 both build. Trivy CRITICAL/HIGH count drops from 49 to 32.
+- **Trivy release gate added**: the publish workflow scans each per-arch image by digest before tagging, failing on new fixable CRITICAL/HIGH only. Trivy installs from a pinned release with sha256 checksum verification.
+- **`.trivyignore` documents two accepted-risk findings**: setuptools/msgpack build-layer ghosts (verified not importable at runtime); no-fix CVEs excluded via `--ignore-unfixed` so a future Debian fix is never silently suppressed.
 
 ## [5.46.0] - 2026-08-14
 
