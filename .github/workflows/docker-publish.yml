@@ -129,7 +129,7 @@ jobs:
           TRIVY_VERSION=v0.73.0
           curl -sfL "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/trivy_${TRIVY_VERSION#v}_Linux-64bit.tar.gz" -o /tmp/trivy.tar.gz
           curl -sfL "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/trivy_${TRIVY_VERSION#v}_checksums.txt" -o /tmp/trivy-checksums.txt
-          EXPECTED=$(grep "trivy_${TRIVY_VERSION#v}_Linux-64bit.tar.gz" /tmp/trivy-checksums.txt | awk '{print $1}')
+          EXPECTED=$(grep "  trivy_${TRIVY_VERSION#v}_Linux-64bit.tar.gz$" /tmp/trivy-checksums.txt | awk '{print $1}')
           ACTUAL=$(sha256sum /tmp/trivy.tar.gz | awk '{print $1}')
           if [ "$EXPECTED" != "$ACTUAL" ]; then
             echo "trivy checksum mismatch: expected $EXPECTED got $ACTUAL"
@@ -158,6 +158,7 @@ jobs:
             set -e
             if [ "$RC" -ne 0 ]; then
               echo "FAILED: $REPO@sha256:$sha"
+              echo "Secret findings (if any) can be suppressed in .trivyignore by rule ID."
               FAILED=1
             fi
           done
