@@ -1,0 +1,32 @@
+# Trivy ignore file — spc-bot image.
+#
+# Policy (enforced by the docker-publish Trivy gate): the release is blocked
+# when the image contains a NEW FIXABLE CRITICAL/HIGH vulnerability OR a
+# hard-coded secret. The gate runs:
+#   trivy image --scanners vuln,secret --severity CRITICAL,HIGH
+#               --ignore-unfixed --exit-code 1
+#
+# --ignore-unfixed already excludes every CVE with NO published fix, so
+# no-fix CVEs (media codecs, transitive geo-stack deps, pending-Debian core
+# libs) never reach the gate and are NOT listed here. Do NOT add no-fix CVEs
+# to this file: the moment Debian publishes a fix, --ignore-unfixed stops
+# suppressing them and this file must not silently swallow them instead.
+#
+# This file lists ONLY fixable CVEs and secret rule IDs that are accepted
+# risk with evidence. Secret findings are suppressed by their Trivy rule ID
+# (e.g. aws-access-key-id, private-key) on their own line.
+
+# Build-layer ghosts (verified 2026-08-14): these packages exist only in the
+# wheel COPY layer of the image history, not in the final runtime filesystem
+# (pip show / import both fail in the built image). The wheels dir is rm'd at
+# runtime; only the layer history carries the vulnerable files. They are
+# fixable, so --ignore-unfixed does NOT exclude them — hence the entries.
+CVE-2025-47273
+# setuptools 70.3.0 wheel in COPY layer; not importable in final image.
+# Builder pins setuptools>=78.1.1; remove this entry after a clean rebuild
+# confirms the wheel layer no longer carries 70.3.0 (check: trivy image
+# without --ignorefile shows no setuptools finding). Re-check by 2026-09-01.
+GHSA-6v7p-g79w-8964
+# msgpack 1.1.2 wheel in COPY layer; not importable in final image.
+# Transitive via sounderpy build; remove this entry after a clean rebuild
+# confirms the wheel layer no longer carries 1.1.2. Re-check by 2026-09-01.

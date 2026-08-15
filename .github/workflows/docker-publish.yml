@@ -110,6 +110,64 @@ jobs:
             type=ref,event=tag
             type=raw,value=latest
 
+      - name: Checkout for Trivy ignorefile
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Trivy scan per-arch digests (fail on new fixable CRITICAL/HIGH)
+        # True pre-publish gate: scans each per-arch image by digest BEFORE
+        # imagetools create tags them. Covers amd64 AND arm64 (a scan of the
+        # final multi-arch ref without --platform would only check the runner
+        # host arch). --ignore-unfixed filters to vulnerabilities with a
+        # published fix; accepted no-fix risk is documented in .trivyignore.
+        env:
+          REPO: ghcr.io/${{ github.repository }}
+        run: |
+          # Install trivy from the pinned release with checksum verification
+          # (avoids curl-pipe-shell from the mutable main branch).
+          TRIVY_VERSION=v0.73.0
+          curl -sfL "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/trivy_${TRIVY_VERSION#v}_Linux-64bit.tar.gz" -o /tmp/trivy.tar.gz
+          curl -sfL "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/trivy_${TRIVY_VERSION#v}_checksums.txt" -o /tmp/trivy-checksums.txt
+          EXPECTED=$(grep "  trivy_${TRIVY_VERSION#v}_Linux-64bit.tar.gz$" /tmp/trivy-checksums.txt | awk '{print $1}')
+          ACTUAL=$(sha256sum /tmp/trivy.tar.gz | awk '{print $1}')
+          if [ "$EXPECTED" != "$ACTUAL" ]; then
+            echo "trivy checksum mismatch: expected $EXPECTED got $ACTUAL"
+            exit 1
+          fi
+          # Extract to $RUNNER_TEMP: /usr/local/bin is not guaranteed writable
+          # by the workflow user, and a failed extract would block the release.
+          mkdir -p "$RUNNER_TEMP/trivy"
+          tar -xzf /tmp/trivy.tar.gz -C "$RUNNER_TEMP/trivy" trivy
+          TRIVY_BIN="$RUNNER_TEMP/trivy/trivy"
+          FAILED=0
+          for digest in /tmp/digests/*; do
+            sha="$(basename "$digest")"
+            echo "=== Trivy scan $REPO@sha256:$sha ==="
+            set +e
+            "$TRIVY_BIN" image \
+              --scanners vuln,secret \
+              --severity CRITICAL,HIGH \
+              --ignore-unfixed \
+              --exit-code 1 \
+              --no-progress \
+              --timeout 10m \
+              --ignorefile .trivyignore \
+              "$REPO@sha256:$sha"
+            RC=$?
+            set -e
+            if [ "$RC" -ne 0 ]; then
+              echo "FAILED: $REPO@sha256:$sha"
+              echo "Secret findings (if any) can be suppressed in .trivyignore by rule ID."
+              FAILED=1
+            fi
+          done
+          if [ "$FAILED" -ne 0 ]; then
+            echo "Trivy gate failed: new fixable CRITICAL/HIGH found"
+            exit 1
+          fi
+          echo "Trivy gate passed: no new fixable CRITICAL/HIGH vulnerabilities"
+
       - name: Create manifest list and push
         working-directory: /tmp/digests
         run: |
@@ -119,9 +177,6 @@ jobs:
       - name: Inspect image
         run: |
           docker buildx imagetools inspect ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.version }}
-
-      - name: Checkout for Export
-        uses: actions/checkout@v7
 
       - name: Export Tarballs
         run: |
@@ -137,15 +192,14 @@ jobs:
           # Update signatures. On GitHub-hosted runners a stale clamav-daemon
           # or freshclam may hold the log lock ("Failed to lock the log file
           # ... Resource temporarily unavailable") and leave /var/lib/clamav
-          # empty. Stop the daemon, clear the lock, then run freshclam with
-          # --no-daemon and FAIL if the database still does not load: the
-          # EICAR self-test needs real signatures to mean anything.
+          # empty. Stop the daemon, clear the lock, then run freshclam once:
+          # the EICAR self-test needs real signatures to mean anything.
           sudo systemctl stop clamav-daemon 2>/dev/null || true
           sudo systemctl stop clamav-freshclam 2>/dev/null || true
           sudo pkill -f freshclam 2>/dev/null || true
           sudo rm -f /var/log/clamav/freshclam.log /run/clamav/freshclam.pid 2>/dev/null || true
-          # Run freshclam once (default non-daemon behavior; --no-daemon is
-          # not supported on Ubuntu 24.04's freshclam 1.5.3).
+          # Running freshclam directly is the one-shot non-daemon behavior;
+          # --no-daemon is not supported on Ubuntu 24.04's freshclam 1.5.3.
           sudo freshclam --quiet
           if [ ! -s /var/lib/clamav/main.cvd ]; then
             echo "ClamAV signature database is empty after freshclam"
