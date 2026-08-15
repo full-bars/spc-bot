@@ -94,13 +94,8 @@ def build_index_embed() -> discord.Embed:
     return embed
 
 
-def build_full_embed(di: DamageIndicator) -> tuple[discord.Embed, io.BytesIO]:
-    """Full breakdown: one field per DoD, plus a color-coded table image.
-
-    The embed text is the copyable reference; the attached table renders the
-    same data with Wikipedia's per-bound EF colors so the color escalation
-    across DoDs is visible at a glance (Discord embeds only carry one color).
-    """
+def _build_full_embed_shell(di: DamageIndicator) -> discord.Embed:
+    """Build the full-breakdown embed (no render): one field per DoD."""
     embed = discord.Embed(
         title=f"🌪️ EF Scale — DI {di['di']}: {di['name']}",
         color=ef_color(_max_exp_ef(di)),
@@ -115,7 +110,20 @@ def build_full_embed(di: DamageIndicator) -> tuple[discord.Embed, io.BytesIO]:
         )
         embed.add_field(name=f"DoD {dod['dod']}/{total}", value=value, inline=False)
     embed.set_image(url="attachment://ef_di_table.png")
-    return embed, render_breakdown_table(di)
+    return embed
+
+
+def build_full_embed(di: DamageIndicator) -> tuple[discord.Embed, io.BytesIO]:
+    """Full breakdown: one field per DoD, plus a color-coded table image.
+
+    The embed text is the copyable reference; the attached table renders the
+    same data with Wikipedia's per-bound EF colors so the color escalation
+    across DoDs is visible at a glance (Discord embeds only carry one color).
+
+    Synchronous convenience for tests; the command path uses
+    build_full_embed_async so the matplotlib render runs off the event loop.
+    """
+    return _build_full_embed_shell(di), render_breakdown_table(di)
 
 
 async def build_full_embed_async(di: DamageIndicator) -> tuple[discord.Embed, io.BytesIO]:
@@ -125,20 +133,7 @@ async def build_full_embed_async(di: DamageIndicator) -> tuple[discord.Embed, io
     runs in a worker thread so the asyncio loop stays responsive and the
     interaction acknowledgement stays inside Discord's 3-second window.
     """
-    embed = discord.Embed(
-        title=f"🌪️ EF Scale — DI {di['di']}: {di['name']}",
-        color=ef_color(_max_exp_ef(di)),
-    )
-    embed.set_footer(text=_SOURCE_FOOTER)
-    total = len(di["dods"])
-    for dod in di["dods"]:
-        value = (
-            f"{dod['desc']}\n"
-            f"LB {_bound_text(dod['lb'])} · EXP {_bound_text(dod['exp'])} · "
-            f"UB {_bound_text(dod['ub'])}"
-        )
-        embed.add_field(name=f"DoD {dod['dod']}/{total}", value=value, inline=False)
-    embed.set_image(url="attachment://ef_di_table.png")
+    embed = _build_full_embed_shell(di)
     buf = await asyncio.to_thread(render_breakdown_table, di)
     return embed, buf
 
@@ -270,8 +265,8 @@ def render_breakdown_table(di: DamageIndicator) -> io.BytesIO:
     return buf
 
 
-def build_dod_embed(di: DamageIndicator, dod: DegreeOfDamage) -> tuple[discord.Embed, io.BytesIO]:
-    """Single-DoD card: description + LB/EXP/UB estimates + color swatch."""
+def _build_dod_embed_shell(di: DamageIndicator, dod: DegreeOfDamage) -> discord.Embed:
+    """Build the single-DoD embed (no render): description + LB/EXP/UB estimates."""
     embed = discord.Embed(
         title=f"🌪️ EF Scale — DI {di['di']}: {di['name']}",
         color=ef_color(dod["exp"]["ef"] or "EFU"),
@@ -289,7 +284,16 @@ def build_dod_embed(di: DamageIndicator, dod: DegreeOfDamage) -> tuple[discord.E
         embed.add_field(name=label, value=_bound_text(est), inline=True)
     embed.set_footer(text=_SOURCE_FOOTER)
     embed.set_image(url="attachment://ef_swatch.png")
-    return embed, render_swatch(dod)
+    return embed
+
+
+def build_dod_embed(di: DamageIndicator, dod: DegreeOfDamage) -> tuple[discord.Embed, io.BytesIO]:
+    """Single-DoD card: description + LB/EXP/UB estimates + color swatch.
+
+    Synchronous convenience for tests; the command path uses
+    build_dod_embed_async so the matplotlib render runs off the event loop.
+    """
+    return _build_dod_embed_shell(di, dod), render_swatch(dod)
 
 
 async def build_dod_embed_async(
@@ -301,23 +305,7 @@ async def build_dod_embed_async(
     cost; running it in a worker thread keeps the asyncio loop responsive
     and stays inside Discord's interaction acknowledgement window.
     """
-    embed = discord.Embed(
-        title=f"🌪️ EF Scale — DI {di['di']}: {di['name']}",
-        color=ef_color(dod["exp"]["ef"] or "EFU"),
-    )
-    embed.add_field(
-        name=f"DoD {dod['dod']}/{len(di['dods'])}",
-        value=dod["desc"],
-        inline=False,
-    )
-    for label, est in (
-        ("Lower bound (LB)", dod["lb"]),
-        ("Expected (EXP)", dod["exp"]),
-        ("Upper bound (UB)", dod["ub"]),
-    ):
-        embed.add_field(name=label, value=_bound_text(est), inline=True)
-    embed.set_footer(text=_SOURCE_FOOTER)
-    embed.set_image(url="attachment://ef_swatch.png")
+    embed = _build_dod_embed_shell(di, dod)
     buf = await asyncio.to_thread(render_swatch, dod)
     return embed, buf
 
@@ -403,8 +391,9 @@ class EfScaleCog(commands.Cog):
 
         di = _resolve_indicator(indicator)
         if di is None:
+            safe_indicator = indicator.replace("`", "\\`").replace("\n", " ")
             await interaction.response.send_message(
-                f"Couldn't find damage indicator `{indicator}` — try picking "
+                f"Couldn't find damage indicator `{safe_indicator}` — try picking "
                 "one from the suggestions.",
                 ephemeral=True,
             )
