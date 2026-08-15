@@ -200,9 +200,10 @@ async def test_command_no_indicator_shows_index():
 async def test_command_full_breakdown():
     cog = EfScaleCog.__new__(EfScaleCog)
     interaction = MagicMock()
-    interaction.response.send_message = AsyncMock()
+    interaction.response.defer = AsyncMock()
+    interaction.followup.send = AsyncMock()
     await cog.damageindicators.callback(cog, interaction, "2")
-    kwargs = interaction.response.send_message.await_args.kwargs
+    kwargs = interaction.followup.send.await_args.kwargs
     assert kwargs["file"] is not None
     assert kwargs["file"].filename == "ef_di_table.png"
     assert kwargs["embed"].title == ("🌪️ EF Scale — DI 2: One- or two-family residences (FR12)")
@@ -213,9 +214,10 @@ async def test_command_full_breakdown():
 async def test_command_single_dod_with_swatch():
     cog = EfScaleCog.__new__(EfScaleCog)
     interaction = MagicMock()
-    interaction.response.send_message = AsyncMock()
+    interaction.response.defer = AsyncMock()
+    interaction.followup.send = AsyncMock()
     await cog.damageindicators.callback(cog, interaction, "2", 10)
-    kwargs = interaction.response.send_message.await_args.kwargs
+    kwargs = interaction.followup.send.await_args.kwargs
     assert kwargs["file"] is not None
     assert kwargs["file"].filename == "ef_swatch.png"
     assert kwargs["embed"].color.value == 0xFF738A

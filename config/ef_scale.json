@@ -1301,7 +1301,7 @@
    },
    {
     "dod": 8,
-    "desc": "Collapse of exterior walls; closely spaced intereior walls remain standing",
+    "desc": "Collapse of exterior walls; closely spaced interior walls remain standing",
     "lb": {
      "mph": 123,
      "ef": "EF2"
@@ -1687,7 +1687,7 @@
    },
    {
     "dod": 4,
-    "desc": "Long roof spans collapsed downard",
+    "desc": "Long roof spans collapsed downward",
     "lb": {
      "mph": 103,
      "ef": "EF1"
@@ -3585,7 +3585,7 @@
   "dods": [
    {
     "dod": 1,
-    "desc": "Small limbs broken (up to {{Convert|1|in|cm|abbr=on}} diameter)",
+    "desc": "Small limbs broken (up to 1 in (2.5 cm) diameter)",
     "lb": {
      "mph": 48,
      "ef": "EF0"
@@ -3601,7 +3601,7 @@
    },
    {
     "dod": 2,
-    "desc": "Large branches broken ({{Convert|1|in|cm|abbr=on}}–{{Convert|3|in|cm|abbr=on}} diameter)",
+    "desc": "Large branches broken (1 in (2.5 cm)–3 in (7.6 cm) diameter)",
     "lb": {
      "mph": 61,
      "ef": "EF0"
@@ -3671,7 +3671,7 @@
   "dods": [
    {
     "dod": 1,
-    "desc": "Small limbs broken (up to {{Convert|1|in|cm|abbr=on}} diameter)",
+    "desc": "Small limbs broken (up to 1 in (2.5 cm) diameter)",
     "lb": {
      "mph": 48,
      "ef": "EF0"
@@ -3687,7 +3687,7 @@
    },
    {
     "dod": 2,
-    "desc": "Large branches broken ({{Convert|1|in|cm|abbr=on}}–{{Convert|3|in|cm|abbr=on}} diameter)",
+    "desc": "Large branches broken (1 in (2.5 cm)–3 in (7.6 cm) diameter)",
     "lb": {
      "mph": 62,
      "ef": "EF0"

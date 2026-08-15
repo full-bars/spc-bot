@@ -15,6 +15,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 import textwrap
@@ -117,6 +118,31 @@ def build_full_embed(di: DamageIndicator) -> tuple[discord.Embed, io.BytesIO]:
     return embed, render_breakdown_table(di)
 
 
+async def build_full_embed_async(di: DamageIndicator) -> tuple[discord.Embed, io.BytesIO]:
+    """Full breakdown with the table image rendered off the event loop.
+
+    Same content as build_full_embed, but the CPU-bound matplotlib render
+    runs in a worker thread so the asyncio loop stays responsive and the
+    interaction acknowledgement stays inside Discord's 3-second window.
+    """
+    embed = discord.Embed(
+        title=f"🌪️ EF Scale — DI {di['di']}: {di['name']}",
+        color=ef_color(_max_exp_ef(di)),
+    )
+    embed.set_footer(text=_SOURCE_FOOTER)
+    total = len(di["dods"])
+    for dod in di["dods"]:
+        value = (
+            f"{dod['desc']}\n"
+            f"LB {_bound_text(dod['lb'])} · EXP {_bound_text(dod['exp'])} · "
+            f"UB {_bound_text(dod['ub'])}"
+        )
+        embed.add_field(name=f"DoD {dod['dod']}/{total}", value=value, inline=False)
+    embed.set_image(url="attachment://ef_di_table.png")
+    buf = await asyncio.to_thread(render_breakdown_table, di)
+    return embed, buf
+
+
 def render_breakdown_table(di: DamageIndicator) -> io.BytesIO:
     """Render a DI's DoDs as a Wikipedia-style color-coded table (PNG).
 
@@ -125,25 +151,24 @@ def render_breakdown_table(di: DamageIndicator) -> io.BytesIO:
     cyan -> yellow -> orange -> salmon -> purple escalation matches the
     article's table exactly.
     """
-    import matplotlib
-
-    matplotlib.use("Agg")
-
-    import matplotlib.pyplot as plt
-    from matplotlib.patches import Rectangle
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+    from matplotlib.patches import Rectangle as MplRectangle
 
     dods = di["dods"]
     n = len(dods)
 
     row_h = 0.85
     top = 0.9 + (n + 1) * row_h + 0.2  # title band + header + n rows + bottom pad
-    fig, ax = plt.subplots(figsize=(9.6, 0.3 + top), dpi=110)
+    fig = Figure(figsize=(9.6, 0.3 + top), dpi=110)
+    FigureCanvasAgg(fig)
+    ax = fig.add_subplot(111)
     ax.set_xlim(0, 1)
     ax.set_ylim(0, top)
     ax.axis("off")
 
     # title band
-    ax.add_patch(Rectangle((0, top - 0.9), 1, 0.9, facecolor="#1c1e26"))
+    ax.add_patch(MplRectangle((0, top - 0.9), 1, 0.9, facecolor="#1c1e26"))
     ax.text(
         0.01,
         top - 0.45,
@@ -164,7 +189,9 @@ def render_breakdown_table(di: DamageIndicator) -> io.BytesIO:
         ("UB", 0.137, 0.864),
     ):
         ax.add_patch(
-            Rectangle((x0, hdr_y), w, row_h, facecolor="#e4e5ea", edgecolor="black", linewidth=0.6)
+            MplRectangle(
+                (x0, hdr_y), w, row_h, facecolor="#e4e5ea", edgecolor="black", linewidth=0.6
+            )
         )
         ax.text(
             x0 + w / 2,
@@ -180,7 +207,9 @@ def render_breakdown_table(di: DamageIndicator) -> io.BytesIO:
         y = hdr_y - (i + 1) * row_h
         # DoD number
         ax.add_patch(
-            Rectangle((0.0, y), 0.055, row_h, facecolor="#ffffff", edgecolor="black", linewidth=0.6)
+            MplRectangle(
+                (0.0, y), 0.055, row_h, facecolor="#ffffff", edgecolor="black", linewidth=0.6
+            )
         )
         ax.text(
             0.0275,
@@ -193,7 +222,7 @@ def render_breakdown_table(di: DamageIndicator) -> io.BytesIO:
         )
         # damage description
         ax.add_patch(
-            Rectangle(
+            MplRectangle(
                 (0.055, y), 0.535, row_h, facecolor="#ffffff", edgecolor="black", linewidth=0.6
             )
         )
@@ -206,7 +235,7 @@ def render_breakdown_table(di: DamageIndicator) -> io.BytesIO:
             x0 = 0.59 + j * 0.137
             ef = est["ef"] or "EFU"
             ax.add_patch(
-                Rectangle(
+                MplRectangle(
                     (x0, y),
                     0.137,
                     row_h,
@@ -237,7 +266,6 @@ def render_breakdown_table(di: DamageIndicator) -> io.BytesIO:
 
     buf = io.BytesIO()
     fig.savefig(buf, format="png", bbox_inches="tight", facecolor="white")
-    plt.close(fig)
     buf.seek(0)
     return buf
 
@@ -264,6 +292,36 @@ def build_dod_embed(di: DamageIndicator, dod: DegreeOfDamage) -> tuple[discord.E
     return embed, render_swatch(dod)
 
 
+async def build_dod_embed_async(
+    di: DamageIndicator, dod: DegreeOfDamage
+) -> tuple[discord.Embed, io.BytesIO]:
+    """Build the single-DoD card with the swatch rendered off the event loop.
+
+    matplotlib rendering is CPU-bound and the first call pays the import
+    cost; running it in a worker thread keeps the asyncio loop responsive
+    and stays inside Discord's interaction acknowledgement window.
+    """
+    embed = discord.Embed(
+        title=f"🌪️ EF Scale — DI {di['di']}: {di['name']}",
+        color=ef_color(dod["exp"]["ef"] or "EFU"),
+    )
+    embed.add_field(
+        name=f"DoD {dod['dod']}/{len(di['dods'])}",
+        value=dod["desc"],
+        inline=False,
+    )
+    for label, est in (
+        ("Lower bound (LB)", dod["lb"]),
+        ("Expected (EXP)", dod["exp"]),
+        ("Upper bound (UB)", dod["ub"]),
+    ):
+        embed.add_field(name=label, value=_bound_text(est), inline=True)
+    embed.set_footer(text=_SOURCE_FOOTER)
+    embed.set_image(url="attachment://ef_swatch.png")
+    buf = await asyncio.to_thread(render_swatch, dod)
+    return embed, buf
+
+
 def render_swatch(dod: DegreeOfDamage) -> io.BytesIO:
     """Render the LB/EXP/UB strip as three Wikipedia-colored cells (PNG).
 
@@ -271,14 +329,13 @@ def render_swatch(dod: DegreeOfDamage) -> io.BytesIO:
     rating, colored with the Wikipedia EF palette so the Discord embed
     reproduces the article's table look (Discord text cannot be colored).
     """
-    import matplotlib
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+    from matplotlib.patches import Rectangle as MplRectangle
 
-    matplotlib.use("Agg")
-
-    import matplotlib.pyplot as plt
-    from matplotlib.patches import Rectangle
-
-    fig, ax = plt.subplots(figsize=(7.2, 1.7), dpi=110)
+    fig = Figure(figsize=(7.2, 1.7), dpi=110)
+    FigureCanvasAgg(fig)
+    ax = fig.add_subplot(111)
     ax.set_xlim(0, 3)
     ax.set_ylim(0, 1)
     ax.axis("off")
@@ -287,7 +344,7 @@ def render_swatch(dod: DegreeOfDamage) -> io.BytesIO:
         ef = est["ef"] or "EFU"
         color = "#" + EF_COLORS.get(ef, "CCCCCC")
         ax.add_patch(
-            Rectangle(
+            MplRectangle(
                 (i, 0.08),
                 1,
                 0.72,
@@ -307,7 +364,6 @@ def render_swatch(dod: DegreeOfDamage) -> io.BytesIO:
 
     buf = io.BytesIO()
     fig.savefig(buf, format="png", bbox_inches="tight", facecolor="white")
-    plt.close(fig)
     buf.seek(0)
     return buf
 
@@ -362,14 +418,19 @@ class EfScaleCog(commands.Cog):
                     ephemeral=True,
                 )
                 return
-            embed, buf = build_dod_embed(di, dod_obj)
+            # Defer first: the matplotlib render can exceed Discord's 3-second
+            # acknowledgement window (first call pays the import + font-cache
+            # cost). Render off the event loop, then reply via followup.
+            await interaction.response.defer()
+            embed, buf = await build_dod_embed_async(di, dod_obj)
             file = discord.File(buf, filename="ef_swatch.png")
-            await interaction.response.send_message(embed=embed, file=file)
+            await interaction.followup.send(embed=embed, file=file)
             return
 
-        embed, buf = build_full_embed(di)
+        await interaction.response.defer()
+        embed, buf = await build_full_embed_async(di)
         file = discord.File(buf, filename="ef_di_table.png")
-        await interaction.response.send_message(embed=embed, file=file)
+        await interaction.followup.send(embed=embed, file=file)
 
     @damageindicators.autocomplete("indicator")
     async def _indicator_autocomplete(
