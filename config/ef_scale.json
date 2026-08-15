@@ -1,0 +1,3754 @@
+[
+ {
+  "di": 1,
+  "name": "Small barns or farm outbuildings (SBO)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 53,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 62,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 78,
+     "ef": "EF0"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Loss of wood or metal roof panels",
+    "lb": {
+     "mph": 61,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 74,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 91,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Collapse of doors",
+    "lb": {
+     "mph": 68,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 83,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 102,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Major loss of roof panels",
+    "lb": {
+     "mph": 78,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 90,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 110,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Uplift or collapse of roof structure",
+    "lb": {
+     "mph": 77,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 93,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 114,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Collapse of walls",
+    "lb": {
+     "mph": 81,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 97,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 119,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 7,
+    "desc": "Overturning or sliding of entire structure",
+    "lb": {
+     "mph": 83,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 99,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 118,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 8,
+    "desc": "Total destruction of building",
+    "lb": {
+     "mph": 94,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 112,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 131,
+     "ef": "EF2"
+    }
+   }
+  ]
+ },
+ {
+  "di": 2,
+  "name": "One- or two-family residences (FR12)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 53,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 65,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 80,
+     "ef": "EF0"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Loss of roof covering material (<20%), gutters and/or awning; loss of vinyl or metal sheeting",
+    "lb": {
+     "mph": 63,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 79,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 97,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Broken glass in doors and windows",
+    "lb": {
+     "mph": 79,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 96,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 114,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Uplift of roof deck and loss of significant roof covering material (>20%); collapse of chimney; garage doors collapse inward; failure of porch or carport",
+    "lb": {
+     "mph": 81,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 97,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 116,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Entire house shifts off foundation",
+    "lb": {
+     "mph": 103,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 121,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 141,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Large sections of roof structure removed; most walls remain standing",
+    "lb": {
+     "mph": 104,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 122,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 142,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 7,
+    "desc": "Exterior walls collapsed",
+    "lb": {
+     "mph": 113,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 132,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 153,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 8,
+    "desc": "Most walls collapsed, except small interior rooms",
+    "lb": {
+     "mph": 127,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 152,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 178,
+     "ef": "EF4"
+    }
+   },
+   {
+    "dod": 9,
+    "desc": "All walls collapsed",
+    "lb": {
+     "mph": 142,
+     "ef": "EF3"
+    },
+    "exp": {
+     "mph": 170,
+     "ef": "EF4"
+    },
+    "ub": {
+     "mph": 198,
+     "ef": "EF4"
+    }
+   },
+   {
+    "dod": 10,
+    "desc": "Destruction of engineered and/or well constructed residence; slab swept clean",
+    "lb": {
+     "mph": 165,
+     "ef": "EF3"
+    },
+    "exp": {
+     "mph": 200,
+     "ef": "EF4"
+    },
+    "ub": {
+     "mph": 220,
+     "ef": "EF5"
+    }
+   }
+  ]
+ },
+ {
+  "di": 3,
+  "name": "Manufactured home – single wide (MHSW)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 51,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 61,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 76,
+     "ef": "EF0"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Loss of shingles or partial uplift of one-piece metal roof covering",
+    "lb": {
+     "mph": 61,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 74,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 92,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Unit slides off block piers but remains upright",
+    "lb": {
+     "mph": 72,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 87,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 103,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Complete uplift of roof; most walls remain standing",
+    "lb": {
+     "mph": 73,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 89,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 112,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Unit rolls on its side or upside down; remains essentially intact",
+    "lb": {
+     "mph": 84,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 98,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 114,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Destruction of roof and walls leaving floor and undercarriage in place",
+    "lb": {
+     "mph": 87,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 105,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 123,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 7,
+    "desc": "Unit rolls or vaults; roof and walls separate from floor and undercarriage",
+    "lb": {
+     "mph": 96,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 109,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 128,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 8,
+    "desc": "Undercarriage separates from unit; rolls, tumbles and is badly bent",
+    "lb": {
+     "mph": 101,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 118,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 136,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 9,
+    "desc": "Complete destruction of unit; debris blown away",
+    "lb": {
+     "mph": 110,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 127,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 148,
+     "ef": "EF3"
+    }
+   }
+  ]
+ },
+ {
+  "di": 4,
+  "name": "Manufactured home – double wide (MHDW)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 51,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 61,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 76,
+     "ef": "EF0"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Loss of shingles or other roof covering (<20%)",
+    "lb": {
+     "mph": 62,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 76,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 88,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Damaged porches or carports",
+    "lb": {
+     "mph": 67,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 78,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 96,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Broken windows",
+    "lb": {
+     "mph": 68,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 83,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 95,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Uplift of roof deck and loss of significant roof covering material (>20%)",
+    "lb": {
+     "mph": 75,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 88,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 108,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Complete uplift of roof; most walls remain standing",
+    "lb": {
+     "mph": 77,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 93,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 110,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 7,
+    "desc": "Unit slides off CMU block piers",
+    "lb": {
+     "mph": 78,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 94,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 109,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 8,
+    "desc": "Removal of entire roof structure leaving most walls standing",
+    "lb": {
+     "mph": 80,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 97,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 117,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 9,
+    "desc": "Complete destruction of roof and walls leaving undercarriage in place",
+    "lb": {
+     "mph": 93,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 113,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 131,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 10,
+    "desc": "Unit rolls, displaces or vaults",
+    "lb": {
+     "mph": 82,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 114,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 130,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 11,
+    "desc": "Undercarriage separates from floor, rolls and tumbles, badly bent",
+    "lb": {
+     "mph": 109,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 127,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 145,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 12,
+    "desc": "Complete destruction of unit; debris blown away",
+    "lb": {
+     "mph": 119,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 134,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 154,
+     "ef": "EF3"
+    }
+   }
+  ]
+ },
+ {
+  "di": 5,
+  "name": "Apartments, condos, townhouses [three stories or less] (ACT)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 63,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 76,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 95,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Loss of roof covering (<20%)",
+    "lb": {
+     "mph": 82,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 99,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 121,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Uplift of roof decking; significant loss of roof covering (>20%)",
+    "lb": {
+     "mph": 107,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 124,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 146,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Uplift or collapse of roof structure leaving most walls standing",
+    "lb": {
+     "mph": 120,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 138,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 158,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Most top story walls collapsed",
+    "lb": {
+     "mph": 138,
+     "ef": "EF3"
+    },
+    "exp": {
+     "mph": 158,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 184,
+     "ef": "EF4"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Almost total destruction of top two stories",
+    "lb": {
+     "mph": 155,
+     "ef": "EF3"
+    },
+    "exp": {
+     "mph": 180,
+     "ef": "EF4"
+    },
+    "ub": {
+     "mph": 205,
+     "ef": "EF5"
+    }
+   },
+   {
+    "dod": 7,
+    "desc": "Total destruction of entire building",
+    "lb": {
+     "mph": null,
+     "ef": null
+    },
+    "exp": {
+     "mph": null,
+     "ef": null
+    },
+    "ub": {
+     "mph": null,
+     "ef": null
+    }
+   }
+  ]
+ },
+ {
+  "di": 6,
+  "name": "Motel (M)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 54,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 66,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 83,
+     "ef": "EF0"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Loss of roof covering (<20%)",
+    "lb": {
+     "mph": 67,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 80,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 99,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Broken windows or patio doors",
+    "lb": {
+     "mph": 74,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 89,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 107,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Uplift of roof decking; significant loss of roof covering (>20%); loss of EIFS wall cladding",
+    "lb": {
+     "mph": 80,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 95,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 116,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Uplift or collapse of canopy over driveway",
+    "lb": {
+     "mph": 81,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 99,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 118,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Uplift or collapse of roof structure leaving most walls standing",
+    "lb": {
+     "mph": 103,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 123,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 143,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 7,
+    "desc": "Collapse of top story exterior walls",
+    "lb": {
+     "mph": 121,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 138,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 156,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 8,
+    "desc": "Collapse of most top story walls",
+    "lb": {
+     "mph": 127,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 143,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 162,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 9,
+    "desc": "Collapse of top two floors of three or more stories",
+    "lb": {
+     "mph": 144,
+     "ef": "EF3"
+    },
+    "exp": {
+     "mph": 170,
+     "ef": "EF4"
+    },
+    "ub": {
+     "mph": 185,
+     "ef": "EF4"
+    }
+   },
+   {
+    "dod": 10,
+    "desc": "Total destruction of entire building",
+    "lb": {
+     "mph": 163,
+     "ef": "EF3"
+    },
+    "exp": {
+     "mph": 190,
+     "ef": "EF4"
+    },
+    "ub": {
+     "mph": 217,
+     "ef": "EF5"
+    }
+   }
+  ]
+ },
+ {
+  "di": 7,
+  "name": "Masonry apartment or motel building (MAM)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 54,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 65,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 81,
+     "ef": "EF0"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Loss of roof covering (<20%)",
+    "lb": {
+     "mph": 67,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 80,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 101,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Uplift of lightweight metal roof decking",
+    "lb": {
+     "mph": 81,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 95,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 116,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Uplift of pre-cast or cast-in-place concrete roof decking",
+    "lb": {
+     "mph": 103,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 121,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 143,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Collapse of top story walls",
+    "lb": {
+     "mph": 115,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 133,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 150,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Collapse of top two floors of three or more stories",
+    "lb": {
+     "mph": 132,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 156,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 180,
+     "ef": "EF4"
+    }
+   },
+   {
+    "dod": 7,
+    "desc": "Total destruction of a large section of building",
+    "lb": {
+     "mph": 160,
+     "ef": "EF3"
+    },
+    "exp": {
+     "mph": 180,
+     "ef": "EF4"
+    },
+    "ub": {
+     "mph": 205,
+     "ef": "EF5"
+    }
+   }
+  ]
+ },
+ {
+  "di": 8,
+  "name": "Small retail building [fast-food restaurants] (SRB)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 54,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 65,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 81,
+     "ef": "EF0"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Loss of roof covering (<20%)",
+    "lb": {
+     "mph": 65,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 78,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 98,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Broken glass in windows and doors",
+    "lb": {
+     "mph": 72,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 86,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 103,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Uplift of roof decking; significant loss of roof covering (>20%)",
+    "lb": {
+     "mph": 81,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 98,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 119,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Canopies or covered walkways destroyed",
+    "lb": {
+     "mph": 83,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 98,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 114,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Uplift or collapse of entire roof structure",
+    "lb": {
+     "mph": 101,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 119,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 140,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 7,
+    "desc": "Collapse of exterior walls; closely spaced interior walls remain standing",
+    "lb": {
+     "mph": 120,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 138,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 159,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 8,
+    "desc": "Total destruction of entire building",
+    "lb": {
+     "mph": 143,
+     "ef": "EF3"
+    },
+    "exp": {
+     "mph": 167,
+     "ef": "EF4"
+    },
+    "ub": {
+     "mph": 193,
+     "ef": "EF4"
+    }
+   }
+  ]
+ },
+ {
+  "di": 9,
+  "name": "Small professional building [doctor's office, branch banks] (SPB)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 54,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 65,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 81,
+     "ef": "EF0"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Loss of roof covering (<20%)",
+    "lb": {
+     "mph": 65,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 78,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 98,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Broken windows, including clear story windows or skylights",
+    "lb": {
+     "mph": 74,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 89,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 107,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Exterior doors fail",
+    "lb": {
+     "mph": 82,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 100,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 118,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Uplift of roof decking; significant loss of roof covering (>20%)",
+    "lb": {
+     "mph": 84,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 100,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 117,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Collapsed façade or parapet walls",
+    "lb": {
+     "mph": 85,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 103,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 123,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 7,
+    "desc": "Uplift or collapse of entire roof structure",
+    "lb": {
+     "mph": 105,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 124,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 145,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 8,
+    "desc": "Collapse of exterior walls; closely spaced interior walls remain standing",
+    "lb": {
+     "mph": 123,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 144,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 165,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 9,
+    "desc": "Total destruction of entire building",
+    "lb": {
+     "mph": 148,
+     "ef": "EF3"
+    },
+    "exp": {
+     "mph": 157,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 200,
+     "ef": "EF4"
+    }
+   }
+  ]
+ },
+ {
+  "di": 10,
+  "name": "Strip mall (SM)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 54,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 65,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 81,
+     "ef": "EF0"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Uplift of roof covering at eaves and roof corners",
+    "lb": {
+     "mph": 66,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 80,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 100,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Broken windows or glass doors",
+    "lb": {
+     "mph": 72,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 88,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 105,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Uplift of roof decking",
+    "lb": {
+     "mph": 84,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 101,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 122,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Collapsed façade or parapet walls",
+    "lb": {
+     "mph": 85,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 103,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 125,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Covered walkways uplifted or collapsed",
+    "lb": {
+     "mph": 86,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 103,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 125,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 7,
+    "desc": "Uplift or collapse of entire roof structure",
+    "lb": {
+     "mph": 103,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 122,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 143,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 8,
+    "desc": "Collapse of exterior walls; closely spaced interior walls remain standing",
+    "lb": {
+     "mph": 117,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 140,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 165,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 9,
+    "desc": "Complete destruction of all or a large section of building",
+    "lb": {
+     "mph": 147,
+     "ef": "EF3"
+    },
+    "exp": {
+     "mph": 171,
+     "ef": "EF4"
+    },
+    "ub": {
+     "mph": 198,
+     "ef": "EF4"
+    }
+   }
+  ]
+ },
+ {
+  "di": 11,
+  "name": "Large shopping mall (LSM)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 59,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 71,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 86,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Loss of roof covering (<20%)",
+    "lb": {
+     "mph": 69,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 85,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 105,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Broken skylights, clearstory windows and atrium walls broken",
+    "lb": {
+     "mph": 75,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 92,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 114,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Uplift of some roof decking; significant loss of roofing material (>20%); loss of rooftop HVAC",
+    "lb": {
+     "mph": 92,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 108,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 128,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Wall cladding stripped starting at corners and progressing to other areas",
+    "lb": {
+     "mph": 94,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 111,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 131,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Roof structure uplifted or collapsed",
+    "lb": {
+     "mph": 108,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 128,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 150,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 7,
+    "desc": "Exterior walls in top story collapsed",
+    "lb": {
+     "mph": 124,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 144,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 166,
+     "ef": "EF4"
+    }
+   },
+   {
+    "dod": 8,
+    "desc": "Interior walls of top story collapse",
+    "lb": {
+     "mph": 139,
+     "ef": "EF3"
+    },
+    "exp": {
+     "mph": 160,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 185,
+     "ef": "EF4"
+    }
+   },
+   {
+    "dod": 9,
+    "desc": "Complete destruction of all or a large section of the building",
+    "lb": {
+     "mph": 176,
+     "ef": "EF4"
+    },
+    "exp": {
+     "mph": 204,
+     "ef": "EF5"
+    },
+    "ub": {
+     "mph": 247,
+     "ef": "EF5"
+    }
+   }
+  ]
+ },
+ {
+  "di": 12,
+  "name": "Large, isolated retail building [Wal-Mart, Home Depot] (LIRB)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 57,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 68,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 83,
+     "ef": "EF0"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Loss of roof covering (<20%)",
+    "lb": {
+     "mph": 68,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 81,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 103,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Uplift of some roof decking; significant loss of roofing material (>20%); loss of rooftop HVAC",
+    "lb": {
+     "mph": 87,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 103,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 123,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Long roof spans collapsed downward",
+    "lb": {
+     "mph": 103,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 122,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 144,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Uplift and removal of roof structure",
+    "lb": {
+     "mph": 114,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 134,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 157,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Inward or outward collapse of exterior walls",
+    "lb": {
+     "mph": 118,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 137,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 158,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 7,
+    "desc": "Complete destruction of all or a large section of the building",
+    "lb": {
+     "mph": 147,
+     "ef": "EF3"
+    },
+    "exp": {
+     "mph": 173,
+     "ef": "EF4"
+    },
+    "ub": {
+     "mph": 201,
+     "ef": "EF5"
+    }
+   }
+  ]
+ },
+ {
+  "di": 13,
+  "name": "Automobile showroom (ASR)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 47,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 65,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 80,
+     "ef": "EF0"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Loss of roof covering (<20%)",
+    "lb": {
+     "mph": 67,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 80,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 101,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Broken glass in windows or doors",
+    "lb": {
+     "mph": 71,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 87,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 106,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Uplift of some roof decking; significant loss of roofing material (>20%); loss of rooftop HVAC",
+    "lb": {
+     "mph": 83,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 101,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 120,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Cladding stripped off walls",
+    "lb": {
+     "mph": 94,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 112,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 132,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Uplift or collapse of roof structure",
+    "lb": {
+     "mph": 98,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 118,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 140,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 7,
+    "desc": "Exterior walls collapsed",
+    "lb": {
+     "mph": 106,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 126,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 148,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 8,
+    "desc": "Complete destruction of all or a large section of the building",
+    "lb": {
+     "mph": 138,
+     "ef": "EF3"
+    },
+    "exp": {
+     "mph": 157,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 181,
+     "ef": "EF4"
+    }
+   }
+  ]
+ },
+ {
+  "di": 14,
+  "name": "Automobile service building (ASB)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 46,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 63,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 79,
+     "ef": "EF0"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Loss of roof covering (<20%)",
+    "lb": {
+     "mph": 65,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 78,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 99,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Failure of large overhead doors",
+    "lb": {
+     "mph": 77,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 91,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 110,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Uplift of some roof decking; significant loss of roofing material (>20%); loss of rooftop HVAC",
+    "lb": {
+     "mph": 80,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 98,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 119,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Collapse of non-bearing masonry or tilt-up walls",
+    "lb": {
+     "mph": 94,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 114,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 134,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Uplift or collapse of roof structure",
+    "lb": {
+     "mph": 102,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 121,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 143,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 7,
+    "desc": "Collapse of load-bearing walls",
+    "lb": {
+     "mph": 106,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 128,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 149,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 8,
+    "desc": "Complete destruction of all or a large section of the building",
+    "lb": {
+     "mph": 138,
+     "ef": "EF3"
+    },
+    "exp": {
+     "mph": 157,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 181,
+     "ef": "EF4"
+    }
+   }
+  ]
+ },
+ {
+  "di": 15,
+  "name": "Elementary school [single-story; interior or exterior hallways] (ES)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 47,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 65,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 80,
+     "ef": "EF0"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Loss of roof covering (<20%)",
+    "lb": {
+     "mph": 66,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 79,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 99,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Broken windows",
+    "lb": {
+     "mph": 71,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 87,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 106,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Exterior door failures",
+    "lb": {
+     "mph": 85,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 99,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 118,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Uplift of some roof decking; significant loss of roofing material (>20%); loss of rooftop HVAC",
+    "lb": {
+     "mph": 82,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 101,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 121,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Damage to or loss of wall cladding",
+    "lb": {
+     "mph": 92,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 108,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 127,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 7,
+    "desc": "Uplift or collapse of roof structure",
+    "lb": {
+     "mph": 108,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 125,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 148,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 8,
+    "desc": "Collapse of non-bearing walls",
+    "lb": {
+     "mph": 117,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 139,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 162,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 9,
+    "desc": "Collapse of load-bearing walls",
+    "lb": {
+     "mph": 130,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 153,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 180,
+     "ef": "EF4"
+    }
+   },
+   {
+    "dod": 10,
+    "desc": "Total destruction of a large section of building or entire building",
+    "lb": {
+     "mph": 152,
+     "ef": "EF3"
+    },
+    "exp": {
+     "mph": 176,
+     "ef": "EF4"
+    },
+    "ub": {
+     "mph": 203,
+     "ef": "EF5"
+    }
+   }
+  ]
+ },
+ {
+  "di": 16,
+  "name": "Junior or senior high school (JHSH)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 55,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 68,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 83,
+     "ef": "EF0"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Loss of roof covering (<20%)",
+    "lb": {
+     "mph": 66,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 79,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 99,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Broken windows",
+    "lb": {
+     "mph": 71,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 87,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 106,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Exterior door failures",
+    "lb": {
+     "mph": 83,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 101,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 121,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Uplift of metal roof decking; significant loss of roofing material (>20%); loss of rooftop HVAC",
+    "lb": {
+     "mph": 85,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 101,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 119,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Damage to or loss of wall cladding",
+    "lb": {
+     "mph": 92,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 108,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 127,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 7,
+    "desc": "Collapse of tall masonry walls at gym, cafeteria or auditorium",
+    "lb": {
+     "mph": 94,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 114,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 136,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 8,
+    "desc": "Uplift or collapse of light steel roof structure",
+    "lb": {
+     "mph": 108,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 125,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 148,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 9,
+    "desc": "Collapse of exterior walls in top floor",
+    "lb": {
+     "mph": 121,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 139,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 153,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 10,
+    "desc": "Most interior walls of top floor collapsed",
+    "lb": {
+     "mph": 133,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 158,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 186,
+     "ef": "EF4"
+    }
+   },
+   {
+    "dod": 11,
+    "desc": "Total destruction of a large section of building envelope",
+    "lb": {
+     "mph": 163,
+     "ef": "EF3"
+    },
+    "exp": {
+     "mph": 192,
+     "ef": "EF4"
+    },
+    "ub": {
+     "mph": 224,
+     "ef": "EF5"
+    }
+   },
+   {
+    "dod": 12,
+    "desc": "Significant damage to steel or concrete structural system",
+    "lb": {
+     "mph": null,
+     "ef": null
+    },
+    "exp": {
+     "mph": null,
+     "ef": null
+    },
+    "ub": {
+     "mph": null,
+     "ef": null
+    }
+   }
+  ]
+ },
+ {
+  "di": 17,
+  "name": "Low-rise building [1–4 stories] (LRB)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 55,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 68,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 83,
+     "ef": "EF0"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Loss of roof covering (<20%)",
+    "lb": {
+     "mph": 67,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 80,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 103,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Uplift of metal roof decking at eaves and roof corners: significant loss of roofing material (>20%)",
+    "lb": {
+     "mph": 83,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 101,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 120,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Broken glass in windows, entryways or atriums",
+    "lb": {
+     "mph": 83,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 101,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 122,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Uplift of lightweight roof structure",
+    "lb": {
+     "mph": 114,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 133,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 157,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Significant damage to exterior walls and some interior walls",
+    "lb": {
+     "mph": 122,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 143,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 167,
+     "ef": "EF4"
+    }
+   },
+   {
+    "dod": 7,
+    "desc": "Complete destruction of all or a large section of building",
+    "lb": {
+     "mph": 161,
+     "ef": "EF3"
+    },
+    "exp": {
+     "mph": 188,
+     "ef": "EF4"
+    },
+    "ub": {
+     "mph": 221,
+     "ef": "EF5"
+    }
+   }
+  ]
+ },
+ {
+  "di": 18,
+  "name": "Mid-rise building [5–20 stories] (MRB)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 58,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 70,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 86,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Loss of roof covering (<20%)",
+    "lb": {
+     "mph": 68,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 83,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 103,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Damage to penthouse roof and walls; loss of rooftop HVAC equipment",
+    "lb": {
+     "mph": 75,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 92,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 113,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Damage to parapet walls or coping",
+    "lb": {
+     "mph": 83,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 99,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 118,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Broken glass in curtain walls; glass in entryways; significant damage to building interior",
+    "lb": {
+     "mph": 83,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 101,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 120,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Uplift of lightweight roof decking; significant loss of roofing material (>20%)",
+    "lb": {
+     "mph": 98,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 119,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 140,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 7,
+    "desc": "Broken curtain wall panel anchors",
+    "lb": {
+     "mph": 110,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 129,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 150,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 8,
+    "desc": "Uplift or collapse of roof structure",
+    "lb": {
+     "mph": 118,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 136,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 158,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 9,
+    "desc": "Significant damage to curtain walls and some interior walls",
+    "lb": {
+     "mph": 120,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 145,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 167,
+     "ef": "EF4"
+    }
+   },
+   {
+    "dod": 10,
+    "desc": "Permanent structural deformation",
+    "lb": {
+     "mph": 181,
+     "ef": "EF4"
+    },
+    "exp": {
+     "mph": 210,
+     "ef": "EF5"
+    },
+    "ub": {
+     "mph": 268,
+     "ef": "EF5"
+    }
+   }
+  ]
+ },
+ {
+  "di": 19,
+  "name": "High-rise building [more than 20 stories] (HRB)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 58,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 70,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 86,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Loss of roof covering (<20%)",
+    "lb": {
+     "mph": 69,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 86,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 107,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Damage to penthouse roof and walls; loss of rooftop HVAC equipment",
+    "lb": {
+     "mph": 75,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 93,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 111,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Broken glass in exterior walls and first and second floors; broken glass in entryways",
+    "lb": {
+     "mph": 83,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 101,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 120,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Damage to parapet walls or coping",
+    "lb": {
+     "mph": 87,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 104,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 122,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Broken curtain wall panel anchors",
+    "lb": {
+     "mph": 110,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 129,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 157,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 7,
+    "desc": "Significant loss of roofing material (>20%)",
+    "lb": {
+     "mph": 115,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 143,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 165,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 8,
+    "desc": "Significant damage to curtain walls and interior walls",
+    "lb": {
+     "mph": 123,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 145,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 172,
+     "ef": "EF4"
+    }
+   },
+   {
+    "dod": 9,
+    "desc": "Uplift or collapse of roof structure",
+    "lb": {
+     "mph": 123,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 159,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 183,
+     "ef": "EF4"
+    }
+   },
+   {
+    "dod": 10,
+    "desc": "Significant structural deformation",
+    "lb": {
+     "mph": 190,
+     "ef": "EF4"
+    },
+    "exp": {
+     "mph": 228,
+     "ef": "EF5"
+    },
+    "ub": {
+     "mph": 290,
+     "ef": "EF5"
+    }
+   }
+  ]
+ },
+ {
+  "di": 20,
+  "name": "Institutional building [hospital, government or university building] (IB)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 59,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 72,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 88,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Loss of roof covering (<20%)",
+    "lb": {
+     "mph": 72,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 86,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 109,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Damage to penthouse roof and walls; loss of rooftop HVAC equipment",
+    "lb": {
+     "mph": 75,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 92,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 111,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Broken glass in windows or doors",
+    "lb": {
+     "mph": 78,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 95,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 115,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Uplift of lightweight roof deck and insulation; significant loss of roofing material (>20%)",
+    "lb": {
+     "mph": 95,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 114,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 136,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Façade components torn from structure",
+    "lb": {
+     "mph": 97,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 118,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 140,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 7,
+    "desc": "Damage curtain walls or other wall cladding",
+    "lb": {
+     "mph": 110,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 131,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 152,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 8,
+    "desc": "Uplift of pre-cast concrete roof slabs",
+    "lb": {
+     "mph": 119,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 142,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 163,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 9,
+    "desc": "Uplift of metal deck with concrete roof slabs",
+    "lb": {
+     "mph": 118,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 146,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 170,
+     "ef": "EF4"
+    }
+   },
+   {
+    "dod": 10,
+    "desc": "Collapse of some top story exterior walls",
+    "lb": {
+     "mph": 127,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 148,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 172,
+     "ef": "EF4"
+    }
+   },
+   {
+    "dod": 11,
+    "desc": "Significant damage to building envelope",
+    "lb": {
+     "mph": 178,
+     "ef": "EF4"
+    },
+    "exp": {
+     "mph": 210,
+     "ef": "EF5"
+    },
+    "ub": {
+     "mph": 268,
+     "ef": "EF5"
+    }
+   }
+  ]
+ },
+ {
+  "di": 21,
+  "name": "Metal building system (MBS)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 54,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 67,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 83,
+     "ef": "EF0"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Inward or outward collapse of overhead doors",
+    "lb": {
+     "mph": 75,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 89,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 108,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Metal roof or wall panels pulled from the building",
+    "lb": {
+     "mph": 78,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 95,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 120,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Column anchorage failed",
+    "lb": {
+     "mph": 96,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 117,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 135,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Buckling of roof purlins",
+    "lb": {
+     "mph": 95,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 118,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 138,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Failure of X-braces in the lateral load resisting system",
+    "lb": {
+     "mph": 118,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 138,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 158,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 7,
+    "desc": "Progressive collapse of rigid frames",
+    "lb": {
+     "mph": 120,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 143,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 168,
+     "ef": "EF4"
+    }
+   },
+   {
+    "dod": 8,
+    "desc": "Total destruction of building",
+    "lb": {
+     "mph": 132,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 155,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 178,
+     "ef": "EF4"
+    }
+   }
+  ]
+ },
+ {
+  "di": 22,
+  "name": "Service station canopy (SSC)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 45,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 63,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 79,
+     "ef": "EF0"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Fascia material blown from canopy",
+    "lb": {
+     "mph": 64,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 78,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 96,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Metal roof panels stripped from canopy",
+    "lb": {
+     "mph": 74,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 92,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 113,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Columns bend or buckle under wind load",
+    "lb": {
+     "mph": 88,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 109,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 135,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Canopy collapsed due to column foundation failure",
+    "lb": {
+     "mph": 90,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 114,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 144,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Complete destruction of canopy",
+    "lb": {
+     "mph": 110,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 133,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 163,
+     "ef": "EF3"
+    }
+   }
+  ]
+ },
+ {
+  "di": 23,
+  "name": "Warehouse building [tilt-up walls or heavy-timber construction] (WHB)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 55,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 68,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 83,
+     "ef": "EF0"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Loss of roofing material (<20%)",
+    "lb": {
+     "mph": 69,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 83,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 105,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Inward or outward collapse of overhead doors",
+    "lb": {
+     "mph": 75,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 88,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 107,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Uplift of roof deck; significant loss of roofing material (>20%); loss of rooftop HVAC equipment",
+    "lb": {
+     "mph": 88,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 103,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 122,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Collapse of other non-bearing exterior walls",
+    "lb": {
+     "mph": 93,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 114,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 126,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Collapse of pre-cast concrete tilt-up panels",
+    "lb": {
+     "mph": 102,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 124,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 144,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 7,
+    "desc": "Total destruction of a large section of building or entire building",
+    "lb": {
+     "mph": 131,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 158,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 186,
+     "ef": "EF4"
+    }
+   }
+  ]
+ },
+ {
+  "di": 24,
+  "name": "Electrical transmission lines (ETL)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 70,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 83,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 98,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Broken wood cross member",
+    "lb": {
+     "mph": 80,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 99,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 114,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Wood poles leaning",
+    "lb": {
+     "mph": 85,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 108,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 130,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Broken wood poles",
+    "lb": {
+     "mph": 98,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 118,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 142,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Broken or bent steel or concrete poles",
+    "lb": {
+     "mph": 115,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 138,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 149,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 6,
+    "desc": "Collapsed metal truss towers",
+    "lb": {
+     "mph": 116,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 141,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 165,
+     "ef": "EF3"
+    }
+   }
+  ]
+ },
+ {
+  "di": 25,
+  "name": "Free-standing towers (FST)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 76,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 92,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 113,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Collapsed cell-phone tower",
+    "lb": {
+     "mph": 113,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 133,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 157,
+     "ef": "EF3"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Collapsed micro-wave tower",
+    "lb": {
+     "mph": 116,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 136,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 160,
+     "ef": "EF3"
+    }
+   }
+  ]
+ },
+ {
+  "di": 26,
+  "name": "Free-standing light poles, luminary poles, flag poles (FSP)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Threshold of visible damage",
+    "lb": {
+     "mph": 67,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 81,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 100,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Bent pole",
+    "lb": {
+     "mph": 85,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 102,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 120,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Collapsed pole",
+    "lb": {
+     "mph": 99,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 118,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 138,
+     "ef": "EF3"
+    }
+   }
+  ]
+ },
+ {
+  "di": 27,
+  "name": "Trees: hardwood (TH)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Small limbs broken (up to 1 in (2.5 cm) diameter)",
+    "lb": {
+     "mph": 48,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 60,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 72,
+     "ef": "EF0"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Large branches broken (1 in (2.5 cm)–3 in (7.6 cm) diameter)",
+    "lb": {
+     "mph": 61,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 74,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 88,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Trees uprooted",
+    "lb": {
+     "mph": 76,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 91,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 118,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Trunks snapped",
+    "lb": {
+     "mph": 93,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 110,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 134,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Trees debarked with only stubs of largest branches remaining",
+    "lb": {
+     "mph": 123,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 143,
+     "ef": "EF3"
+    },
+    "ub": {
+     "mph": 167,
+     "ef": "EF4"
+    }
+   }
+  ]
+ },
+ {
+  "di": 28,
+  "name": "Trees: softwood (TS)",
+  "dods": [
+   {
+    "dod": 1,
+    "desc": "Small limbs broken (up to 1 in (2.5 cm) diameter)",
+    "lb": {
+     "mph": 48,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 60,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 72,
+     "ef": "EF0"
+    }
+   },
+   {
+    "dod": 2,
+    "desc": "Large branches broken (1 in (2.5 cm)–3 in (7.6 cm) diameter)",
+    "lb": {
+     "mph": 62,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 75,
+     "ef": "EF0"
+    },
+    "ub": {
+     "mph": 88,
+     "ef": "EF1"
+    }
+   },
+   {
+    "dod": 3,
+    "desc": "Trees uprooted",
+    "lb": {
+     "mph": 73,
+     "ef": "EF0"
+    },
+    "exp": {
+     "mph": 87,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 113,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 4,
+    "desc": "Trunks snapped",
+    "lb": {
+     "mph": 88,
+     "ef": "EF1"
+    },
+    "exp": {
+     "mph": 104,
+     "ef": "EF1"
+    },
+    "ub": {
+     "mph": 128,
+     "ef": "EF2"
+    }
+   },
+   {
+    "dod": 5,
+    "desc": "Trees debarked with only stubs of largest branches remaining",
+    "lb": {
+     "mph": 112,
+     "ef": "EF2"
+    },
+    "exp": {
+     "mph": 131,
+     "ef": "EF2"
+    },
+    "ub": {
+     "mph": 153,
+     "ef": "EF3"
+    }
+   }
+  ]
+ }
+]

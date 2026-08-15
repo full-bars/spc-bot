@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **EF Scale Damage Indicator Lookup**: new `/damageindicators` command exposes the Enhanced Fujita scale's 28 damage indicators and 224 degrees of damage, each with lower-bound / expected / upper-bound 3-second-gust wind estimates (mph + km/h) and the EF rating per bound, color coded with the Wikipedia EF palette. Pick an indicator by number, abbreviation (FR12, MHSW), or name (autocomplete); with a DoD argument the reply attaches a color swatch rendering the LB/EXP/UB strip, matching the article's table cells. Data is vendored in `config/ef_scale.json` (attribution in CREDITS.md) with a typed accessor module (`utils/ef_scale.py`).
+
 ## [5.46.0] - 2026-08-14
 
 ### Added
