@@ -141,8 +141,18 @@ jobs:
           tar -xzf /tmp/trivy.tar.gz -C "$RUNNER_TEMP/trivy" trivy
           TRIVY_BIN="$RUNNER_TEMP/trivy/trivy"
           FAILED=0
+          SCANNED=0
+          # Only scan valid 64-hex-char per-platform image digests. The
+          # self-hosted arm64 runner's /tmp/digests can contain stray files
+          # (verified 2026-08-15: 48 entries, most not image digests); scanning
+          # them makes trivy fail with "no child with platform" and blocks the
+          # release.
           for digest in /tmp/digests/*; do
             sha="$(basename "$digest")"
+            if ! echo "$sha" | grep -qE '^[0-9a-f]{64}$'; then
+              echo "SKIP (not a digest): $sha"
+              continue
+            fi
             echo "=== Trivy scan $REPO@sha256:$sha ==="
             set +e
             "$TRIVY_BIN" image \
@@ -156,11 +166,16 @@ jobs:
               "$REPO@sha256:$sha"
             RC=$?
             set -e
+            SCANNED=$((SCANNED + 1))
             if [ "$RC" -ne 0 ]; then
               echo "FAILED: $REPO@sha256:$sha"
               FAILED=1
             fi
           done
+          if [ "$SCANNED" -eq 0 ]; then
+            echo "No image digests found to scan"
+            exit 1
+          fi
           if [ "$FAILED" -ne 0 ]; then
             echo "Trivy gate failed: new fixable CRITICAL/HIGH found"
             exit 1
