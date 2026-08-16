@@ -7,6 +7,7 @@ Run with: python -m pytest tests/ -v
 
 import asyncio
 import json
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -467,3 +468,75 @@ async def test_auto_post_watches_cancels_when_missing_from_both():
     # Should be REMOVED from active watches!
     assert "0336" not in bot.state.active_watches
     channel.send.assert_called_once()  # Cancellation message sent
+
+
+@pytest.mark.asyncio
+async def test_auto_post_watches_early_cancel_uses_cancel_time_not_expiry():
+    """An early-cancelled watch says 'no longer active' and timestamps NOW,
+    not the original expiration (regression pin for watch #584, 2026-08-15)."""
+    from cogs.watches import WatchesCog
+
+    bot, channel = _make_watch_bot()
+    bot.state.is_primary = True
+    future_expiry = datetime.now(timezone.utc) + timedelta(minutes=43)
+    bot.state.active_watches = {
+        "0584": {"type": "SVR", "expires": future_expiry, "affected_zones": []}
+    }
+    bot.state.posted_watches = {"0585"}
+
+    cog = WatchesCog.__new__(WatchesCog)
+    cog._pending_tasks = set()
+    cog._watch_inflight = set()
+    cog.bot = bot
+    cog._watches_backoff = MagicMock()
+
+    nws_mock = {"0585": {"type": "SVR", "expires": None, "affected_zones": []}}
+    with patch("cogs.watches.fetch_active_watches_nws", AsyncMock(return_value=nws_mock)), patch(
+        "cogs.watch_fetch.get_spc_active_watch_numbers", AsyncMock(return_value={"0585"})
+    ):
+        await WatchesCog.auto_post_watches.coro(cog)
+
+    channel.send.assert_called_once()
+    content = channel.send.await_args.kwargs["content"]
+    # Says "no longer active", not "expired".
+    assert "no longer active" in content
+    assert "expired" not in content
+    # Timestamp is the cancellation moment (now), not the original expiry.
+    # Compare with tolerance: the timestamp truncates to whole seconds and
+    # the loop's now_utc is captured a moment before the send.
+    now_reference = datetime.now(timezone.utc)
+    ts = int(content.split("<t:")[1].split(":R>")[0])
+    ts_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+    assert abs((ts_dt - now_reference).total_seconds()) < 5
+
+
+@pytest.mark.asyncio
+async def test_auto_post_watches_time_expiry_uses_original_expiry():
+    """A watch that hit its scheduled expiry says 'expired' and timestamps
+    the ORIGINAL expiration."""
+    from cogs.watches import WatchesCog
+
+    bot, channel = _make_watch_bot()
+    bot.state.is_primary = True
+    past_expiry = datetime.now(timezone.utc) - timedelta(minutes=5)
+    bot.state.active_watches = {
+        "0586": {"type": "SVR", "expires": past_expiry, "affected_zones": []}
+    }
+    bot.state.posted_watches = {"0587"}
+
+    cog = WatchesCog.__new__(WatchesCog)
+    cog._pending_tasks = set()
+    cog._watch_inflight = set()
+    cog.bot = bot
+    cog._watches_backoff = MagicMock()
+
+    nws_mock = {"0587": {"type": "SVR", "expires": None, "affected_zones": []}}
+    with patch("cogs.watches.fetch_active_watches_nws", AsyncMock(return_value=nws_mock)):
+        await WatchesCog.auto_post_watches.coro(cog)
+
+    channel.send.assert_called_once()
+    content = channel.send.await_args.kwargs["content"]
+    assert "expired" in content
+    ts = int(content.split("<t:")[1].split(":R>")[0])
+    ts_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+    assert abs((ts_dt - past_expiry).total_seconds()) < 2  # original expiry

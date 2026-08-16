@@ -479,12 +479,20 @@ class WatchesCog(commands.Cog):
                 reason = "expired" if expired_by_time else "no longer active"
                 logger.info(f"Watch #{watch_num} {reason} — posting cancellation")
                 watch_label = "Tornado Watch" if wtype == "TORNADO" else "Severe Thunderstorm Watch"
-                end_time = expires or now_utc
+                # An early cancellation ends at the cancellation moment, not the
+                # original expiration: end_time must be now_utc when the watch
+                # was dropped before its scheduled expiry. Using `expires or
+                # now_utc` here showed the ORIGINAL expiry for early
+                # cancellations (verified bug 2026-08-15, watch #584).
+                if expired_by_time:
+                    end_time = expires or now_utc
+                else:
+                    end_time = now_utc
                 end_ts = int(end_time.timestamp())
                 msg = await safe_send(
                     channel,
                     context=f"watch cancellation #{watch_num}",
-                    content=f"{watch_label} #{int(watch_num)} expired <t:{end_ts}:R>",
+                    content=f"{watch_label} #{int(watch_num)} {reason} <t:{end_ts}:R>",
                 )
                 if msg is None:
                     logger.warning(f"Failed to send cancellation for #{watch_num}")
