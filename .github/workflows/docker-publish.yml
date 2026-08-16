@@ -63,6 +63,11 @@ jobs:
 
       - name: Export digest
         run: |
+          # Clear the dir first: the self-hosted arm64 runner's /tmp persists
+          # between jobs, so stale digest files from previous runs accumulate
+          # and pollute the artifact (verified 2026-08-15: 48 files for a
+          # 2-platform build). Each run must upload ONLY its own digests.
+          rm -rf /tmp/digests
           mkdir -p /tmp/digests
           digest="${{ steps.build.outputs.digest }}"
           touch "/tmp/digests/${digest#sha256:}"
@@ -163,11 +168,19 @@ jobs:
               --no-progress \
               --timeout 10m \
               --ignorefile .trivyignore \
-              "$REPO@sha256:$sha"
+              "$REPO@sha256:$sha" 2>/tmp/trivy-scan-err.log
             RC=$?
             set -e
             SCANNED=$((SCANNED + 1))
             if [ "$RC" -ne 0 ]; then
+              # Distinguish "not a real image" (stale digest, layer digest)
+              # from "image found with fixable CVEs". A digest that cannot be
+              # resolved is not a security finding and must not block the
+              # release. Belt-and-suspenders on top of the Export-digest fix.
+              if grep -qE "unable to find the specified image|no child with platform" /tmp/trivy-scan-err.log; then
+                echo "SKIP (not a scanable image): $sha"
+                continue
+              fi
               echo "FAILED: $REPO@sha256:$sha"
               FAILED=1
             fi
