@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Watch cancellation graphics**: cancellation/expiration messages for tornado and severe thunderstorm watches now attach the same SPC graphic shown at issuance, so it's obvious at a glance which watch ended. The graphic is cached locally as soon as it's downloaded and reused at cancellation time (SPC often removes the graphic shortly after a watch ends, making a live re-fetch unreliable). Falls back to the existing text-only message if no graphic was ever cached.
+
 ## [5.47.0] - 2026-08-15
 
 ### Added
