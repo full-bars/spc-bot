@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - **Watch cancellation graphics**: cancellation/expiration messages for tornado and severe thunderstorm watches now attach the same SPC graphic shown at issuance, so it's obvious at a glance which watch ended. The graphic is cached locally as soon as it's downloaded and reused at cancellation time (SPC often removes the graphic shortly after a watch ends, making a live re-fetch unreliable). Falls back to the existing text-only message if no graphic was ever cached.
+- **Mesoscale Discussion cancellation graphics**: extends the same treatment to MD cancellations — the SPC/IEM graphic last downloaded for the MD is attached to the cancellation message, so a bare MD number isn't the only identifying info once it's cancelled. Falls back to text-only if no graphic was ever cached.
 
 ## [5.47.0] - 2026-08-15
 
