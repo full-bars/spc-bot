@@ -638,6 +638,7 @@ class MesoscaleCog(commands.Cog):
                     cp = t.result()
                     if cp:
                         cache_path = cp
+                        self.bot.state.md_image_cache[md_num] = cp
                         changed = True
                         logger.info(f"Recovered image for #{md_num}")
                         break
@@ -684,6 +685,8 @@ class MesoscaleCog(commands.Cog):
             cache_path, _, _ = await download_single_image(
                 image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
             )
+            if cache_path:
+                self.bot.state.md_image_cache[md_num] = cache_path
         md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
         img_embed = discord.Embed(
             title=f"🌩️ SPC Mesoscale Discussion #{int(md_num)}",
@@ -780,12 +783,52 @@ class MesoscaleCog(commands.Cog):
 
                     logger.info(f"MD #{md_num} no longer on index — posting cancellation")
                     md_end_ts = int(datetime.now(timezone.utc).timestamp())
-                    msg = await safe_send(
-                        channel,
-                        context=f"MD #{md_num} cancellation",
-                        content=f"Mesoscale Discussion #{int(md_num)} cancelled <t:{md_end_ts}:R>",
-                    )
+                    md_cache_path = self.bot.state.md_image_cache.pop(md_num, None)
+                    if md_cache_path and not os.path.exists(md_cache_path):
+                        md_cache_path = None
+                    if not md_cache_path:
+                        # In-memory cache is empty (e.g. a restart happened
+                        # after the image was downloaded but before this MD
+                        # was cancelled). The cache path is deterministic
+                        # from the URL, so check disk directly — the file
+                        # is very likely still there (7-day TTL).
+                        for candidate_url in (
+                            f"https://www.spc.noaa.gov/products/md/mcd{md_num}.png",
+                            f"https://mesonet.agron.iastate.edu/pickup/mcd/mcd{md_num.zfill(4)}.png",
+                        ):
+                            candidate_path = get_cache_path_for_url(candidate_url)
+                            if os.path.exists(candidate_path):
+                                md_cache_path = candidate_path
+                                break
+                    content = f"Mesoscale Discussion #{int(md_num)} cancelled <t:{md_end_ts}:R>"
+                    if md_cache_path:
+                        md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
+                        cancel_embed = discord.Embed(
+                            title=f"🌩️ Mesoscale Discussion #{int(md_num)} CANCELLED",
+                            url=md_page_url,
+                            color=discord.Color.dark_grey(),
+                            timestamp=datetime.now(timezone.utc),
+                        )
+                        filename = f"md_{md_num}.png"
+                        cancel_embed.set_image(url=f"attachment://{filename}")
+                        cancel_embed.set_footer(text="SPC MD Monitor")
+                        msg = await safe_send(
+                            channel,
+                            context=f"MD #{md_num} cancellation",
+                            content=content,
+                            embed=cancel_embed,
+                            files=[discord.File(md_cache_path, filename=filename)],
+                        )
+                    else:
+                        msg = await safe_send(
+                            channel,
+                            context=f"MD #{md_num} cancellation",
+                            content=content,
+                        )
                     if not msg:
+                        logger.warning(f"Failed to send cancellation for MD #{md_num}")
+                        if md_cache_path:
+                            self.bot.state.md_image_cache[md_num] = md_cache_path
                         continue
                     self.bot.state.active_mds.discard(md_num)
                     self._cancelled_mds.add(md_num)
@@ -833,6 +876,8 @@ class MesoscaleCog(commands.Cog):
                 cache_path, img_content, h = await download_single_image(
                     image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
                 )
+                if cache_path:
+                    self.bot.state.md_image_cache[md_num] = cache_path
 
                 filename = f"md_{md_num}.png"
                 md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"

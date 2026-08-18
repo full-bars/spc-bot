@@ -128,6 +128,7 @@ class PostingLog:
         "posted_soundings",
         "sounding_handled_watches",
         "watch_image_cache",
+        "md_image_cache",
     )
 
     def __init__(self):
@@ -146,6 +147,11 @@ class PostingLog:
         # graphic shortly after a watch ends, so re-fetching at
         # cancellation time is unreliable.
         self.watch_image_cache: Dict[str, str] = {}
+        # Same idea as watch_image_cache, but for MDs: the SPC/IEM graphic
+        # is frequently pulled shortly after an MD is cancelled, so the
+        # cancellation message reuses whatever was last downloaded rather
+        # than re-fetching at cancellation time.
+        self.md_image_cache: Dict[str, str] = {}
         # Currently-active VTEC IDs mapping to their latest vtec metadata dict
         self.active_warnings: Dict[str, dict] = {}
         self.posted_reports: Set[str] = set()
@@ -506,6 +512,7 @@ class BotState:
     posted_soundings = _delegate("posting", "posted_soundings")
     sounding_handled_watches = _delegate("posting", "sounding_handled_watches")
     watch_image_cache = _delegate("posting", "watch_image_cache")
+    md_image_cache = _delegate("posting", "md_image_cache")
 
     last_post_times = _delegate("timing", "last_post_times")
     last_posted_urls = _delegate("timing", "last_posted_urls")
