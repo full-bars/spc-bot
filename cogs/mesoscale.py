@@ -786,6 +786,20 @@ class MesoscaleCog(commands.Cog):
                     md_cache_path = self.bot.state.md_image_cache.pop(md_num, None)
                     if md_cache_path and not os.path.exists(md_cache_path):
                         md_cache_path = None
+                    if not md_cache_path:
+                        # In-memory cache is empty (e.g. a restart happened
+                        # after the image was downloaded but before this MD
+                        # was cancelled). The cache path is deterministic
+                        # from the URL, so check disk directly — the file
+                        # is very likely still there (7-day TTL).
+                        for candidate_url in (
+                            f"https://www.spc.noaa.gov/products/md/mcd{md_num}.png",
+                            f"https://mesonet.agron.iastate.edu/pickup/mcd/mcd{md_num.zfill(4)}.png",
+                        ):
+                            candidate_path = get_cache_path_for_url(candidate_url)
+                            if os.path.exists(candidate_path):
+                                md_cache_path = candidate_path
+                                break
                     content = f"Mesoscale Discussion #{int(md_num)} cancelled <t:{md_end_ts}:R>"
                     if md_cache_path:
                         md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
