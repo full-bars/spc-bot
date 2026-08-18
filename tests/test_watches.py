@@ -269,6 +269,7 @@ def _make_watch_bot(posted_watches=None):
     bot = MagicMock()
     bot.state.posted_watches = set(posted_watches or [])
     bot.state.auto_cache = {}
+    bot.state.watch_image_cache = {}
     bot.state.last_post_times = {}
     bot.cogs = {}
     bot.wait_until_ready = AsyncMock()
@@ -540,3 +541,71 @@ async def test_auto_post_watches_time_expiry_uses_original_expiry():
     ts = int(content.split("<t:")[1].split(":R>")[0])
     ts_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
     assert abs((ts_dt - past_expiry).total_seconds()) < 2  # original expiry
+
+
+@pytest.mark.asyncio
+async def test_auto_post_watches_cancellation_reuses_cached_graphic(tmp_path):
+    """When a graphic was cached for the watch during issuance, the
+    cancellation message attaches it as an embed image instead of going
+    text-only."""
+    from cogs.watches import WatchesCog
+
+    image_path = tmp_path / "watch_0588.gif"
+    image_path.write_bytes(b"GIF89a")
+
+    bot, channel = _make_watch_bot()
+    bot.state.is_primary = True
+    past_expiry = datetime.now(timezone.utc) - timedelta(minutes=5)
+    bot.state.active_watches = {
+        "0588": {"type": "SVR", "expires": past_expiry, "affected_zones": []}
+    }
+    bot.state.watch_image_cache = {"0588": str(image_path)}
+    bot.state.posted_watches = {"0589"}
+
+    cog = WatchesCog.__new__(WatchesCog)
+    cog._pending_tasks = set()
+    cog._watch_inflight = set()
+    cog.bot = bot
+    cog._watches_backoff = MagicMock()
+
+    nws_mock = {"0589": {"type": "SVR", "expires": None, "affected_zones": []}}
+    with patch("cogs.watches.fetch_active_watches_nws", AsyncMock(return_value=nws_mock)):
+        await WatchesCog.auto_post_watches.coro(cog)
+
+    channel.send.assert_called_once()
+    kwargs = channel.send.await_args.kwargs
+    assert kwargs.get("embed") is not None
+    assert kwargs.get("files")
+    assert "expired" in kwargs["content"]
+    # Cached path is consumed on a successful post.
+    assert "0588" not in bot.state.watch_image_cache
+
+
+@pytest.mark.asyncio
+async def test_auto_post_watches_cancellation_without_cached_graphic_is_text_only():
+    """No cached graphic for the watch → cancellation stays plain text, as
+    before this feature was added."""
+    from cogs.watches import WatchesCog
+
+    bot, channel = _make_watch_bot()
+    bot.state.is_primary = True
+    past_expiry = datetime.now(timezone.utc) - timedelta(minutes=5)
+    bot.state.active_watches = {
+        "0590": {"type": "SVR", "expires": past_expiry, "affected_zones": []}
+    }
+    bot.state.posted_watches = {"0591"}
+
+    cog = WatchesCog.__new__(WatchesCog)
+    cog._pending_tasks = set()
+    cog._watch_inflight = set()
+    cog.bot = bot
+    cog._watches_backoff = MagicMock()
+
+    nws_mock = {"0591": {"type": "SVR", "expires": None, "affected_zones": []}}
+    with patch("cogs.watches.fetch_active_watches_nws", AsyncMock(return_value=nws_mock)):
+        await WatchesCog.auto_post_watches.coro(cog)
+
+    channel.send.assert_called_once()
+    kwargs = channel.send.await_args.kwargs
+    assert kwargs.get("embed") is None
+    assert kwargs.get("files") is None
