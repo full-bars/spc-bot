@@ -16,6 +16,8 @@ All notable changes to this project will be documented in this file.
 - **Base image moved to Debian 13 (trixie)**: runtime libraries renamed per trixie (`libgeos3.13.1`, `libgdal36`, `libhdf5-310`, `libnetcdf22`); `apt-get upgrade` retained in both stages; multi-arch index digest pinned so amd64 and arm64 both build. Trivy CRITICAL/HIGH count drops from 49 to 32.
 - **Trivy release gate added**: the publish workflow scans each per-arch image by digest before tagging, failing on new fixable CRITICAL/HIGH only. Trivy installs from a pinned release with sha256 checksum verification.
 - **`.trivyignore` documents two accepted-risk findings**: setuptools/msgpack build-layer ghosts (verified not importable at runtime); no-fix CVEs excluded via `--ignore-unfixed` so a future Debian fix is never silently suppressed.
+- **Early-cancelled watches now show the cancellation time**: a watch cancelled before its scheduled expiration posted "expired" with the ORIGINAL expiry timestamp (e.g. watch #584 posted "expired in 43 minutes" right after an early cancellation). Now the message says "no longer active" and timestamps the moment of cancellation. A watch that reaches its scheduled expiry still says "expired" with the original expiry time. Regression tests pin both paths.
+- **Release pipeline hardened**: the self-hosted arm64 runner's stale digest files no longer pollute the image scan (the digest dir is cleared per run); the gate skips digests trivy cannot resolve as images; the gate is vuln-only after the secret scanner produced an unreproducible finding that blocked a release. Secret scanning remains available as a manual check.
 
 ## [5.46.0] - 2026-08-14
 
