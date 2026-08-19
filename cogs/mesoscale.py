@@ -800,18 +800,18 @@ class MesoscaleCog(commands.Cog):
                             if os.path.exists(candidate_path):
                                 md_cache_path = candidate_path
                                 break
-                    content = f"Mesoscale Discussion #{int(md_num)} cancelled <t:{md_end_ts}:R>"
+                    content = f"🚫 Mesoscale Discussion #{int(md_num)} CANCELLED <t:{md_end_ts}:R>"
                     if md_cache_path:
                         md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
                         cancel_embed = discord.Embed(
-                            title=f"🌩️ Mesoscale Discussion #{int(md_num)} CANCELLED",
+                            title=f"🚫 🌩️ Mesoscale Discussion #{int(md_num)} CANCELLED",
                             url=md_page_url,
-                            color=discord.Color.dark_grey(),
+                            color=discord.Color.red(),
                             timestamp=datetime.now(timezone.utc),
                         )
                         filename = f"md_{md_num}.png"
                         cancel_embed.set_image(url=f"attachment://{filename}")
-                        cancel_embed.set_footer(text="SPC MD Monitor")
+                        cancel_embed.set_footer(text="🚫 SPC MD Monitor | CANCELLED EVENT")
                         msg = await safe_send(
                             channel,
                             context=f"MD #{md_num} cancellation",

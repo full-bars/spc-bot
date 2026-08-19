@@ -407,10 +407,10 @@ class WarningsCog(commands.Cog):
                     color=color,
                     timestamp=datetime.now(timezone.utc),
                 )
-                footer_text = f"VTEC {vtec_id}"
-                if footer_id:
-                    footer_text += f" | {footer_id}"
-                embed.set_footer(text=footer_text)
+footer_text = f"🚫 VTEC {vtec_id} | CANCELLED EVENT"
+        if footer_id:
+            footer_text += f" | {footer_id}"
+        embed.set_footer(text=footer_text)
 
                 # Add Environmental Button for Tornado Warnings
                 view = None
@@ -725,7 +725,7 @@ class WarningsCog(commands.Cog):
         unix_ts = _vtec_unix_ts(cancel_vtec)
 
         description = (
-            f"{office} [{action_verb} {display_event}]({vtec_link}){area_str}\n[<t:{unix_ts}:R>]"
+            f"🚫 **CANCELLED** {office} [{action_verb} {display_event}]({vtec_link}){area_str}\n[<t:{unix_ts}:R>]"
         )
 
         # Fetch the IEM Autoplot image — for cancelled events IEM marks it
@@ -762,7 +762,7 @@ class WarningsCog(commands.Cog):
 
         embed = discord.Embed(
             description=description,
-            color=discord.Color.dark_gray(),  # type: ignore[misc]  # discord.Color generic-stub quirk
+            color=discord.Color.red(),  # Red color for cancelled events
             timestamp=datetime.now(timezone.utc),
         )
         if files:
