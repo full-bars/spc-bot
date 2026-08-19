@@ -407,7 +407,7 @@ class WarningsCog(commands.Cog):
                     color=color,
                     timestamp=datetime.now(timezone.utc),
                 )
-footer_text = f"VTEC {vtec_id}"
+                footer_text = f"VTEC {vtec_id}"
         if footer_id:
             footer_text += f" | {footer_id}"
         embed.set_footer(text=footer_text)
@@ -417,7 +417,7 @@ footer_text = f"VTEC {vtec_id}"
         if event == "Tornado Warning" and event_id:
             view = EnvironmentalView()
 
-                # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS).
+        # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS).
                 # Launched in background after the message is sent so the safety-critical
                 # warning text is never delayed by IEM's autoplot generation latency.
                 should_image = (vtec.get("etn") and vtec["etn"] != "0") or vtec.get(
