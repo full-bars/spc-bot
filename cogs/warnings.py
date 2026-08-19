@@ -407,15 +407,15 @@ class WarningsCog(commands.Cog):
                     color=color,
                     timestamp=datetime.now(timezone.utc),
                 )
-footer_text = f"🚫 VTEC {vtec_id} | CANCELLED EVENT"
+footer_text = f"VTEC {vtec_id}"
         if footer_id:
             footer_text += f" | {footer_id}"
         embed.set_footer(text=footer_text)
 
-                # Add Environmental Button for Tornado Warnings
-                view = None
-                if event == "Tornado Warning" and event_id:
-                    view = EnvironmentalView()
+        # Add Environmental Button for Tornado Warnings
+        view = None
+        if event == "Tornado Warning" and event_id:
+            view = EnvironmentalView()
 
                 # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS).
                 # Launched in background after the message is sent so the safety-critical
