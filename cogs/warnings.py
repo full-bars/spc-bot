@@ -407,7 +407,7 @@ class WarningsCog(commands.Cog):
                     color=color,
                     timestamp=datetime.now(timezone.utc),
                 )
-footer_text = f"VTEC {vtec_id}"
+                footer_text = f"VTEC {vtec_id}"
                 if footer_id:
                     footer_text += f" | {footer_id}"
                 embed.set_footer(text=footer_text)
