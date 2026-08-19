@@ -417,7 +417,7 @@ class WarningsCog(commands.Cog):
                 if event == "Tornado Warning" and event_id:
                     view = EnvironmentalView()
 
-        # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS).
+                # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS).
                 # Launched in background after the message is sent so the safety-critical
                 # warning text is never delayed by IEM's autoplot generation latency.
                 should_image = (vtec.get("etn") and vtec["etn"] != "0") or vtec.get(
@@ -724,9 +724,7 @@ class WarningsCog(commands.Cog):
         vtec_link = _vtec_url(cancel_vtec)
         unix_ts = _vtec_unix_ts(cancel_vtec)
 
-        description = (
-            f"🚫 **CANCELLED** {office} [{action_verb} {display_event}]({vtec_link}){area_str}\n[<t:{unix_ts}:R>]"
-        )
+        description = f"🚫 **CANCELLED** {office} [{action_verb} {display_event}]({vtec_link}){area_str}\n[<t:{unix_ts}:R>]"
 
         # Fetch the IEM Autoplot image — for cancelled events IEM marks it
         # "Event No Longer Active" automatically if we pass a late valid time.
