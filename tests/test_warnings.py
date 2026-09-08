@@ -287,7 +287,7 @@ async def test_handle_cancellation_posts_new_message(monkeypatch):
     assert "cancels" in sent_embed.description
     assert "Severe Thunderstorm Warning" in sent_embed.description
     assert "Garfield" in sent_embed.description
-    assert sent_embed.color == discord.Color.dark_gray()
+    assert sent_embed.color == discord.Color.red()
 
 
 @pytest.mark.asyncio
