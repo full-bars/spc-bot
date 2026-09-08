@@ -33,7 +33,11 @@ logger = logging.getLogger("spc_bot")
 
 
 def format_severity_line(
-    emoji: str, phenom: str, total: int, buckets: list[tuple[str, int]]
+    emoji: str,
+    phenom: str,
+    total: int,
+    buckets: list[tuple[str, int]],
+    confidence_data: Optional[list[tuple[str, int]]] = None,
 ) -> str:
     """Format one 'Warning Labels' severity line: total + non-zero buckets.
 
@@ -42,8 +46,14 @@ def format_severity_line(
     must land in exactly one bucket (the stats query guarantees this via a
     catch-all standard bucket), so the shown sub-counts always sum to
     ``total``. Zero-count buckets are omitted.
+
+    ``confidence_data`` is an optional list of (label, count) pairs for confidence breakdown.
     """
     parts = [f"{count} {label}" for label, count in buckets if count > 0]
+    if confidence_data:
+        confidence_parts = [f"{count} {label}" for label, count in confidence_data if count > 0]
+        if confidence_parts:
+            parts.append(f"({', '.join(confidence_parts)})")
     suffix = " · " + " · ".join(parts) if parts else ""
     return f"{emoji} **{total}** {phenom}{suffix}"
 
@@ -524,6 +534,10 @@ class StatusView(discord.ui.View):
                             ("TOR", t.get("standard", 0)),
                             ("TORP", t.get("pds", 0)),
                             ("TORE", t.get("emergency", 0)),
+                        ],
+                        confidence_data=[
+                            ("TORR", t.get("observed", 0)),
+                            ("TOR", t.get("radar_indicated", 0)),
                         ],
                     ),
                     format_severity_line(
