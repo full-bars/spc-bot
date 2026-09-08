@@ -41,7 +41,7 @@ async def test_cancellation_fires_when_index_empty():
 
     content = channel.send.call_args.kwargs["content"]
     assert "100" in content
-    assert "cancelled" in content
+    assert "CANCELLED" in content
     assert "<t:" in content and ":R>" in content
     assert "0100" not in bot.state.active_mds
 
@@ -90,7 +90,7 @@ async def test_partial_cancellation_when_some_mds_expire():
         await cog.auto_post_md()
 
     cancel_calls = [
-        c for c in channel.send.call_args_list if "cancelled" in (c.kwargs.get("content") or "")
+        c for c in channel.send.call_args_list if "CANCELLED" in (c.kwargs.get("content") or "")
     ]
     assert len(cancel_calls) == 1
 
