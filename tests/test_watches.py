@@ -233,7 +233,8 @@ class TestFetchActiveWatchesNWS:
 
     @pytest.mark.asyncio
     async def test_stale_wfo_etns_filtered_by_spc_index(self):
-        """WFO WCN features with ETNs absent from the SPC index are dropped."""
+        """WFO WCN features absent from the SPC index AND without an individual
+        SPC page are dropped."""
         from cogs.watches import fetch_active_watches_nws
 
         # NWS API returns two features: one valid (0230), one stale WFO ETN (0001)
@@ -255,11 +256,48 @@ class TestFetchActiveWatchesNWS:
             "cogs.watch_fetch.http_get_text",
             new_callable=AsyncMock,
             return_value=self._spc_html("0230"),  # only 0230 is on the SPC page
+        ), patch(
+            "cogs.watch_fetch.http_head_ok",
+            new_callable=AsyncMock,
+            # stale watch #0001 has no individual SPC page → False → filtered
+            side_effect=lambda url, **kw: False,
         ):
             result = await fetch_active_watches_nws()
 
         assert "0230" in result
         assert "0001" not in result
+
+    @pytest.mark.asyncio
+    async def test_watch_not_on_index_but_on_individual_page_kept(self):
+        """A watch absent from the SPC index page but present on its individual
+        SPC page (ww{num}.html returns 200) is kept, not filtered — e.g.
+        Hawaii tornado watches not on the CONUS-centric index."""
+        from cogs.watches import fetch_active_watches_nws
+
+        # NWS API returns a tornado watch for Kauai (0001) not on the SPC index
+        feature = self._make_feature(
+            "/O.NEW.PHFO.TO.A.0001.260908T0213Z-260908T1400Z/",
+            expires="2026-09-08T14:00:00+00:00",
+        )
+        payload = self._make_response([feature])
+
+        with patch(
+            "cogs.watch_fetch.http_get_bytes_conditional",
+            new_callable=AsyncMock,
+            return_value=(payload, 200, None),
+        ), patch(
+            "cogs.watch_fetch.http_get_text",
+            new_callable=AsyncMock,
+            return_value=self._spc_html(),  # SPC index page is empty (no ww0001 link)
+        ), patch(
+            "cogs.watch_fetch.http_head_ok",
+            new_callable=AsyncMock,
+            return_value=True,  # individual page ww0001.html returns 200
+        ):
+            result = await fetch_active_watches_nws()
+
+        assert "0001" in result
+        assert result["0001"]["type"] == "TORNADO"
 
 
 # ── post_watch_now (iembot fast-path) ────────────────────────────────────────
@@ -269,7 +307,6 @@ def _make_watch_bot(posted_watches=None):
     bot = MagicMock()
     bot.state.posted_watches = set(posted_watches or [])
     bot.state.auto_cache = {}
-    bot.state.watch_image_cache = {}
     bot.state.last_post_times = {}
     bot.cogs = {}
     bot.wait_until_ready = AsyncMock()
@@ -541,71 +578,3 @@ async def test_auto_post_watches_time_expiry_uses_original_expiry():
     ts = int(content.split("<t:")[1].split(":R>")[0])
     ts_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
     assert abs((ts_dt - past_expiry).total_seconds()) < 2  # original expiry
-
-
-@pytest.mark.asyncio
-async def test_auto_post_watches_cancellation_reuses_cached_graphic(tmp_path):
-    """When a graphic was cached for the watch during issuance, the
-    cancellation message attaches it as an embed image instead of going
-    text-only."""
-    from cogs.watches import WatchesCog
-
-    image_path = tmp_path / "watch_0588.gif"
-    image_path.write_bytes(b"GIF89a")
-
-    bot, channel = _make_watch_bot()
-    bot.state.is_primary = True
-    past_expiry = datetime.now(timezone.utc) - timedelta(minutes=5)
-    bot.state.active_watches = {
-        "0588": {"type": "SVR", "expires": past_expiry, "affected_zones": []}
-    }
-    bot.state.watch_image_cache = {"0588": str(image_path)}
-    bot.state.posted_watches = {"0589"}
-
-    cog = WatchesCog.__new__(WatchesCog)
-    cog._pending_tasks = set()
-    cog._watch_inflight = set()
-    cog.bot = bot
-    cog._watches_backoff = MagicMock()
-
-    nws_mock = {"0589": {"type": "SVR", "expires": None, "affected_zones": []}}
-    with patch("cogs.watches.fetch_active_watches_nws", AsyncMock(return_value=nws_mock)):
-        await WatchesCog.auto_post_watches.coro(cog)
-
-    channel.send.assert_called_once()
-    kwargs = channel.send.await_args.kwargs
-    assert kwargs.get("embed") is not None
-    assert kwargs.get("files")
-    assert "expired" in kwargs["content"]
-    # Cached path is consumed on a successful post.
-    assert "0588" not in bot.state.watch_image_cache
-
-
-@pytest.mark.asyncio
-async def test_auto_post_watches_cancellation_without_cached_graphic_is_text_only():
-    """No cached graphic for the watch → cancellation stays plain text, as
-    before this feature was added."""
-    from cogs.watches import WatchesCog
-
-    bot, channel = _make_watch_bot()
-    bot.state.is_primary = True
-    past_expiry = datetime.now(timezone.utc) - timedelta(minutes=5)
-    bot.state.active_watches = {
-        "0590": {"type": "SVR", "expires": past_expiry, "affected_zones": []}
-    }
-    bot.state.posted_watches = {"0591"}
-
-    cog = WatchesCog.__new__(WatchesCog)
-    cog._pending_tasks = set()
-    cog._watch_inflight = set()
-    cog.bot = bot
-    cog._watches_backoff = MagicMock()
-
-    nws_mock = {"0591": {"type": "SVR", "expires": None, "affected_zones": []}}
-    with patch("cogs.watches.fetch_active_watches_nws", AsyncMock(return_value=nws_mock)):
-        await WatchesCog.auto_post_watches.coro(cog)
-
-    channel.send.assert_called_once()
-    kwargs = channel.send.await_args.kwargs
-    assert kwargs.get("embed") is None
-    assert kwargs.get("files") is None
