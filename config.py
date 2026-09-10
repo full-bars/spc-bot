@@ -107,8 +107,14 @@ CONFIG = {
     ),
     "weather_chat_channel_id": _optional_int("WEATHER_CHAT_CHANNEL_ID", "SPC_CHANNEL_ID"),
     "gemini_api_key": os.getenv("GEMINI_API_KEY", ""),
-    "opencode_api_key": os.getenv("OPENCODE_API_KEY", ""),
-    "ai_model": os.getenv("AI_MODEL", "deepseek-v4-pro"),
+    "ai_api_key": os.getenv("ZENPROXY_API_KEY")
+    or os.getenv("AI_API_KEY")
+    or os.getenv("OPENCODE_API_KEY", ""),
+    "ai_base_url": os.getenv(
+        "AI_BASE_URL", os.getenv("ZENPROXY_BASE_URL", "https://ohmyproxy.12388321.xyz/v1")
+    ),
+    "ai_model": os.getenv("AI_MODEL", "kilo-free"),
+    "ai_fallback_model": os.getenv("AI_FALLBACK_MODEL", "zen-noapi-free"),
     "manual_cache_file": os.getenv("MANUAL_CACHE_FILE", "posted_records.json"),
     "auto_cache_file": os.getenv("AUTO_CACHE_FILE", "auto_posted_records.json"),
     "guild_id": _require_int("GUILD_ID"),
@@ -134,9 +140,12 @@ SURVEYS_CHANNEL_ID = CONFIG["surveys_channel_id"]
 DEV_CHANNEL_ID = CONFIG["dev_channel_id"]
 TROPICAL_CHANNEL_ID = CONFIG["tropical_channel_id"]
 WEATHER_CHAT_CHANNEL_ID = CONFIG["weather_chat_channel_id"]
-GEMINI_API_KEY = CONFIG["gemini_api_key"]
-OPENCODE_API_KEY = CONFIG["opencode_api_key"]
-AI_MODEL = CONFIG["ai_model"]
+GEMINI_API_KEY: str = str(CONFIG["gemini_api_key"] or "")
+AI_API_KEY: str = str(CONFIG["ai_api_key"] or "")
+OPENCODE_API_KEY: str = AI_API_KEY  # Backward compatibility
+AI_BASE_URL: str = str(CONFIG["ai_base_url"] or "")
+AI_MODEL: str = str(CONFIG["ai_model"] or "")
+AI_FALLBACK_MODEL: str = str(CONFIG["ai_fallback_model"] or "")
 MANUAL_CACHE_FILE = os.path.join(CONFIG["cache_file_dir"], CONFIG["manual_cache_file"])
 AUTO_CACHE_FILE = os.path.join(CONFIG["cache_file_dir"], CONFIG["auto_cache_file"])
 NWWS_FIREHOSE_LOG = os.path.join(CONFIG["cache_file_dir"], CONFIG["nwws_firehose_log"])

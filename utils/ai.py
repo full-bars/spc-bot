@@ -2,12 +2,17 @@
 import json
 import logging
 from typing import Any
-from config import AI_MODEL, GEMINI_API_KEY, OPENCODE_API_KEY
+from config import (
+    AI_BASE_URL,
+    AI_FALLBACK_MODEL,
+    AI_MODEL,
+    AI_API_KEY,
+    GEMINI_API_KEY,
+    OPENCODE_API_KEY,
+)
 from utils.http import http_post_json
 
 logger = logging.getLogger("spc_bot.ai")
-
-_OPENCODE_BASE = "https://opencode.ai/zen/v1/chat/completions"
 
 
 async def call_gemini(prompt: str, is_json: bool = False) -> Any | None:
@@ -63,12 +68,16 @@ async def call_gemini(prompt: str, is_json: bool = False) -> Any | None:
 async def call_openai_compatible(
     prompt: str,
     is_json: bool = False,
+    model: str | None = None,
     system_prompt: str = "You are an expert severe weather meteorologist.",
 ) -> Any | None:
-    """Calls an OpenAI-compatible chat completions endpoint via OpenCode Zen."""
-    if not OPENCODE_API_KEY:
-        logger.warning("OPENCODE_API_KEY is not set. Cannot call AI.")
+    """Calls an OpenAI-compatible chat completions endpoint (ZenProxy / OpenCode)."""
+    api_key = AI_API_KEY or OPENCODE_API_KEY
+    if not api_key:
+        logger.warning("AI_API_KEY is not set. Cannot call AI.")
         return None
+
+    target_model = model or AI_MODEL
 
     messages: list[dict[str, str]] = [
         {"role": "system", "content": system_prompt},
@@ -76,7 +85,7 @@ async def call_openai_compatible(
     ]
 
     payload: dict[str, Any] = {
-        "model": AI_MODEL,
+        "model": target_model,
         "messages": messages,
         "temperature": 0.2,
     }
@@ -84,9 +93,13 @@ async def call_openai_compatible(
     if is_json:
         payload["response_format"] = {"type": "json_object"}
 
-    headers = {"Authorization": f"Bearer {OPENCODE_API_KEY}"}
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "User-Agent": "opencode/latest",
+    }
+    endpoint = f"{AI_BASE_URL.rstrip('/')}/chat/completions"
     response = await http_post_json(
-        _OPENCODE_BASE,
+        endpoint,
         json_data=payload,
         retries=2,
         timeout=45,
@@ -99,7 +112,7 @@ async def call_openai_compatible(
     try:
         choices = response.get("choices", [])
         if not choices:
-            logger.warning("OpenCode API returned no choices")
+            logger.warning(f"AI endpoint {endpoint} returned no choices for model {target_model}")
             return None
 
         content = choices[0].get("message", {}).get("content", "")
@@ -125,18 +138,32 @@ async def call_openai_compatible(
 
 
 async def call_ai(prompt: str, is_json: bool = False) -> Any | None:
-    """Dispatches to OpenCode Zen (DeepSeek) first, falling back to Gemini."""
+    """Dispatches to primary model (kilo-free), then fallback model (zen-noapi-free), then Gemini."""
     tag = prompt.split("\n")[0][:60]  # first line of prompt as a short tag
-    if OPENCODE_API_KEY:
+    api_key = AI_API_KEY or OPENCODE_API_KEY
+
+    # 1. Primary proxy model
+    if api_key and AI_MODEL:
         logger.info(f"AI [{AI_MODEL}]: {tag}")
-        result = await call_openai_compatible(prompt, is_json=is_json)
+        result = await call_openai_compatible(prompt, is_json=is_json, model=AI_MODEL)
         if result is not None:
             return result
-        logger.info(f"AI fallback to Gemini: {tag}")
+        logger.warning(f"AI primary [{AI_MODEL}] failed or returned None; trying fallback")
+
+    # 2. Fallback proxy model
+    if api_key and AI_FALLBACK_MODEL and AI_FALLBACK_MODEL != AI_MODEL:
+        logger.info(f"AI [{AI_FALLBACK_MODEL}]: {tag}")
+        result = await call_openai_compatible(prompt, is_json=is_json, model=AI_FALLBACK_MODEL)
+        if result is not None:
+            return result
+        logger.warning(f"AI fallback [{AI_FALLBACK_MODEL}] failed or returned None")
+
+    # 3. Direct Gemini safety net
     if GEMINI_API_KEY:
         logger.info(f"AI [Gemini 3.1 Flash Lite]: {tag}")
         return await call_gemini(prompt, is_json=is_json)
-    logger.warning("No AI API key configured (set OPENCODE_API_KEY or GEMINI_API_KEY).")
+
+    logger.warning("No AI API key configured (set ZENPROXY_API_KEY or GEMINI_API_KEY).")
     return None
 
 
@@ -165,7 +192,19 @@ async def summarize_outlook(raw_text: str) -> list[dict] | None:
         "5. confidence: SPC confidence level and specific focus cities.\n\n"
         f"TEXT:\n{raw_text}"
     )
-    return await call_ai(prompt, is_json=True)
+    result = await call_ai(prompt, is_json=True)
+    if isinstance(result, list):
+        return result
+    if isinstance(result, dict):
+        for key in ("regions", "areas", "risk_areas", "outlook"):
+            if key in result and isinstance(result[key], list):
+                return result[key]
+        if "region" in result:
+            return [result]
+        for val in result.values():
+            if isinstance(val, list) and len(val) > 0 and isinstance(val[0], dict):
+                return val
+    return result
 
 
 async def summarize_outlook_revision(old_text: str, new_text: str) -> str | None:
