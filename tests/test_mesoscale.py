@@ -427,3 +427,186 @@ async def test_fetch_md_numbers_spc_path_uses_head_cache():
 
     # Reset module state for other tests
     md_mod._md_index_head = {}
+
+
+# ── MD Thread Discussion Text ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_post_md_now_threads_discussion_text(tmp_path):
+    """post_md_now posts only img_embed to channel, then discussion text in thread."""
+    bot, channel = _make_bot_for_post()
+    sent_msg = AsyncMock()
+    channel.send.return_value = sent_msg
+    thread = AsyncMock()
+    thread.send = AsyncMock()
+
+    fake_img = tmp_path / "md.png"
+    fake_img.write_bytes(b"fake image data")
+
+    cog = MesoscaleCog.__new__(MesoscaleCog)
+    cog.bot = bot
+    cog._md_inflight = set()
+    cog._pending_tasks = set()
+
+    with patch(
+        "cogs.mesoscale.fetch_md_details",
+        AsyncMock(return_value=("https://example.com/md.png", "Summary", False, "Raw text")),
+    ), patch(
+        "cogs.mesoscale.download_single_image",
+        AsyncMock(return_value=(str(fake_img), b"data", "h")),
+    ), patch("cogs.mesoscale.extract_md_body", return_value="Discussion body text"), patch(
+        "cogs.mesoscale.clean_md_text_for_discord", return_value="Cleaned discussion body text"
+    ), patch(
+        "cogs.mesoscale.safe_create_thread", AsyncMock(return_value=thread)
+    ) as mock_thread_create, patch(
+        "cogs.ai_summaries.autopost_md_summary", AsyncMock()
+    ) as mock_ai_summary:
+        await cog.post_md_now("0667")
+
+    channel.send.assert_called_once()
+    # Main channel message must contain only the image embed, NOT discussion text
+    call_kwargs = channel.send.call_args.kwargs
+    assert "embeds" not in call_kwargs or call_kwargs["embeds"] is None
+    main_embed = call_kwargs.get("embed")
+    assert main_embed is not None
+    assert "Mesoscale Discussion #667" in main_embed.title
+    assert main_embed.footer.text == "SPC MD Monitor"
+    assert main_embed.description is None or "Cleaned discussion body" not in main_embed.description
+
+    # Thread creation was invoked with the message
+    mock_thread_create.assert_awaited_once()
+    assert mock_thread_create.call_args.args[0] == sent_msg
+    assert mock_thread_create.call_args.kwargs["name"] == "MD #667"
+
+    # Discussion text was posted into the thread
+    thread.send.assert_awaited_once()
+    thread_embed = thread.send.call_args.kwargs["embed"]
+    assert "Cleaned discussion body text" in thread_embed.description
+    assert thread_embed.footer.text == "SPC MD Monitor"
+
+    # AI summary was triggered with the thread
+    mock_ai_summary.assert_called_once_with(sent_msg, "0667", thread=thread)
+
+
+@pytest.mark.asyncio
+async def test_auto_post_md_threads_discussion_text(tmp_path):
+    """auto_post_md posts only img_embed to channel, then discussion text in thread."""
+    bot, channel = _make_bot(active_mds=set())
+    sent_msg = AsyncMock()
+    channel.send.return_value = sent_msg
+    thread = AsyncMock()
+    thread.send = AsyncMock()
+
+    fake_img = tmp_path / "md.png"
+    fake_img.write_bytes(b"fake image data")
+
+    with patch(
+        "cogs.mesoscale.fetch_latest_md_numbers", AsyncMock(return_value=(["0667"], False))
+    ), patch(
+        "cogs.mesoscale.fetch_md_details",
+        AsyncMock(return_value=("https://example.com/md.png", "Summary", False, "Raw text")),
+    ), patch(
+        "cogs.mesoscale.download_single_image",
+        AsyncMock(return_value=(str(fake_img), b"data", "h")),
+    ), patch("cogs.mesoscale.extract_md_body", return_value="Discussion body text"), patch(
+        "cogs.mesoscale.clean_md_text_for_discord", return_value="Cleaned discussion body text"
+    ), patch(
+        "cogs.mesoscale.safe_create_thread", AsyncMock(return_value=thread)
+    ) as mock_thread_create, patch(
+        "cogs.ai_summaries.autopost_md_summary", AsyncMock()
+    ) as mock_ai_summary:
+        cog = MesoscaleCog(bot)
+        await cog.auto_post_md()
+
+    channel.send.assert_called_once()
+    call_kwargs = channel.send.call_args.kwargs
+    main_embed = call_kwargs.get("embed")
+    assert main_embed is not None
+    assert "Mesoscale Discussion #667" in main_embed.title
+    assert main_embed.footer.text == "SPC MD Monitor"
+    assert main_embed.description is None or "Cleaned discussion body" not in main_embed.description
+
+    mock_thread_create.assert_awaited_once()
+    assert mock_thread_create.call_args.kwargs["name"] == "MD #667"
+
+    thread.send.assert_awaited_once()
+    thread_embed = thread.send.call_args.kwargs["embed"]
+    assert "Cleaned discussion body text" in thread_embed.description
+
+    mock_ai_summary.assert_called_once_with(sent_msg, "0667", thread=thread)
+
+
+@pytest.mark.asyncio
+async def test_post_md_now_thread_fail_does_not_post_text_to_channel(tmp_path):
+    """If thread creation fails, discussion text is not dumped into the channel."""
+    bot, channel = _make_bot_for_post()
+    sent_msg = AsyncMock()
+    channel.send.return_value = sent_msg
+
+    fake_img = tmp_path / "md.png"
+    fake_img.write_bytes(b"fake image data")
+
+    cog = MesoscaleCog.__new__(MesoscaleCog)
+    cog.bot = bot
+    cog._md_inflight = set()
+    cog._pending_tasks = set()
+
+    with patch(
+        "cogs.mesoscale.fetch_md_details",
+        AsyncMock(return_value=("https://example.com/md.png", "Summary", False, "Raw text")),
+    ), patch(
+        "cogs.mesoscale.download_single_image",
+        AsyncMock(return_value=(str(fake_img), b"data", "h")),
+    ), patch("cogs.mesoscale.extract_md_body", return_value="Discussion body text"), patch(
+        "cogs.mesoscale.clean_md_text_for_discord", return_value="Cleaned discussion body text"
+    ), patch("cogs.mesoscale.safe_create_thread", AsyncMock(return_value=None)), patch(
+        "cogs.ai_summaries.autopost_md_summary", AsyncMock()
+    ):
+        await cog.post_md_now("0667")
+
+    # Only one message was sent to channel (the image embed)
+    assert channel.send.call_count == 1
+    call_kwargs = channel.send.call_args.kwargs
+    main_embed = call_kwargs.get("embed")
+    assert main_embed is not None
+    assert main_embed.description is None or "Cleaned discussion body" not in main_embed.description
+
+
+@pytest.mark.real_create_task
+@pytest.mark.asyncio
+async def test_upgrade_md_message_edits_embed_and_updates_thread(tmp_path):
+    """_upgrade_md_message edits only img_embed on message and posts text to thread."""
+    message = AsyncMock()
+    thread = AsyncMock()
+    thread.send = AsyncMock()
+
+    fake_img = tmp_path / "recovered.png"
+    fake_img.write_bytes(b"fake image data")
+
+    cog = MesoscaleCog.__new__(MesoscaleCog)
+    cog.bot = MagicMock()
+    cog.bot.state.auto_cache = {}
+
+    with patch(
+        "cogs.mesoscale.fetch_md_details",
+        AsyncMock(return_value=("https://example.com/md.png", None, False, "raw")),
+    ), patch(
+        "cogs.mesoscale.download_single_image",
+        AsyncMock(return_value=(str(fake_img), b"data", "h")),
+    ), patch("cogs.mesoscale.extract_md_body", return_value="Recovered text"), patch(
+        "cogs.mesoscale.clean_md_text_for_discord", return_value="Cleaned recovered text"
+    ), patch("cogs.mesoscale.asyncio.sleep", AsyncMock()):
+        await cog._upgrade_md_message("0667", message, full_text=None, text_msg=None, thread=thread)
+
+    # message.edit was called with only img_embed (single embed)
+    message.edit.assert_called()
+    edit_kwargs = message.edit.call_args.kwargs
+    assert "embed" in edit_kwargs
+    assert "embeds" not in edit_kwargs
+    assert edit_kwargs["embed"].footer.text == "SPC MD Monitor"
+
+    # thread.send was called with the recovered discussion text
+    thread.send.assert_called_once()
+    thread_embed = thread.send.call_args.kwargs["embed"]
+    assert "Cleaned recovered text" in thread_embed.description

@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- **Thread-isolated Mesoscale Discussion text**: mesoscale discussion alert posts now only display the graphic embed in the primary SPC channel, moving the full discussion text and automated summary into an attached thread. This prevents large text walls in the alert channel while keeping detailed meteorologist discussions and analyses accessible inside the thread.
+
 ### Fixed
 - **`/watches` missing non-CONUS watches**: watches issued by the NWS Alerts API but absent from the SPC watch index page (e.g. Hawaii tornado watches) were silently filtered out. The bot now performs a secondary HEAD check against the individual SPC watch page (`ww{num}.html`) before skipping, so genuinely issued SPC watches are kept even when the CONUS-centric index has not picked them up. The skip log level was promoted from debug to warning.
 

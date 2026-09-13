@@ -1,7 +1,7 @@
 import asyncio
 import json
 import re
-from typing import Any
+from typing import Any, Optional
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -502,6 +502,7 @@ async def autopost_md_summary(
     md_msg: discord.Message,
     md_num: str,
     delay: float = 0.5,
+    thread: Optional[discord.Thread] = None,
 ):
     """Wait for MD summary to be ready and post it in a thread on the MD message."""
     try:
@@ -521,14 +522,18 @@ async def autopost_md_summary(
             color=discord.Color.purple(),
         )
 
-        thread = None
-        try:
-            thread = await md_msg.create_thread(
-                name=f"MD #{md_num}",
-                auto_archive_duration=1440,
-            )
-        except Exception as e:
-            logger.warning(f"[MD #{md_num}] Failed to create thread: {e}")
+        if thread is None:
+            msg_thread = getattr(md_msg, "thread", None)
+            if isinstance(msg_thread, discord.Thread):
+                thread = msg_thread
+            else:
+                try:
+                    thread = await md_msg.create_thread(
+                        name=f"MD #{int(md_num) if str(md_num).isdigit() else md_num}",
+                        auto_archive_duration=1440,
+                    )
+                except Exception as e:
+                    logger.warning(f"[MD #{md_num}] Failed to create thread: {e}")
 
         if thread:
             await thread.send(embed=embed)

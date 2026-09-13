@@ -136,7 +136,9 @@ change detection on the static URL rather than HTML scraping.
 
 The MD cog polls the SPC mesoscale discussion index every 30 seconds. It tracks
 posted MD numbers in a persistent set and posts new ones as they appear. When an
-MD is no longer listed on the index, it posts a cancellation embed.
+MD is no longer listed on the index, it posts a cancellation embed. New MD posts
+contain only the graphic embed in the main channel; the full discussion text and
+automated summary are posted into an attached thread to keep the alert channel clean.
 
 ### Watches
 
