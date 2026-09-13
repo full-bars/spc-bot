@@ -523,22 +523,22 @@ async def autopost_md_summary(
         )
 
         if thread is None:
-            msg_thread = getattr(md_msg, "thread", None)
-            if isinstance(msg_thread, discord.Thread):
-                thread = msg_thread
-            else:
-                try:
-                    thread = await md_msg.create_thread(
-                        name=f"MD #{int(md_num) if str(md_num).isdigit() else md_num}",
-                        auto_archive_duration=1440,
-                    )
-                except Exception as e:
-                    logger.warning(f"[MD #{md_num}] Failed to create thread: {e}")
+            thread = await _resolve_message_thread(md_msg)
 
-        if thread:
-            await thread.send(embed=embed)
-        else:
-            await md_msg.channel.send(embed=embed)
+        if thread is None:
+            try:
+                thread = await md_msg.create_thread(
+                    name=f"MD #{int(md_num) if str(md_num).isdigit() else md_num}",
+                    auto_archive_duration=1440,
+                )
+            except Exception as e:
+                logger.warning(f"[MD #{md_num}] Failed to create thread: {e}")
+
+        if not thread:
+            logger.warning(f"[MD #{md_num}] Suppressing summary because no thread is available")
+            return
+
+        await thread.send(embed=embed)
     except Exception as e:
         logger.exception(f"Error autoposting MD summary for MD {md_num}: {e}")
 

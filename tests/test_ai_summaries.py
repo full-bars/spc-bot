@@ -116,3 +116,59 @@ async def test_ensure_outlook_summary_html_stripping():
         # Splitting by <pre> gives "ZCZC ALL\n...TEXT...<a href='link'>ARCHIVE</a>"
         # Stripping tags gives "ZCZC ALL\n...TEXT...ARCHIVE"
         mock_summarize.assert_called_with("ZCZC ALL\n...TEXT...ARCHIVE")
+
+
+@pytest.mark.asyncio
+async def test_autopost_md_summary_posts_to_provided_thread():
+    from cogs.ai_summaries import autopost_md_summary
+
+    md_msg = AsyncMock()
+    thread = AsyncMock(spec=discord.Thread)
+    thread.send = AsyncMock()
+
+    with patch(
+        "cogs.ai_summaries.ensure_md_summary", AsyncMock(return_value="Summary text")
+    ), patch("asyncio.sleep", AsyncMock()):
+        await autopost_md_summary(md_msg, "0667", thread=thread)
+
+    thread.send.assert_called_once()
+    embed = thread.send.call_args.kwargs["embed"]
+    assert "Summary text" in embed.description
+    md_msg.channel.send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_autopost_md_summary_resolves_thread_from_message():
+    from cogs.ai_summaries import autopost_md_summary
+
+    md_msg = AsyncMock()
+    thread = AsyncMock(spec=discord.Thread)
+    thread.send = AsyncMock()
+
+    with patch(
+        "cogs.ai_summaries.ensure_md_summary", AsyncMock(return_value="Summary text")
+    ), patch("cogs.ai_summaries._resolve_message_thread", AsyncMock(return_value=thread)), patch(
+        "asyncio.sleep", AsyncMock()
+    ):
+        await autopost_md_summary(md_msg, "0667", thread=None)
+
+    thread.send.assert_called_once()
+    md_msg.channel.send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_autopost_md_summary_suppresses_when_no_thread():
+    from cogs.ai_summaries import autopost_md_summary
+
+    md_msg = AsyncMock()
+    md_msg.create_thread = AsyncMock(side_effect=Exception("Rate limited"))
+
+    with patch(
+        "cogs.ai_summaries.ensure_md_summary", AsyncMock(return_value="Summary text")
+    ), patch("cogs.ai_summaries._resolve_message_thread", AsyncMock(return_value=None)), patch(
+        "asyncio.sleep", AsyncMock()
+    ):
+        await autopost_md_summary(md_msg, "0667", thread=None)
+
+    # Should not post to main channel
+    md_msg.channel.send.assert_not_called()

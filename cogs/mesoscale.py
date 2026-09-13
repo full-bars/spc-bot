@@ -578,7 +578,7 @@ class MesoscaleCog(commands.Cog):
         thread: Optional[discord.Thread] = None,
     ):
         spc_image_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.png"
-        iem_image_url = f"https://mesonet.agron.iastate.edu/pickup/mcd{md_num.zfill(4)}.png"
+        iem_image_url = f"https://mesonet.agron.iastate.edu/pickup/mcd/mcd{md_num.zfill(4)}.png"
         filename = f"md_{md_num}.png"
         cache_path: Optional[str] = None
         md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
