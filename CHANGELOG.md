@@ -4,11 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [5.47.1] - 2026-09-19
+
 ### Changed
-- **Thread-isolated Mesoscale Discussion text**: mesoscale discussion alert posts now only display the graphic embed in the primary SPC channel, moving the full discussion text and automated summary into an attached thread. This prevents large text walls in the alert channel while keeping detailed meteorologist discussions and analyses accessible inside the thread.
+- **Thread-isolated Mesoscale Discussion text**: mesoscale discussion alert posts now only display the graphic embed in the primary SPC channel, moving the full discussion text and automated summary into an attached thread. This prevents large text walls in the alert channel while keeping detailed meteorologist discussions and analyses accessible inside the thread. If thread creation or resolution fails, the AI summary is suppressed entirely rather than falling back to a channel post.
+- **AI model routing via ZenProxy**: the primary AI endpoint switches from OpenCode Zen to ZenProxy (`ohmyproxy.12388321.xyz`). The default model is now `kilo-free` with a `zen-noapi-free` fallback, and a direct Gemini safety net remains when both proxy tiers fail. The new `AI_API_KEY` / `ZENPROXY_API_KEY` env vars replace the retired `OPENCODE_API_KEY` (backward-compatible); `AI_BASE_URL` / `ZENPROXY_BASE_URL` override the endpoint. Outlook summary parsing is also hardened against non-list JSON responses from the proxy.
 
 ### Fixed
 - **`/watches` missing non-CONUS watches**: watches issued by the NWS Alerts API but absent from the SPC watch index page (e.g. Hawaii tornado watches) were silently filtered out. The bot now performs a secondary HEAD check against the individual SPC watch page (`ww{num}.html`) before skipping, so genuinely issued SPC watches are kept even when the CONUS-centric index has not picked them up. The skip log level was promoted from debug to warning.
+- **MD IEM image recovery URL**: the fallback image path for mesoscale discussion graphics was missing the `/mcd/` directory segment (`pickup/mcd{num}.png` → `pickup/mcd/mcd{num}.png`), so image recovery from IEM always 404'd.
 
 ### Added
 - **Watch cancellation graphics**: cancellation/expiration messages for tornado and severe thunderstorm watches now attach the same SPC graphic shown at issuance, so it's obvious at a glance which watch ended. The graphic is cached locally as soon as it's downloaded and reused at cancellation time (SPC often removes the graphic shortly after a watch ends, making a live re-fetch unreliable). Falls back to the existing text-only message if no graphic was ever cached.
