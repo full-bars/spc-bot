@@ -481,8 +481,8 @@ checksum = "3d7b894f5411737b7867f4827955924d7c254fc9f4d91a6aad6b097804b1018b"
 
 [[package]]
 name = "color_tables"
-version = "0.34.12"
-source = "git+https://github.com/FahrenheitResearch/bowecho#6dfcb9f7b27c79a5d0cba68ba4e6743886d054ad"
+version = "0.34.13"
+source = "git+https://github.com/FahrenheitResearch/bowecho#309d7f35ed4bfa2eaeaf5135475499ae7487a35b"
 
 [[package]]
 name = "colorchoice"
@@ -646,8 +646,8 @@ checksum = "a4ae5f15dda3c708c0ade84bfee31ccab44a3da4f88015ed22f63732abe300c8"
 
 [[package]]
 name = "data_source"
-version = "0.34.12"
-source = "git+https://github.com/FahrenheitResearch/bowecho#6dfcb9f7b27c79a5d0cba68ba4e6743886d054ad"
+version = "0.34.13"
+source = "git+https://github.com/FahrenheitResearch/bowecho#309d7f35ed4bfa2eaeaf5135475499ae7487a35b"
 dependencies = [
  "chrono",
  "nexrad_io",
@@ -1919,8 +1919,8 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nexrad_io"
-version = "0.34.12"
-source = "git+https://github.com/FahrenheitResearch/bowecho#6dfcb9f7b27c79a5d0cba68ba4e6743886d054ad"
+version = "0.34.13"
+source = "git+https://github.com/FahrenheitResearch/bowecho#309d7f35ed4bfa2eaeaf5135475499ae7487a35b"
 dependencies = [
  "byteorder",
  "bzip2",
@@ -2212,8 +2212,8 @@ dependencies = [
 
 [[package]]
 name = "product_engine"
-version = "0.34.12"
-source = "git+https://github.com/FahrenheitResearch/bowecho#6dfcb9f7b27c79a5d0cba68ba4e6743886d054ad"
+version = "0.34.13"
+source = "git+https://github.com/FahrenheitResearch/bowecho#309d7f35ed4bfa2eaeaf5135475499ae7487a35b"
 dependencies = [
  "radar_core",
 ]
@@ -2438,8 +2438,8 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "radar_core"
-version = "0.34.12"
-source = "git+https://github.com/FahrenheitResearch/bowecho#6dfcb9f7b27c79a5d0cba68ba4e6743886d054ad"
+version = "0.34.13"
+source = "git+https://github.com/FahrenheitResearch/bowecho#309d7f35ed4bfa2eaeaf5135475499ae7487a35b"
 dependencies = [
  "chrono",
  "serde",
@@ -2662,15 +2662,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
+name = "region-global-dealias"
+version = "0.2.0"
+source = "git+https://github.com/FahrenheitResearch/region-global-dealias?rev=a7d4baf6b8a11ca5602fe44a533efd8200ef6cea#a7d4baf6b8a11ca5602fe44a533efd8200ef6cea"
+
+[[package]]
 name = "render2d"
-version = "0.34.12"
-source = "git+https://github.com/FahrenheitResearch/bowecho#6dfcb9f7b27c79a5d0cba68ba4e6743886d054ad"
+version = "0.34.13"
+source = "git+https://github.com/FahrenheitResearch/bowecho#309d7f35ed4bfa2eaeaf5135475499ae7487a35b"
 dependencies = [
  "chrono",
  "color_tables",
  "image",
  "radar_core",
  "rayon",
+ "region-global-dealias",
  "serde",
  "thiserror",
 ]
@@ -2705,12 +2711,14 @@ dependencies = [
  "sync_wrapper",
  "tokio",
  "tokio-rustls",
+ "tokio-util",
  "tower",
  "tower-http",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-streams",
  "web-sys",
  "webpki-roots",
 ]
@@ -3821,6 +3829,19 @@ dependencies = [
  "indexmap",
  "wasm-encoder",
  "wasmparser",
+]
+
+[[package]]
+name = "wasm-streams"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15053d8d85c7eccdbefef60f06769760a563c7f0a9d6902a13d35c7800b0ad65"
+dependencies = [
+ "futures-util",
+ "js-sys",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
