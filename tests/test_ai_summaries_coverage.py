@@ -394,27 +394,28 @@ async def test_autopost_outlook_summary_posts_view():
 async def test_autopost_md_summary_posts_to_thread():
     md_msg = MagicMock()
     thread = AsyncMock()
-    md_msg.create_thread = AsyncMock(return_value=thread)
     with patch("cogs.ai_summaries.ensure_md_summary", new_callable=AsyncMock) as mock_ensure:
         mock_ensure.return_value = "MD SUMMARY"
 
-        await autopost_md_summary(md_msg, "1234", delay=0.0)
+        await autopost_md_summary(md_msg, "1234", delay=0.0, thread=thread)
 
     thread.send.assert_awaited_once()
+    embed = thread.send.await_args.kwargs["embed"]
+    assert "MD #1234" in embed.title
 
 
-async def test_autopost_md_summary_channel_fallback():
+async def test_autopost_md_summary_suppresses_without_thread():
     md_msg = MagicMock()
+    md_msg.thread = None
+    md_msg.fetch_thread = AsyncMock(return_value=None)
     md_msg.create_thread = AsyncMock(side_effect=RuntimeError("no threads"))
-    md_msg.channel = AsyncMock()
+    md_msg.channel.send = AsyncMock()
     with patch("cogs.ai_summaries.ensure_md_summary", new_callable=AsyncMock) as mock_ensure:
         mock_ensure.return_value = "MD SUMMARY"
 
         await autopost_md_summary(md_msg, "1234", delay=0.0)
 
-    md_msg.channel.send.assert_awaited_once()
-    embed = md_msg.channel.send.await_args.kwargs["embed"]
-    assert "MD #1234" in embed.title
+    md_msg.channel.send.assert_not_awaited()
 
 
 async def test_autopost_sounding_summary_reply_fallback():
