@@ -18,7 +18,7 @@ from utils.cache import (
     download_single_image,
 )
 from utils.change_detection import get_cache_path_for_url
-from utils.discord_send import safe_send
+from utils.discord_send import safe_create_thread, safe_send
 from utils.http import http_get_bytes, http_get_text, http_head_meta
 from utils.state_store import get_state, set_state
 
@@ -574,49 +574,81 @@ class MesoscaleCog(commands.Cog):
         md_num: str,
         message: discord.Message,
         full_text: Optional[str],
+        text_msg: Optional[discord.Message] = None,
+        thread: Optional[discord.Thread] = None,
     ):
         spc_image_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.png"
         iem_image_url = f"https://mesonet.agron.iastate.edu/pickup/mcd/mcd{md_num.zfill(4)}.png"
         filename = f"md_{md_num}.png"
         cache_path: Optional[str] = None
+        md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
 
         async def _push_edit():
-            md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
             img_embed = discord.Embed(
                 title=f"🌩️ SPC Mesoscale Discussion #{int(md_num)}",
                 url=md_page_url,
                 color=discord.Color.dark_orange(),
             )
+            img_embed.set_footer(text="SPC MD Monitor")
             files = []
             if cache_path:
                 files.append(discord.File(cache_path, filename=filename))
                 img_embed.set_image(url=f"attachment://{filename}")
 
-            cleaned_text = clean_md_text_for_discord(full_text) if full_text else ""
-            text_embed = discord.Embed(
-                description=cleaned_text[:4090] if cleaned_text else "Fetching discussion text...",
-                color=discord.Color.dark_orange(),
-            )
-            text_embed.set_footer(text="SPC MD Monitor")
             try:
                 view = MDSummaryView(md_num=str(md_num), raw_text=full_text or "")
-                await message.edit(embeds=[img_embed, text_embed], attachments=files, view=view)
+                await message.edit(embed=img_embed, attachments=files, view=view)
                 return True
             except Exception as e:
                 logger.warning(f"Failed to edit MD #{md_num} message: {e}")
                 return False
 
+        async def _update_thread_text():
+            nonlocal text_msg, thread
+            if not full_text:
+                return False
+            if not thread:
+                thread = getattr(message, "thread", None)
+                if not thread:
+                    thread = await safe_create_thread(
+                        message,
+                        context=f"MD #{md_num}",
+                        name=f"MD #{int(md_num)}",
+                        auto_archive_duration=1440,
+                    )
+            if not thread:
+                return False
+
+            cleaned_text = clean_md_text_for_discord(full_text)
+            text_embed = discord.Embed(
+                title=f"🌩️ SPC Mesoscale Discussion #{int(md_num)}",
+                url=md_page_url,
+                description=cleaned_text[:4090],
+                color=discord.Color.dark_orange(),
+            )
+            text_embed.set_footer(text="SPC MD Monitor")
+            try:
+                if text_msg:
+                    await text_msg.edit(embed=text_embed)
+                else:
+                    text_msg = await thread.send(embed=text_embed)
+                return True
+            except Exception as e:
+                logger.warning(f"Failed to update thread text for MD #{md_num}: {e}")
+                return False
+
         edit_pending = False
+        text_pending = False
         for attempt in range(20):
             delay = 10 if attempt < 6 else 30
             await asyncio.sleep(delay)
-            changed = False
-            if not full_text:
+            img_changed = False
+            if not full_text or not text_msg:
                 _, _, _, raw = await fetch_md_details(md_num)
                 recovered = extract_md_body(raw)
-                if recovered:
+                if recovered and (recovered != full_text or not text_msg):
                     full_text = recovered
-                    changed = True
+                    text_pending = True
                     logger.info(f"Recovered text for #{md_num}")
             if not cache_path:
 
@@ -638,18 +670,20 @@ class MesoscaleCog(commands.Cog):
                     cp = t.result()
                     if cp:
                         cache_path = cp
-                        changed = True
+                        img_changed = True
                         logger.info(f"Recovered image for #{md_num}")
                         break
-            if changed:
+            if img_changed:
                 edit_pending = True
             if edit_pending:
                 edit_ok = await _push_edit()
                 if edit_ok:
                     edit_pending = False
-                    if cache_path and full_text:
-                        break
-            elif cache_path and full_text:
+            if text_pending:
+                text_ok = await _update_thread_text()
+                if text_ok:
+                    text_pending = False
+            if cache_path and full_text and not edit_pending and not text_pending:
                 break
 
     async def post_md_now(self, md_num: str):
@@ -690,41 +724,66 @@ class MesoscaleCog(commands.Cog):
             url=md_page_url,
             color=discord.Color.dark_orange(),
         )
+        img_embed.set_footer(text="SPC MD Monitor")
         filename = f"md_{md_num}.png"
         files = []
         if cache_path:
             files.append(discord.File(cache_path, filename=filename))
             img_embed.set_image(url=f"attachment://{filename}")
-        cleaned_text = clean_md_text_for_discord(full_text) if full_text else ""
-        text_embed = discord.Embed(
-            description=cleaned_text[:4090] if cleaned_text else "Fetching discussion text...",
-            color=discord.Color.dark_orange(),
-        )
-        text_embed.set_footer(text="SPC MD Monitor")
         try:
             view = MDSummaryView(md_num=str(md_num), raw_text=raw_text or "")
             msg = await safe_send(
                 channel,
                 context=f"MD #{md_num} (iembot-triggered)",
-                embeds=[img_embed, text_embed],
+                embed=img_embed,
                 files=files,
                 view=view,
             )
             if not msg:
                 return
 
-            # Proactively trigger AI summary generation and autopost it
-            from cogs.ai_summaries import autopost_md_summary
-
-            t = asyncio.create_task(autopost_md_summary(msg, str(md_num)))
-            t.add_done_callback(_log_task_exception)
-
             self.bot.state.posted_mds.add(md_num)
             self.bot.state.active_mds.add(md_num)
             await self.bot.state.add_posted_md(str(md_num))
             self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
+
+            # Create thread for discussion text and AI summary
+            thread = await safe_create_thread(
+                msg,
+                context=f"MD #{md_num}",
+                name=f"MD #{int(md_num)}",
+                auto_archive_duration=1440,
+            )
+
+            text_msg = None
+            if thread and full_text:
+                cleaned_text = clean_md_text_for_discord(full_text)
+                text_embed = discord.Embed(
+                    title=f"🌩️ SPC Mesoscale Discussion #{int(md_num)}",
+                    url=md_page_url,
+                    description=cleaned_text[:4090],
+                    color=discord.Color.dark_orange(),
+                )
+                text_embed.set_footer(text="SPC MD Monitor")
+                try:
+                    text_msg = await thread.send(embed=text_embed)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to post discussion text in thread for MD #{md_num}: {e}"
+                    )
+
+            # Proactively trigger AI summary generation and autopost it in thread
+            from cogs.ai_summaries import autopost_md_summary
+
+            t = asyncio.create_task(autopost_md_summary(msg, str(md_num), thread=thread))
+            t.add_done_callback(_log_task_exception)
+
             if not cache_path or not full_text:
-                t = asyncio.create_task(self._upgrade_md_message(md_num, msg, full_text))
+                t = asyncio.create_task(
+                    self._upgrade_md_message(
+                        md_num, msg, full_text, text_msg=text_msg, thread=thread
+                    )
+                )
                 self._pending_tasks.add(t)
                 t.add_done_callback(self._pending_tasks.discard)
             logger.info(f"iembot-triggered: posted MD #{md_num}")
@@ -841,43 +900,58 @@ class MesoscaleCog(commands.Cog):
                     url=md_page_url,
                     color=discord.Color.dark_orange(),
                 )
+                img_embed.set_footer(text="SPC MD Monitor")
                 files = []
                 if cache_path:
                     files.append(discord.File(cache_path, filename=filename))
                     img_embed.set_image(url=f"attachment://{filename}")
-                cleaned_text = clean_md_text_for_discord(full_text)
-                text_embed = discord.Embed(
-                    description=cleaned_text[:4090]
-                    if cleaned_text
-                    else "Fetching discussion text...",
-                    color=discord.Color.dark_orange(),
-                )
-                text_embed.set_footer(text="SPC MD Monitor")
                 try:
                     view = MDSummaryView(md_num=str(md_num), raw_text=raw_text or "")
                     msg = await safe_send(
                         channel,
                         context=f"MD #{md_num}",
-                        embeds=[img_embed, text_embed],
+                        embed=img_embed,
                         files=files,
                         view=view,
                     )
                     if not msg:
                         continue
-                    if not cache_path or not full_text:
-                        t = asyncio.create_task(self._upgrade_md_message(md_num, msg, full_text))
-                        self._pending_tasks.add(t)
-                        t.add_done_callback(self._pending_tasks.discard)
+
                     # Track in active_mds after a successful post regardless of source —
                     # we genuinely just announced this MD and need to cancel it later.
                     self.bot.state.active_mds.add(md_num)
                     await self.bot.state.add_posted_md(str(md_num))
                     self.bot.state.last_post_times["md"] = datetime.now(timezone.utc)
 
+                    # Create thread for discussion text and AI summary
+                    thread = await safe_create_thread(
+                        msg,
+                        context=f"MD #{md_num}",
+                        name=f"MD #{int(md_num)}",
+                        auto_archive_duration=1440,
+                    )
+
+                    text_msg = None
+                    if thread and full_text:
+                        cleaned_text = clean_md_text_for_discord(full_text)
+                        text_embed = discord.Embed(
+                            title=f"🌩️ SPC Mesoscale Discussion #{int(md_num)}",
+                            url=md_page_url,
+                            description=cleaned_text[:4090],
+                            color=discord.Color.dark_orange(),
+                        )
+                        text_embed.set_footer(text="SPC MD Monitor")
+                        try:
+                            text_msg = await thread.send(embed=text_embed)
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to post discussion text in thread for MD #{md_num}: {e}"
+                            )
+
                     # Autopost AI summary
                     from cogs.ai_summaries import autopost_md_summary
 
-                    t = asyncio.create_task(autopost_md_summary(msg, str(md_num)))
+                    t = asyncio.create_task(autopost_md_summary(msg, str(md_num), thread=thread))
                     t.add_done_callback(
                         lambda t, md_num=md_num: (
                             logger.debug(f"[MD {md_num}] AI summary autopost finished")
@@ -887,6 +961,16 @@ class MesoscaleCog(commands.Cog):
                             )
                         )
                     )
+
+                    if not cache_path or not full_text:
+                        t = asyncio.create_task(
+                            self._upgrade_md_message(
+                                md_num, msg, full_text, text_msg=text_msg, thread=thread
+                            )
+                        )
+                        self._pending_tasks.add(t)
+                        t.add_done_callback(self._pending_tasks.discard)
+
                     logger.info(f"Posted MD #{md_num}")
                 except Exception as e:
                     logger.exception(f"auto_post_md send failed for #{md_num}: {e}")

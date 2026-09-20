@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Tuple
 
 from cogs.iembot import get_cached_watch_text
 from config import NWS_ALERTS_URL, SPC_WATCH_INDEX_URL
-from utils.http import http_get_bytes, http_get_bytes_conditional, http_get_text
+from utils.http import http_get_bytes, http_get_bytes_conditional, http_get_text, http_head_ok
 from utils.state_store import (
     get_state,
     get_validators,
@@ -123,8 +123,24 @@ async def fetch_active_watches_nws() -> Optional[Dict[str, dict]]:
                 continue
             watch_num = m.group(2).zfill(4)
             if valid_etns and watch_num not in valid_etns:
-                logger.debug(f"Skipping watch #{watch_num} — not listed on SPC watch index")
-                continue
+                # The SPC index page is CONUS-centric and may not list watches
+                # that are active on the NWS API but not yet indexed (e.g.
+                # Hawaii tornado watches). Verify the watch page exists on SPC
+                # before dropping the watch — if ww{num}.html returns 200,
+                # the watch is genuinely issued by SPC and should not be skipped.
+                watch_page_url = f"https://www.spc.noaa.gov/products/watch/ww{watch_num}.html"
+                page_ok = await http_head_ok(watch_page_url, timeout=5)
+                if page_ok:
+                    logger.warning(
+                        f"Watch #{watch_num} not on SPC index page but confirmed "
+                        f"via individual page {watch_page_url} — keeping"
+                    )
+                else:
+                    logger.warning(
+                        f"Skipping watch #{watch_num} — not on SPC index "
+                        f"({watch_page_url} did not return 200)"
+                    )
+                    continue
             wtype = "TORNADO" if m.group(1).upper() == "TO" else "SVR"
             if watch_num in result:
                 break

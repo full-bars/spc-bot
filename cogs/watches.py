@@ -241,6 +241,9 @@ class WatchesCog(commands.Cog):
                 if cache_path and os.path.exists(cache_path):
                     image_missing = await asyncio.to_thread(_read_is_placeholder, cache_path)
 
+                if not image_missing and cache_path:
+                    self.bot.state.watch_image_cache[watch_num] = cache_path
+
                 # If we have BOTH, we are fully upgraded.
                 if not image_missing and has_real_probs:
                     embed = _build_watch_embed(
@@ -313,6 +316,8 @@ class WatchesCog(commands.Cog):
                         continue
                 else:
                     continue
+
+                self.bot.state.watch_image_cache[watch_num] = cache_path
 
                 # Got it! Do the final edit.
                 embed = _build_watch_embed(
@@ -387,6 +392,8 @@ class WatchesCog(commands.Cog):
             cache_path, _, _ = await download_single_image(
                 image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
             )
+            if cache_path and not await asyncio.to_thread(_read_is_placeholder, cache_path):
+                self.bot.state.watch_image_cache[watch_num] = cache_path
 
         embed = _build_watch_embed(
             watch_num,
@@ -476,6 +483,9 @@ class WatchesCog(commands.Cog):
                         continue
 
                 self.bot.state.active_watches.pop(watch_num, None)
+                cache_path = self.bot.state.watch_image_cache.pop(watch_num, None)
+                if cache_path and not os.path.exists(cache_path):
+                    cache_path = None
                 reason = "expired" if expired_by_time else "no longer active"
                 logger.info(f"Watch #{watch_num} {reason} — posting cancellation")
                 watch_label = "Tornado Watch" if wtype == "TORNADO" else "Severe Thunderstorm Watch"
@@ -489,14 +499,33 @@ class WatchesCog(commands.Cog):
                 else:
                     end_time = now_utc
                 end_ts = int(end_time.timestamp())
-                msg = await safe_send(
-                    channel,
-                    context=f"watch cancellation #{watch_num}",
-                    content=f"{watch_label} #{int(watch_num)} {reason} <t:{end_ts}:R>",
-                )
+                content = f"{watch_label} #{int(watch_num)} {reason} <t:{end_ts}:R>"
+                if cache_path:
+                    embed = discord.Embed(
+                        title=f"{'🌪️' if wtype == 'TORNADO' else '⛈️'}  {watch_label} #{int(watch_num)} {reason.upper()}",
+                        color=discord.Color.dark_grey(),
+                        timestamp=end_time,
+                    )
+                    embed.set_image(url=f"attachment://watch_{watch_num}.gif")
+                    embed.set_footer(text="SPC Watch Monitor")
+                    msg = await safe_send(
+                        channel,
+                        context=f"watch cancellation #{watch_num}",
+                        content=content,
+                        embed=embed,
+                        files=_watch_files(watch_num, cache_path),
+                    )
+                else:
+                    msg = await safe_send(
+                        channel,
+                        context=f"watch cancellation #{watch_num}",
+                        content=content,
+                    )
                 if msg is None:
                     logger.warning(f"Failed to send cancellation for #{watch_num}")
                     self.bot.state.active_watches[watch_num] = info
+                    if cache_path:
+                        self.bot.state.watch_image_cache[watch_num] = cache_path
                 else:
                     logger.info(f"Posted cancellation for #{watch_num}")
 
@@ -532,6 +561,10 @@ class WatchesCog(commands.Cog):
                         cache_path, _, _ = await download_single_image(
                             image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache
                         )
+                        if cache_path and not await asyncio.to_thread(
+                            _read_is_placeholder, cache_path
+                        ):
+                            self.bot.state.watch_image_cache[watch_num] = cache_path
 
                     embed = _build_watch_embed(
                         watch_num,

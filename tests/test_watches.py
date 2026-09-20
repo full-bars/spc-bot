@@ -233,7 +233,8 @@ class TestFetchActiveWatchesNWS:
 
     @pytest.mark.asyncio
     async def test_stale_wfo_etns_filtered_by_spc_index(self):
-        """WFO WCN features with ETNs absent from the SPC index are dropped."""
+        """WFO WCN features absent from the SPC index AND without an individual
+        SPC page are dropped."""
         from cogs.watches import fetch_active_watches_nws
 
         # NWS API returns two features: one valid (0230), one stale WFO ETN (0001)
@@ -255,11 +256,48 @@ class TestFetchActiveWatchesNWS:
             "cogs.watch_fetch.http_get_text",
             new_callable=AsyncMock,
             return_value=self._spc_html("0230"),  # only 0230 is on the SPC page
+        ), patch(
+            "cogs.watch_fetch.http_head_ok",
+            new_callable=AsyncMock,
+            # stale watch #0001 has no individual SPC page → False → filtered
+            side_effect=lambda url, **kw: False,
         ):
             result = await fetch_active_watches_nws()
 
         assert "0230" in result
         assert "0001" not in result
+
+    @pytest.mark.asyncio
+    async def test_watch_not_on_index_but_on_individual_page_kept(self):
+        """A watch absent from the SPC index page but present on its individual
+        SPC page (ww{num}.html returns 200) is kept, not filtered — e.g.
+        Hawaii tornado watches not on the CONUS-centric index."""
+        from cogs.watches import fetch_active_watches_nws
+
+        # NWS API returns a tornado watch for Kauai (0001) not on the SPC index
+        feature = self._make_feature(
+            "/O.NEW.PHFO.TO.A.0001.260908T0213Z-260908T1400Z/",
+            expires="2026-09-08T14:00:00+00:00",
+        )
+        payload = self._make_response([feature])
+
+        with patch(
+            "cogs.watch_fetch.http_get_bytes_conditional",
+            new_callable=AsyncMock,
+            return_value=(payload, 200, None),
+        ), patch(
+            "cogs.watch_fetch.http_get_text",
+            new_callable=AsyncMock,
+            return_value=self._spc_html(),  # SPC index page is empty (no ww0001 link)
+        ), patch(
+            "cogs.watch_fetch.http_head_ok",
+            new_callable=AsyncMock,
+            return_value=True,  # individual page ww0001.html returns 200
+        ):
+            result = await fetch_active_watches_nws()
+
+        assert "0001" in result
+        assert result["0001"]["type"] == "TORNADO"
 
 
 # ── post_watch_now (iembot fast-path) ────────────────────────────────────────

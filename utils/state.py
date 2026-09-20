@@ -127,6 +127,7 @@ class PostingLog:
         "posted_product_ids",
         "posted_soundings",
         "sounding_handled_watches",
+        "watch_image_cache",
     )
 
     def __init__(self):
@@ -138,6 +139,13 @@ class PostingLog:
         self.csu_posted: Set[str] = set()
         self.active_mds: Set[str] = set()
         self.active_watches: Dict[str, dict] = {}
+        # Latest cached SPC graphic path for each active watch, keyed by
+        # watch number. Populated whenever an issuance/upgrade poll
+        # downloads a real (non-placeholder) image, so the cancellation
+        # message can reuse it — SPC frequently pulls/replaces the watch
+        # graphic shortly after a watch ends, so re-fetching at
+        # cancellation time is unreliable.
+        self.watch_image_cache: Dict[str, str] = {}
         # Currently-active VTEC IDs mapping to their latest vtec metadata dict
         self.active_warnings: Dict[str, dict] = {}
         self.posted_reports: Set[str] = set()
@@ -428,6 +436,9 @@ class BotState:
                 # Unrecognised type — keep, don't risk dropping a live watch
                 kept_watches[watch_num] = info
         self.active_watches = kept_watches
+        for watch_num in list(self.watch_image_cache):
+            if watch_num not in kept_watches:
+                self.watch_image_cache.pop(watch_num, None)
 
         return (
             warnings_before - len(self.active_warnings),
@@ -494,6 +505,7 @@ class BotState:
     posted_product_ids = _delegate("posting", "posted_product_ids")
     posted_soundings = _delegate("posting", "posted_soundings")
     sounding_handled_watches = _delegate("posting", "sounding_handled_watches")
+    watch_image_cache = _delegate("posting", "watch_image_cache")
 
     last_post_times = _delegate("timing", "last_post_times")
     last_posted_urls = _delegate("timing", "last_posted_urls")
