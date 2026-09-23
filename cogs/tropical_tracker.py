@@ -108,10 +108,7 @@ async def _download_cone_image(storm_id: str, advisory_num: str) -> bytes | None
     URL pattern: /storm_graphics/{BASIN}/{STORM_ID}_5day_cone_sm+png/{ADVISORY}_5day_cone_sm.png
     """
     basin = storm_id[:2]  # "AL" or "EP"
-    url = (
-        f"{NHC_GRAPHICS_BASE}/{basin}/{storm_id}"
-        f"_5day_cone_sm+png/{advisory_num}_5day_cone_sm.png"
-    )
+    url = f"{NHC_GRAPHICS_BASE}/{basin}/{storm_id}_5day_cone_sm+png/{advisory_num}_5day_cone_sm.png"
     content, status = await http_get_bytes(url, retries=2, timeout=15)
     if content and status == 200 and len(content) > 1000:
         return content
@@ -430,7 +427,11 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         query_upper = query.upper().strip()
 
         # Direct ID match
-        if len(query_upper) >= 6 and query_upper[:2] in ("AL", "EP", "CP") and query_upper[2:4].isdigit():
+        if (
+            len(query_upper) >= 6
+            and query_upper[:2] in ("AL", "EP", "CP")
+            and query_upper[2:4].isdigit()
+        ):
             return query_upper
 
         active = await get_active_storms()
@@ -529,7 +530,9 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
 
         if msg:
             # Update last_etn
-            await self._update_last_etn(channel.id if isinstance(channel, discord.TextChannel) else 0, storm_id, etn)
+            await self._update_last_etn(
+                channel.id if isinstance(channel, discord.TextChannel) else 0, storm_id, etn
+            )
 
     async def _update_last_etn(self, channel_id: int, storm_id: str, etn: str) -> None:
         if not channel_id:
@@ -541,7 +544,9 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
                 break
         await set_tracked_storms(channel_id, storms)
 
-    async def _post_dissipation_notice(self, channel: discord.abc.Messageable, storm_id: str) -> None:
+    async def _post_dissipation_notice(
+        self, channel: discord.abc.Messageable, storm_id: str
+    ) -> None:
         embed = discord.Embed(
             title=f"Storm Dissipated: {storm_id}",
             description=f"**{storm_id}** is no longer listed as active by NHC. Tracking stopped.",
