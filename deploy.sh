@@ -54,9 +54,9 @@ _configure_redis_replication() {
 
     # Check if already correctly wired up
     local cur_role cur_host cur_port
-    cur_role=$(redis-cli info replication 2>/dev/null | grep "^role:"        | cut -d: -f2 | tr -d '[:space:]\r')
-    cur_host=$(redis-cli info replication 2>/dev/null | grep "^master_host:" | cut -d: -f2 | tr -d '[:space:]\r')
-    cur_port=$(redis-cli info replication 2>/dev/null | grep "^master_port:" | cut -d: -f2 | tr -d '[:space:]\r')
+    cur_role=$(redis-cli info replication 2>/dev/null | grep "^role:"        | cut -d: -f2 | tr -d '[:space:]\r' || true)
+    cur_host=$(redis-cli info replication 2>/dev/null | grep "^master_host:" | cut -d: -f2 | tr -d '[:space:]\r' || true)
+    cur_port=$(redis-cli info replication 2>/dev/null | grep "^master_port:" | cut -d: -f2 | tr -d '[:space:]\r' || true)
 
     if [[ "$cur_role" == "slave" && "$cur_host" == "$primary_host" && "$cur_port" == "$primary_port" ]]; then
         local link_status
@@ -75,7 +75,7 @@ _configure_redis_replication() {
 
     # Persist to redis.conf so it survives Redis restarts
     local redis_conf
-    redis_conf=$(redis-cli info server 2>/dev/null | grep "^config_file:" | cut -d: -f2- | tr -d '[:space:]\r')
+    redis_conf=$(redis-cli info server 2>/dev/null | grep "^config_file:" | cut -d: -f2- | tr -d '[:space:]\r' || true)
     if [[ -n "$redis_conf" && -f "$redis_conf" ]]; then
         if sudo grep -qE "^(replicaof|slaveof) " "$redis_conf" 2>/dev/null; then
             sudo sed -i "s|^replicaof .*|replicaof ${primary_host} ${primary_port}|; \
@@ -161,7 +161,12 @@ if [ "$(uname -m)" = "aarch64" ] && grep -qi '^[[:space:]]*[Cc]artopy' "$REQS_FI
     # (rolling back every pin, including security fixes) when a single package
     # fails to build. Install everything else; `pip check` below catches drift.
     warn "aarch64 detected — installing requirements with Cartopy excluded (no aarch64 wheel)."
-    grep -vi '^[[:space:]]*[Cc]artopy' "$REQS_FILE" | "${VENV_DIR}/bin/pip" install -r - --quiet
+    # pip 26 dropped `-r -` (requirements from stdin); filter to a temp file so
+    # the exclusion works on every pip version.
+    _tmp_reqs="$(mktemp "${INSTALL_DIR}/reqs.XXXXXX.txt")"
+    grep -vi '^[[:space:]]*[Cc]artopy' "$REQS_FILE" > "$_tmp_reqs"
+    "${VENV_DIR}/bin/pip" install -r "$_tmp_reqs" --quiet
+    rm -f "$_tmp_reqs"
     # pip check does not validate direct pins from requirements.txt, so a fresh
     # venv could pass with no Cartopy at all - but utils/map_utils.py imports it.
     # Require an existing, in-range, importable Cartopy on aarch64.
@@ -297,8 +302,10 @@ EOF
 else
     info "Failover already configured (IS_PRIMARY found). Skipping setup prompts."
     # On re-runs (e.g. spcupdate), still verify Redis replication is live on standby nodes.
-    _existing_is_primary=$(grep "^IS_PRIMARY=" "$ENV_FILE" | cut -d= -f2 | tr -d '[:space:]')
-    _existing_election_url=$(grep "^ELECTION_REDIS_URL=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]')
+    # `set -o pipefail` + `set -e` makes a no-match grep abort the script, so guard
+    # optional keys (ELECTION_REDIS_URL is absent on the Primary) with `|| true`.
+    _existing_is_primary=$(grep "^IS_PRIMARY=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]' || true)
+    _existing_election_url=$(grep "^ELECTION_REDIS_URL=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' || true)
     if [[ "$_existing_is_primary" == "false" && -n "$_existing_election_url" ]]; then
         _configure_redis_replication "$_existing_election_url"
     fi
