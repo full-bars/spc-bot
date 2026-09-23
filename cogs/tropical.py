@@ -7,9 +7,20 @@ from datetime import datetime, timezone
 import discord
 from discord.ext import commands
 
-from config import IEM_NWSTEXT_URL, TROPICAL_CHANNEL_ID
+from config import TROPICAL_CHANNEL_ID
 from utils.discord_send import safe_create_thread, safe_send
-from utils.http import http_get_bytes
+from utils.nhc_storms import (
+    SAFFIR_EMOJI,
+    SAFFIR_SIMPSON_COLORS,
+    classify_product,
+    fetch_nhc_product,
+    parse_location,
+    parse_location_desc,
+    parse_max_wind,
+    parse_movement,
+    parse_pressure,
+    winds_to_category,
+)
 from utils.state_store import get_state
 
 logger = logging.getLogger("spc_bot")
@@ -20,82 +31,6 @@ TROPICAL_OFFICES = {"KNHC", "KTPC", "PHFO"}
 _NHC_LABEL_RE = re.compile(
     r"(?:NATIONAL HURRICANE CENTER|NHC|TROPICAL|HURRICANE|TROPICAL STORM)", re.IGNORECASE
 )
-
-SAFFIR_SIMPSON_COLORS = {
-    "TD": 0x5DBAFF,
-    "TS": 0x00FBF4,
-    "CAT1": 0xFFFFCD,
-    "CAT2": 0xFEE775,
-    "CAT3": 0xFFC140,
-    "CAT4": 0xFF8F21,
-    "CAT5": 0xFF6060,
-}
-
-SAFFIR_EMOJI = {
-    "TD": "☁️",
-    "TS": "🌧️",
-    "CAT1": "🌀",
-    "CAT2": "🌀",
-    "CAT3": "⚠️🌀⚠️",
-    "CAT4": "⚠️🌀⚠️",
-    "CAT5": "⚠️🌀⚠️",
-}
-
-
-def _winds_to_category(wind_mph: float) -> str:
-    if wind_mph < 39:
-        return "TD"
-    if wind_mph < 74:
-        return "TS"
-    if wind_mph < 96:
-        return "CAT1"
-    if wind_mph < 111:
-        return "CAT2"
-    if wind_mph < 130:
-        return "CAT3"
-    if wind_mph < 157:
-        return "CAT4"
-    return "CAT5"
-
-
-def _parse_max_wind(text: str) -> float | None:
-    """Extract maximum sustained wind speed in MPH from advisory text."""
-    m = re.search(r"MAXIMUM\s+SUSTAINED\s+WINDS[\.\s:]+?(\d+)\s*MPH", text, re.IGNORECASE)
-    if m:
-        return float(m.group(1))
-    return None
-
-
-def _clean_dots(s: str) -> str:
-    return re.sub(r"\.{2,}", " ", s).strip()
-
-
-def _parse_location(text: str) -> str | None:
-    m = re.search(r"LOCATION[\.\s:]+?([\d.]+[NS])\s+([\d.]+[EW])", text)
-    if m:
-        return _clean_dots(f"{m.group(1)} {m.group(2)}")
-    return None
-
-
-def _parse_location_desc(text: str) -> str | None:
-    m = re.search(r"ABOUT\s+(.+?)(?:\n|$)", text)
-    if m:
-        return _clean_dots(m.group(1))
-    return None
-
-
-def _parse_pressure(text: str) -> int | None:
-    m = re.search(r"MINIMUM\s+CENTRAL\s+PRESSURE[\.\s:]+?(\d+)\s*MB", text, re.IGNORECASE)
-    if m:
-        return int(m.group(1))
-    return None
-
-
-def _parse_movement(text: str) -> str | None:
-    m = re.search(r"PRESENT\s+MOVEMENT[\.\s:]+?(.+?\d+)\s*MPH", text, re.IGNORECASE)
-    if m:
-        return _clean_dots(m.group(1))
-    return None
 
 
 def _build_compact_summary(
@@ -111,8 +46,8 @@ def _build_compact_summary(
 
     if product_type == "ADVISORY":
         parts = []
-        loc = _parse_location(summary or raw)
-        loc_desc = _parse_location_desc(summary or raw)
+        loc = parse_location(summary or raw)
+        loc_desc = parse_location_desc(summary or raw)
         if loc:
             line = f"📍 {loc}"
             if loc_desc:
@@ -121,10 +56,10 @@ def _build_compact_summary(
         data_bits = []
         if wind_mph:
             data_bits.append(f"💨 {wind_mph:.0f} MPH")
-        pressure = _parse_pressure(summary or raw)
+        pressure = parse_pressure(summary or raw)
         if pressure:
             data_bits.append(f"🌀 {pressure} MB")
-        movement = _parse_movement(summary or raw)
+        movement = parse_movement(summary or raw)
         if movement:
             data_bits.append(f"➡️ {movement}")
         if data_bits:
@@ -177,7 +112,7 @@ def _build_compact_summary(
         return ""
 
     elif product_type == "UPDATE":
-        loc = _parse_location(summary or raw)
+        loc = parse_location(summary or raw)
         if loc and wind_mph:
             return f"📍 {loc} | 💨 {wind_mph:.0f} MPH"
         if loc:
@@ -185,113 +120,6 @@ def _build_compact_summary(
         return ""
 
     return ""
-
-
-STORM_TYPE_ORDER = [
-    "REMNANTS",
-    "POST-TROPICAL CYCLONE",
-    "TROPICAL DEPRESSION",
-    "SUBTROPICAL DEPRESSION",
-    "SUBTROPICAL STORM",
-    "TROPICAL STORM",
-    "HURRICANE",
-    "MAJOR HURRICANE",
-]
-
-
-def _classify_storm_type(text: str) -> str:
-    upper = text.upper()
-    for t in STORM_TYPE_ORDER:
-        if t in upper:
-            return t
-    if "TROPICAL CYCLONE" in upper:
-        return "TROPICAL CYCLONE"
-    return None
-
-
-def _extract_storm_name(text: str) -> str:
-    lines = text.splitlines()
-    for _i, line in enumerate(lines):
-        upper = line.upper()
-        for t in STORM_TYPE_ORDER:
-            if t in upper:
-                parts = upper.split(t, 1)
-                if len(parts) > 1:
-                    name = parts[1].strip().strip(".").strip()
-                    return name.title()
-    return None
-
-
-NHC_PRODUCT_NAMES = {
-    "TCP": "ADVISORY",
-    "TCD": "DISCUSSION",
-    "TWD": "TROPICAL WEATHER DISCUSSION",
-    "TWO": "TROPICAL WEATHER OUTLOOK",
-    "TCU": "UPDATE",
-    "TCE": "POSITION ESTIMATE",
-    "TCV": "WATCH/WARNING SUMMARY",
-}
-
-
-def _classify_product(product_id: str) -> str:
-    pid = product_id.upper()
-    for pil, name in NHC_PRODUCT_NAMES.items():
-        if pil in pid:
-            return name
-    return None
-
-
-async def _fetch_nhc_product(product_id: str) -> dict:
-    """Fetch and parse an NHC product from the IEM archive."""
-    url = IEM_NWSTEXT_URL.format(product_id=product_id)
-    content, status = await http_get_bytes(url, retries=2, timeout=10)
-    if not content or status != 200:
-        return None
-
-    text = content.decode("utf-8", errors="ignore")
-    if "not found" in text.lower() and len(text) < 100:
-        return None
-
-    lines = text.splitlines()
-    header_text = []
-    body_start = 0
-    for i, line in enumerate(lines):
-        header_text.append(line)
-        if line.strip().startswith("ATTENTION") or line.strip().startswith("000"):
-            body_start = i
-            break
-
-    # The "Summary" section (location/movement/pressure) is bounded by the next
-    # section header — an all-caps line immediately followed by a dashed
-    # underline, e.g. "WATCHES AND WARNINGS\n--------------------". The
-    # summary header itself has the same dashed-underline shape, so start
-    # looking for the *next* one two lines after the summary header to skip
-    # over its own underline.
-    body_lines = lines[body_start:]
-    summary_lines = []
-    for idx, line in enumerate(body_lines):
-        upper = line.strip().upper()
-        if "SUMMARY OF" in upper or "SUMMARY INFORMATION" in upper:
-            end = len(body_lines)
-            for j in range(idx + 2, len(body_lines) - 1):
-                underline = body_lines[j + 1].strip()
-                if underline and set(underline) == {"-"} and len(underline) > 3:
-                    end = j
-                    break
-            summary_lines = body_lines[idx:end]
-            break
-
-    summary = "\n".join(summary_lines).strip() if summary_lines else None
-
-    storm_type = _classify_storm_type(text)
-    storm_name = _extract_storm_name(text)
-
-    return {
-        "raw_text": text,
-        "summary": summary,
-        "storm_type": storm_type,
-        "storm_name": storm_name,
-    }
 
 
 class TropicalCog(commands.Cog, name="Tropical"):
@@ -330,11 +158,11 @@ class TropicalCog(commands.Cog, name="Tropical"):
         if dedup_key in self._posted:
             return
 
-        product_type = pil_prefix or _classify_product(product_id)
+        product_type = pil_prefix or classify_product(product_id)
         if not product_type:
             return
 
-        parsed = await _fetch_nhc_product(product_id)
+        parsed = await fetch_nhc_product(product_id)
         if not parsed:
             return
 
@@ -344,8 +172,8 @@ class TropicalCog(commands.Cog, name="Tropical"):
 
         storm_type = parsed["storm_type"]
         storm_name = parsed["storm_name"]
-        wind_mph = _parse_max_wind(parsed["raw_text"])
-        ss_cat = _winds_to_category(wind_mph) if wind_mph else None
+        wind_mph = parse_max_wind(parsed["raw_text"])
+        ss_cat = winds_to_category(wind_mph) if wind_mph else None
 
         emoji = SAFFIR_EMOJI.get(ss_cat or "", "🌀")
         embed_color = SAFFIR_SIMPSON_COLORS.get(ss_cat or "", 0xF39C12)
@@ -415,7 +243,7 @@ class TropicalCog(commands.Cog, name="Tropical"):
     async def route_from_product_id(
         self, product_id: str, raw_text: str = None, source: str = "IEMBot"
     ):
-        pil_prefix = _classify_product(product_id)
+        pil_prefix = classify_product(product_id)
         if not pil_prefix:
             return False
 
