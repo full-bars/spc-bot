@@ -208,10 +208,10 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # ── /track ────────────────────────────────────────────────────────────
+    # ── /nhc ─────────────────────────────────────────────────────────────
 
     track_group = app_commands.Group(
-        name="track",
+        name="nhc",
         description="Track active tropical cyclones",
     )
 
@@ -293,7 +293,9 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
             view.add_item(select)
             text = "Select a storm to track:"
             if truncated:
-                text += "\n_(only the first 25 are shown — type `/track storm` with a name to pick any)_"
+                text += (
+                    "\n_(only the first 25 are shown — type `/nhc storm` with a name to pick any)_"
+                )
             await interaction.response.send_message(text, view=view, ephemeral=True)
             return
 
@@ -301,7 +303,7 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         if not storm_id:
             await interaction.response.send_message(
                 f"Could not find an active storm matching `{storm}`. "
-                "Use a storm ID (e.g. EP172026) or run `/track storm` with no argument to pick from a dropdown.",
+                "Use a storm ID (e.g. EP172026) or run `/nhc storm` with no argument to pick from a dropdown.",
                 ephemeral=True,
             )
             return
@@ -402,7 +404,7 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         tracked = await get_tracked_storms(interaction.channel.id)
         if not tracked:
             await interaction.response.send_message(
-                "No storms are being tracked in this channel. Use `/track storm` to start tracking.",
+                "No storms are being tracked in this channel. Use `/nhc storm` to start tracking.",
                 ephemeral=True,
             )
             return
@@ -468,7 +470,7 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
             tracked = await get_tracked_storms(channel.id)
             if not tracked:
                 await interaction.response.send_message(
-                    "No storms are being tracked in this channel. Use `/track storm` to start tracking.",
+                    "No storms are being tracked in this channel. Use `/nhc storm` to start tracking.",
                     ephemeral=True,
                 )
                 return
