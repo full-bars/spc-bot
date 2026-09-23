@@ -633,11 +633,20 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
 
         wind_mph = info.get("winds_mph")
         ss_cat = winds_to_category(wind_mph) if wind_mph else None
+        is_major = ss_cat in ("CAT3", "CAT4", "CAT5")
 
         emoji = SAFFIR_EMOJI.get(ss_cat or "", "🌀")
         color = SAFFIR_SIMPSON_COLORS.get(ss_cat or "", 0xF39C12)
 
         desc_parts = []
+        # Severity headline — make major hurricanes unmissable.
+        if is_major:
+            desc_parts.append(f"⚠️ **MAJOR HURRICANE** — Category {ss_cat[-1]} ⚠️")
+        elif ss_cat:
+            desc_parts.append(f"**{category_label(ss_cat)}**")
+        elif stype:
+            desc_parts.append(f"**{stype}**")
+
         if info.get("position"):
             line = f"📍 {info['position']}"
             if info.get("movement"):
@@ -646,15 +655,12 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
 
         data_bits = []
         if wind_mph:
-            cat_label = category_label(ss_cat) if ss_cat else ""
-            data_bits.append(f"💨 {wind_mph:.0f} MPH ({cat_label})")
+            data_bits.append(f"💨 **{wind_mph:.0f} MPH**")
         if info.get("pressure"):
-            data_bits.append(f"🌀 {info['pressure']} MB")
+            data_bits.append(f"🌀 **{info['pressure']} MB**")
         if data_bits:
             desc_parts.append(" | ".join(data_bits))
 
-        if stype:
-            desc_parts.append(f"**Type:** {stype}")
         if info.get("issuance"):
             desc_parts.append(f"🕐 {info['issuance']}")
 
