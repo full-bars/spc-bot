@@ -951,6 +951,24 @@ async def set_state(key: str, value: str) -> None:
         await _enqueue_dirty("set_state", (key, value))
 
 
+async def list_state_keys(prefix: str) -> List[str]:
+    """Return state keys beginning with ``prefix`` (bare keys, no prefix).
+
+    Uses a Redis SCAN; returns an empty list if Redis is unavailable so the
+    caller can degrade gracefully. Useful for per-record state (e.g. one key
+    per tracked storm) where atomic single-key SET/DEL is preferred over
+    read-modify-write of a shared list.
+    """
+    pattern = f"{_k_state(prefix)}*"
+    try:
+        keys = await _scan_all_keys(pattern)
+    except _RedisUnavailable as e:
+        logger.debug(f"[STATE] list_state_keys({prefix}) unavailable: {e}")
+        return []
+    base = len(_k_state(prefix))
+    return [k[base:] for k in keys]
+
+
 async def delete_state(key: str) -> None:
     _cache_invalidate(f"state::{key}")
     await sqlite_backend.delete_state(key)
