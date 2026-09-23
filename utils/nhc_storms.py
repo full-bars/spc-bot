@@ -8,8 +8,6 @@ import logging
 import re
 import time
 
-import aiohttp
-
 from config import IEM_NWSTEXT_URL
 from utils.http import http_get_bytes
 
@@ -17,15 +15,18 @@ logger = logging.getLogger("spc_bot")
 
 # ── Storm classification constants ────────────────────────────────────────────
 
+# Order matters: more specific types must come before their substring matches
+# (e.g. "SUBTROPICAL DEPRESSION" before "TROPICAL DEPRESSION", "MAJOR
+# HURRICANE" before "HURRICANE") so classify/extract return the correct one.
 STORM_TYPE_ORDER = [
     "REMNANTS",
     "POST-TROPICAL CYCLONE",
-    "TROPICAL DEPRESSION",
     "SUBTROPICAL DEPRESSION",
     "SUBTROPICAL STORM",
+    "TROPICAL DEPRESSION",
     "TROPICAL STORM",
-    "HURRICANE",
     "MAJOR HURRICANE",
+    "HURRICANE",
 ]
 
 NHC_PRODUCT_NAMES = {
@@ -62,6 +63,8 @@ SAFFIR_EMOJI = {
 
 _active_storms_cache: dict[str, dict] = {}
 _active_storms_fetched_at: float = 0.0
+# None = never fetched, True = last fetch authoritative, False = last fetch failed
+_last_fetch_ok: bool | None = None
 _ACTIVE_STORMS_TTL = 300  # 5 minutes
 
 _ACTIVE_CYCLONES_URL = "https://www.nhc.noaa.gov/cyclones"
@@ -147,15 +150,24 @@ def classify_storm_type(text: str) -> str | None:
 
 
 def extract_storm_name(text: str) -> str | None:
-    lines = text.splitlines()
-    for _i, line in enumerate(lines):
+    """Extract the storm name from a product header line.
+
+    Strips trailing product suffixes ("ADVISORY NUMBER 14", "DISCUSSION",
+    "UPDATE") without truncating multi-word names, and handles headers such
+    as "REMNANTS OF FAY" and "POTENTIAL TROPICAL CYCLONE NINE".
+    """
+    for line in text.splitlines():
         upper = line.upper()
-        for t in STORM_TYPE_ORDER:
+        for t in STORM_TYPE_ORDER + ["POTENTIAL TROPICAL CYCLONE"]:
             if t in upper:
                 parts = upper.split(t, 1)
                 if len(parts) > 1:
-                    name = parts[1].strip().strip(".").strip()
-                    return name.title()
+                    remainder = parts[1].strip().strip(".").strip()
+                    name = re.split(r"\s+(?:ADVISORY|DISCUSSION|UPDATE)\b", remainder, maxsplit=1)[
+                        0
+                    ]
+                    name = re.sub(r"^OF\s+", "", name).strip()
+                    return name.title() or None
     return None
 
 
@@ -167,77 +179,157 @@ def classify_product(product_id: str) -> str | None:
     return None
 
 
+def split_type_name(full_name: str) -> tuple[str, str | None]:
+    """Split a full storm label like "Hurricane Polo" into (type, name).
+
+    Labels from the NHC cyclones page are all-caps; results are title-cased
+    for display (e.g. "HURRICANE POLO" → ("Hurricane", "Polo")).
+    """
+    upper = full_name.upper()
+    for t in STORM_TYPE_ORDER + ["POTENTIAL TROPICAL CYCLONE"]:
+        idx = upper.find(t)
+        if idx >= 0:
+            stype = full_name[idx : idx + len(t)].title()
+            name = full_name[idx + len(t) :].strip().strip(".").strip().title() or None
+            return stype, name
+    return full_name.title(), None
+
+
 # ── Active storm list scraping ────────────────────────────────────────────────
+
+_STORM_BLOCK_RE = re.compile(
+    r'<g\s+class="[^"]*storm-system[^"]*"\s+'
+    r'data-name="([^"]+)"\s+'
+    r'data-risk="([^"]*)"\s+'
+    r'data-prob="([^"]*)"\s+'
+    r'data-details="((?:(?!<g\b|</g>).)*?)"\s+'
+    r'data-action="([^"]+)"',
+    re.S,
+)
+
+_STORM_IDENT_RE = re.compile(
+    r"<!--storm serial number:\s*([A-Z]{2}\d{2})-->\s*"
+    r"<!--storm identification:\s*([A-Z]{2}\d{2}\d{4})\s+([^<]+)-->"
+)
+
+_STORM_FLOATER_RE = re.compile(
+    r'href="(https://www\.star\.nesdis\.noaa\.gov/goes/floater\.php\?stormid=([A-Z]{2}\d{2}\d{4}))"'
+)
+
+
+def _parse_advisory_details(details: str) -> dict:
+    """Parse the data-details payload (advisory number, winds, pressure...)."""
+    out: dict = {}
+    m = re.search(r"Advisory\s*#?\s*([0-9]+[A-Z]?)", details, re.IGNORECASE)
+    if m:
+        out["advisory"] = m.group(1)
+    m = re.search(r"Maximum\s+Sustained\s+Winds:.*?(\d+)\s*mph", details, re.IGNORECASE)
+    if m:
+        out["winds_mph"] = float(m.group(1))
+    m = re.search(r"Minimum\s+Central\s+Pressure:.*?(\d+)\s*mb", details, re.IGNORECASE)
+    if m:
+        out["pressure"] = int(m.group(1))
+    m = re.search(r"Located\s+at:\s*([0-9.]+[NS]\s+[0-9.]+[EW])", details, re.IGNORECASE)
+    if m:
+        out["position"] = m.group(1)
+    m = re.search(r"Movement:\s*(.+?)(?:<br>|$)", details, re.IGNORECASE)
+    if m:
+        out["movement"] = m.group(1).strip()
+    m = re.search(r"As\s+of\s+([^<]+?)\s*\(", details, re.IGNORECASE)
+    if m:
+        out["issuance"] = m.group(1).strip()
+    return out
 
 
 def _extract_storms_from_html(html: str) -> dict[str, dict]:
-    """Parse storm IDs and names from the NHC cyclones page HTML."""
-    import re as _re
+    """Parse active storms from the NHC cyclones page.
+
+    Combines the SVG storm-system blocks (full name, risk, advisory details,
+    graphics page URL) with the table-row comments (storm serial number and
+    storm identification, e.g. ``EP17`` / ``EP172026 Hurricane Polo``) keyed
+    by full name. Disturbances (data-risk != "storm") are excluded.
+    """
+    ident_by_name: dict[str, tuple[str, str]] = {}
+    for m in _STORM_IDENT_RE.finditer(html):
+        serial, storm_id, full_name = m.group(1), m.group(2), m.group(3).strip()
+        ident_by_name[full_name.lower()] = (storm_id, serial)
+
+    floater_by_id = {storm_id: url for url, storm_id in _STORM_FLOATER_RE.findall(html)}
 
     storms: dict[str, dict] = {}
+    for m in _STORM_BLOCK_RE.finditer(html):
+        full_name, risk, _prob, details, action = m.groups()
+        if risk != "storm":
+            continue
+        key = full_name.strip().lower()
+        ident = ident_by_name.get(key)
+        if not ident:
+            logger.debug(f"NHC cyclones page: no storm ID found for {full_name!r}")
+            continue
+        storm_id, serial = ident
 
-    # Extract storm IDs from star.nesdis.noaa.gov floater links
-    for m in _re.finditer(r"stormid=([A-Z]{2}\d{2}\d{4})", html):
-        storm_id = m.group(1)
-        if storm_id not in storms:
-            storms[storm_id] = {"storm_id": storm_id, "name": None, "type": None}
+        stype, name = split_type_name(full_name.strip())
+        graphics_match = re.search(r"graphics_([a-z]+\d+)\+", action)
+        graphics_url = (
+            f"https://www.nhc.noaa.gov/graphics_{graphics_match.group(1)}.shtml?cone"
+            if graphics_match
+            else None
+        )
 
-    # Try to extract storm names from surrounding text — pattern is
-    # "...HURRICANE POLO..." or "...TROPICAL STORM FELICIA..."
-    # We look for lines that contain both a storm type and a name.
-    name_pattern = _re.compile(
-        r"(HURRICANE|TROPICAL STORM|TROPICAL DEPRESSION)\s+([A-Z][A-Z\s]+?)(?:\s*\(|$|\n)",
-        _re.IGNORECASE,
-    )
-    for m in name_pattern.finditer(html):
-        stype = m.group(1).strip().title()
-        sname = m.group(2).strip().title()
-        # Match to the closest storm ID by finding the last stormid= before this match
-        pos = m.start()
-        best_id = None
-        for sid_m in _re.finditer(r"stormid=([A-Z]{2}\d{2}\d{4})", html):
-            if sid_m.start() <= pos:
-                best_id = sid_m.group(1)
-            else:
-                break
-        if best_id and best_id in storms:
-            storms[best_id]["name"] = sname
-            storms[best_id]["type"] = stype
+        info: dict = {
+            "storm_id": storm_id,
+            "name": name,
+            "type": stype,
+            "full_name": full_name.strip(),
+            "serial": serial,
+            "graphics_url": graphics_url,
+            "satellite_url": floater_by_id.get(storm_id),
+        }
+        info.update(_parse_advisory_details(details))
+        storms[storm_id] = info
 
     return storms
+
+
+def active_storms_authoritative() -> bool:
+    """True when the active-storm cache reflects a successful NHC fetch.
+
+    Callers must check this before acting on an *absent* storm (e.g. removing
+    a subscription) so a failed fetch with an empty cache doesn't wipe state.
+    """
+    return _last_fetch_ok is True
 
 
 async def get_active_storms() -> dict[str, dict]:
     """Fetch the list of active tropical cyclones from NHC.
 
-    Returns a dict keyed by storm ID (e.g., ``AL062026``) with values:
-    ``{"storm_id": str, "name": str|None, "type": str|None}``
+    Returns a dict keyed by storm ID (e.g. ``EP172026``) with values
+    including ``name``, ``type``, ``serial``, ``graphics_url`` and advisory
+    details (``advisory``, ``winds_mph``, ``pressure``, ``position``,
+    ``movement``, ``issuance``).
+
+    The result is cached for 5 minutes. An explicitly parsed empty result is
+    cached as authoritative (storms all dissipated); a failed fetch retains
+    the previous cache so callers can distinguish via
+    :func:`active_storms_authoritative`.
     """
-    global _active_storms_cache, _active_storms_fetched_at
+    global _active_storms_cache, _active_storms_fetched_at, _last_fetch_ok
 
     now = time.monotonic()
-    if _active_storms_cache and (now - _active_storms_fetched_at) < _ACTIVE_STORMS_TTL:
+    if _active_storms_fetched_at and (now - _active_storms_fetched_at) < _ACTIVE_STORMS_TTL:
         return _active_storms_cache
 
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                _ACTIVE_CYCLONES_URL,
-                timeout=aiohttp.ClientTimeout(total=15),
-            ) as resp:
-                if resp.status != 200:
-                    logger.warning(f"NHC cyclones page returned {resp.status}")
-                    return _active_storms_cache
-                html = await resp.text()
-    except Exception as e:
-        logger.warning(f"Failed to fetch NHC cyclones page: {e}")
+    content, status = await http_get_bytes(_ACTIVE_CYCLONES_URL, retries=2, timeout=15)
+    if not content or status != 200:
+        _last_fetch_ok = False
+        logger.warning(f"NHC cyclones page returned status {status}")
         return _active_storms_cache
 
-    storms = _extract_storms_from_html(html)
-    if storms:
-        _active_storms_cache = storms
-        _active_storms_fetched_at = now
-        logger.debug(f"Updated active storm list: {len(storms)} storm(s)")
+    storms = _extract_storms_from_html(content.decode("utf-8", errors="ignore"))
+    _active_storms_cache = storms
+    _active_storms_fetched_at = now
+    _last_fetch_ok = True
+    logger.debug(f"Updated active storm list: {len(storms)} storm(s)")
     return _active_storms_cache
 
 
@@ -286,12 +378,3 @@ async def fetch_nhc_product(product_id: str) -> dict | None:
         "storm_type": storm_type,
         "storm_name": storm_name,
     }
-
-
-def build_advisory_etn(product_id: str) -> str:
-    """Extract an advisory tracking number from a product ID for deduplication.
-
-    Falls back to the full product ID if no ETN pattern is found.
-    """
-    m = re.search(r"(\d{4,})", product_id)
-    return m.group(1) if m else product_id

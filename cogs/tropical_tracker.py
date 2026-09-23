@@ -1,47 +1,53 @@
 """Tropical storm tracker — subscribe to active cyclones for periodic updates."""
 
+import asyncio
 import io
 import json
 import logging
+import re
 from datetime import datetime, timezone
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from utils.change_detection import is_placeholder_image
 from utils.discord_send import safe_send
 from utils.http import http_get_bytes
 from utils.nhc_storms import (
     SAFFIR_EMOJI,
     SAFFIR_SIMPSON_COLORS,
-    build_advisory_etn,
+    active_storms_authoritative,
     category_label,
-    fetch_nhc_product,
     get_active_storms,
-    parse_location,
-    parse_location_desc,
-    parse_max_wind,
-    parse_movement,
-    parse_pressure,
     winds_to_category,
 )
-from utils.state_store import get_state, set_state
+from utils.state_store import delete_state, get_state, list_state_keys, set_state
 
 logger = logging.getLogger("spc_bot")
 
-NHC_GRAPHICS_BASE = "https://www.nhc.noaa.gov/storm_graphics"
+NHC_BASE = "https://www.nhc.noaa.gov"
 
-# NHC product PIL codes that carry advisory data (winds, position, etc.)
-_ADVISORY_PILS = {"TCP", "TCU", "TCE"}
+# Full storm ID format: basin (AL/EP/CP) + two-digit number + four-digit year.
+_STORM_ID_RE = re.compile(r"^(AL|EP|CP)\d{6}$")
 
-
-# ── Storm list for autocomplete ───────────────────────────────────────────────
-
-
-def _storm_display_name(storm: dict) -> str:
-    name = storm.get("name") or storm["storm_id"]
-    stype = storm.get("type") or ""
-    return f"{name} ({storm['storm_id']}) — {stype}" if stype else f"{name} ({storm['storm_id']})"
+# NESDIS/STAR floater products available for every active storm (verified live).
+# Values are the exact suffix of the `FloaterStatic{PRODUCT}` input on the
+# floater page. GEOCOLOR is the default.
+SATELLITE_PRODUCTS: dict[str, str] = {
+    "GEOCOLOR": "GeoColor (visible + color)",
+    "AirMass": "Air Mass RGB",
+    "Sandwich": "Sandwich (visible + IR)",
+    "DayConvection": "Day Convection RGB",
+    "DayNightCloudMicroCombo": "Day/Night Cloud Microcombo",
+    "EXTENT3": "Lightning (GLM)",
+    "02": "Visible (Band 02)",
+    "07": "Shortwave IR (Band 07)",
+    "08": "Water Vapor (Band 08)",
+    "13": "Clean IR (Band 13)",
+    "14": "IR Longwave (Band 14)",
+}
+DEFAULT_SATELLITE_PRODUCT = "GEOCOLOR"
 
 
 def _storm_emoji(storm: dict) -> str:
@@ -55,63 +61,139 @@ def _storm_emoji(storm: dict) -> str:
     return "🌀"
 
 
-# ── Subscription state helpers ────────────────────────────────────────────────
+def _storm_display_name(storm: dict) -> str:
+    name = storm.get("name") or storm["storm_id"]
+    stype = storm.get("type") or ""
+    return f"{name} ({storm['storm_id']}) — {stype}" if stype else f"{name} ({storm['storm_id']})"
 
 
-def _state_key(channel_id: int) -> str:
-    return f"tracked_storms:channel:{channel_id}"
+# ── Subscription state (atomic per-channel-per-storm records) ─────────────────
+
+
+def _state_key(channel_id: int, storm_id: str) -> str:
+    return f"tracked_storms:channel:{channel_id}:{storm_id}"
 
 
 async def get_tracked_storms(channel_id: int) -> list[dict]:
-    raw = await get_state(_state_key(channel_id))
-    if isinstance(raw, str):
-        try:
-            return json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            return []
-    if isinstance(raw, list):
-        return raw
-    return []
+    """List tracked storms for a channel as records with sat_product."""
+    storm_ids = await list_state_keys(f"tracked_storms:channel:{channel_id}:")
+    storms: list[dict] = []
+    for storm_id in storm_ids:
+        record = {"storm_id": storm_id, "last_etn": None, "sat_product": DEFAULT_SATELLITE_PRODUCT}
+        raw = await get_state(_state_key(channel_id, storm_id))
+        if isinstance(raw, str):
+            try:
+                data = json.loads(raw)
+                record["last_etn"] = data.get("last_etn")
+                record["sat_product"] = data.get("sat_product") or DEFAULT_SATELLITE_PRODUCT
+            except (json.JSONDecodeError, TypeError, AttributeError):
+                record["last_etn"] = raw
+        storms.append(record)
+    return storms
 
 
-async def set_tracked_storms(channel_id: int, storms: list[dict]) -> None:
-    await set_state(_state_key(channel_id), json.dumps(storms))
+async def get_all_tracked_channels() -> dict[int, list[str]]:
+    """Map every channel with trackers to its list of storm IDs (one SCAN)."""
+    keys = await list_state_keys("tracked_storms:channel:")
+    result: dict[int, list[str]] = {}
+    for key in keys:
+        channel_s, _, storm_id = key.partition(":")
+        if not channel_s.isdigit() or not storm_id:
+            continue
+        result.setdefault(int(channel_s), []).append(storm_id)
+    return result
 
 
-async def add_tracked_storm(channel_id: int, storm_id: str) -> bool:
-    """Add a storm to a channel's tracked list. Returns True if newly added."""
-    storms = await get_tracked_storms(channel_id)
-    if any(s["storm_id"] == storm_id for s in storms):
+async def add_tracked_storm(
+    channel_id: int, storm_id: str, sat_product: str = DEFAULT_SATELLITE_PRODUCT
+) -> bool:
+    """Add a storm to a channel's trackers. Returns True if newly added.
+
+    Each subscription is its own state key so add/remove are atomic SET/DEL
+    — safe across concurrent commands and HA instances (no read-modify-write).
+    """
+    key = _state_key(channel_id, storm_id)
+    if await get_state(key) is not None:
         return False
-    storms.append({"storm_id": storm_id, "last_etn": None})
-    await set_tracked_storms(channel_id, storms)
+    await set_state(key, json.dumps({"last_etn": None, "sat_product": sat_product}))
+    return True
+
+
+async def set_satellite_product(channel_id: int, storm_id: str, product: str) -> bool:
+    """Set the satellite product for a tracked storm. Returns True if tracked."""
+    key = _state_key(channel_id, storm_id)
+    raw = await get_state(key)
+    if raw is None:
+        return False
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        data = {}
+    data["sat_product"] = product
+    await set_state(key, json.dumps(data))
     return True
 
 
 async def remove_tracked_storm(channel_id: int, storm_id: str) -> bool:
-    """Remove a storm from a channel's tracked list. Returns True if removed."""
-    storms = await get_tracked_storms(channel_id)
-    before = len(storms)
-    storms = [s for s in storms if s["storm_id"] != storm_id]
-    if len(storms) == before:
+    """Remove a storm from a channel's trackers. Returns True if removed."""
+    key = _state_key(channel_id, storm_id)
+    if await get_state(key) is None:
         return False
-    await set_tracked_storms(channel_id, storms)
+    await delete_state(key)
     return True
+
+
+async def _update_last_etn(channel_id: int, storm_id: str, etn: str) -> None:
+    await set_state(_state_key(channel_id, storm_id), json.dumps({"last_etn": etn}))
 
 
 # ── Image download ────────────────────────────────────────────────────────────
 
 
-async def _download_cone_image(storm_id: str, advisory_num: str) -> bytes | None:
-    """Download the 5-day forecast cone PNG from NHC.
+async def _download_cone_image(graphics_url: str | None) -> bytes | None:
+    """Fetch the storm's graphics page and download the full 5-day cone PNG.
 
-    URL pattern: /storm_graphics/{BASIN}/{STORM_ID}_5day_cone_sm+png/{ADVISORY}_5day_cone_sm.png
+    The page exposes the full graphic as ``<img id="coneimage">`` (e.g.
+    ``.../EP172026_5day_cone+png/222335_5day_cone.png``); the ``_sm``
+    variants referenced elsewhere are 60px thumbnails and are not used.
     """
-    basin = storm_id[:2]  # "AL" or "EP"
-    url = f"{NHC_GRAPHICS_BASE}/{basin}/{storm_id}_5day_cone_sm+png/{advisory_num}_5day_cone_sm.png"
-    content, status = await http_get_bytes(url, retries=2, timeout=15)
-    if content and status == 200 and len(content) > 1000:
-        return content
+    if not graphics_url:
+        return None
+    content, status = await http_get_bytes(graphics_url, retries=2, timeout=15)
+    if not content or status != 200:
+        return None
+    html = content.decode("utf-8", errors="ignore")
+    m = re.search(r'<img[^>]*id="coneimage"[^>]*src\s*=\s*"([^"]*)"', html)
+    if not m:
+        return None
+    img_url = NHC_BASE + m.group(1)
+    img, img_status = await http_get_bytes(img_url, retries=2, timeout=15)
+    if img and img_status == 200 and not is_placeholder_image(img):
+        return img
+    return None
+
+
+async def _download_satellite_image(
+    satellite_url: str | None, product: str = DEFAULT_SATELLITE_PRODUCT
+) -> bytes | None:
+    """Fetch the NESDIS/STAR floater page and download the latest frame.
+
+    The floater page exposes each available product as a hidden input
+    ``FloaterStatic{PRODUCT}`` (e.g. a 500x500 GOES GEOCOLOR JPEG at
+    ``cdn.star.nesdis.noaa.gov/FLOATER/{stormid}/{PRODUCT}/...``).
+    """
+    if not satellite_url:
+        return None
+    content, status = await http_get_bytes(satellite_url, retries=2, timeout=15)
+    if not content or status != 200:
+        return None
+    html = content.decode("utf-8", errors="ignore")
+    m = re.search(rf"id='FloaterStatic{re.escape(product)}'[^>]*value='([^']+)'", html)
+    if not m:
+        return None
+    img, img_status = await http_get_bytes(m.group(1), retries=2, timeout=20)
+    if img and img_status == 200 and not is_placeholder_image(img):
+        return img
     return None
 
 
@@ -126,21 +208,46 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # ── /track ────────────────────────────────────────────────────────────
+    # ── /nhc ─────────────────────────────────────────────────────────────
 
     track_group = app_commands.Group(
-        name="track",
+        name="nhc",
         description="Track active tropical cyclones",
     )
 
+    async def _require_guild_channel(
+        self, interaction: discord.Interaction
+    ) -> discord.TextChannel | None:
+        """Return the channel or reply with an error and return None."""
+        channel = interaction.channel
+        if not isinstance(channel, discord.TextChannel):
+            await interaction.response.send_message(
+                "Storm tracking must be set up in a server text channel.",
+                ephemeral=True,
+            )
+            return None
+        return channel
+
     @track_group.command(name="storm", description="Track a tropical cyclone for periodic updates")
-    @app_commands.describe(storm="Storm to track (leave blank to pick from dropdown)")
+    @app_commands.describe(
+        storm="Storm to track (leave blank to pick from dropdown)",
+        satproduct="NESDIS satellite product for the update image (default GeoColor)",
+    )
+    @app_commands.choices(
+        satproduct=[
+            app_commands.Choice(name=label, value=key) for key, label in SATELLITE_PRODUCTS.items()
+        ]
+    )
     async def track_storm(
         self,
         interaction: discord.Interaction,
         storm: str | None = None,
+        satproduct: app_commands.Choice[str] | None = None,
     ):
-        channel = interaction.channel
+        channel = await self._require_guild_channel(interaction)
+        if not channel:
+            return
+        sat_product = satproduct.value if satproduct else DEFAULT_SATELLITE_PRODUCT
 
         # If no storm specified, show dropdown of active storms
         if not storm:
@@ -151,20 +258,16 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
                 )
                 return
 
-            options = []
-            for sid, info in sorted(active.items()):
-                emoji = _storm_emoji(info)
-                name = info.get("name") or sid
-                stype = info.get("type") or "Unknown"
-                options.append(
-                    discord.SelectOption(
-                        label=f"{name} ({sid})",
-                        value=sid,
-                        description=stype,
-                        emoji=emoji,
-                    )
+            options = [
+                discord.SelectOption(
+                    label=f"{info.get('name') or sid} ({sid})",
+                    value=sid,
+                    description=info.get("type") or "Unknown",
+                    emoji=_storm_emoji(info),
                 )
-
+                for sid, info in sorted(active.items())
+            ]
+            truncated = len(options) > 25
             select = discord.ui.Select(
                 placeholder="Choose a storm to track...",
                 min_values=1,
@@ -173,60 +276,48 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
             )
 
             async def _on_select(select_interaction: discord.Interaction):
-                selected_id = select_values[0]
-                added = await add_tracked_storm(channel.id, selected_id)
+                selected_id = select.values[0]
+                added = await add_tracked_storm(channel.id, selected_id, sat_product)
                 info = active.get(selected_id, {})
                 name = info.get("name") or selected_id
-                if added:
-                    await select_interaction.response.edit_message(
-                        content=f"Now tracking **{name}** ({selected_id}). Updates posted every 30 minutes.",
-                        view=None,
-                    )
-                else:
-                    await select_interaction.response.edit_message(
-                        content=f"Already tracking **{name}** ({selected_id}).",
-                        view=None,
-                    )
+                msg = (
+                    f"Now tracking **{name}** ({selected_id}). Updates posted every 30 minutes "
+                    f"with **{SATELLITE_PRODUCTS.get(sat_product, sat_product)}** satellite imagery."
+                    if added
+                    else f"Already tracking **{name}** ({selected_id})."
+                )
+                await select_interaction.response.edit_message(content=msg, view=None)
 
-            select_values: list[str] = []
             select.callback = _on_select
-
-            # Wrap callback to capture value
-            _orig = select.callback
-
-            async def _capture(interaction: discord.Interaction):
-                select_values.extend(select.values)
-                await _orig(interaction)
-
-            select.callback = _capture
-
             view = discord.ui.View()
             view.add_item(select)
-            await interaction.response.send_message(
-                "Select a storm to track:", view=view, ephemeral=True
-            )
+            text = "Select a storm to track:"
+            if truncated:
+                text += (
+                    "\n_(only the first 25 are shown — type `/nhc storm` with a name to pick any)_"
+                )
+            await interaction.response.send_message(text, view=view, ephemeral=True)
             return
 
-        # Resolve storm ID from name
         storm_id = await self._resolve_storm_id(storm)
         if not storm_id:
             await interaction.response.send_message(
-                f"Could not find a storm matching `{storm}`. "
-                "Use the storm ID (e.g., AL062026) or pick from the dropdown by running `/track storm` without an argument.",
+                f"Could not find an active storm matching `{storm}`. "
+                "Use a storm ID (e.g. EP172026) or run `/nhc storm` with no argument to pick from a dropdown.",
                 ephemeral=True,
             )
             return
 
-        added = await add_tracked_storm(channel.id, storm_id)
+        added = await add_tracked_storm(channel.id, storm_id, sat_product)
         if added:
             await interaction.response.send_message(
-                f"Now tracking **{storm_id}**. Updates posted every 30 minutes.",
+                f"Now tracking **{storm_id}**. Updates posted every 30 minutes "
+                f"with **{SATELLITE_PRODUCTS.get(sat_product, sat_product)}** satellite imagery.",
                 ephemeral=True,
             )
         else:
             await interaction.response.send_message(
-                f"Already tracking **{storm_id}**.",
-                ephemeral=True,
+                f"Already tracking **{storm_id}**.", ephemeral=True
             )
 
     # ── /untrack ──────────────────────────────────────────────────────────
@@ -238,7 +329,9 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         interaction: discord.Interaction,
         storm: str | None = None,
     ):
-        channel = interaction.channel
+        channel = await self._require_guild_channel(interaction)
+        if not channel:
+            return
 
         if not storm:
             tracked = await get_tracked_storms(channel.id)
@@ -253,15 +346,12 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
             for t in tracked:
                 sid = t["storm_id"]
                 info = active.get(sid, {})
-                name = info.get("name") or sid
-                stype = info.get("type") or ""
-                emoji = _storm_emoji(info)
                 options.append(
                     discord.SelectOption(
-                        label=f"{name} ({sid})",
+                        label=f"{info.get('name') or sid} ({sid})",
                         value=sid,
-                        description=stype or "Tracked",
-                        emoji=emoji,
+                        description=info.get("type") or "Tracked",
+                        emoji=_storm_emoji(info),
                     )
                 )
 
@@ -275,9 +365,9 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
             async def _on_select(select_interaction: discord.Interaction):
                 removed = []
                 for sid in select.values:
-                    await remove_tracked_storm(channel.id, sid)
-                    removed.append(sid)
-                names = ", ".join(removed)
+                    if await remove_tracked_storm(channel.id, sid):
+                        removed.append(sid)
+                names = ", ".join(removed) if removed else "nothing"
                 await select_interaction.response.edit_message(
                     content=f"Stopped tracking: {names}.", view=None
                 )
@@ -293,7 +383,7 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         storm_id = await self._resolve_storm_id(storm)
         if not storm_id:
             await interaction.response.send_message(
-                f"Could not find a storm matching `{storm}`.", ephemeral=True
+                f"Could not find an active storm matching `{storm}`.", ephemeral=True
             )
             return
 
@@ -314,7 +404,7 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         tracked = await get_tracked_storms(interaction.channel.id)
         if not tracked:
             await interaction.response.send_message(
-                "No storms are being tracked in this channel. Use `/track storm` to start tracking.",
+                "No storms are being tracked in this channel. Use `/nhc storm` to start tracking.",
                 ephemeral=True,
             )
             return
@@ -326,10 +416,9 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
             info = active.get(sid, {})
             name = info.get("name") or sid
             stype = info.get("type") or "Unknown"
-            emoji = _storm_emoji(info)
             last_etn = t.get("last_etn")
             status = f"Last update: advisory {last_etn}" if last_etn else "Awaiting first update"
-            lines.append(f"{emoji} **{name}** ({sid}) — {stype}\n  ↳ {status}")
+            lines.append(f"{_storm_emoji(info)} **{name}** ({sid}) — {stype}\n  ↳ {status}")
 
         embed = discord.Embed(
             title="🌀 Tracked Tropical Cyclones",
@@ -339,6 +428,67 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         )
         embed.set_footer(text=f"Channel: #{interaction.channel.name}")
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ── /nesdis ───────────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="nesdis", description="Choose the NESDIS satellite product for tracked storms"
+    )
+    @app_commands.describe(
+        product="NESDIS satellite product to use for tracked-storm updates",
+        storm="Optional storm to change (defaults to all tracked storms in this channel)",
+    )
+    @app_commands.choices(
+        product=[
+            app_commands.Choice(name=label, value=key) for key, label in SATELLITE_PRODUCTS.items()
+        ]
+    )
+    async def nesdis(
+        self,
+        interaction: discord.Interaction,
+        product: app_commands.Choice[str],
+        storm: str | None = None,
+    ):
+        channel = await self._require_guild_channel(interaction)
+        if not channel:
+            return
+
+        if storm:
+            storm_id = await self._resolve_storm_id(storm)
+            if not storm_id:
+                await interaction.response.send_message(
+                    f"Could not find an active storm matching `{storm}`.", ephemeral=True
+                )
+                return
+            if not await set_satellite_product(channel.id, storm_id, product.value):
+                await interaction.response.send_message(
+                    f"**{storm_id}** is not being tracked in this channel.", ephemeral=True
+                )
+                return
+            names = [f"**{storm_id}**"]
+        else:
+            tracked = await get_tracked_storms(channel.id)
+            if not tracked:
+                await interaction.response.send_message(
+                    "No storms are being tracked in this channel. Use `/nhc storm` to start tracking.",
+                    ephemeral=True,
+                )
+                return
+            names = []
+            for t in tracked:
+                if await set_satellite_product(channel.id, t["storm_id"], product.value):
+                    names.append(f"**{t['storm_id']}**")
+            if not names:
+                await interaction.response.send_message(
+                    "No tracked storms were updated.", ephemeral=True
+                )
+                return
+
+        label = SATELLITE_PRODUCTS.get(product.value, product.value)
+        await interaction.response.send_message(
+            f"🛰️ Satellite product for {', '.join(names)} set to **{label}**.",
+            ephemeral=True,
+        )
 
     # ── Autocomplete ──────────────────────────────────────────────────────
 
@@ -365,17 +515,13 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
                 scored.append((2, display, info))
 
         scored.sort(key=lambda x: x[0])
-        results = []
-        for _, display, info in scored[:25]:
-            emoji = _storm_emoji(info)
-            stype = info.get("type") or ""
-            results.append(
-                app_commands.Choice(
-                    name=f"{emoji} {display} — {stype}",
-                    value=info["storm_id"],
-                )
+        return [
+            app_commands.Choice(
+                name=f"{_storm_emoji(info)} {display} — {info.get('type') or ''}",
+                value=info["storm_id"],
             )
-        return results
+            for _, display, info in scored[:25]
+        ]
 
     # ── Periodic update loop ──────────────────────────────────────────────
 
@@ -385,36 +531,32 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         if not self.bot.state.is_primary:
             return
 
-        # Collect all unique storm IDs across all channels
-        channel_storms: dict[int, list[dict]] = {}
-        # Scan all text channels for tracked storms
-        for guild in self.bot.guilds:
-            for ch in guild.text_channels:
-                tracked = await get_tracked_storms(ch.id)
-                if tracked:
-                    channel_storms[ch.id] = tracked
-
+        channel_storms = await get_all_tracked_channels()
         if not channel_storms:
             return
 
         active = await get_active_storms()
 
-        for channel_id, tracked_list in channel_storms.items():
+        for channel_id, storm_ids in channel_storms.items():
             channel = self.bot.get_channel(channel_id)
             if not channel:
                 continue
-
-            for entry in tracked_list:
-                storm_id = entry["storm_id"]
-                info = active.get(storm_id)
-
-                # If storm no longer active, post final notice and untrack
-                if not info:
-                    await self._post_dissipation_notice(channel, storm_id)
-                    await remove_tracked_storm(channel_id, storm_id)
-                    continue
-
-                await self._post_storm_update(channel, storm_id, info, entry)
+            records = {r["storm_id"]: r for r in await get_tracked_storms(channel_id)}
+            for storm_id in storm_ids:
+                try:
+                    info = active.get(storm_id)
+                    if info is None:
+                        # Only remove subscriptions on an authoritative response —
+                        # a failed fetch must not wipe tracking for every storm.
+                        if active_storms_authoritative():
+                            await self._post_dissipation_notice(channel, storm_id)
+                            await remove_tracked_storm(channel_id, storm_id)
+                        continue
+                    record = records.get(storm_id) or {}
+                    sat_product = record.get("sat_product") or DEFAULT_SATELLITE_PRODUCT
+                    await self._post_storm_update(channel, storm_id, info, channel_id, sat_product)
+                except Exception as e:
+                    logger.exception(f"Tracker update failed for {storm_id} in {channel_id}: {e}")
 
     @update_loop.before_loop
     async def before_update_loop(self):
@@ -423,25 +565,19 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
     # ── Internal helpers ──────────────────────────────────────────────────
 
     async def _resolve_storm_id(self, query: str) -> str | None:
-        """Resolve a user query (name or ID) to a storm ID."""
+        """Resolve a user query (name or storm ID) to a validated active storm ID."""
         query_upper = query.upper().strip()
 
-        # Direct ID match
-        if (
-            len(query_upper) >= 6
-            and query_upper[:2] in ("AL", "EP", "CP")
-            and query_upper[2:4].isdigit()
-        ):
-            return query_upper
+        if _STORM_ID_RE.match(query_upper):
+            active = await get_active_storms()
+            if query_upper in active:
+                return query_upper
+            return None
 
         active = await get_active_storms()
         for sid, info in active.items():
-            if sid.upper() == query_upper:
-                return sid
             name = (info.get("name") or "").upper()
-            if name == query_upper:
-                return sid
-            if query_upper in name or query_upper in sid.upper():
+            if name == query_upper or query_upper in name or query_upper in sid.upper():
                 return sid
         return None
 
@@ -450,59 +586,47 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         channel: discord.abc.Messageable,
         storm_id: str,
         info: dict,
-        entry: dict,
+        channel_id: int,
+        sat_product: str = DEFAULT_SATELLITE_PRODUCT,
     ) -> None:
-        """Post a status update for a tracked storm."""
+        """Post a status update for a tracked storm from NHC page data.
+
+        The latest 5-day forecast cone is always the main embed image; the
+        requested NESDIS satellite product is attached alongside it.
+        """
         name = info.get("name") or storm_id
         stype = info.get("type") or "Unknown"
 
-        # Find the latest advisory product for this storm
-        product_id = self._latest_advisory_pid(storm_id)
-        if not product_id:
+        advisory = info.get("advisory") or info.get("issuance") or "latest"
+        if await self._already_posted(channel_id, storm_id, advisory):
             return
 
-        parsed = await fetch_nhc_product(product_id)
-        if not parsed or not parsed.get("raw_text"):
-            return
-
-        raw = parsed["raw_text"]
-        wind_mph = parse_max_wind(raw)
+        wind_mph = info.get("winds_mph")
         ss_cat = winds_to_category(wind_mph) if wind_mph else None
 
-        # Dedupe: check if we already posted this advisory
-        etn = build_advisory_etn(product_id)
-        if entry.get("last_etn") == etn:
-            return
-
-        # Build embed
         emoji = SAFFIR_EMOJI.get(ss_cat or "", "🌀")
         color = SAFFIR_SIMPSON_COLORS.get(ss_cat or "", 0xF39C12)
 
-        loc = parse_location(raw) or ""
-        loc_desc = parse_location_desc(raw) or ""
-        pressure = parse_pressure(raw)
-        movement = parse_movement(raw)
-
         desc_parts = []
-        if loc:
-            line = f"📍 {loc}"
-            if loc_desc:
-                line += f" — {loc_desc}"
+        if info.get("position"):
+            line = f"📍 {info['position']}"
+            if info.get("movement"):
+                line += f" — moving {info['movement']}"
             desc_parts.append(line)
 
         data_bits = []
         if wind_mph:
             cat_label = category_label(ss_cat) if ss_cat else ""
             data_bits.append(f"💨 {wind_mph:.0f} MPH ({cat_label})")
-        if pressure:
-            data_bits.append(f"🌀 {pressure} MB")
-        if movement:
-            data_bits.append(f"➡️ {movement}")
+        if info.get("pressure"):
+            data_bits.append(f"🌀 {info['pressure']} MB")
         if data_bits:
             desc_parts.append(" | ".join(data_bits))
 
         if stype:
             desc_parts.append(f"**Type:** {stype}")
+        if info.get("issuance"):
+            desc_parts.append(f"🕐 {info['issuance']}")
 
         description = "\n".join(desc_parts) if desc_parts else f"Storm ID: {storm_id}"
 
@@ -512,37 +636,40 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
             color=color,
             timestamp=datetime.now(timezone.utc),
         )
-        embed.set_footer(text=f"Advisory {etn} • NHC via IEM")
+        embed.set_footer(text=f"Advisory {advisory} • NHC")
 
-        # Try to download the forecast cone image
-        cone_bytes = await _download_cone_image(storm_id, etn)
-        file = None
+        # Cone is the primary graphic; the requested satellite product is
+        # fetched in parallel and attached alongside it.
+        cone_bytes, sat_bytes = await asyncio.gather(
+            _download_cone_image(info.get("graphics_url")),
+            _download_satellite_image(info.get("satellite_url"), sat_product),
+            return_exceptions=True,
+        )
+        cone_bytes = cone_bytes if isinstance(cone_bytes, bytes) else None
+        sat_bytes = sat_bytes if isinstance(sat_bytes, bytes) else None
+
+        files = []
         if cone_bytes:
-            file = discord.File(io.BytesIO(cone_bytes), filename=f"{storm_id}_forecast.png")
+            files.append(discord.File(io.BytesIO(cone_bytes), filename=f"{storm_id}_forecast.png"))
             embed.set_image(url=f"attachment://{storm_id}_forecast.png")
+        if sat_bytes:
+            files.append(discord.File(io.BytesIO(sat_bytes), filename=f"{storm_id}_satellite.jpg"))
 
         msg = await safe_send(
             channel,
             context=f"tracker update for {storm_id}",
             embed=embed,
-            file=file,
+            files=files or None,
         )
-
         if msg:
-            # Update last_etn
-            await self._update_last_etn(
-                channel.id if isinstance(channel, discord.TextChannel) else 0, storm_id, etn
-            )
+            await _update_last_etn(channel_id, storm_id, advisory)
 
-    async def _update_last_etn(self, channel_id: int, storm_id: str, etn: str) -> None:
-        if not channel_id:
-            return
-        storms = await get_tracked_storms(channel_id)
-        for s in storms:
-            if s["storm_id"] == storm_id:
-                s["last_etn"] = etn
-                break
-        await set_tracked_storms(channel_id, storms)
+    async def _already_posted(self, channel_id: int, storm_id: str, advisory: str) -> bool:
+        tracked = await get_tracked_storms(channel_id)
+        for t in tracked:
+            if t["storm_id"] == storm_id:
+                return t.get("last_etn") == advisory
+        return False
 
     async def _post_dissipation_notice(
         self, channel: discord.abc.Messageable, storm_id: str
@@ -555,25 +682,6 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         )
         embed.set_footer(text="Tropical Tracker")
         await safe_send(channel, context=f"tracker dissipation notice for {storm_id}", embed=embed)
-
-    def _latest_advisory_pid(self, storm_id: str) -> str | None:
-        """Build the latest advisory product ID for a storm.
-
-        NHC advisory PILs follow the pattern MIATCP{basin_code}{storm_num},
-        e.g., MIATCPAT1 for Atlantic storm 01. The actual latest advisory
-        number isn't known ahead of time, so we try the most common products
-        and let IEM return the latest one.
-        """
-        basin = storm_id[:2]  # "AL" or "EP"
-        num = storm_id[2:4]  # "06"
-
-        basin_map = {"AL": "AT", "EP": "EP", "CP": "CP"}
-        basin_code = basin_map.get(basin)
-        if not basin_code:
-            return None
-
-        # Try TCP (full advisory) first, then TCU (update)
-        return f"MIATCP{basin_code}{num}"
 
 
 async def setup(bot: commands.Bot):
