@@ -25,5 +25,6 @@ ALL_EXTENSIONS = [
     "cogs.subscriptions",
     "cogs.radar_history",
     "cogs.tropical",
+    "cogs.tropical_tracker",
     "cogs.efscale",
 ]

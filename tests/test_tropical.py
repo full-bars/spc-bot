@@ -9,10 +9,12 @@ import pytest
 from cogs.tropical import (
     TropicalCog,
     TROPICAL_CHANNEL_ID,
-    _classify_product,
-    _classify_storm_type,
-    _extract_storm_name,
-    _fetch_nhc_product,
+)
+from utils.nhc_storms import (
+    classify_product,
+    classify_storm_type,
+    extract_storm_name,
+    fetch_nhc_product,
 )
 
 # Real TCP text (Hurricane Fausto Advisory 14) — the "Summary" section must
@@ -62,10 +64,10 @@ async def test_fetch_nhc_product_summary_stops_before_next_section():
     WARNINGS / DISCUSSION AND OUTLOOK / NEXT ADVISORY / the forecaster
     signature — only the location/movement/pressure block."""
     with patch(
-        "cogs.tropical.http_get_bytes",
+        "utils.nhc_storms.http_get_bytes",
         AsyncMock(return_value=(FAUSTO_TCP.encode(), 200)),
     ):
-        parsed = await _fetch_nhc_product("202607220900-KNHC-WTPZ31-TCPEP1")
+        parsed = await fetch_nhc_product("202607220900-KNHC-WTPZ31-TCPEP1")
 
     assert parsed is not None
     assert "LOCATION...16.7N 120.7W" in parsed["summary"]
@@ -78,26 +80,26 @@ async def test_fetch_nhc_product_summary_stops_before_next_section():
 
 
 def test_classify_product_matches_known_pil():
-    assert _classify_product("202607220600-KNHC-WTNT31-TCPAT1") == "ADVISORY"
+    assert classify_product("202607220600-KNHC-WTNT31-TCPAT1") == "ADVISORY"
 
 
 def test_classify_product_returns_none_for_unknown_pil():
-    assert _classify_product("202607220600-KNHC-WTNT31-XXXXAT1") is None
+    assert classify_product("202607220600-KNHC-WTNT31-XXXXAT1") is None
 
 
-# ── _classify_storm_type / _extract_storm_name ──────────────────────────────
+# ── classify_storm_type / extract_storm_name ────────────────────────────────
 
 
 def test_classify_storm_type_hurricane():
-    assert _classify_storm_type("HURRICANE ANNA ADVISORY NUMBER 5") == "HURRICANE"
+    assert classify_storm_type("HURRICANE ANNA ADVISORY NUMBER 5") == "HURRICANE"
 
 
 def test_classify_storm_type_none_when_absent():
-    assert _classify_storm_type("SOME UNRELATED TEXT") is None
+    assert classify_storm_type("SOME UNRELATED TEXT") is None
 
 
 def test_extract_storm_name():
-    assert _extract_storm_name("HURRICANE ANNA") == "Anna"
+    assert extract_storm_name("HURRICANE ANNA") == "Anna"
 
 
 # ── post_tropical_product ───────────────────────────────────────────────────
@@ -119,7 +121,7 @@ async def test_post_tropical_product_handles_missing_summary():
         "storm_name": "Anna",
     }
 
-    with patch("cogs.tropical._fetch_nhc_product", AsyncMock(return_value=parsed)), patch(
+    with patch("cogs.tropical.fetch_nhc_product", AsyncMock(return_value=parsed)), patch(
         "cogs.tropical.get_state", AsyncMock(return_value=None)
     ):
         await cog.post_tropical_product("202607220600-KNHC-WTNT31-TCPAT1", "", "ADVISORY")
@@ -141,7 +143,7 @@ async def test_post_tropical_product_posts_to_prod_channel():
         "storm_name": "Anna",
     }
 
-    with patch("cogs.tropical._fetch_nhc_product", AsyncMock(return_value=parsed)), patch(
+    with patch("cogs.tropical.fetch_nhc_product", AsyncMock(return_value=parsed)), patch(
         "cogs.tropical.get_state", AsyncMock(return_value=None)
     ):
         await cog.post_tropical_product("202607220600-KNHC-WTNT31-TCPAT1", "", "ADVISORY")
@@ -169,7 +171,7 @@ async def test_post_tropical_product_posts_full_text_in_thread():
         "storm_name": "Anna",
     }
 
-    with patch("cogs.tropical._fetch_nhc_product", AsyncMock(return_value=parsed)), patch(
+    with patch("cogs.tropical.fetch_nhc_product", AsyncMock(return_value=parsed)), patch(
         "cogs.tropical.get_state", AsyncMock(return_value=None)
     ):
         await cog.post_tropical_product("202607220600-KNHC-WTNT31-TCPAT1", "", "ADVISORY")
