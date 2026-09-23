@@ -169,6 +169,7 @@ def classify_product(product_id: str) -> str | None:
 
 # ── Active storm list scraping ────────────────────────────────────────────────
 
+
 def _extract_storms_from_html(html: str) -> dict[str, dict]:
     """Parse storm IDs and names from the NHC cyclones page HTML."""
     import re as _re
