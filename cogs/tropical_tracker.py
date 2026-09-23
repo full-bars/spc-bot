@@ -208,6 +208,9 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    async def cog_load(self):
+        self.update_loop.start()
+
     # ── /nhc ─────────────────────────────────────────────────────────────
 
     track_group = app_commands.Group(
@@ -280,12 +283,15 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
                 added = await add_tracked_storm(channel.id, selected_id, sat_product)
                 info = active.get(selected_id, {})
                 name = info.get("name") or selected_id
-                msg = (
-                    f"Now tracking **{name}** ({selected_id}). Updates posted every 30 minutes "
-                    f"with **{SATELLITE_PRODUCTS.get(sat_product, sat_product)}** satellite imagery."
-                    if added
-                    else f"Already tracking **{name}** ({selected_id})."
-                )
+                if added:
+                    msg = (
+                        f"Now tracking **{name}** ({selected_id}). Posts a new update on each "
+                        f"NHC advisory with **{SATELLITE_PRODUCTS.get(sat_product, sat_product)}** "
+                        "satellite imagery. Sending the current status now..."
+                    )
+                    asyncio.create_task(self._post_immediate_update(channel, selected_id))
+                else:
+                    msg = f"Already tracking **{name}** ({selected_id})."
                 await select_interaction.response.edit_message(content=msg, view=None)
 
             select.callback = _on_select
@@ -311,10 +317,12 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         added = await add_tracked_storm(channel.id, storm_id, sat_product)
         if added:
             await interaction.response.send_message(
-                f"Now tracking **{storm_id}**. Updates posted every 30 minutes "
-                f"with **{SATELLITE_PRODUCTS.get(sat_product, sat_product)}** satellite imagery.",
+                f"Now tracking **{storm_id}**. Posts a new update on each NHC advisory "
+                f"with **{SATELLITE_PRODUCTS.get(sat_product, sat_product)}** satellite "
+                "imagery. Sending the current status now...",
                 ephemeral=True,
             )
+            asyncio.create_task(self._post_immediate_update(channel, storm_id))
         else:
             await interaction.response.send_message(
                 f"Already tracking **{storm_id}**.", ephemeral=True
@@ -563,6 +571,28 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         await self.bot.wait_until_ready()
 
     # ── Internal helpers ──────────────────────────────────────────────────
+
+    async def _post_immediate_update(self, channel: discord.abc.Messageable, storm_id: str) -> None:
+        """Post the current status for a just-tracked storm without waiting for the loop."""
+        await self.bot.wait_until_ready()
+        if not self.bot.state.is_primary:
+            return
+        try:
+            info = (await get_active_storms()).get(storm_id)
+            if not info:
+                return
+            record = next(
+                (r for r in await get_tracked_storms(channel.id) if r["storm_id"] == storm_id),
+                None,
+            )
+            sat_product = (
+                (record.get("sat_product") or DEFAULT_SATELLITE_PRODUCT)
+                if record
+                else DEFAULT_SATELLITE_PRODUCT
+            )
+            await self._post_storm_update(channel, storm_id, info, channel.id, sat_product)
+        except Exception as e:
+            logger.exception(f"Immediate tracker update failed for {storm_id}: {e}")
 
     async def _resolve_storm_id(self, query: str) -> str | None:
         """Resolve a user query (name or storm ID) to a validated active storm ID."""
