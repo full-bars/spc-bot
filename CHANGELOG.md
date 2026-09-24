@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [5.48.0] - 2026-09-22
+
+### Added
+- **Tropical Storm Tracker**: subscribe to active NHC tropical cyclones for periodic status updates. New commands:
+  - `/nhc storm` — track a cyclone (leave the `storm` param blank for a dropdown of active storms, or use autocomplete on name/ID); optional `satproduct` param picks the NESDIS satellite product. Posts the current status immediately, then on each new NHC advisory.
+  - `/nhc untrack` — stop tracking a storm (dropdown or autocomplete).
+  - `/nhc tracked` — list storms being tracked in the current channel.
+  - `/nesdis` — choose the NESDIS/STAR satellite product (GeoColor, AirMass, Sandwich, Day/Night Cloud, lightning EXTENT3, IR/visible bands) for the channel's tracked storms.
+  - Active storms are discovered from the NHC cyclones page's structured data (name, type, advisory number, winds, pressure, position, movement), cached 5 minutes.
+  - Each update posts a compact status embed with the **5-day forecast cone** as the primary image plus an **animated satellite loop** (NESDIS GEOCOLOR and friends as GIFs, downscaled with Pillow to fit Discord's 8 MB upload limit; static-frame fallback) attached alongside. Severity headlines (`CATEGORY 5 HURRICANE` / `MAJOR HURRICANE` / `Hurricane (Cat N)`) and bolded wind/pressure values make the critical numbers scannable.
+  - `/nhc storm` posts the current status **immediately**; subsequent updates post once per new NHC advisory (typically every 6h plus intermediates), deduped by advisory number — the background loop polls every 30 minutes but does not spam.
+  - Subscriptions auto-remove when a storm dissipates (only on an authoritative NHC response); per-channel/per-storm state persists across restarts and HA failover via Redis + SQLite.
+- **Mesoscale Discussion cancellation graphics**: the SPC/IEM graphic last cached for a mesoscale discussion is attached to its cancellation message, so a cancelled MD is identifiable at a glance (falls back to text-only if no graphic was cached).
+
+### Changed
+- **Dependency bumps**: clap 4.6.7, quick-xml 0.42.0, product_engine/color_tables/render2d pin bumps (Rust); pydantic 2.13.5, ruff 0.16.8, fakeredis 2.38.0 (Python).
+- **`utils/state_store.py`**: added `list_state_keys()` for atomically managed per-record state keys (SCAN-backed); used by the storm tracker for per-channel-per-storm subscriptions.
+
+### Fixed
+- **Storm tracker data integrity**: the initial implementation derived NHC advisory PILs from the storm number (e.g. `MIATCPAT6`), which does not match the real PIL (`MIATCPAT1`) and could never resolve a product — reworked to parse the NHC cyclones page directly. Active-storm parsing no longer returns garbage names, the cone graphic uses the full-resolution `coneimage` asset (not the 60px thumbnail), and subscriptions are only removed on an authoritative fetch.
+- **Tracker update loop never started**: the 30-minute update task was defined but never `.start()`ed from `cog_load`, so tracked storms posted nothing. The loop now starts on cog load, and `/nhc storm` posts the first update immediately instead of waiting for the next tick. Confirmation copy corrected to advertise NHC advisory cadence (not "every 30 minutes").
+- **Tracker satellite fetch timeouts**: the NESDIS floater page fetch used a 15 s timeout that intermittently timed out under shared-session load (`asyncio.TimeoutError`), silently dropping satellite imagery from updates. Timeout raised to 40 s (60 s for the GIF download itself).
+- **Deployment aborted on fresh clones/updates**: `deploy.sh` failed with pip 26 (which removed `pip install -r -` stdin requirements) and under `set -o pipefail` when optional-key greps matched nothing (e.g. during first deploy); both paths are now fixed.
+
 ## [5.47.1] - 2026-09-19
 
 ### Changed
@@ -16,7 +40,6 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - **Watch cancellation graphics**: cancellation/expiration messages for tornado and severe thunderstorm watches now attach the same SPC graphic shown at issuance, so it's obvious at a glance which watch ended. The graphic is cached locally as soon as it's downloaded and reused at cancellation time (SPC often removes the graphic shortly after a watch ends, making a live re-fetch unreliable). Falls back to the existing text-only message if no graphic was ever cached.
-- **Mesoscale Discussion cancellation graphics**: extends the same treatment to MD cancellations — the SPC/IEM graphic last downloaded for the MD is attached to the cancellation message, so a bare MD number isn't the only identifying info once it's cancelled. Falls back to text-only if no graphic was ever cached.
 
 ## [5.47.0] - 2026-08-15
 
