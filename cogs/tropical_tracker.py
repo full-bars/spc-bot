@@ -641,9 +641,9 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         desc_parts = []
         # Severity headline — make category 5 / major hurricanes unmissable.
         if ss_cat == "CAT5":
-            desc_parts.append("🔥 **CATEGORY 5 HURRICANE** 🔥")
+            desc_parts.append("🔥 **CATEGORY 5 HURRICANE**")
         elif is_major:
-            desc_parts.append(f"⚠️ **MAJOR HURRICANE** — Category {ss_cat[-1]} ⚠️")
+            desc_parts.append(f"⚠️ **MAJOR HURRICANE** — Category {ss_cat[-1]}")
         elif ss_cat:
             desc_parts.append(f"**{category_label(ss_cat)}**")
         elif stype:
