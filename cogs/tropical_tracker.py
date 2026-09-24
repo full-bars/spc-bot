@@ -173,27 +173,78 @@ async def _download_cone_image(graphics_url: str | None) -> bytes | None:
     return None
 
 
+def _compress_gif(data: bytes, target: int = 7_500_000) -> bytes | None:
+    """Downscale an animated GIF loop so it fits Discord's upload limit (~8 MB).
+
+    Tries progressively smaller sizes; keeps all frames so the loop stays
+    animated. Returns None if Pillow is unavailable or nothing fits.
+    """
+    try:
+        from PIL import Image, ImageSequence
+    except ImportError:
+        return None
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            if len(data) <= target:
+                return data
+            duration = im.info.get("duration", 100)
+            for size in (640, 560, 480, 400):
+                frames = []
+                for frame in ImageSequence.Iterator(im):
+                    frames.append(
+                        frame.convert("RGBA")
+                        .resize((size, size), Image.LANCZOS)
+                        .convert("P", palette=Image.ADAPTIVE, colors=96)
+                    )
+                if not frames:
+                    continue
+                out = io.BytesIO()
+                frames[0].save(
+                    out,
+                    format="GIF",
+                    save_all=True,
+                    append_images=frames[1:],
+                    optimize=True,
+                    duration=duration,
+                    loop=0,
+                )
+                result = out.getvalue()
+                if len(result) <= target:
+                    return result
+        return None
+    except Exception:
+        return None
+
+
 async def _download_satellite_image(
     satellite_url: str | None, product: str = DEFAULT_SATELLITE_PRODUCT
 ) -> bytes | None:
-    """Fetch the NESDIS/STAR floater page and download the latest frame.
+    """Fetch the NESDIS/STAR floater page and download the satellite imagery.
 
-    The floater page exposes each available product as a hidden input
-    ``FloaterStatic{PRODUCT}`` (e.g. a 500x500 GOES GEOCOLOR JPEG at
-    ``cdn.star.nesdis.noaa.gov/FLOATER/{stormid}/{PRODUCT}/...``).
+    Prefers the **animated loop** (``FloaterGIF{PRODUCT}``) compressed to fit
+    Discord's upload limit; falls back to the latest static frame
+    (``FloaterStatic{PRODUCT}``) if the loop can't be retrieved or compressed.
     """
     if not satellite_url:
         return None
-    content, status = await http_get_bytes(satellite_url, retries=2, timeout=15)
+    content, status = await http_get_bytes(satellite_url, retries=2, timeout=40)
     if not content or status != 200:
         return None
     html = content.decode("utf-8", errors="ignore")
-    m = re.search(rf"id='FloaterStatic{re.escape(product)}'[^>]*value='([^']+)'", html)
-    if not m:
-        return None
-    img, img_status = await http_get_bytes(m.group(1), retries=2, timeout=20)
-    if img and img_status == 200 and not is_placeholder_image(img):
-        return img
+
+    gif_match = re.search(rf"id='FloaterGIF{re.escape(product)}'[^>]*value='([^']+)'", html)
+    if gif_match:
+        gif, gif_status = await http_get_bytes(gif_match.group(1), retries=2, timeout=60)
+        if gif and gif_status == 200 and not is_placeholder_image(gif):
+            compressed = _compress_gif(gif)
+            if compressed:
+                return compressed
+
+    static_match = re.search(rf"id='FloaterStatic{re.escape(product)}'[^>]*value='([^']+)'", html)
+    if static_match:
+        img, img_status = await http_get_bytes(static_match.group(1), retries=2, timeout=30)
+        if img and img_status == 200 and not is_placeholder_image(img):
+            return img
     return None
 
 
@@ -207,6 +258,9 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
+    async def cog_load(self):
+        self.update_loop.start()
 
     # ── /nhc ─────────────────────────────────────────────────────────────
 
@@ -280,12 +334,15 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
                 added = await add_tracked_storm(channel.id, selected_id, sat_product)
                 info = active.get(selected_id, {})
                 name = info.get("name") or selected_id
-                msg = (
-                    f"Now tracking **{name}** ({selected_id}). Updates posted every 30 minutes "
-                    f"with **{SATELLITE_PRODUCTS.get(sat_product, sat_product)}** satellite imagery."
-                    if added
-                    else f"Already tracking **{name}** ({selected_id})."
-                )
+                if added:
+                    msg = (
+                        f"Now tracking **{name}** ({selected_id}). Posts a new update on each "
+                        f"NHC advisory with **{SATELLITE_PRODUCTS.get(sat_product, sat_product)}** "
+                        "satellite imagery. Sending the current status now..."
+                    )
+                    asyncio.create_task(self._post_immediate_update(channel, selected_id))
+                else:
+                    msg = f"Already tracking **{name}** ({selected_id})."
                 await select_interaction.response.edit_message(content=msg, view=None)
 
             select.callback = _on_select
@@ -311,10 +368,12 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         added = await add_tracked_storm(channel.id, storm_id, sat_product)
         if added:
             await interaction.response.send_message(
-                f"Now tracking **{storm_id}**. Updates posted every 30 minutes "
-                f"with **{SATELLITE_PRODUCTS.get(sat_product, sat_product)}** satellite imagery.",
+                f"Now tracking **{storm_id}**. Posts a new update on each NHC advisory "
+                f"with **{SATELLITE_PRODUCTS.get(sat_product, sat_product)}** satellite "
+                "imagery. Sending the current status now...",
                 ephemeral=True,
             )
+            asyncio.create_task(self._post_immediate_update(channel, storm_id))
         else:
             await interaction.response.send_message(
                 f"Already tracking **{storm_id}**.", ephemeral=True
@@ -564,6 +623,28 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
 
     # ── Internal helpers ──────────────────────────────────────────────────
 
+    async def _post_immediate_update(self, channel: discord.abc.Messageable, storm_id: str) -> None:
+        """Post the current status for a just-tracked storm without waiting for the loop."""
+        await self.bot.wait_until_ready()
+        if not self.bot.state.is_primary:
+            return
+        try:
+            info = (await get_active_storms()).get(storm_id)
+            if not info:
+                return
+            record = next(
+                (r for r in await get_tracked_storms(channel.id) if r["storm_id"] == storm_id),
+                None,
+            )
+            sat_product = (
+                (record.get("sat_product") or DEFAULT_SATELLITE_PRODUCT)
+                if record
+                else DEFAULT_SATELLITE_PRODUCT
+            )
+            await self._post_storm_update(channel, storm_id, info, channel.id, sat_product)
+        except Exception as e:
+            logger.exception(f"Immediate tracker update failed for {storm_id}: {e}")
+
     async def _resolve_storm_id(self, query: str) -> str | None:
         """Resolve a user query (name or storm ID) to a validated active storm ID."""
         query_upper = query.upper().strip()
@@ -603,11 +684,22 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
 
         wind_mph = info.get("winds_mph")
         ss_cat = winds_to_category(wind_mph) if wind_mph else None
+        is_major = ss_cat in ("CAT3", "CAT4", "CAT5")
 
         emoji = SAFFIR_EMOJI.get(ss_cat or "", "🌀")
         color = SAFFIR_SIMPSON_COLORS.get(ss_cat or "", 0xF39C12)
 
         desc_parts = []
+        # Severity headline — make category 5 / major hurricanes unmissable.
+        if ss_cat == "CAT5":
+            desc_parts.append("🔥 **CATEGORY 5 HURRICANE**")
+        elif is_major:
+            desc_parts.append(f"⚠️ **MAJOR HURRICANE** — Category {ss_cat[-1]}")
+        elif ss_cat:
+            desc_parts.append(f"**{category_label(ss_cat)}**")
+        elif stype:
+            desc_parts.append(f"**{stype}**")
+
         if info.get("position"):
             line = f"📍 {info['position']}"
             if info.get("movement"):
@@ -616,15 +708,12 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
 
         data_bits = []
         if wind_mph:
-            cat_label = category_label(ss_cat) if ss_cat else ""
-            data_bits.append(f"💨 {wind_mph:.0f} MPH ({cat_label})")
+            data_bits.append(f"💨 **{wind_mph:.0f} MPH**")
         if info.get("pressure"):
-            data_bits.append(f"🌀 {info['pressure']} MB")
+            data_bits.append(f"🌀 **{info['pressure']} MB**")
         if data_bits:
             desc_parts.append(" | ".join(data_bits))
 
-        if stype:
-            desc_parts.append(f"**Type:** {stype}")
         if info.get("issuance"):
             desc_parts.append(f"🕐 {info['issuance']}")
 
@@ -653,7 +742,10 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
             files.append(discord.File(io.BytesIO(cone_bytes), filename=f"{storm_id}_forecast.png"))
             embed.set_image(url=f"attachment://{storm_id}_forecast.png")
         if sat_bytes:
-            files.append(discord.File(io.BytesIO(sat_bytes), filename=f"{storm_id}_satellite.jpg"))
+            ext = "gif" if sat_bytes.startswith(b"GIF8") else "jpg"
+            files.append(
+                discord.File(io.BytesIO(sat_bytes), filename=f"{storm_id}_satellite.{ext}")
+            )
 
         msg = await safe_send(
             channel,
