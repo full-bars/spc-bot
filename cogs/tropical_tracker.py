@@ -173,27 +173,78 @@ async def _download_cone_image(graphics_url: str | None) -> bytes | None:
     return None
 
 
+def _compress_gif(data: bytes, target: int = 7_500_000) -> bytes | None:
+    """Downscale an animated GIF loop so it fits Discord's upload limit (~8 MB).
+
+    Tries progressively smaller sizes; keeps all frames so the loop stays
+    animated. Returns None if Pillow is unavailable or nothing fits.
+    """
+    try:
+        from PIL import Image, ImageSequence
+    except ImportError:
+        return None
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            if len(data) <= target:
+                return data
+            duration = im.info.get("duration", 100)
+            for size in (640, 560, 480, 400):
+                frames = []
+                for frame in ImageSequence.Iterator(im):
+                    frames.append(
+                        frame.convert("RGBA")
+                        .resize((size, size), Image.LANCZOS)
+                        .convert("P", palette=Image.ADAPTIVE, colors=96)
+                    )
+                if not frames:
+                    continue
+                out = io.BytesIO()
+                frames[0].save(
+                    out,
+                    format="GIF",
+                    save_all=True,
+                    append_images=frames[1:],
+                    optimize=True,
+                    duration=duration,
+                    loop=0,
+                )
+                result = out.getvalue()
+                if len(result) <= target:
+                    return result
+        return None
+    except Exception:
+        return None
+
+
 async def _download_satellite_image(
     satellite_url: str | None, product: str = DEFAULT_SATELLITE_PRODUCT
 ) -> bytes | None:
-    """Fetch the NESDIS/STAR floater page and download the latest frame.
+    """Fetch the NESDIS/STAR floater page and download the satellite imagery.
 
-    The floater page exposes each available product as a hidden input
-    ``FloaterStatic{PRODUCT}`` (e.g. a 500x500 GOES GEOCOLOR JPEG at
-    ``cdn.star.nesdis.noaa.gov/FLOATER/{stormid}/{PRODUCT}/...``).
+    Prefers the **animated loop** (``FloaterGIF{PRODUCT}``) compressed to fit
+    Discord's upload limit; falls back to the latest static frame
+    (``FloaterStatic{PRODUCT}``) if the loop can't be retrieved or compressed.
     """
     if not satellite_url:
         return None
-    content, status = await http_get_bytes(satellite_url, retries=2, timeout=15)
+    content, status = await http_get_bytes(satellite_url, retries=2, timeout=40)
     if not content or status != 200:
         return None
     html = content.decode("utf-8", errors="ignore")
-    m = re.search(rf"id='FloaterStatic{re.escape(product)}'[^>]*value='([^']+)'", html)
-    if not m:
-        return None
-    img, img_status = await http_get_bytes(m.group(1), retries=2, timeout=20)
-    if img and img_status == 200 and not is_placeholder_image(img):
-        return img
+
+    gif_match = re.search(rf"id='FloaterGIF{re.escape(product)}'[^>]*value='([^']+)'", html)
+    if gif_match:
+        gif, gif_status = await http_get_bytes(gif_match.group(1), retries=2, timeout=60)
+        if gif and gif_status == 200 and not is_placeholder_image(gif):
+            compressed = _compress_gif(gif)
+            if compressed:
+                return compressed
+
+    static_match = re.search(rf"id='FloaterStatic{re.escape(product)}'[^>]*value='([^']+)'", html)
+    if static_match:
+        img, img_status = await http_get_bytes(static_match.group(1), retries=2, timeout=30)
+        if img and img_status == 200 and not is_placeholder_image(img):
+            return img
     return None
 
 
@@ -691,7 +742,10 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
             files.append(discord.File(io.BytesIO(cone_bytes), filename=f"{storm_id}_forecast.png"))
             embed.set_image(url=f"attachment://{storm_id}_forecast.png")
         if sat_bytes:
-            files.append(discord.File(io.BytesIO(sat_bytes), filename=f"{storm_id}_satellite.jpg"))
+            ext = "gif" if sat_bytes.startswith(b"GIF8") else "jpg"
+            files.append(
+                discord.File(io.BytesIO(sat_bytes), filename=f"{storm_id}_satellite.{ext}")
+            )
 
         msg = await safe_send(
             channel,

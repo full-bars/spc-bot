@@ -210,6 +210,58 @@ async def test_download_satellite_image_extracts_selected_product():
     assert result == sat_jpg
 
 
+@pytest.mark.asyncio
+async def test_download_satellite_image_prefers_animated_gif():
+    """The animated FloaterGIF loop is preferred over the static frame."""
+    from cogs.tropical_tracker import _download_satellite_image
+
+    import io
+    from PIL import Image
+
+    frames = [Image.new("RGB", (100, 100), (i * 30, 0, 0)).convert("P") for i in (1, 2, 3)]
+    gif_buf = io.BytesIO()
+    frames[0].save(gif_buf, format="GIF", save_all=True, append_images=frames[1:], loop=0)
+    gif_bytes = gif_buf.getvalue()
+
+    floater_html = (
+        "<html>"
+        "<input type='hidden' id='FloaterGIFSandwich' value='https://cdn/loop.gif'>"
+        "<input type='hidden' id='FloaterStaticSandwich' value='https://cdn/static.jpg'>"
+        "</html>"
+    )
+
+    def _fake_get_bytes(url, retries=2, timeout=15):
+        if "floater.php" in url:
+            return floater_html.encode(), 200
+        if url.endswith(".gif"):
+            return gif_bytes, 200
+        return b"\xff\xd8\xff\xe0", 200
+
+    with patch("cogs.tropical_tracker.http_get_bytes", side_effect=_fake_get_bytes):
+        result = await _download_satellite_image(
+            "https://www.star.nesdis.noaa.gov/goes/floater.php?stormid=EP172026",
+            product="Sandwich",
+        )
+
+    assert result is not None
+    assert result.startswith(b"GIF8")
+
+
+def test_compress_gif_fits_discord_limit():
+    """A large GIF is downscaled below the 8 MB Discord upload limit."""
+    from cogs.tropical_tracker import _compress_gif
+
+    import io
+    from PIL import Image
+
+    frames = [Image.new("RGB", (800, 800), (i * 40 % 255, 0, 0)).convert("P") for i in range(6)]
+    gif_buf = io.BytesIO()
+    frames[0].save(gif_buf, format="GIF", save_all=True, append_images=frames[1:], loop=0)
+    small = _compress_gif(gif_buf.getvalue(), target=8_000_000)
+    assert small is not None
+    assert len(small) <= 8_000_000
+
+
 # ── get_active_storms caching ────────────────────────────────────────────────
 
 
