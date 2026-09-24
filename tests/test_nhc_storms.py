@@ -262,6 +262,62 @@ def test_compress_gif_fits_discord_limit():
     assert len(small) <= 8_000_000
 
 
+@pytest.mark.asyncio
+async def test_send_tracker_update_recompresses_gif_on_413():
+    """A 413 rejection of the satellite GIF triggers one compress-and-retry."""
+    import discord
+
+    from cogs.tropical_tracker import _send_tracker_update
+
+    import io
+    from PIL import Image
+
+    frame = Image.new("RGB", (400, 400), (200, 0, 0)).convert("P")
+    gif_buf = io.BytesIO()
+    frame.save(gif_buf, format="GIF")
+    gif_bytes = gif_buf.getvalue()
+    cone_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+
+    class FakeResp:
+        status = 413
+        reason = "Request Entity Too Large"
+
+    class FakeChannel:
+        id = 99
+
+        def __init__(self):
+            self.calls: list = []
+
+        async def send(self, *, embed=None, files=None):
+            self.calls.append(files)
+            if len(self.calls) == 1:
+                raise discord.HTTPException(
+                    FakeResp(), {"code": 40005, "message": "Request entity too large"}
+                )
+            return "sent"
+
+    channel = FakeChannel()
+    embed = discord.Embed(title="storm update")
+    embed.set_image(url="attachment://EP172026_forecast.png")
+
+    msg = await _send_tracker_update(
+        channel,
+        context="tracker update for EP172026",
+        embed=embed,
+        cone_bytes=cone_bytes,
+        sat_bytes=gif_bytes,
+        storm_id="EP172026",
+    )
+
+    assert msg == "sent"
+    assert len(channel.calls) == 2
+    first_names = [f.filename for f in channel.calls[0]]
+    retry_names = [f.filename for f in channel.calls[1]]
+    assert "EP172026_satellite.gif" in first_names
+    assert "EP172026_satellite.gif" in retry_names
+    assert "EP172026_forecast.png" in retry_names
+
+
 # ── get_active_storms caching ────────────────────────────────────────────────
 
 

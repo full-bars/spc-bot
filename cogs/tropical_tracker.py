@@ -221,9 +221,11 @@ async def _download_satellite_image(
 ) -> bytes | None:
     """Fetch the NESDIS/STAR floater page and download the satellite imagery.
 
-    Prefers the **animated loop** (``FloaterGIF{PRODUCT}``) compressed to fit
-    Discord's upload limit; falls back to the latest static frame
-    (``FloaterStatic{PRODUCT}``) if the loop can't be retrieved or compressed.
+    Prefers the **animated loop** (``FloaterGIF{PRODUCT}``) at full quality —
+    the boosted upload limit accepts the ~16 MB file as-is; compression only
+    happens if Discord rejects the upload (see ``_send_tracker_update``).
+    Falls back to the latest static frame (``FloaterStatic{PRODUCT}``) if the
+    loop can't be retrieved.
     """
     if not satellite_url:
         return None
@@ -236,9 +238,7 @@ async def _download_satellite_image(
     if gif_match:
         gif, gif_status = await http_get_bytes(gif_match.group(1), retries=2, timeout=60)
         if gif and gif_status == 200 and not is_placeholder_image(gif):
-            compressed = _compress_gif(gif)
-            if compressed:
-                return compressed
+            return gif
 
     static_match = re.search(rf"id='FloaterStatic{re.escape(product)}'[^>]*value='([^']+)'", html)
     if static_match:
@@ -246,6 +246,52 @@ async def _download_satellite_image(
         if img and img_status == 200 and not is_placeholder_image(img):
             return img
     return None
+
+
+async def _send_tracker_update(
+    channel: discord.abc.Messageable,
+    *,
+    context: str,
+    embed: discord.Embed,
+    cone_bytes: bytes | None,
+    sat_bytes: bytes | None,
+    storm_id: str,
+):
+    """Send a tracker update, compressing the satellite GIF only on a 413.
+
+    The boosted guild upload limit (100 MB) normally accepts the full-quality
+    NESDIS loop (~16 MB). If Discord still rejects the upload as too large,
+    downscale the loop with Pillow and retry once; if compression fails the
+    update posts with the cone only.
+    """
+
+    def build(sat: bytes | None) -> list[discord.File] | None:
+        out: list[discord.File] = []
+        if cone_bytes:
+            out.append(discord.File(io.BytesIO(cone_bytes), filename=f"{storm_id}_forecast.png"))
+        if sat:
+            ext = "gif" if sat.startswith(b"GIF8") else "jpg"
+            out.append(discord.File(io.BytesIO(sat), filename=f"{storm_id}_satellite.{ext}"))
+        return out or None
+
+    try:
+        return await channel.send(embed=embed, files=build(sat_bytes))
+    except discord.Forbidden as e:
+        logger.error(f"Missing permissions to post {context} in #{channel.id} ({channel}): {e}")
+        return None
+    except discord.HTTPException as e:
+        if e.status != 413 or not (sat_bytes and sat_bytes.startswith(b"GIF8")):
+            logger.exception(f"Failed to post {context} in #{channel.id} ({channel}): {e}")
+            return None
+        logger.info(
+            f"Satellite loop rejected as too large ({len(sat_bytes)} bytes) "
+            f"for #{channel.id}; compressing and retrying"
+        )
+        compressed = _compress_gif(sat_bytes)
+        return await safe_send(channel, context=context, embed=embed, files=build(compressed))
+    except Exception as e:
+        logger.exception(f"Failed to post {context} in #{channel.id} ({channel}): {e}")
+        return None
 
 
 # ── Cog ───────────────────────────────────────────────────────────────────────
@@ -737,21 +783,16 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         cone_bytes = cone_bytes if isinstance(cone_bytes, bytes) else None
         sat_bytes = sat_bytes if isinstance(sat_bytes, bytes) else None
 
-        files = []
         if cone_bytes:
-            files.append(discord.File(io.BytesIO(cone_bytes), filename=f"{storm_id}_forecast.png"))
             embed.set_image(url=f"attachment://{storm_id}_forecast.png")
-        if sat_bytes:
-            ext = "gif" if sat_bytes.startswith(b"GIF8") else "jpg"
-            files.append(
-                discord.File(io.BytesIO(sat_bytes), filename=f"{storm_id}_satellite.{ext}")
-            )
 
-        msg = await safe_send(
+        msg = await _send_tracker_update(
             channel,
             context=f"tracker update for {storm_id}",
             embed=embed,
-            files=files or None,
+            cone_bytes=cone_bytes,
+            sat_bytes=sat_bytes,
+            storm_id=storm_id,
         )
         if msg:
             await _update_last_etn(channel_id, storm_id, advisory)
