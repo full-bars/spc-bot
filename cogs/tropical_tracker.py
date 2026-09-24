@@ -639,9 +639,11 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         color = SAFFIR_SIMPSON_COLORS.get(ss_cat or "", 0xF39C12)
 
         desc_parts = []
-        # Severity headline — make major hurricanes unmissable.
-        if is_major:
-            desc_parts.append(f"⚠️ **MAJOR HURRICANE** — Category {ss_cat[-1]} ⚠️")
+        # Severity headline — make category 5 / major hurricanes unmissable.
+        if ss_cat == "CAT5":
+            desc_parts.append("🔥 **CATEGORY 5 HURRICANE**")
+        elif is_major:
+            desc_parts.append(f"⚠️ **MAJOR HURRICANE** — Category {ss_cat[-1]}")
         elif ss_cat:
             desc_parts.append(f"**{category_label(ss_cat)}**")
         elif stype:
