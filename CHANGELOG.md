@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **Tracker attachment ordering**: satellite imagery was rendering *above* the forecast cone. The cone is no longer referenced as the embed image (Discord hides referenced attachments from the gallery, and the gallery renders above the embed); both graphics are now sent as gallery attachments in display order — cone first, satellite loop second.
+- **Satellite loops post at full quality**: every GIF was pre-compressed to fit an 8 MB limit, but the boosted guild upload limit (100 MB) accepts the raw ~16 MB NESDIS loop. Compression now runs only if Discord rejects the upload as too large (413), with one compressed retry (cone-only if compression still fails).
+
 ## [5.48.0] - 2026-09-22
 
 ### Added
@@ -13,7 +17,7 @@ All notable changes to this project will be documented in this file.
   - `/nhc tracked` — list storms being tracked in the current channel.
   - `/nesdis` — choose the NESDIS/STAR satellite product (GeoColor, AirMass, Sandwich, Day/Night Cloud, lightning EXTENT3, IR/visible bands) for the channel's tracked storms.
   - Active storms are discovered from the NHC cyclones page's structured data (name, type, advisory number, winds, pressure, position, movement), cached 5 minutes.
-  - Each update posts a compact status embed with the **5-day forecast cone** as the primary image plus an **animated satellite loop** (NESDIS GEOCOLOR and friends as GIFs) attached alongside. Loops are posted at full quality (~16 MB fits under the boosted 100 MB upload limit); if Discord still rejects the upload as too large, the loop is compressed with Pillow and the send retried once (cone-only as last resort). Severity headlines (`CATEGORY 5 HURRICANE` / `MAJOR HURRICANE` / `Hurricane (Cat N)`) and bolded wind/pressure values make the critical numbers scannable.
+  - Each update posts a compact status embed with the **5-day forecast cone** as the primary image plus an **animated satellite loop** (NESDIS GEOCOLOR and friends as GIFs, downscaled with Pillow to fit Discord's 8 MB upload limit; static-frame fallback) attached alongside. Severity headlines (`CATEGORY 5 HURRICANE` / `MAJOR HURRICANE` / `Hurricane (Cat N)`) and bolded wind/pressure values make the critical numbers scannable.
   - `/nhc storm` posts the current status **immediately**; subsequent updates post once per new NHC advisory (typically every 6h plus intermediates), deduped by advisory number — the background loop polls every 30 minutes but does not spam.
   - Subscriptions auto-remove when a storm dissipates (only on an authoritative NHC response); per-channel/per-storm state persists across restarts and HA failover via Redis + SQLite.
 - **Mesoscale Discussion cancellation graphics**: the SPC/IEM graphic last cached for a mesoscale discussion is attached to its cancellation message, so a cancelled MD is identifiable at a glance (falls back to text-only if no graphic was cached).

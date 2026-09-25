@@ -298,7 +298,6 @@ async def test_send_tracker_update_recompresses_gif_on_413():
 
     channel = FakeChannel()
     embed = discord.Embed(title="storm update")
-    embed.set_image(url="attachment://EP172026_forecast.png")
 
     msg = await _send_tracker_update(
         channel,
@@ -313,9 +312,9 @@ async def test_send_tracker_update_recompresses_gif_on_413():
     assert len(channel.calls) == 2
     first_names = [f.filename for f in channel.calls[0]]
     retry_names = [f.filename for f in channel.calls[1]]
-    assert "EP172026_satellite.gif" in first_names
-    assert "EP172026_satellite.gif" in retry_names
-    assert "EP172026_forecast.png" in retry_names
+    # Gallery order is display order: cone first, satellite imagery second.
+    assert first_names == ["EP172026_forecast.png", "EP172026_satellite.gif"]
+    assert retry_names == ["EP172026_forecast.png", "EP172026_satellite.gif"]
 
 
 # ── get_active_storms caching ────────────────────────────────────────────────

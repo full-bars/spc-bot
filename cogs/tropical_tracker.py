@@ -266,6 +266,8 @@ async def _send_tracker_update(
     """
 
     def build(sat: bytes | None) -> list[discord.File] | None:
+        # Order matters: Discord renders gallery attachments in list order, so
+        # the cone must come first and the satellite imagery after it.
         out: list[discord.File] = []
         if cone_bytes:
             out.append(discord.File(io.BytesIO(cone_bytes), filename=f"{storm_id}_forecast.png"))
@@ -773,8 +775,11 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         )
         embed.set_footer(text=f"Advisory {advisory} • NHC")
 
-        # Cone is the primary graphic; the requested satellite product is
-        # fetched in parallel and attached alongside it.
+        # Cone and satellite loop are fetched in parallel and attached in
+        # display order: the cone first, the satellite imagery second. The cone
+        # must NOT be referenced via embed.set_image — Discord hides referenced
+        # attachments from the gallery, and the gallery renders above the embed,
+        # which would put the satellite loop visually first.
         cone_bytes, sat_bytes = await asyncio.gather(
             _download_cone_image(info.get("graphics_url")),
             _download_satellite_image(info.get("satellite_url"), sat_product),
@@ -782,9 +787,6 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         )
         cone_bytes = cone_bytes if isinstance(cone_bytes, bytes) else None
         sat_bytes = sat_bytes if isinstance(sat_bytes, bytes) else None
-
-        if cone_bytes:
-            embed.set_image(url=f"attachment://{storm_id}_forecast.png")
 
         msg = await _send_tracker_update(
             channel,
