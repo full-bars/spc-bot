@@ -21,6 +21,8 @@ from utils.nhc_storms import (
     category_label,
     get_active_storms,
     winds_to_category,
+    zoom_earth_gusts_url,
+    zoom_earth_url,
 )
 from utils.state_store import delete_state, get_state, list_state_keys, set_state
 
@@ -248,6 +250,33 @@ async def _download_satellite_image(
     return None
 
 
+def _build_location_view(position: str | None) -> discord.ui.View | None:
+    """Link buttons to zoom.earth satellite and wind-gusts views for a position.
+
+    Link buttons never expire (clicking them sends no interaction to the bot),
+    so the view stays functional for the message's lifetime with no timeout
+    management. Returns None if no button can be built (missing position).
+    """
+    if not position:
+        return None
+    view = discord.ui.View()
+    sat_url = zoom_earth_url(position)
+    if sat_url:
+        view.add_item(
+            discord.ui.Button(
+                label="Satellite", style=discord.ButtonStyle.secondary, url=sat_url, emoji="🛰️"
+            )
+        )
+    gusts_url = zoom_earth_gusts_url(position)
+    if gusts_url:
+        view.add_item(
+            discord.ui.Button(
+                label="Wind Gusts", style=discord.ButtonStyle.secondary, url=gusts_url, emoji="💨"
+            )
+        )
+    return view if view.children else None
+
+
 async def _send_tracker_update(
     channel: discord.abc.Messageable,
     *,
@@ -256,6 +285,7 @@ async def _send_tracker_update(
     cone_bytes: bytes | None,
     sat_bytes: bytes | None,
     storm_id: str,
+    view: discord.ui.View | None = None,
 ):
     """Send a tracker update, compressing the satellite GIF only on a 413.
 
@@ -277,7 +307,7 @@ async def _send_tracker_update(
         return out or None
 
     try:
-        return await channel.send(embed=embed, files=build(sat_bytes))
+        return await channel.send(embed=embed, files=build(sat_bytes), view=view)
     except discord.Forbidden as e:
         logger.error(f"Missing permissions to post {context} in #{channel.id} ({channel}): {e}")
         return None
@@ -290,7 +320,9 @@ async def _send_tracker_update(
             f"for #{channel.id}; compressing and retrying"
         )
         compressed = _compress_gif(sat_bytes)
-        return await safe_send(channel, context=context, embed=embed, files=build(compressed))
+        return await safe_send(
+            channel, context=context, embed=embed, files=build(compressed), view=view
+        )
     except Exception as e:
         logger.exception(f"Failed to post {context} in #{channel.id} ({channel}): {e}")
         return None
@@ -795,6 +827,7 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
             cone_bytes=cone_bytes,
             sat_bytes=sat_bytes,
             storm_id=storm_id,
+            view=_build_location_view(info.get("position")),
         )
         if msg:
             await _update_last_etn(channel_id, storm_id, advisory)

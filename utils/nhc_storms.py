@@ -241,6 +241,46 @@ def _parse_advisory_details(details: str) -> dict:
     return out
 
 
+def _signed_coords(position: str) -> tuple[float, float] | None:
+    """Parse an NHC position like ``22.9N 128.1W`` into signed (lat, lon)."""
+    m = re.fullmatch(
+        r"\s*([0-9]+(?:\.[0-9]+)?)\s*([NSns])\s+([0-9]+(?:\.[0-9]+)?)\s*([EWew])\s*",
+        position,
+    )
+    if not m:
+        return None
+    lat = float(m.group(1)) * (-1 if m.group(2).upper() == "S" else 1)
+    lon = float(m.group(3)) * (-1 if m.group(4).upper() == "W" else 1)
+    return lat, lon
+
+
+def zoom_earth_url(position: str) -> str | None:
+    """Build a zoom.earth satellite-view URL from an NHC position string.
+
+    Returns e.g. ``https://zoom.earth/maps/satellite/#view=22.9,-128.1,6z``
+    (6z regional zoom, matching NHC's storm-scale framing), or None if the
+    position doesn't parse.
+    """
+    coords = _signed_coords(position)
+    if not coords:
+        return None
+    lat, lon = coords
+    return f"https://zoom.earth/maps/satellite/#view={lat:g},{lon:g},6z"
+
+
+def zoom_earth_gusts_url(position: str) -> str | None:
+    """Build a zoom.earth GFS wind-gusts URL from an NHC position string.
+
+    Returns e.g. ``https://zoom.earth/maps/wind-gusts/#view=22.9,-128.1,6z/model=gfs``,
+    or None if the position doesn't parse.
+    """
+    coords = _signed_coords(position)
+    if not coords:
+        return None
+    lat, lon = coords
+    return f"https://zoom.earth/maps/wind-gusts/#view={lat:g},{lon:g},6z/model=gfs"
+
+
 def _extract_storms_from_html(html: str) -> dict[str, dict]:
     """Parse active storms from the NHC cyclones page.
 

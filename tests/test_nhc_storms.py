@@ -288,7 +288,7 @@ async def test_send_tracker_update_recompresses_gif_on_413():
         def __init__(self):
             self.calls: list = []
 
-        async def send(self, *, embed=None, files=None):
+        async def send(self, *, embed=None, files=None, view=None):
             self.calls.append(files)
             if len(self.calls) == 1:
                 raise discord.HTTPException(
@@ -403,3 +403,62 @@ def test_storm_id_regex_rejects_path_traversal():
     assert not _STORM_ID_RE.match("AL06../../path")
     assert not _STORM_ID_RE.match("AL06202")
     assert not _STORM_ID_RE.match("EP172026extra")
+
+
+def test_zoom_earth_url_signs_and_format():
+    from utils.nhc_storms import zoom_earth_url
+
+    # Western/Northern hemisphere → negative longitude
+    assert zoom_earth_url("22.9N 128.1W") == (
+        "https://zoom.earth/maps/satellite/#view=22.9,-128.1,6z"
+    )
+    # Southern/Eastern hemisphere → negative latitude, positive longitude
+    assert zoom_earth_url("15.5S 160.2E") == (
+        "https://zoom.earth/maps/satellite/#view=-15.5,160.2,6z"
+    )
+    # Zero-hemisphere edge cases stay unsigned
+    assert zoom_earth_url("10.0N 1.0E") == ("https://zoom.earth/maps/satellite/#view=10,1,6z")
+
+
+def test_zoom_earth_url_rejects_unparseable_position():
+    from utils.nhc_storms import zoom_earth_url
+
+    assert zoom_earth_url("") is None
+    assert zoom_earth_url("somewhere over the Atlantic") is None
+    assert zoom_earth_url("22.9 N") is None
+
+
+def test_zoom_earth_gusts_url_signs_and_format():
+    from utils.nhc_storms import zoom_earth_gusts_url
+
+    assert zoom_earth_gusts_url("17.1N 106.5W") == (
+        "https://zoom.earth/maps/wind-gusts/#view=17.1,-106.5,6z/model=gfs"
+    )
+    assert zoom_earth_gusts_url("15.5S 160.2E") == (
+        "https://zoom.earth/maps/wind-gusts/#view=-15.5,160.2,6z/model=gfs"
+    )
+    assert zoom_earth_gusts_url("nonsense") is None
+
+
+def test_build_location_view_has_both_link_buttons():
+    from cogs.tropical_tracker import _build_location_view
+
+    view = _build_location_view("17.1N 106.5W")
+    assert view is not None
+    labels = [c.label for c in view.children]
+    urls = [c.url for c in view.children]
+    assert labels == ["Satellite", "Wind Gusts"]
+    assert urls == [
+        "https://zoom.earth/maps/satellite/#view=17.1,-106.5,6z",
+        "https://zoom.earth/maps/wind-gusts/#view=17.1,-106.5,6z/model=gfs",
+    ]
+    # Link buttons carry a URL and handle no interaction — they never expire.
+    assert all(c.url for c in view.children)
+
+
+def test_build_location_view_without_position_is_none():
+    from cogs.tropical_tracker import _build_location_view
+
+    assert _build_location_view(None) is None
+    assert _build_location_view("") is None
+    assert _build_location_view("not a coordinate") is None
