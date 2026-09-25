@@ -281,6 +281,19 @@ def zoom_earth_gusts_url(position: str) -> str | None:
     return f"https://zoom.earth/maps/wind-gusts/#view={lat:g},{lon:g},6z/model=gfs"
 
 
+def zoom_earth_pressure_url(position: str) -> str | None:
+    """Build a zoom.earth GFS pressure URL from an NHC position string.
+
+    Returns e.g. ``https://zoom.earth/maps/pressure/#view=22.9,-128.1,6z/model=gfs``,
+    or None if the position doesn't parse.
+    """
+    coords = _signed_coords(position)
+    if not coords:
+        return None
+    lat, lon = coords
+    return f"https://zoom.earth/maps/pressure/#view={lat:g},{lon:g},6z/model=gfs"
+
+
 def _extract_storms_from_html(html: str) -> dict[str, dict]:
     """Parse active storms from the NHC cyclones page.
 

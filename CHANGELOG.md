@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **zoom.earth link buttons on tracker updates**: every tracker update now carries three never-expiring link buttons under the embed — 🛰️ Satellite, 💨 Wind Gusts, and 🌀 Pressure — built from the storm's parsed NHC position (N/S/E/W converted to signed decimal degrees at 6z regional zoom). Model layers deep-link to GFS; users can switch to ICON (or any other model) in zoom.earth's UI.
+
 ### Fixed
 - **Tracker attachment ordering**: satellite imagery was rendering *above* the forecast cone. The cone is no longer referenced as the embed image (Discord hides referenced attachments from the gallery, and the gallery renders above the embed); both graphics are now sent as gallery attachments in display order — cone first, satellite loop second.
 - **Satellite loops post at full quality**: every GIF was pre-compressed to fit an 8 MB limit, but the boosted guild upload limit (100 MB) accepts the raw ~16 MB NESDIS loop. Compression now runs only if Discord rejects the upload as too large (413), with one compressed retry (cone-only if compression still fails).

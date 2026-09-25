@@ -440,6 +440,18 @@ def test_zoom_earth_gusts_url_signs_and_format():
     assert zoom_earth_gusts_url("nonsense") is None
 
 
+def test_zoom_earth_pressure_url_signs_and_format():
+    from utils.nhc_storms import zoom_earth_pressure_url
+
+    assert zoom_earth_pressure_url("17.1N 106.5W") == (
+        "https://zoom.earth/maps/pressure/#view=17.1,-106.5,6z/model=gfs"
+    )
+    assert zoom_earth_pressure_url("15.5S 160.2E") == (
+        "https://zoom.earth/maps/pressure/#view=-15.5,160.2,6z/model=gfs"
+    )
+    assert zoom_earth_pressure_url("nonsense") is None
+
+
 def test_build_location_view_has_both_link_buttons():
     from cogs.tropical_tracker import _build_location_view
 
@@ -447,10 +459,11 @@ def test_build_location_view_has_both_link_buttons():
     assert view is not None
     labels = [c.label for c in view.children]
     urls = [c.url for c in view.children]
-    assert labels == ["Satellite", "Wind Gusts"]
+    assert labels == ["Satellite", "Wind Gusts", "Pressure"]
     assert urls == [
         "https://zoom.earth/maps/satellite/#view=17.1,-106.5,6z",
         "https://zoom.earth/maps/wind-gusts/#view=17.1,-106.5,6z/model=gfs",
+        "https://zoom.earth/maps/pressure/#view=17.1,-106.5,6z/model=gfs",
     ]
     # Link buttons carry a URL and handle no interaction — they never expire.
     assert all(c.url for c in view.children)

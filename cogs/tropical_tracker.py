@@ -22,6 +22,7 @@ from utils.nhc_storms import (
     get_active_storms,
     winds_to_category,
     zoom_earth_gusts_url,
+    zoom_earth_pressure_url,
     zoom_earth_url,
 )
 from utils.state_store import delete_state, get_state, list_state_keys, set_state
@@ -272,6 +273,13 @@ def _build_location_view(position: str | None) -> discord.ui.View | None:
         view.add_item(
             discord.ui.Button(
                 label="Wind Gusts", style=discord.ButtonStyle.secondary, url=gusts_url, emoji="💨"
+            )
+        )
+    pressure_url = zoom_earth_pressure_url(position)
+    if pressure_url:
+        view.add_item(
+            discord.ui.Button(
+                label="Pressure", style=discord.ButtonStyle.secondary, url=pressure_url, emoji="🌀"
             )
         )
     return view if view.children else None
