@@ -26,10 +26,17 @@ from utils.nhc_storms import (
     zoom_earth_url,
 )
 from utils.state_store import delete_state, get_state, list_state_keys, set_state
+from utils.storm_corroboration import Corroboration, fetch_sources
 
 logger = logging.getLogger("spc_bot")
 
 NHC_BASE = "https://www.nhc.noaa.gov"
+
+# Consecutive update cycles a storm must be absent from the NHC cyclones page —
+# and corroborated as gone by the independent sources — before we post a
+# dissipation notice. One bad scrape must never untrack or publicly
+# misreport a live storm; a real dissipation is simply announced ~30 min later.
+DISSIPATION_MIN_MISSES = 2
 
 # Full storm ID format: basin (AL/EP/CP) + two-digit number + four-digit year.
 _STORM_ID_RE = re.compile(r"^(AL|EP|CP)\d{6}$")
@@ -346,6 +353,9 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        # storm_id -> consecutive cycles absent from the NHC cyclones page
+        # while independent sources agreed it was gone.
+        self._dissipation_misses: dict[str, int] = {}
 
     async def cog_load(self):
         self.update_loop.start()
@@ -683,6 +693,11 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
             return
 
         active = await get_active_storms()
+        tracked = {sid for ids in channel_storms.values() for sid in ids}
+        self._dissipation_misses = {
+            sid: miss for sid, miss in self._dissipation_misses.items() if sid in tracked
+        }
+        active, verdicts = await self._assess_missing_storms(active, tracked)
 
         for channel_id, storm_ids in channel_storms.items():
             channel = self.bot.get_channel(channel_id)
@@ -693,12 +708,11 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
                 try:
                     info = active.get(storm_id)
                     if info is None:
-                        # Only remove subscriptions on an authoritative response —
-                        # a failed fetch must not wipe tracking for every storm.
-                        if active_storms_authoritative():
+                        if self._should_announce_dissipation(storm_id, verdicts):
                             await self._post_dissipation_notice(channel, storm_id)
                             await remove_tracked_storm(channel_id, storm_id)
                         continue
+                    self._dissipation_misses.pop(storm_id, None)
                     record = records.get(storm_id) or {}
                     sat_product = record.get("sat_product") or DEFAULT_SATELLITE_PRODUCT
                     await self._post_storm_update(channel, storm_id, info, channel_id, sat_product)
@@ -708,6 +722,70 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
     @update_loop.before_loop
     async def before_update_loop(self):
         await self.bot.wait_until_ready()
+
+    async def _assess_missing_storms(
+        self, active: dict[str, dict], tracked: set[str]
+    ) -> tuple[dict[str, dict], dict[str, Corroboration]]:
+        """Re-fetch and cross-check any tracked storm the NHC cyclones page dropped.
+
+        Returns the (possibly refreshed) active-storm dict plus a verdict for
+        every storm still missing. Miss counters only advance when the
+        independent sources agree the storm is gone, so a scrape failure can
+        never reach the announcement path on its own.
+        """
+        missing = sorted(tracked - active.keys())
+        if not missing:
+            return active, {}
+
+        if not active_storms_authoritative():
+            logger.warning(
+                f"Tracker: NHC cyclones fetch not authoritative; holding tracking for "
+                f"{', '.join(missing)}"
+            )
+            return active, {}
+
+        # One stale or truncated page can drop storms it listed minutes ago —
+        # re-fetch immediately instead of trusting the cached parse.
+        refreshed = await get_active_storms(force=True)
+        if active_storms_authoritative():
+            active = refreshed
+            missing = sorted(tracked - active.keys())
+        if not missing:
+            return active, {}
+
+        sources = await fetch_sources()
+        verdicts: dict[str, Corroboration] = {}
+        for storm_id in missing:
+            verdict = sources.evaluate(storm_id)
+            verdicts[storm_id] = verdict
+            if verdict.active:
+                logger.warning(
+                    f"Tracker: {storm_id} missing from the NHC cyclones page but "
+                    f"{verdict.detail} — dissipation suppressed"
+                )
+            elif verdict.active is None:
+                logger.warning(
+                    f"Tracker: {storm_id} missing from the NHC cyclones page and "
+                    f"corroboration inconclusive ({verdict.detail}) — holding tracking"
+                )
+            else:
+                misses = self._dissipation_misses[storm_id] = (
+                    self._dissipation_misses.get(storm_id, 0) + 1
+                )
+                logger.warning(
+                    f"Tracker: {storm_id} missing from the NHC cyclones page; {verdict.detail} "
+                    f"— miss {misses}/{DISSIPATION_MIN_MISSES} before a notice is posted"
+                )
+        return active, verdicts
+
+    def _should_announce_dissipation(
+        self, storm_id: str, verdicts: dict[str, Corroboration]
+    ) -> bool:
+        """True only when independent sources agree and the miss streak is long enough."""
+        verdict = verdicts.get(storm_id)
+        if verdict is None or verdict.active is not False:
+            return False
+        return self._dissipation_misses.get(storm_id, 0) >= DISSIPATION_MIN_MISSES
 
     # ── Internal helpers ──────────────────────────────────────────────────
 
@@ -850,9 +928,17 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
     async def _post_dissipation_notice(
         self, channel: discord.abc.Messageable, storm_id: str
     ) -> None:
+        misses = self._dissipation_misses.get(storm_id, DISSIPATION_MIN_MISSES)
+        logger.warning(
+            f"Tracker: posting dissipation notice for {storm_id} "
+            f"({misses} consecutive confirmed misses)"
+        )
         embed = discord.Embed(
             title=f"Storm Dissipated: {storm_id}",
-            description=f"**{storm_id}** is no longer listed as active by NHC. Tracking stopped.",
+            description=(
+                f"**{storm_id}** is no longer listed as active by NHC or by the "
+                f"independent cross-check sources. Tracking stopped."
+            ),
             color=discord.Color.greyple(),
             timestamp=datetime.now(timezone.utc),
         )

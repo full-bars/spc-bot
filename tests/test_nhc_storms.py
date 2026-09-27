@@ -353,6 +353,41 @@ async def test_get_active_storms_retains_cache_on_failure():
     assert nhc_storms.active_storms_authoritative() is False
 
 
+@pytest.mark.asyncio
+async def test_get_active_storms_force_bypasses_the_ttl():
+    """A tracked storm missing from the cached page must trigger a fresh fetch
+    rather than being believed on the strength of a possibly stale parse."""
+    import time
+
+    from utils import nhc_storms
+
+    saved = (
+        nhc_storms._active_storms_cache,
+        nhc_storms._active_storms_fetched_at,
+        nhc_storms._last_fetch_ok,
+    )
+    nhc_storms._active_storms_cache = {"EP172026": {"storm_id": "EP172026"}}
+    nhc_storms._active_storms_fetched_at = time.monotonic()
+    nhc_storms._last_fetch_ok = True
+    try:
+        with patch(
+            "utils.nhc_storms.http_get_bytes",
+            AsyncMock(return_value=(b"<html>quiet basin</html>", 200)),
+        ) as mock_get:
+            assert (await get_active_storms()) == {"EP172026": {"storm_id": "EP172026"}}
+            mock_get.assert_not_awaited()
+
+            await get_active_storms(force=True)
+            mock_get.assert_awaited_once()
+            assert nhc_storms._active_storms_cache == {}
+    finally:
+        (
+            nhc_storms._active_storms_cache,
+            nhc_storms._active_storms_fetched_at,
+            nhc_storms._last_fetch_ok,
+        ) = saved
+
+
 # ── tracker state helpers ────────────────────────────────────────────────────
 
 

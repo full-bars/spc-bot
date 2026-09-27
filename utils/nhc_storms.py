@@ -353,7 +353,7 @@ def active_storms_authoritative() -> bool:
     return _last_fetch_ok is True
 
 
-async def get_active_storms() -> dict[str, dict]:
+async def get_active_storms(force: bool = False) -> dict[str, dict]:
     """Fetch the list of active tropical cyclones from NHC.
 
     Returns a dict keyed by storm ID (e.g. ``EP172026``) with values
@@ -361,15 +361,21 @@ async def get_active_storms() -> dict[str, dict]:
     details (``advisory``, ``winds_mph``, ``pressure``, ``position``,
     ``movement``, ``issuance``).
 
-    The result is cached for 5 minutes. An explicitly parsed empty result is
-    cached as authoritative (storms all dissipated); a failed fetch retains
+    The result is cached for 5 minutes; pass ``force=True`` to bypass the TTL
+    and re-fetch immediately (used when a tracked storm is missing and the
+    cached page may be stale or truncated). An explicitly parsed empty result
+    is cached as authoritative (storms all dissipated); a failed fetch retains
     the previous cache so callers can distinguish via
     :func:`active_storms_authoritative`.
     """
     global _active_storms_cache, _active_storms_fetched_at, _last_fetch_ok
 
     now = time.monotonic()
-    if _active_storms_fetched_at and (now - _active_storms_fetched_at) < _ACTIVE_STORMS_TTL:
+    if (
+        not force
+        and _active_storms_fetched_at
+        and (now - _active_storms_fetched_at) < _ACTIVE_STORMS_TTL
+    ):
         return _active_storms_cache
 
     content, status = await http_get_bytes(_ACTIVE_CYCLONES_URL, retries=2, timeout=15)
@@ -379,6 +385,11 @@ async def get_active_storms() -> dict[str, dict]:
         return _active_storms_cache
 
     storms = _extract_storms_from_html(content.decode("utf-8", errors="ignore"))
+    if not storms and _active_storms_cache:
+        logger.warning(
+            f"NHC cyclones page parsed to 0 storms while {len(_active_storms_cache)} were "
+            "cached — page structure suspect, corroborate before acting on the empty list"
+        )
     _active_storms_cache = storms
     _active_storms_fetched_at = now
     _last_fetch_ok = True
