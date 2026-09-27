@@ -41,6 +41,11 @@ DISSIPATION_MIN_MISSES = 2
 # Full storm ID format: basin (AL/EP/CP) + two-digit number + four-digit year.
 _STORM_ID_RE = re.compile(r"^(AL|EP|CP)\d{6}$")
 
+# NHC storm types that mean the cyclone has lost tropical characteristics —
+# tracking stops with a final notice when NHC reclassifies a tracked storm.
+_POST_TROPICAL_RE = re.compile(r"POST-TROPICAL|EXTRATROPICAL", re.IGNORECASE)
+
+
 # NESDIS/STAR floater products available for every active storm (verified live).
 # Values are the exact suffix of the `FloaterStatic{PRODUCT}` input on the
 # floater page. GEOCOLOR is the default.
@@ -59,6 +64,19 @@ SATELLITE_PRODUCTS: dict[str, str] = {
 }
 DEFAULT_SATELLITE_PRODUCT = "GEOCOLOR"
 
+# Intensity thresholds for per-channel auto-tracking (`/nhc storm threshold:`).
+# Rank ordering is TD < TS < H < MH: a channel's threshold enrolls every active
+# storm at or above the chosen rank. Enrollment is a one-way door — a storm that
+# later weakens below the threshold stays tracked (only dissipation or a
+# post-tropical transition stops tracking).
+THRESHOLD_RANK: dict[str, int] = {"TD": 0, "TS": 1, "H": 2, "MH": 3}
+THRESHOLD_LABELS: dict[str, str] = {
+    "TD": "Tropical Depression",
+    "TS": "Tropical Storm",
+    "H": "Hurricane",
+    "MH": "Major Hurricane",
+}
+
 
 def _storm_emoji(storm: dict) -> str:
     stype = (storm.get("type") or "").upper()
@@ -75,6 +93,44 @@ def _storm_display_name(storm: dict) -> str:
     name = storm.get("name") or storm["storm_id"]
     stype = storm.get("type") or ""
     return f"{name} ({storm['storm_id']}) — {stype}" if stype else f"{name} ({storm['storm_id']})"
+
+
+def is_post_tropical(storm: dict) -> bool:
+    """True when NHC classifies the storm as post- or extratropical."""
+    return bool(_POST_TROPICAL_RE.search(storm.get("type") or ""))
+
+
+def storm_intensity_rank(storm: dict) -> int | None:
+    """Rank an active storm by intensity: 0=TD, 1=TS, 2=H, 3=MH.
+
+    Returns None when the storm cannot be classified as tropical (missing
+    type and winds, or already post/extratropical) — such storms are never
+    eligible for threshold enrollment.
+    """
+    stype = (storm.get("type") or "").upper()
+    if _POST_TROPICAL_RE.search(stype):
+        return None
+    winds = storm.get("winds_mph")
+    # Type first (NHC's own classification); substring order matters —
+    # "SUBTROPICAL STORM" contains "TROPICAL STORM", "POST-TROPICAL CYCLONE"
+    # was already excluded above.
+    if "HURRICANE" in stype:
+        if "MAJOR" in stype:
+            return THRESHOLD_RANK["MH"]
+        return THRESHOLD_RANK["MH"] if winds and winds >= 111 else THRESHOLD_RANK["H"]
+    if "TROPICAL STORM" in stype:
+        return THRESHOLD_RANK["TS"]
+    if "DEPRESSION" in stype:
+        return THRESHOLD_RANK["TD"]
+    if winds is None:
+        return None
+    if winds >= 111:
+        return THRESHOLD_RANK["MH"]
+    if winds >= 74:
+        return THRESHOLD_RANK["H"]
+    if winds >= 39:
+        return THRESHOLD_RANK["TS"]
+    return THRESHOLD_RANK["TD"]
 
 
 # ── Subscription state (atomic per-channel-per-storm records) ─────────────────
@@ -155,6 +211,65 @@ async def remove_tracked_storm(channel_id: int, storm_id: str) -> bool:
 
 async def _update_last_etn(channel_id: int, storm_id: str, etn: str) -> None:
     await set_state(_state_key(channel_id, storm_id), json.dumps({"last_etn": etn}))
+
+
+# ── Per-channel auto-track threshold ──────────────────────────────────────────
+
+
+def _threshold_key(channel_id: int) -> str:
+    # Separate namespace from tracked_storms:* so a prefix scan of either
+    # can never pick up the other's keys.
+    return f"tracker_thresholds:channel:{channel_id}"
+
+
+async def get_channel_threshold(channel_id: int) -> dict | None:
+    """Return a channel's auto-track rule as {threshold, sat_product}, if set."""
+    raw = await get_state(_threshold_key(channel_id))
+    if not isinstance(raw, str):
+        return None
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    threshold = data.get("threshold")
+    if threshold not in THRESHOLD_RANK:
+        return None
+    return {
+        "threshold": threshold,
+        "sat_product": data.get("sat_product") or DEFAULT_SATELLITE_PRODUCT,
+    }
+
+
+async def set_channel_threshold(
+    channel_id: int, threshold: str, sat_product: str = DEFAULT_SATELLITE_PRODUCT
+) -> None:
+    """Track every active storm at or above `threshold` for this channel."""
+    await set_state(
+        _threshold_key(channel_id),
+        json.dumps({"threshold": threshold, "sat_product": sat_product}),
+    )
+
+
+async def clear_channel_threshold(channel_id: int) -> bool:
+    """Remove a channel's auto-track rule. Returns True if one existed."""
+    if await get_state(_threshold_key(channel_id)) is None:
+        return False
+    await delete_state(_threshold_key(channel_id))
+    return True
+
+
+async def get_all_channel_thresholds() -> dict[int, dict]:
+    """Map every channel with an auto-track rule to its config (one SCAN)."""
+    keys = await list_state_keys("tracker_thresholds:channel:")
+    result: dict[int, dict] = {}
+    for key in keys:
+        channel_s = key.rsplit(":", 1)[-1]
+        if not channel_s.isdigit():
+            continue
+        cfg = await get_channel_threshold(int(channel_s))
+        if cfg:
+            result[int(channel_s)] = cfg
+    return result
 
 
 # ── Image download ────────────────────────────────────────────────────────────
@@ -384,22 +499,86 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
     @app_commands.describe(
         storm="Storm to track (leave blank to pick from dropdown)",
         satproduct="NESDIS satellite product for the update image (default GeoColor)",
+        threshold="Auto-track every active storm at or above this intensity",
     )
     @app_commands.choices(
         satproduct=[
             app_commands.Choice(name=label, value=key) for key, label in SATELLITE_PRODUCTS.items()
-        ]
+        ],
+        threshold=[
+            app_commands.Choice(name="Tropical Depression or stronger (TD+)", value="TD"),
+            app_commands.Choice(name="Tropical Storm or stronger (TS+)", value="TS"),
+            app_commands.Choice(name="Hurricane or stronger (H+)", value="H"),
+            app_commands.Choice(name="Major Hurricane only (MH)", value="MH"),
+            app_commands.Choice(name="Off — manual tracking only", value="Off"),
+        ],
     )
     async def track_storm(
         self,
         interaction: discord.Interaction,
         storm: str | None = None,
         satproduct: app_commands.Choice[str] | None = None,
+        threshold: app_commands.Choice[str] | None = None,
     ):
         channel = await self._require_guild_channel(interaction)
         if not channel:
             return
         sat_product = satproduct.value if satproduct else DEFAULT_SATELLITE_PRODUCT
+
+        if threshold and storm:
+            await interaction.response.send_message(
+                "Use either `storm` (track one cyclone) or `threshold` "
+                "(auto-track by intensity) — not both.",
+                ephemeral=True,
+            )
+            return
+
+        # ── Auto-track threshold ──────────────────────────────────────────
+        if threshold:
+            if threshold.value == "Off":
+                cleared = await clear_channel_threshold(channel.id)
+                msg = (
+                    "Auto-track threshold removed — this channel now only tracks cyclones "
+                    "added with `/nhc storm`."
+                    if cleared
+                    else "This channel has no auto-track threshold set."
+                )
+                await interaction.response.send_message(msg, ephemeral=True)
+                return
+
+            cfg = {"threshold": threshold.value, "sat_product": sat_product}
+            await set_channel_threshold(channel.id, threshold.value, sat_product)
+            label = THRESHOLD_LABELS[threshold.value]
+            product_label = SATELLITE_PRODUCTS.get(sat_product, sat_product)
+            await interaction.response.send_message(
+                f"🛰️ Auto-tracking **{label} or stronger** in this channel with "
+                f"**{product_label}** imagery. Storms are added automatically as "
+                "they form — checking for any that already qualify...",
+                ephemeral=True,
+            )
+            active = await get_active_storms()
+            existing = {t["storm_id"] for t in await get_tracked_storms(channel.id)}
+            enrolled = await self._enroll_threshold_channel(
+                channel, channel.id, cfg, active, existing
+            )
+            if enrolled:
+                names = ", ".join(f"**{sid}**" for sid in enrolled)
+                await interaction.followup.send(
+                    f"Now tracking {names} — sending their current status to the channel.",
+                    ephemeral=True,
+                )
+            elif existing:
+                await interaction.followup.send(
+                    f"Already tracking {len(existing)} storm(s); new matches post "
+                    "within 30 minutes.",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    "No storms meet the threshold yet — they'll be added as they form.",
+                    ephemeral=True,
+                )
+            return
 
         # If no storm specified, show dropdown of active storms
         if not storm:
@@ -558,16 +737,28 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
 
     @track_group.command(name="tracked", description="List storms being tracked in this channel")
     async def list_tracked(self, interaction: discord.Interaction):
-        tracked = await get_tracked_storms(interaction.channel.id)
+        channel = await self._require_guild_channel(interaction)
+        if not channel:
+            return
+        tracked = await get_tracked_storms(channel.id)
+        cfg = await get_channel_threshold(channel.id)
+        threshold_line = (
+            f"🛰️ **Auto-track:** {THRESHOLD_LABELS[cfg['threshold']]} or stronger "
+            f"({SATELLITE_PRODUCTS.get(cfg['sat_product'], cfg['sat_product'])})"
+            if cfg
+            else None
+        )
         if not tracked:
-            await interaction.response.send_message(
-                "No storms are being tracked in this channel. Use `/nhc storm` to start tracking.",
-                ephemeral=True,
-            )
+            msg = "No storms are being tracked in this channel. Use `/nhc storm` to start tracking."
+            if threshold_line:
+                msg += f"\n{threshold_line} — storms will be added automatically as they form."
+            await interaction.response.send_message(msg, ephemeral=True)
             return
 
         active = await get_active_storms()
         lines = []
+        if threshold_line:
+            lines.append(threshold_line)
         for t in tracked:
             sid = t["storm_id"]
             info = active.get(sid, {})
@@ -583,7 +774,7 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
             color=discord.Color.blue(),
             timestamp=datetime.now(timezone.utc),
         )
-        embed.set_footer(text=f"Channel: #{interaction.channel.name}")
+        embed.set_footer(text=f"Channel: #{channel.name}")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # ── /nesdis ───────────────────────────────────────────────────────────
@@ -689,8 +880,11 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
             return
 
         channel_storms = await get_all_tracked_channels()
-        if not channel_storms:
+        thresholds = await get_all_channel_thresholds()
+        if not channel_storms and not thresholds:
             return
+        for channel_id in thresholds:
+            channel_storms.setdefault(channel_id, [])
 
         active = await get_active_storms()
         tracked = {sid for ids in channel_storms.values() for sid in ids}
@@ -698,6 +892,20 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
             sid: miss for sid, miss in self._dissipation_misses.items() if sid in tracked
         }
         active, verdicts = await self._assess_missing_storms(active, tracked)
+
+        # Auto-track thresholds: subscribe any active storm that newly meets a
+        # channel's intensity floor and send its first update immediately.
+        for channel_id, cfg in thresholds.items():
+            channel = self.bot.get_channel(channel_id)
+            if not channel:
+                continue
+            try:
+                enrolled = await self._enroll_threshold_channel(
+                    channel, channel_id, cfg, active, set(channel_storms[channel_id])
+                )
+                channel_storms[channel_id].extend(enrolled)
+            except Exception as e:
+                logger.exception(f"Threshold enrollment failed for {channel_id}: {e}")
 
         for channel_id, storm_ids in channel_storms.items():
             channel = self.bot.get_channel(channel_id)
@@ -713,6 +921,10 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
                             await remove_tracked_storm(channel_id, storm_id)
                         continue
                     self._dissipation_misses.pop(storm_id, None)
+                    if is_post_tropical(info):
+                        await self._post_posttropical_notice(channel, storm_id, info)
+                        await remove_tracked_storm(channel_id, storm_id)
+                        continue
                     record = records.get(storm_id) or {}
                     sat_product = record.get("sat_product") or DEFAULT_SATELLITE_PRODUCT
                     await self._post_storm_update(channel, storm_id, info, channel_id, sat_product)
@@ -810,6 +1022,43 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
             await self._post_storm_update(channel, storm_id, info, channel.id, sat_product)
         except Exception as e:
             logger.exception(f"Immediate tracker update failed for {storm_id}: {e}")
+
+    async def _enroll_threshold_channel(
+        self,
+        channel: discord.abc.Messageable,
+        channel_id: int,
+        cfg: dict,
+        active: dict[str, dict],
+        already_tracked: set[str],
+    ) -> list[str]:
+        """Subscribe a channel to every active storm meeting its intensity floor.
+
+        Returns the storm IDs newly subscribed; each gets an immediate first
+        update (GeoColor unless the channel's rule names another product).
+        Storms that fall below the floor later are intentionally left alone —
+        enrollment only ever moves forward.
+        """
+        needed = THRESHOLD_RANK.get(cfg.get("threshold") or "")
+        if needed is None:
+            return []
+        enrolled: list[str] = []
+        for storm_id, info in sorted(active.items()):
+            if storm_id in already_tracked:
+                continue
+            rank = storm_intensity_rank(info)
+            if rank is None or rank < needed:
+                continue
+            sat_product = cfg.get("sat_product") or DEFAULT_SATELLITE_PRODUCT
+            if not await add_tracked_storm(channel_id, storm_id, sat_product):
+                continue
+            already_tracked.add(storm_id)
+            enrolled.append(storm_id)
+            logger.info(
+                f"Tracker: auto-track enrolled {storm_id} in channel {channel_id} "
+                f"(threshold {cfg['threshold']}+, {sat_product})"
+            )
+            await self._post_immediate_update(channel, storm_id)
+        return enrolled
 
     async def _resolve_storm_id(self, query: str) -> str | None:
         """Resolve a user query (name or storm ID) to a validated active storm ID."""
@@ -944,6 +1193,26 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         )
         embed.set_footer(text="Tropical Tracker")
         await safe_send(channel, context=f"tracker dissipation notice for {storm_id}", embed=embed)
+
+    async def _post_posttropical_notice(
+        self, channel: discord.abc.Messageable, storm_id: str, info: dict
+    ) -> None:
+        name = info.get("name") or storm_id
+        stype = info.get("type") or "post-tropical"
+        logger.info(f"Tracker: {storm_id} transitioned to {stype} — stopping tracking")
+        embed = discord.Embed(
+            title=f"🌀 {name} ({storm_id}) is now {stype.lower()}",
+            description=(
+                f"NHC has reclassified **{name}** as **{stype}** — it has lost "
+                "tropical characteristics. Tracking stopped."
+            ),
+            color=discord.Color.dark_grey(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.set_footer(text="Tropical Tracker")
+        await safe_send(
+            channel, context=f"tracker post-tropical notice for {storm_id}", embed=embed
+        )
 
 
 async def setup(bot: commands.Bot):

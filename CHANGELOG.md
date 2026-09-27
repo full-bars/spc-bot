@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Intensity auto-tracking (`/nhc storm threshold:`)**: set a per-channel floor — Tropical Depression, Tropical Storm, Hurricane, or Major Hurricane — and the tracker automatically subscribes to every active storm at or above it, posting each one's current status immediately and on every subsequent advisory (GeoColor imagery by default; pick another NESDIS product with `satproduct`). Setting `Off` returns the channel to manual-only tracking. `/nhc tracked` shows the active rule. Enrollment is one-way: a storm that weakens below the floor stays tracked until it dissipates. State survives restarts and HA failover (`tracker_thresholds:channel:{id}`).
+- **Post-tropical stop**: when NHC reclassifies a tracked storm as post-tropical or extratropical (e.g. a hurricane's remnant low), the bot posts a final notice and unsubscribes — the storm's tropical life is over, so updates stop with it.
 - **zoom.earth link buttons on tracker updates**: every tracker update now carries three never-expiring link buttons under the embed — 🛰️ Satellite, 💨 Wind Gusts, and 🌀 Pressure — built from the storm's parsed NHC position (N/S/E/W converted to signed decimal degrees at 6z regional zoom). Model layers deep-link to GFS; users can switch to ICON (or any other model) in zoom.earth's UI.
 
 ### Fixed
