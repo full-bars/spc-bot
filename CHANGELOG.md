@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [5.49.0] - 2026-09-27
 
 ### Added
 - **Intensity auto-tracking (`/nhc storm threshold:`)**: set a per-channel floor — Tropical Depression, Tropical Storm, Hurricane, or Major Hurricane — and the tracker automatically subscribes to every active storm at or above it, posting each one's current status immediately and on every subsequent advisory (GeoColor imagery by default; pick another NESDIS product with `satproduct`). Setting `Off` returns the channel to manual-only tracking. `/nhc tracked` shows the active rule. Enrollment is one-way: a storm that weakens below the floor stays tracked until it dissipates. State survives restarts and HA failover (`tracker_thresholds:channel:{id}`).
