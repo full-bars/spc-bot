@@ -843,7 +843,7 @@ class MesoscaleCog(commands.Cog):
                     logger.info(f"MD #{md_num} no longer on index — posting cancellation")
                     md_end_ts = int(datetime.now(timezone.utc).timestamp())
                     md_cache_path = self.bot.state.md_image_cache.pop(md_num, None)
-                    if md_cache_path and not os.path.exists(md_cache_path):
+                    if not isinstance(md_cache_path, str) or not os.path.exists(md_cache_path):
                         md_cache_path = None
                     if not md_cache_path:
                         # In-memory cache is empty (e.g. a restart happened

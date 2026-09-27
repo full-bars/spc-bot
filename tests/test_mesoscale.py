@@ -18,6 +18,7 @@ def _make_bot(posted_mds=None, active_mds=None, is_primary=True):
     bot.state.posted_mds = set(posted_mds or [])
     bot.state.active_mds = set(active_mds or [])
     bot.state.last_post_times = {}
+    bot.state.md_image_cache = {}
     bot.state.add_posted_md = AsyncMock()
     bot.wait_until_ready = AsyncMock()
     channel = AsyncMock()
@@ -202,6 +203,7 @@ def _make_bot_for_post(posted_mds=None, active_mds=None):
     bot.state.posted_mds = set(posted_mds or [])
     bot.state.active_mds = set(active_mds or [])
     bot.state.auto_cache = {}
+    bot.state.md_image_cache = {}
     bot.state.last_post_times = {}
     bot.state.add_posted_md = AsyncMock()
     bot.cogs = {}
