@@ -21,7 +21,7 @@ from typing import Optional
 from discord.ext import commands, tasks
 
 from config import IEM_NWSTEXT_URL, IEMBOT_BOTSTALK_URL, IEMBOT_FEED_URL, IEMBOT_NHC_URL
-from utils.http import http_get_bytes
+from utils.http import http_get_bytes, looks_like_error_page
 from utils.state_store import get_product_cache, get_state, set_product_cache, set_state
 
 logger = logging.getLogger("spc_bot.iembot")
@@ -89,12 +89,20 @@ def _parse_md_text(raw: str) -> Optional[str]:
 
 
 async def _fetch_product_text(product_id: str) -> Optional[str]:
-    """Fetch raw NWS product text from IEM archive."""
+    """Fetch raw NWS product text from IEM archive.
+
+    Returns ``None`` when IEM answers with its HTML placeholder page (a
+    blocked/down endpoint redirects there and still reports 200) so callers
+    fail loudly instead of parsing — or posting — HTML.
+    """
     url = IEM_NWSTEXT_URL.format(product_id=product_id)
     content, status = await http_get_bytes(url, retries=2, timeout=10)
     if not content or status != 200:
         return None
     text = content.decode("utf-8", errors="ignore")
+    if looks_like_error_page(text):
+        logger.warning(f"IEM returned an HTML placeholder page for {product_id} — dropping")
+        return None
     if "not found" in text.lower() and len(text) < 100:
         return None
     return text

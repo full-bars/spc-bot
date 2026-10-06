@@ -40,6 +40,9 @@ os.environ.setdefault("FAILOVER_TOKEN", "test-failover-token-not-real")
 # accidentally bypasses the mock gets a fast connection error rather than
 # hanging on a real Redis. Tests that need Redis use fakeredis explicitly.
 os.environ.setdefault("REDIS_URL", "redis://127.0.0.1:1/0")
+# The dev .env carries a live proxy pool — never let it route test traffic.
+os.environ["IEM_PROXY_URLS"] = ""
+os.environ.setdefault("IEM_PROXY_HOSTS", "mesonet.agron.iastate.edu")
 
 
 # ── Autouse fixtures ─────────────────────────────────────────────────────────

@@ -199,6 +199,22 @@ WXNEXT_BASE = _P["wxnext_base_url"]
 WXNEXT_PAGE = _P["wxnext_page_url"]
 SPC_DAY1_CATEGORICAL_GEOJSON_URL = _P["spc_day1_categorical_geojson_url"]
 
+# ── IEM egress proxy pool (optional) ────────────────────────────────────────
+# Our own IP has been blocked by IEM before; when that happens these proxies
+# carry ONLY requests that failed on the direct path, rotated round-robin so
+# no single address eats all the traffic. Unset/empty = always direct.
+IEM_PROXY_URLS = [u.strip() for u in os.getenv("IEM_PROXY_URLS", "").split(",") if u.strip()]
+IEM_PROXY_HOSTS = {
+    h.strip()
+    for h in os.getenv("IEM_PROXY_HOSTS", "mesonet.agron.iastate.edu").split(",")
+    if h.strip()
+}
+# Once the direct path fails for a host, prefer the proxy for this long before
+# probing direct again (so we recover automatically when the block is lifted).
+IEM_DIRECT_RETRY_SECONDS = float(os.getenv("IEM_DIRECT_RETRY_SECONDS", "600"))
+# How long a single misbehaving proxy is pulled out of the rotation.
+IEM_PROXY_COOLDOWN = float(os.getenv("IEM_PROXY_COOLDOWN", "60"))
+
 # NWWS-OI
 NWWS_USER = os.getenv("NWWS_USER", "")
 NWWS_PASSWORD = os.getenv("NWWS_PASSWORD", "")

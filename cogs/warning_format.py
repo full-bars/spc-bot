@@ -15,7 +15,7 @@ from typing import List, Optional, Tuple
 
 import discord
 
-from utils.http import http_get_bytes
+from utils.http import http_get_bytes, looks_like_error_page
 
 logger = logging.getLogger("spc_bot.warnings")
 
@@ -998,6 +998,25 @@ async def _download_warning_image(image_url: str, filename: str) -> discord.File
         try:
             content, status = await http_get_bytes(image_url, retries=1, timeout=15)
             if content and status == 200:
+                # A blocked/down IEM redirects to an HTML placeholder page that
+                # still reports 200 — never hand that to Discord as a .png.
+                if not content.startswith(b"\x89PNG\r\n\x1a\n"):
+                    if looks_like_error_page(content.decode("utf-8", errors="ignore")):
+                        # Deterministic block/maintenance page: retrying only
+                        # adds load to an upstream that has already throttled us.
+                        logger.warning(
+                            f"[IMG_DL_BLOCKED] {filename}: upstream served its "
+                            f"placeholder page ({len(content)} bytes)"
+                        )
+                        break
+                    logger.debug(
+                        f"[IMG_DL_RETRY] Attempt {attempt + 1}/8: non-PNG payload "
+                        f"({len(content)} bytes, status={status})"
+                    )
+                    if attempt < 7:
+                        await asyncio.sleep(min(2 ** (attempt + 1), 10))
+                        continue
+                    break
                 if attempt > 0:
                     logger.info(f"[IMG_DL_RECOVERED] {filename} after {attempt} retries")
                 logger.debug(f"[IMG_DL_SUCCESS] {filename}: got {len(content)} bytes")

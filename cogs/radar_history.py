@@ -5,6 +5,7 @@ import os
 import re
 from datetime import datetime, timedelta, timezone as dt_timezone
 from typing import Optional
+from urllib.parse import urlparse
 
 import aiohttp
 import discord
@@ -14,6 +15,7 @@ from discord.ext import commands
 from PIL import Image
 
 from lib.vad_plotter.radar_coords import get_nearest_radar
+from utils import http as http_utils
 
 logger = logging.getLogger("spc_bot")
 
@@ -104,14 +106,42 @@ def _iem_frame_url(dt: datetime) -> str:
     )
 
 
-async def _fetch_single_frame(url: str, session: aiohttp.ClientSession) -> Optional[bytes]:
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+async def _get_frame(
+    session: aiohttp.ClientSession, url: str, proxy: Optional[str]
+) -> tuple[Optional[bytes], Optional[Exception]]:
     try:
-        async with session.get(url, timeout=aiohttp.ClientTimeout(15)) as resp:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(15), proxy=proxy) as resp:
             if resp.status == 200:
-                return await resp.read()
-    except Exception:
-        pass
-    return None
+                data = await resp.read()
+                if proxy:
+                    http_utils._proxy_pool.report_success(proxy)
+                return data, None
+    except Exception as exc:
+        http_utils._note_proxy_failure(proxy, exc)
+        return None, exc
+    return None, None
+
+
+async def _fetch_single_frame(url: str, session: aiohttp.ClientSession) -> Optional[bytes]:
+    host = urlparse(url).hostname or url
+    proxy = http_utils.proxy_for_url(url)
+    if proxy is None:
+        direct, exc = await _get_frame(session, url, None)
+        if direct and direct.startswith(_PNG_MAGIC):
+            http_utils.mark_direct_healthy(host)
+            return direct
+        if http_utils._eligible_for_proxy(url):
+            if direct and not direct.startswith(_PNG_MAGIC):
+                # 200 with an HTML block page instead of the frame.
+                http_utils.mark_direct_unhealthy(host)
+            proxy = http_utils._fallback_proxy(url)
+        if proxy is None:
+            return direct
+    proxied, _ = await _get_frame(session, url, proxy)
+    return proxied
 
 
 async def _fetch_iem_frames(

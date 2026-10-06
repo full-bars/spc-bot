@@ -1,6 +1,7 @@
 # utils/http.py
 import asyncio
 import logging
+import re
 import time
 from typing import Dict, Optional, Tuple
 from urllib.parse import urlparse
@@ -46,10 +47,249 @@ def _get_retry_decorator(attempts: int):
     return _RETRY_CACHE[attempts]
 
 
+# Upstreams under maintenance or rate-limiting serve a static placeholder page
+# on a 200/302 instead of failing loudly, so `status == 200` alone does not
+# prove we got the payload we asked for. Markers are matched
+# case-insensitively anywhere in the body.
+_ERROR_PAGE_MARKERS = (
+    "iowamesonet.github.io/sorry",
+    "<title>service notice</title>",
+    "this service is currently unavailable",
+)
+
+
+def looks_like_error_page(text: Optional[str]) -> bool:
+    """True when *text* is an HTML placeholder/error page rather than the
+    plain-text payload the caller expected.
+
+    A bare ``status == 200`` check is not enough: a blocked or down endpoint
+    can redirect (HTTP 302, followed by the client) to a static page and still
+    come back as 200. Feeding that page to a text parser produces garbage —
+    or worse, posts it verbatim to Discord.
+    """
+    if not text:
+        return False
+    lowered = text.lower()
+    if any(marker in lowered for marker in _ERROR_PAGE_MARKERS):
+        return True
+    head = lowered.lstrip()[:256]
+    return head.startswith("<!doctype html") or head.startswith("<html")
+
+
 # Named timeout presets (seconds) — use these at call sites instead of bare integers
 TIMEOUT_FAST = 10  # Quick HEAD checks, small API calls
 TIMEOUT_STANDARD = 15  # Most JSON endpoints
 TIMEOUT_SLOW = 30  # Larger content, general GET
+
+
+# ── Optional egress proxy pool ───────────────────────────────────────────────
+# Some upstreams (IEM) block our own IP. When a pool is configured, requests
+# for those hosts are round-robined across it so no single egress address
+# absorbs all the traffic — and a proxy that starts failing is pulled out of
+# rotation instead of failing the request outright.
+
+_PROXY_FAILURE_TYPES = (aiohttp.ClientConnectionError, asyncio.TimeoutError)
+
+
+def _proxy_label(proxy: Optional[str]) -> str:
+    """host:port for a proxy URL — never the credentials."""
+    if not proxy:
+        return "direct"
+    return urlparse(proxy).netloc.rsplit("@")[-1]
+
+
+_CREDENTIAL_RE = re.compile(r"//[^/\s@]+:[^/\s@]+@")
+
+
+def _scrub(text: str) -> str:
+    """Strip ``user:pass@`` credentials before a string reaches the log."""
+    return _CREDENTIAL_RE.sub("//***:***@", text)
+
+
+class ProxyPool:
+    """Round-robin pool of HTTP proxies with a per-proxy cooldown."""
+
+    def __init__(self, urls=(), cooldown: float = 60.0, clock=None):
+        self._urls = [u for u in urls if u]
+        self._cooldown = cooldown
+        self._clock = clock or time.monotonic
+        self._failures: Dict[str, float] = {}
+        self._warned: set = set()
+        self._cursor = 0
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self._urls)
+
+    @property
+    def size(self) -> int:
+        return len(self._urls)
+
+    @property
+    def urls(self) -> list:
+        return list(self._urls)
+
+    @property
+    def cooldown(self) -> float:
+        return self._cooldown
+
+    def acquire(self) -> Optional[str]:
+        if not self._urls:
+            return None
+        now = self._clock()
+        for url in [u for u, ts in self._failures.items() if now - ts >= self._cooldown]:
+            del self._failures[url]
+
+        n = len(self._urls)
+        for _ in range(n):
+            candidate = self._urls[self._cursor % n]
+            self._cursor += 1
+            if candidate not in self._failures:
+                return candidate
+        # Everything is cooling down — keep using the least-recently failed
+        # one rather than hard-failing the request.
+        return min(self._urls, key=lambda u: self._failures.get(u, float("-inf")))
+
+    def report_failure(self, proxy: str) -> None:
+        first = proxy not in self._warned
+        self._failures[proxy] = self._clock()
+        if first:
+            self._warned.add(proxy)
+            logger.warning(
+                f"Proxy {_proxy_label(proxy)} failed — cooling down "
+                f"for {self._cooldown:.0f}s ({self.size} in pool)"
+            )
+        else:
+            logger.debug(f"Proxy {_proxy_label(proxy)} failed again — still cooling down")
+
+    def report_success(self, proxy: str) -> None:
+        self._failures.pop(proxy, None)
+        self._warned.discard(proxy)
+
+
+_proxy_pool: ProxyPool = ProxyPool()
+_proxy_hosts: set = set()
+_direct_retry_seconds: float = 600.0
+
+# Hosts whose DIRECT path is currently known-bad → we skip the direct attempt
+# and go straight to the proxy until the window lapses, then probe direct
+# again. This keeps normal traffic on our own IP and only routes through the
+# pool while a host is actually refusing us.
+_direct_unhealthy_until: Dict[str, float] = {}
+_clock = time.monotonic
+
+# Statuses that mean "our egress is being refused", not "bad product id".
+_BLOCK_STATUS = {403, 406, 429, 503}
+
+
+def configure_proxy_pool(
+    urls=None,
+    hosts=None,
+    cooldown: Optional[float] = None,
+    direct_retry_seconds: Optional[float] = None,
+) -> None:
+    """(Re)build the module-level router. Used by config at import time and by
+    tests; passing ``urls=[]`` disables proxying entirely."""
+    global _proxy_pool, _proxy_hosts, _direct_retry_seconds
+    if hosts is not None:
+        _proxy_hosts = set(hosts)
+    if direct_retry_seconds is not None:
+        _direct_retry_seconds = direct_retry_seconds
+    if urls is not None or cooldown is not None:
+        current = _proxy_pool
+        _proxy_pool = ProxyPool(
+            urls if urls is not None else current.urls,
+            cooldown=cooldown if cooldown is not None else current.cooldown,
+        )
+
+
+def _eligible_for_proxy(url: str) -> bool:
+    """Is this host in the configured proxy scope at all?"""
+    return _proxy_pool.enabled and urlparse(url).hostname in _proxy_hosts
+
+
+def _normalize_host(host: str) -> str:
+    """Callers hand us either a netloc (`host:port`) or a bare hostname —
+    normalise so both map to the same direct-health record."""
+    return host.partition(":")[0]
+
+
+def _direct_is_unhealthy(host: str) -> bool:
+    host = _normalize_host(host)
+    until = _direct_unhealthy_until.get(host)
+    if until is None:
+        return False
+    if _clock() >= until:
+        # Window lapsed — probe our own IP again so we recover automatically
+        # once the upstream stops blocking us.
+        _direct_unhealthy_until.pop(host, None)
+        return False
+    return True
+
+
+def mark_direct_unhealthy(host: str) -> None:
+    host = _normalize_host(host)
+    _direct_unhealthy_until[host] = _clock() + _direct_retry_seconds
+    logger.warning(
+        f"Direct path to {host} rejected — using proxy pool for {_direct_retry_seconds:.0f}s"
+    )
+
+
+def mark_direct_healthy(host: str) -> None:
+    host = _normalize_host(host)
+    if _direct_unhealthy_until.pop(host, None) is not None:
+        logger.info(f"Direct path to {host} recovered — proxy fallback cleared")
+
+
+def proxy_for_url(url: str) -> Optional[str]:
+    """Proxy to use for *url*, or ``None`` for a direct connection.
+
+    Direct is always preferred: a proxy is only handed out once the direct
+    path for this host has actually failed (and only for hosts listed in
+    ``IEM_PROXY_HOSTS``).
+    """
+    if not _eligible_for_proxy(url):
+        return None
+    if not _direct_is_unhealthy(urlparse(url).hostname or ""):
+        return None
+    return _proxy_pool.acquire()
+
+
+def _fallback_proxy(url: str) -> Optional[str]:
+    """A proxy for one failed attempt, sticky state notwithstanding.
+
+    Used when a single direct request fails: we don't yet have proof the host
+    is blocking us, so we don't put it into proxy mode — we just don't let the
+    user-visible fetch fail either.
+    """
+    if not _eligible_for_proxy(url):
+        return None
+    return proxy_for_url(url) or _proxy_pool.acquire()
+
+
+def _direct_failure_evidence(status: Optional[int], exc: Optional[BaseException]) -> bool:
+    """Does this failure suggest our *egress* is refused, rather than the
+    product id being wrong?  Timeouts on their own don't count — a slow
+    upstream shouldn't put a host into proxy mode for ten minutes."""
+    if status is not None and status in _BLOCK_STATUS:
+        return True
+    if exc is None:
+        return False
+    return isinstance(exc, (aiohttp.ClientConnectorError, aiohttp.ServerDisconnectedError))
+
+
+def _note_proxy_failure(proxy: Optional[str], exc: BaseException) -> None:
+    if not proxy:
+        return
+    if isinstance(exc, aiohttp.ClientResponseError):
+        # 407 = the proxy rejected our credentials; any other response came
+        # from the target, so the proxy did its job.
+        if exc.status == 407:
+            _proxy_pool.report_failure(proxy)
+        return
+    if isinstance(exc, _PROXY_FAILURE_TYPES):
+        _proxy_pool.report_failure(proxy)
+
 
 # Circuit breaker tuning — adjust these to change trip sensitivity globally
 _CB_FAILURE_THRESHOLD = 10  # Require more proof of unavailability before tripping
@@ -269,58 +509,122 @@ async def http_get_bytes_conditional(
     # Use tenacity for retries — decorator is cached at module level.
     retry_decorator = _get_retry_decorator(retries)
 
-    async def _do_request():
+    async def _do_request(proxy: Optional[str]):
         session = await ensure_session()
         start = time.perf_counter()
-        async with session.get(
-            url,
-            timeout=aiohttp.ClientTimeout(total=timeout),
-            headers=headers or None,
-        ) as response:
-            latency = time.perf_counter() - start
-            if _latency_callback:
-                try:
-                    _latency_callback(latency, host=urlparse(url).hostname)
-                except TypeError:
-                    # Legacy callback signature (latency-only) — preserve to
-                    # avoid breaking external consumers that haven't migrated.
-                    _latency_callback(latency)
+        try:
+            async with session.get(
+                url,
+                timeout=aiohttp.ClientTimeout(total=timeout),
+                headers=headers or None,
+                proxy=proxy,
+            ) as response:
+                latency = time.perf_counter() - start
+                if _latency_callback:
+                    try:
+                        _latency_callback(latency, host=urlparse(url).hostname)
+                    except TypeError:
+                        # Legacy callback signature (latency-only) — preserve to
+                        # avoid breaking external consumers that haven't migrated.
+                        _latency_callback(latency)
 
-            if response.status in (429, 503, 502, 504):
-                # Tenacity handles the backoff/retry; we just signal the failure
-                raise aiohttp.ClientResponseError(
-                    response.request_info,
-                    response.history,
-                    status=response.status,
-                    message="Server returned retryable error",
-                )
+                if response.status in (429, 503, 502, 504):
+                    # Tenacity handles the backoff/retry; we just signal the failure
+                    raise aiohttp.ClientResponseError(
+                        response.request_info,
+                        response.history,
+                        status=response.status,
+                        message="Server returned retryable error",
+                    )
 
-            if response.status == 304:
-                return None, 304, {"etag": etag or "", "last_modified": last_modified or ""}
+                if response.status == 304:
+                    if proxy:
+                        _proxy_pool.report_success(proxy)
+                    return None, 304, {"etag": etag or "", "last_modified": last_modified or ""}
 
-            response.raise_for_status()  # Raise for 4xx/5xx
+                response.raise_for_status()  # Raise for 4xx/5xx
 
-            content = await response.read()
-            validators = {
-                "etag": response.headers.get("ETag", ""),
-                "last_modified": response.headers.get("Last-Modified", ""),
-            }
-            return content, response.status, validators
+                content = await response.read()
+                validators = {
+                    "etag": response.headers.get("ETag", ""),
+                    "last_modified": response.headers.get("Last-Modified", ""),
+                }
+                if proxy:
+                    _proxy_pool.report_success(proxy)
+                return content, response.status, validators
+        except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+            _note_proxy_failure(proxy, exc)
+            raise
 
-    try:
-        result = await retry_decorator(_do_request)()
-        circuit_breaker.record_success(host)
-        return result
-    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+    async def _attempt(proxy: Optional[str]):
+        # Must stay an `async def`: a sync lambda would make tenacity wrap it
+        # as a plain function and silently drop the retry loop.
+        async def _run():
+            return await _do_request(proxy)
+
+        return await retry_decorator(_run)()
+
+    def _is_placeholder(result) -> bool:
+        """A 200 that isn't the product we asked for — the IEM block answers
+        with a redirect to a static HTML "Service Notice". Anything eligible
+        for proxy fallback should treat that as a hard failure."""
+        content, status, _ = result
+        if status == 304 or not content:
+            return False
+        return looks_like_error_page(content.decode("utf-8", "ignore"))
+
+    def _note_failure(e) -> int:
         # Only record failure in the circuit breaker if it's a "hard" failure
         # (connection/timeout) or a server-side/rate-limit error (5xx, 429).
         # We DON'T trip the circuit on 404s or other user-side 4xx errors.
-        status: int = getattr(e, "status", None) or 0
+        status = getattr(e, "status", None) or 0
         if status == 0 or status >= 500 or status == 429:
             circuit_breaker.record_failure(host)
+        return status
 
-        logger.warning(f"Request failed for {url} after {retries} retries: {e}")
+    def _give_up(status: int, e=None):
+        if e is None:
+            logger.warning(f"Request failed for {url} after {retries} retries: status {status}")
+        else:
+            logger.warning(f"Request failed for {url} after {retries} retries: {e}")
         return None, status, None
+
+    # ── 1) Our own IP first ───────────────────────────────────────────────────
+    # `proxy` is non-None only when the direct path is already known-bad for
+    # this host; otherwise we always try direct and only bail out if it does
+    # not actually return the product.
+    proxy = proxy_for_url(url)
+    if proxy is None:
+        try:
+            direct = await _attempt(None)
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            status = _note_failure(e)
+            if _eligible_for_proxy(url):
+                if _direct_failure_evidence(status, e):
+                    mark_direct_unhealthy(host)
+                proxy = _fallback_proxy(url)
+            if proxy is None:
+                return _give_up(status, e)
+        else:
+            if not _is_placeholder(direct):
+                circuit_breaker.record_success(host)
+                mark_direct_healthy(host)
+                return direct
+            # The body is a placeholder/block page: our egress is being refused,
+            # not a bad product id. Only proxy-capable hosts can recover.
+            if _eligible_for_proxy(url):
+                mark_direct_unhealthy(host)
+                proxy = _fallback_proxy(url)
+            if proxy is None:
+                return direct
+
+    # ── 2) Same product, egressed through the pool ────────────────────────────
+    try:
+        result = await _attempt(proxy)
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        return _give_up(_note_failure(e), e)
+    circuit_breaker.record_success(host)
+    return result
 
 
 async def http_get_text(url: str, retries: int = 3, timeout: int = 30) -> Optional[str]:
@@ -340,19 +644,34 @@ async def http_head_ok(url: str, timeout: int = 20) -> bool:
     if circuit_breaker.is_open(host):
         return False
 
+    proxy = proxy_for_url(url)
     try:
         session = await ensure_session()
-        async with session.head(url, timeout=aiohttp.ClientTimeout(total=timeout)) as r:
+        async with session.head(
+            url, timeout=aiohttp.ClientTimeout(total=timeout), proxy=proxy
+        ) as r:
             success = r.status == 200
             if success:
                 circuit_breaker.record_success(host)
-            elif r.status >= 500 or r.status == 429:
-                circuit_breaker.record_failure(host)
+                if proxy:
+                    _proxy_pool.report_success(proxy)
+                else:
+                    mark_direct_healthy(host)
+            else:
+                if r.status >= 500 or r.status == 429:
+                    circuit_breaker.record_failure(host)
+                if proxy is None and _direct_failure_evidence(r.status, None):
+                    mark_direct_unhealthy(host)
             return success
     except Exception as e:
         # Standard exceptions (timeout, conn error) always count as failure
+        _note_proxy_failure(proxy, e)
         circuit_breaker.record_failure(host)
-        logger.warning(f"HEAD check failed for {url.split('?')[0]}: {type(e).__name__}: {e}")
+        if proxy is None and _eligible_for_proxy(url) and _direct_failure_evidence(None, e):
+            mark_direct_unhealthy(host)
+        logger.warning(
+            f"HEAD check failed for {url.split('?')[0]}: {type(e).__name__}: {_scrub(str(e))}"
+        )
         return False
 
 
@@ -362,22 +681,36 @@ async def http_head_meta(url: str, timeout: int = 20) -> Optional[Dict[str, str]
     if circuit_breaker.is_open(host):
         return None
 
+    proxy = proxy_for_url(url)
     try:
         session = await ensure_session()
-        async with session.head(url, timeout=aiohttp.ClientTimeout(total=timeout)) as r:
+        async with session.head(
+            url, timeout=aiohttp.ClientTimeout(total=timeout), proxy=proxy
+        ) as r:
             if r.status != 200:
                 if r.status >= 500 or r.status == 429:
                     circuit_breaker.record_failure(host)
+                if proxy is None and _direct_failure_evidence(r.status, None):
+                    mark_direct_unhealthy(host)
                 return None
             circuit_breaker.record_success(host)
+            if proxy:
+                _proxy_pool.report_success(proxy)
+            else:
+                mark_direct_healthy(host)
             return {
                 "etag": r.headers.get("ETag", ""),
                 "last_modified": r.headers.get("Last-Modified", ""),
                 "content_length": r.headers.get("Content-Length", ""),
             }
     except Exception as e:
+        _note_proxy_failure(proxy, e)
         circuit_breaker.record_failure(host)
-        logger.warning(f"HEAD meta failed for {url.split('?')[0]}: {type(e).__name__}: {e}")
+        if proxy is None and _eligible_for_proxy(url) and _direct_failure_evidence(None, e):
+            mark_direct_unhealthy(host)
+        logger.warning(
+            f"HEAD meta failed for {url.split('?')[0]}: {type(e).__name__}: {_scrub(str(e))}"
+        )
         return None
 
 
@@ -472,3 +805,18 @@ async def http_post_json(
             circuit_breaker.record_failure(host)
         logger.warning(f"JSON POST error for {url}: {type(e).__name__}: {e}")
         return None
+
+
+# Config lives at the bottom so this module stays importable on its own (tests,
+# scripts) without dragging in the whole config module.
+from config import IEM_DIRECT_RETRY_SECONDS as _DEFAULT_DIRECT_RETRY  # noqa: E402
+from config import IEM_PROXY_COOLDOWN as _DEFAULT_PROXY_COOLDOWN  # noqa: E402
+from config import IEM_PROXY_HOSTS as _DEFAULT_PROXY_HOSTS  # noqa: E402
+from config import IEM_PROXY_URLS as _DEFAULT_PROXY_URLS  # noqa: E402
+
+configure_proxy_pool(
+    urls=_DEFAULT_PROXY_URLS,
+    hosts=_DEFAULT_PROXY_HOSTS,
+    cooldown=_DEFAULT_PROXY_COOLDOWN,
+    direct_retry_seconds=_DEFAULT_DIRECT_RETRY,
+)

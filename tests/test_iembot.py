@@ -361,3 +361,39 @@ async def test_handle_md_does_nothing_if_no_text():
         cog = IEMBotCog(bot)
         await cog._handle_md("202604281200-KWNS-ACUS11-SWOMCD")
         mock_task.assert_not_called()
+
+
+# ── _fetch_product_text: HTML placeholder rejection ───────────────────────────
+
+IEM_BLOCK_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Service Notice</title>
+</head>
+<body>
+  <h1 id="headline">This service is currently unavailable.</h1>
+</body>
+</html>
+"""
+
+
+@pytest.mark.asyncio
+async def test_fetch_product_text_rejects_html_placeholder_page():
+    """A blocked IEM redirects to a static page that still answers 200.
+    That must read as a failure, not as product text."""
+    with patch(
+        "cogs.iembot.http_get_bytes", AsyncMock(return_value=(IEM_BLOCK_PAGE.encode(), 200))
+    ):
+        result = await _fetch_product_text("202604281200-KWNS-SWOMCD")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_product_text_rejects_bare_html_document():
+    with patch(
+        "cogs.iembot.http_get_bytes",
+        AsyncMock(return_value=(b"<!DOCTYPE html><html><body>maintenance</body></html>", 200)),
+    ):
+        result = await _fetch_product_text("202610061005-KNHC-AXPZ20-TWDEP")
+    assert result is None

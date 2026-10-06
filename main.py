@@ -5,6 +5,7 @@ import logging
 import os
 import signal
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
 
 import aiohttp
 import discord
@@ -319,6 +320,12 @@ _task_alerted = set()
 # startup "task is down" alert immediately followed by "recovered".
 _task_seen_running = set()
 _session_probe_failures = 0
+# Consecutive failures of the IEM probe on its own. The rule above only
+# counts a failure when BOTH endpoints are unreachable, so a blocked IEM
+# (it redirects to a placeholder page on another host) would otherwise stay
+# invisible while api.weather.gov keeps the probe "healthy".
+_secondary_probe_failures = 0
+_secondary_probe_alerted = False
 # Tracked so _shutdown() can cancel the cache-cleanup background task
 # spawned in on_ready — otherwise systemd hangs on stop until SIGKILL.
 _cache_cleanup_task: "asyncio.Task | None" = None
@@ -490,25 +497,73 @@ async def watchdog_task():
     _PROBE_PRIMARY = "https://api.weather.gov/"
     _PROBE_SECONDARY = "https://mesonet.agron.iastate.edu/"
 
-    async def _head_ok(url: str) -> bool:
+    async def _head_ok(url: str, require_same_host: bool = False) -> bool:
         if utils.http.http_session is None or utils.http.http_session.closed:
             return False
+        # Deliberately direct: this probe is the canary for "our own IP is
+        # blocked". Product fetches fall back to the proxy pool, so if the
+        # probe used it too we would never notice the block.
         try:
             async with utils.http.http_session.head(
-                url, timeout=aiohttp.ClientTimeout(total=20), allow_redirects=True
+                url,
+                timeout=aiohttp.ClientTimeout(total=20),
+                allow_redirects=True,
+                proxy=None,
             ) as r:
-                return r.status < 500
+                if r.status >= 500:
+                    return False
+                # A blocked/down upstream can redirect us to a static
+                # placeholder page on another host and still answer 200.
+                # Treat a cross-host bounce as a failed probe.
+                if require_same_host and urlparse(str(r.url)).netloc != urlparse(url).netloc:
+                    logger.debug(
+                        f"Session probe to {url} bounced off-host to {r.url} (status {r.status})"
+                    )
+                    return False
+                return True
         except Exception as e:
             logger.warning(f"Session probe to {url} failed: {e!r}")
             return False
 
     primary_ok = await _head_ok(_PROBE_PRIMARY)
-    probe_healthy = primary_ok or await _head_ok(_PROBE_SECONDARY)
+    secondary_ok = await _head_ok(_PROBE_SECONDARY, require_same_host=True)
+    probe_healthy = primary_ok or secondary_ok
 
     # Only the Primary surfaces alerts and recreates the shared session —
     # we don't want both nodes posting "session reset" to Discord, and the
     # session-teardown action is meaningless on standby (no traffic flowing).
     primary_role = bot.state.is_primary
+
+    # IEM-only degradation: NWS API still fine, so the shared counter below
+    # stays at zero. Track it separately and alert once per incident after
+    # three consecutive cycles (~6 min) so a silent IP block can't sit unnoticed.
+    global _secondary_probe_failures, _secondary_probe_alerted
+    if secondary_ok:
+        if _secondary_probe_alerted:
+            logger.info(f"IEM probe recovered after {_secondary_probe_failures} failure(s)")
+        _secondary_probe_failures = 0
+        _secondary_probe_alerted = False
+    else:
+        _secondary_probe_failures += 1
+        if _secondary_probe_failures >= 3 and not _secondary_probe_alerted and primary_role:
+            _secondary_probe_alerted = True
+            try:
+                ch = bot.get_channel(DEV_CHANNEL_ID) or await bot.fetch_channel(DEV_CHANNEL_ID)
+                await ch.send(
+                    embed=discord.Embed(
+                        title="⚠️ Watchdog: IEM unreachable",
+                        description=(
+                            f"`{_PROBE_SECONDARY}` failed {_secondary_probe_failures} "
+                            "consecutive cycles while the NWS API is healthy — typically an "
+                            "IP-level block (requests bounce to a placeholder page on another "
+                            "host). Text products, watch/MD fast paths, autoplot images and "
+                            "LSR polling that depend on IEM are degraded."
+                        ),
+                        color=discord.Color.orange(),
+                    )
+                )
+            except Exception as alert_err:
+                logger.warning(f"Could not send IEM-degradation alert: {alert_err}")
 
     if probe_healthy:
         if _session_probe_failures > 0:

@@ -9,7 +9,7 @@ import re
 import time
 
 from config import IEM_NWSTEXT_URL
-from utils.http import http_get_bytes
+from utils.http import http_get_bytes, looks_like_error_page
 
 logger = logging.getLogger("spc_bot")
 
@@ -397,15 +397,35 @@ async def get_active_storms(force: bool = False) -> dict[str, dict]:
     return _active_storms_cache
 
 
-async def fetch_nhc_product(product_id: str) -> dict | None:
-    """Fetch and parse an NHC product from the IEM archive."""
-    url = IEM_NWSTEXT_URL.format(product_id=product_id)
-    content, status = await http_get_bytes(url, retries=2, timeout=10)
-    if not content or status != 200:
-        return None
+async def fetch_nhc_product(product_id: str, prefetched_text: str | None = None) -> dict | None:
+    """Fetch and parse an NHC product from the IEM archive.
 
-    text = content.decode("utf-8", errors="ignore")
-    if "not found" in text.lower() and len(text) < 100:
+    ``prefetched_text`` lets callers hand over the product text they already
+    received on the live feed (NWWS-OI / IEMBot) so we don't re-request it.
+    It is only used when it looks like a real product — an HTML placeholder
+    page (blocked or down upstream) falls through to a fresh fetch, which is
+    itself rejected if it comes back as HTML.
+    """
+    text: str | None = None
+    if prefetched_text and not looks_like_error_page(prefetched_text):
+        text = prefetched_text
+    else:
+        url = IEM_NWSTEXT_URL.format(product_id=product_id)
+        content, status = await http_get_bytes(url, retries=2, timeout=10)
+        if not content or status != 200:
+            return None
+
+        candidate = content.decode("utf-8", errors="ignore")
+        if looks_like_error_page(candidate):
+            logger.warning(
+                f"IEM returned an HTML placeholder page for {product_id} — refusing to parse"
+            )
+            return None
+        if "not found" in candidate.lower() and len(candidate) < 100:
+            return None
+        text = candidate
+
+    if not text:
         return None
 
     lines = text.splitlines()

@@ -184,3 +184,87 @@ async def test_post_tropical_product_posts_full_text_in_thread():
     assert thread.send.await_count == 2
     second_thread_embed = thread.send.await_args_list[1].kwargs["embed"]
     assert "FULL RAW PRODUCT TEXT" in second_thread_embed.description
+
+
+# ── fetch_nhc_product: placeholder-page rejection + prefetched text ───────────
+
+IEM_BLOCK_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Service Notice</title>
+</head>
+<body>
+  <h1 id="headline">This service is currently unavailable.</h1>
+</body>
+</html>
+"""
+
+
+@pytest.mark.asyncio
+async def test_fetch_nhc_product_rejects_html_placeholder_page():
+    """A blocked IEM answers 200 with a static page after following its
+    redirect — parsing that would post HTML to Discord as product text."""
+    with patch(
+        "utils.nhc_storms.http_get_bytes", AsyncMock(return_value=(IEM_BLOCK_PAGE.encode(), 200))
+    ):
+        parsed = await fetch_nhc_product("202610061005-KNHC-AXPZ20-TWDEP")
+    assert parsed is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_nhc_product_uses_prefetched_text_without_refetching():
+    """NWWS-OI already hands us the live product — don't ask IEM for it twice."""
+    with patch(
+        "utils.nhc_storms.http_get_bytes",
+        AsyncMock(side_effect=AssertionError("must not fetch when prefetched text is good")),
+    ) as get_bytes:
+        parsed = await fetch_nhc_product(
+            "202607220900-KNHC-WTPZ31-TCPEP1", prefetched_text=FAUSTO_TCP
+        )
+
+    get_bytes.assert_not_called()
+    assert parsed is not None
+    assert "LOCATION...16.7N 120.7W" in parsed["summary"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_nhc_product_refetches_when_prefetched_text_is_html():
+    """If the caller's copy is itself a placeholder page, fall back to IEM."""
+    with patch(
+        "utils.nhc_storms.http_get_bytes", AsyncMock(return_value=(FAUSTO_TCP.encode(), 200))
+    ):
+        parsed = await fetch_nhc_product(
+            "202607220900-KNHC-WTPZ31-TCPEP1", prefetched_text=IEM_BLOCK_PAGE
+        )
+    assert parsed is not None
+    assert "LOCATION...16.7N 120.7W" in parsed["summary"]
+
+
+@pytest.mark.asyncio
+async def test_post_tropical_product_passes_raw_text_through_to_parser():
+    """The NWWS-supplied text must reach fetch_nhc_product, not be discarded."""
+    bot = MagicMock()
+    channel = AsyncMock()
+    bot.get_channel.return_value = channel
+    cog = TropicalCog(bot)
+
+    with patch(
+        "cogs.tropical.fetch_nhc_product",
+        AsyncMock(
+            return_value={
+                "raw_text": FAUSTO_TCP,
+                "summary": "SUMMARY OF 1100 PM HST",
+                "storm_type": "HURRICANE",
+                "storm_name": "Fausto",
+            }
+        ),
+    ) as fetch_mock, patch("cogs.tropical.safe_send", AsyncMock(return_value=MagicMock())), patch(
+        "cogs.tropical.safe_create_thread", AsyncMock(return_value=None)
+    ):
+        await cog.post_tropical_product(
+            "202607220900-KNHC-WTPZ31-TCPEP1", FAUSTO_TCP, "ADVISORY", source="NWWS"
+        )
+
+    fetch_mock.assert_awaited_once()
+    assert fetch_mock.await_args.kwargs.get("prefetched_text") == FAUSTO_TCP

@@ -150,7 +150,7 @@ class TropicalCog(commands.Cog, name="Tropical"):
     async def post_tropical_product(
         self,
         product_id: str,
-        raw_text: str,
+        raw_text: str | None = None,
         pil_prefix: str = None,
         source: str = "IEMBot",
     ):
@@ -162,7 +162,9 @@ class TropicalCog(commands.Cog, name="Tropical"):
         if not product_type:
             return
 
-        parsed = await fetch_nhc_product(product_id)
+        # Prefer the text the caller already has (NWWS-OI hands us the live
+        # product verbatim) over a second round-trip to the IEM archive.
+        parsed = await fetch_nhc_product(product_id, prefetched_text=raw_text or None)
         if not parsed:
             return
 
