@@ -127,7 +127,7 @@ class MDPaginatorView(discord.ui.View):
         cache_path = data["cache_path"]
 
         # 1. First embed: The Image (on top)
-        md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
+        md_page_url = f"https://www.spc.noaa.gov/products/md/md{md_num}.html"
         img_embed = discord.Embed(
             title=f"🌩️ SPC Mesoscale Discussion #{int(md_num)}",
             url=md_page_url,

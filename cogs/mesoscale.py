@@ -19,7 +19,7 @@ from utils.cache import (
 )
 from utils.change_detection import get_cache_path_for_url
 from utils.discord_send import safe_create_thread, safe_send
-from utils.http import http_get_bytes, http_get_text, http_head_meta
+from utils.http import http_get_text, http_head_meta
 from utils.state_store import get_state, set_state
 
 logger = logging.getLogger("spc_bot.mesoscale")
@@ -144,18 +144,16 @@ async def fetch_md_details_iem(
     md_number: str,
 ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
-    Fallback: fetch MD image and summary from IEM when SPC is unreachable.
-    IEM mirrors SPC MCD images at a predictable URL.
-    Returns (image_url, summary_text, raw_text).
+    Fallback: fetch MD summary text from IEM when SPC is unreachable.
+
+    IEM archives MCD text and polygons but does not publish the MCD graphic,
+    so no image URL is returned here (the first element is always None). The
+    caller fetches the graphic from SPC.
+
+    Returns (None, summary_text, raw_text).
     """
     padded = md_number.zfill(4)
     num_int = int(md_number)
-
-    iem_img_url = f"https://mesonet.agron.iastate.edu/pickup/mcd/mcd{padded}.png"
-
-    async def _fetch_img():
-        img_bytes, img_status = await http_get_bytes(iem_img_url, retries=2, timeout=15)
-        return iem_img_url if (img_bytes and img_status == 200 and len(img_bytes) > 2048) else None
 
     async def _fetch_text():
         try:
@@ -178,11 +176,8 @@ async def fetch_md_details_iem(
             logger.warning(f"IEM text fallback failed for #{md_number}: {e}")
         return None, None
 
-    img_task = asyncio.create_task(_fetch_img())
-    text_task = asyncio.create_task(_fetch_text())
-    iem_image_url, (raw_text, summary) = await asyncio.gather(img_task, text_task)
-
-    return iem_image_url, summary, raw_text
+    raw_text, summary = await _fetch_text()
+    return None, summary, raw_text
 
 
 async def fetch_md_details(
@@ -504,7 +499,7 @@ def build_md_embeds(
     ``EMBED_BODY_LIMIT`` chars) split into multiple embeds — paragraph
     boundaries are preferred. The image lives only on the first embed.
     """
-    md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
+    md_page_url = f"https://www.spc.noaa.gov/products/md/md{md_num}.html"
     color = discord.Color.orange()
     base_title = f"🌩️ SPC Mesoscale Discussion #{md_num}"
 
@@ -578,10 +573,9 @@ class MesoscaleCog(commands.Cog):
         thread: Optional[discord.Thread] = None,
     ):
         spc_image_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.png"
-        iem_image_url = f"https://mesonet.agron.iastate.edu/pickup/mcd/mcd{md_num.zfill(4)}.png"
         filename = f"md_{md_num}.png"
         cache_path: Optional[str] = None
-        md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
+        md_page_url = f"https://www.spc.noaa.gov/products/md/md{md_num}.html"
 
         async def _push_edit():
             img_embed = discord.Embed(
@@ -651,29 +645,14 @@ class MesoscaleCog(commands.Cog):
                     text_pending = True
                     logger.info(f"Recovered text for #{md_num}")
             if not cache_path:
-
-                async def _try_dl(url):
-                    cp, _, _ = await download_single_image(
-                        url, AUTO_CACHE_FILE, self.bot.state.auto_cache, retries=2
-                    )
-                    return cp
-
-                spc_task = asyncio.create_task(_try_dl(spc_image_url))
-                iem_task = asyncio.create_task(_try_dl(iem_image_url))
-                done, pending = await asyncio.wait(
-                    [spc_task, iem_task],
-                    return_when=asyncio.FIRST_COMPLETED,
+                cp, _, _ = await download_single_image(
+                    spc_image_url, AUTO_CACHE_FILE, self.bot.state.auto_cache, retries=2
                 )
-                for t in pending:
-                    t.cancel()
-                for t in done:
-                    cp = t.result()
-                    if cp:
-                        cache_path = cp
-                        self.bot.state.md_image_cache[md_num] = cp
-                        img_changed = True
-                        logger.info(f"Recovered image for #{md_num}")
-                        break
+                if cp:
+                    cache_path = cp
+                    self.bot.state.md_image_cache[md_num] = cp
+                    img_changed = True
+                    logger.info(f"Recovered image for #{md_num}")
             if img_changed:
                 edit_pending = True
             if edit_pending:
@@ -721,7 +700,7 @@ class MesoscaleCog(commands.Cog):
             )
             if cache_path:
                 self.bot.state.md_image_cache[md_num] = cache_path
-        md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
+        md_page_url = f"https://www.spc.noaa.gov/products/md/md{md_num}.html"
         img_embed = discord.Embed(
             title=f"🌩️ SPC Mesoscale Discussion #{int(md_num)}",
             url=md_page_url,
@@ -851,17 +830,13 @@ class MesoscaleCog(commands.Cog):
                         # was cancelled). The cache path is deterministic
                         # from the URL, so check disk directly — the file
                         # is very likely still there (7-day TTL).
-                        for candidate_url in (
-                            f"https://www.spc.noaa.gov/products/md/mcd{md_num}.png",
-                            f"https://mesonet.agron.iastate.edu/pickup/mcd/mcd{md_num.zfill(4)}.png",
-                        ):
-                            candidate_path = get_cache_path_for_url(candidate_url)
-                            if os.path.exists(candidate_path):
-                                md_cache_path = candidate_path
-                                break
+                        candidate_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.png"
+                        candidate_path = get_cache_path_for_url(candidate_url)
+                        if os.path.exists(candidate_path):
+                            md_cache_path = candidate_path
                     content = f"Mesoscale Discussion #{int(md_num)} cancelled <t:{md_end_ts}:R>"
                     if md_cache_path:
-                        md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
+                        md_page_url = f"https://www.spc.noaa.gov/products/md/md{md_num}.html"
                         cancel_embed = discord.Embed(
                             title=f"🌩️ Mesoscale Discussion #{int(md_num)} CANCELLED",
                             url=md_page_url,
@@ -939,7 +914,7 @@ class MesoscaleCog(commands.Cog):
                     self.bot.state.md_image_cache[md_num] = cache_path
 
                 filename = f"md_{md_num}.png"
-                md_page_url = f"https://www.spc.noaa.gov/products/md/mcd{md_num}.html"
+                md_page_url = f"https://www.spc.noaa.gov/products/md/md{md_num}.html"
                 img_embed = discord.Embed(
                     title=f"🌩️ SPC Mesoscale Discussion #{int(md_num)}",
                     url=md_page_url,

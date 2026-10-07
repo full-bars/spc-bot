@@ -155,7 +155,7 @@ def test_build_embed_single_chunk_with_image():
     e = embeds[0]
     assert isinstance(e, discord.Embed)
     assert "0579" in e.title
-    assert e.url == "https://www.spc.noaa.gov/products/md/mcd0579.html"
+    assert e.url == "https://www.spc.noaa.gov/products/md/md0579.html"
     assert e.description.startswith("```")
     assert e.description.endswith("```")
     assert "Concerning...Tornado Watch 162..." in e.description
@@ -172,7 +172,7 @@ def test_build_embed_multi_chunk_marks_pagination_and_image_only_first():
     # Title pagination
     for i, e in enumerate(embeds):
         assert f"({i + 1}/{len(embeds)})" in e.title
-        assert e.url == "https://www.spc.noaa.gov/products/md/mcd0599.html"
+        assert e.url == "https://www.spc.noaa.gov/products/md/md0599.html"
     # Image only on first embed
     assert embeds[0].image.url == "attachment://mcd_0599.png"
     for e in embeds[1:]:

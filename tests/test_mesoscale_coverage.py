@@ -254,38 +254,40 @@ async def test_fetch_latest_md_numbers_spc_reachable_again(isolated_db):
 
 
 @pytest.mark.real_create_task
-async def test_fetch_md_details_iem_returns_image_and_summary():
+async def test_fetch_md_details_iem_returns_summary_text():
     iem_text = (
         "ACUS11 KWNS 101200\n"
         "MESOSCALE DISCUSSION 1234\n"
         "CONCERNING TORNADO WATCH ISSUANCE PROBABILITIES"
     )
-    with patch("cogs.mesoscale.http_get_bytes", new_callable=AsyncMock) as mock_bytes, patch(
-        "cogs.mesoscale.http_get_text", new_callable=AsyncMock
-    ) as mock_text:
-        mock_bytes.return_value = (b"x" * 3000, 200)
+    with patch("cogs.mesoscale.http_get_text", new_callable=AsyncMock) as mock_text:
         mock_text.return_value = iem_text
 
         image_url, summary, raw = await mesoscale.fetch_md_details_iem("1234")
 
-    assert image_url == "https://mesonet.agron.iastate.edu/pickup/mcd/mcd1234.png"
+    assert image_url is None
     assert summary is not None
     assert "CONCERNING" in summary
+    assert raw is not None
     assert "MESOSCALE DISCUSSION 1234" in raw
 
 
 @pytest.mark.real_create_task
-async def test_fetch_md_details_iem_skips_small_image():
-    with patch("cogs.mesoscale.http_get_bytes", new_callable=AsyncMock) as mock_bytes, patch(
-        "cogs.mesoscale.http_get_text", new_callable=AsyncMock
-    ) as mock_text:
-        mock_bytes.return_value = (b"x" * 100, 200)
+async def test_fetch_md_details_iem_no_match_returns_nothing():
+    with patch("cogs.mesoscale.http_get_text", new_callable=AsyncMock) as mock_text:
         mock_text.return_value = "no matching product"
         image_url, summary, raw = await mesoscale.fetch_md_details_iem("1234")
 
     assert image_url is None
     assert summary is None
     assert raw is None
+
+
+def test_no_fake_iem_mcd_image_endpoint_referenced():
+    """IEM does not publish MCD graphics; guard against reintroducing the path."""
+    import inspect
+
+    assert "pickup/mcd" not in inspect.getsource(mesoscale)
 
 
 # ── MD details: race ─────────────────────────────────────────────────────────
