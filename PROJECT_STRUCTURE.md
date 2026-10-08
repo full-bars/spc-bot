@@ -24,7 +24,8 @@ spc-bot/
 │   ├── nwws_monitor.py               # Standalone NWWS-OI connection monitor
 │   └── precache_all_photos.py        # DAT photo cache utility
 ├── utils/
-│   ├── http.py              # Async HTTP session management (centralized pooling, retry, conditional GET)
+│   ├── http.py              # Async HTTP session management (centralized pooling, retry, conditional GET,
+│   │                        # direct-first IEM proxy pool, placeholder/error-page detection)
 │   ├── change_detection.py  # Content hashing and placeholder-image detection
 │   ├── cache.py             # Download orchestration; conditional-GET poll path (validators persist across restarts)
 │   ├── cache_utils.py       # TTL-based cache eviction with scheduled cleanup tasks (7-day default)
@@ -50,7 +51,8 @@ spc-bot/
 │   ├── analytics.py         # IEM analytics slash commands (/topstats, /verify, /riskmap, etc.)
 │   ├── recorder.py          # VAD forensics recorder and /archive search
 │   ├── outlooks.py          # SPC Day 1-3 and Day 4-8 auto-posting with AI summary autoposting
-│   ├── mesoscale.py         # SPC MD monitoring with watch probability detection, IEM fallbacks, AI summary autoposting
+│   ├── mesoscale.py         # SPC MD monitoring with watch probability detection, SPC-only MD graphics,
+│   │                        # IEM text fallback, AI summary autoposting
 │   ├── iembot.py            # IEM iembot feed poller with persistent text-product caching
 │   ├── watches.py           # SPC watch monitoring via NWS API (stores affected_zones)
 │   ├── watch_fetch.py       # Watch data fetching and zone parsing

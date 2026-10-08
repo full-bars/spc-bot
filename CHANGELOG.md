@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.49.1] - 2026-10-07
+
+### Added
+- **Direct-first proxy fallback for IEM**: `mesonet.agron.iastate.edu` traffic now goes direct by default and only falls back to a rotating proxy pool when the direct attempt does not return the product, then sticks with that proxy for ten minutes before automatically re-probing direct — so recovery from an egress block is unattended. A proxy that starts failing is pulled from rotation for `IEM_PROXY_COOLDOWN` seconds. The health probe deliberately stays direct-only so it keeps seeing the block, a cross-host redirect bounce counts as a failed probe, and a one-shot alert fires after three consecutive failures. Configure with `IEM_PROXY_URLS` (comma-separated, empty for direct-only), `IEM_PROXY_HOSTS`, `IEM_DIRECT_RETRY_SECONDS`, and `IEM_PROXY_COOLDOWN`.
+
+### Fixed
+- **Placeholder pages were posted as product text**: when one of our egress IPs is blocked, IEM answers with a redirect to a static "Service Notice" page that still resolves to HTTP 200. Nothing inspected the body, so the page went to Discord verbatim as product text and the health probe read the 200 as healthy. `looks_like_error_page()` now rejects placeholder bodies in both product fetchers, the live NWWS text is handed to `post_tropical_product()` instead of being re-fetched from IEM, and image downloads verify PNG magic bytes before anything is sent to Discord.
+- **~30 nonexistent-image requests per day**: every mesoscale discussion triggered a request for `mesonet.agron.iastate.edu/pickup/mcd/mcdNNNN.png` — a path IEM has never served, so every one of them 404'd (~960 in the retained logs, at up to three attempts each). IEM archives MCD text and polygons but publishes no MCD graphic at all, so the fetch is gone: the graphic comes from SPC only and IEM stays on text.
+- **Mesoscale discussion links were dead**: embed title links were built as `/products/md/mcdNNNN.html`, which SPC does not serve — the page is `mdNNNN.html`; only the graphic is `mcdNNNN.png`. All six link builders, and the two tests that asserted the wrong form, now use the correct URL.
+
+### Dependencies
+- Python: `sounderpy` 3.2.0, `pytz` 2026.4 (IANA tzdata 2026d), `python-dotenv` 1.2.4, `ruff` 0.16.9.
+- Rust: `pyo3` 0.29.3, `xxhash-rust` 0.8.19.
+
 ## [5.49.0] - 2026-09-27
 
 ### Added
