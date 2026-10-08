@@ -13,8 +13,9 @@ All notable changes to this project will be documented in this file.
 - **Mesoscale discussion links were dead**: embed title links were built as `/products/md/mcdNNNN.html`, which SPC does not serve — the page is `mdNNNN.html`; only the graphic is `mcdNNNN.png`. All six link builders, and the two tests that asserted the wrong form, now use the correct URL.
 
 ### Dependencies
-- Python: `sounderpy` 3.2.0, `pytz` 2026.4 (IANA tzdata 2026d), `python-dotenv` 1.2.4, `ruff` 0.16.9.
-- Rust: `pyo3` 0.29.3, `xxhash-rust` 0.8.19.
+- Python: `sounderpy` 3.2.0, `pytz` 2026.4 (IANA tzdata 2026d), `python-dotenv` 1.2.4, `ruff` 0.16.9, `urllib3` >=2.8.0 (2.7.0 carried fixable HIGH CVEs, CVE-2026-97687 / CVE-2026-97689).
+- Rust: `pyo3` 0.29.3, `xxhash-rust` 0.8.19, `hickory-resolver` 0.26.3 (unbounded TC-retry DoS, DNSSEC/irrelevant-CNAME fixes), `rustls` 0.23.43 (TLS 1.3 handshake across encryption levels).
+- Base image: `python:3.13-slim-trixie` digest bumped so the runtime ships `libssl3t64` 3.5.7-1~deb13u3, clearing the fixable HIGH OpenSSL CVEs that failed the release Trivy gate.
 
 ## [5.49.0] - 2026-09-27
 
