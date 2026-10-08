@@ -20,17 +20,22 @@
 #
 # This file lists ONLY fixable CVEs that are accepted risk with evidence:
 
-# Build-layer ghosts (verified 2026-08-14): these packages exist only in the
-# wheel COPY layer of the image history, not in the final runtime filesystem
-# (pip show / import both fail in the built image). The wheels dir is rm'd at
-# runtime; only the layer history carries the vulnerable files. They are
-# fixable, so --ignore-unfixed does NOT exclude them — hence the entries.
-CVE-2025-47273
-# setuptools 70.3.0 wheel in COPY layer; not importable in final image.
-# Builder pins setuptools>=78.1.1; remove this entry after a clean rebuild
-# confirms the wheel layer no longer carries 70.3.0 (check: trivy image
-# without --ignorefile shows no setuptools finding). Re-check by 2026-09-01.
-GHSA-6v7p-g79w-8964
-# msgpack 1.1.2 wheel in COPY layer; not importable in final image.
-# Transitive via sounderpy build; remove this entry after a clean rebuild
-# confirms the wheel layer no longer carries 1.1.2. Re-check by 2026-09-01.
+# pip's vendored urllib3 (verified 2026-10-07 on both v5.49.1 arch images,
+# amd64 sha256:d60ac7ca and arm64 sha256:23fe0a7a, scanned without an
+# ignorefile: these two are the ONLY findings on either arch). Trivy attributes
+# urllib3 2.7.0 to the base image's pip install layer because
+# site-packages/pip/_vendor/vendor.txt pins `urllib3==2.7.0`. In those same
+# images site-packages/urllib3 is 2.8.0 — our own dependency, floored in
+# requirements.txt — so the application is unaffected; pip's vendored copy is
+# reachable only through pip's own code, and pip never runs in the container
+# (CMD is `python main.py`). pip 26.2.1 is already the newest pip release and
+# no pip version vendors urllib3 >= 2.8.0, so there is nothing to upgrade.
+# Remove both entries once pip vendors urllib3 >= 2.8.0.
+CVE-2026-97687
+CVE-2026-97689
+
+# Cleanup 2026-10-07: the two build-layer ghost entries that used to live here
+# (CVE-2025-47273 setuptools 70.3.0, GHSA-6v7p-g79w-8964 msgpack 1.1.2) were
+# removed as their own notes instructed — a full rebuild on the new
+# python:3.13-slim-trixie digest no longer carries either wheel, confirmed by
+# an ignorefile-free scan of both arch images.
