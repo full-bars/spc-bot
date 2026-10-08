@@ -281,10 +281,14 @@ async def fake_redis_client(monkeypatch):
     classifier, HGETALL dict format, and SMEMBERS set format — the paths
     that the mock-based tests above cannot reach.
     """
-    import fakeredis.aioredis as fakeredis
+    import fakeredis
+    import fakeredis.aioredis as fakeredis_async
 
+    # FakeServer lives at the fakeredis top level (it is not re-exported by
+    # fakeredis.aioredis since 2.39); the async client still comes from
+    # fakeredis.aioredis.
     server = fakeredis.FakeServer()
-    client = fakeredis.FakeRedis(server=server, decode_responses=True)
+    client = fakeredis_async.FakeRedis(server=server, decode_responses=True)
     monkeypatch.setattr(state_store, "_redis_client", client)
 
     # The autouse mock_redis_cmd fixture replaced _redis_cmd with a stub that
