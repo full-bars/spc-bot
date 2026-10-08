@@ -16,7 +16,7 @@ All notable changes to this project will be documented in this file.
 - Python: `sounderpy` 3.2.0, `pytz` 2026.4 (IANA tzdata 2026d), `python-dotenv` 1.2.4, `ruff` 0.16.9, `urllib3` >=2.8.0 (2.7.0 carried fixable HIGH CVEs, CVE-2026-97687 / CVE-2026-97689).
 - Rust: `pyo3` 0.29.3, `xxhash-rust` 0.8.19, `hickory-resolver` 0.26.3 (unbounded TC-retry DoS, DNSSEC/irrelevant-CNAME fixes), `rustls` 0.23.43 (TLS 1.3 handshake across encryption levels).
 - Base image: `python:3.13-slim-trixie` digest bumped so the runtime ships `libssl3t64` 3.5.7-1~deb13u3, clearing the fixable HIGH OpenSSL CVEs that failed the release Trivy gate.
-- Release gate: `.trivyignore` documents pip 26.2.1's vendored urllib3 2.7.0 (our own urllib3 is 2.8.0; no pip release vendors 2.8.0 yet) and drops two build-layer ghost entries that the rebuild on the new base digest cleared.
+- Release gate: `.trivyignore` documents pip 26.2.1's vendored urllib3 2.7.0 (our own urllib3 is 2.8.0; no pip release vendors 2.8.0 yet); the build-layer ghost entries stay, re-verified absent from the runtime filesystem.
 
 ## [5.49.0] - 2026-09-27
 

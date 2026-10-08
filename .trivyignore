@@ -20,10 +20,29 @@
 #
 # This file lists ONLY fixable CVEs that are accepted risk with evidence:
 
+# Build-layer ghosts (verified 2026-08-14; re-verified 2026-10-07 on the
+# v5.49.1 image sha256:ed993c51): these packages exist only in the wheel COPY
+# layer of the image history, not in the final runtime filesystem. Checked
+# directly in that image: /wheels is rm'd as designed, and neither
+# site-packages/setuptools-70.3.0.dist-info nor
+# site-packages/msgpack-1.1.2.dist-info is present. They are fixable, so
+# --ignore-unfixed does NOT exclude them — hence the entries. Which wheels
+# layer a given build ends up with depends on the BuildKit cache, so the
+# findings come and go between builds: one v5.49.1 build scanned clean of
+# them and the next reported both, from an identical Dockerfile and
+# requirements.txt. Do NOT read a clean scan as proof they are gone — an
+# entry removed on 2026-10-07 re-blocked the release hours later.
+CVE-2025-47273
+# setuptools 70.3.0 wheel in COPY layer; not importable in final image.
+# Builder pins setuptools>=78.1.1.
+GHSA-6v7p-g79w-8964
+# msgpack 1.1.2 wheel in COPY layer; not importable in final image.
+# Transitive via sounderpy build.
+
 # pip's vendored urllib3 (verified 2026-10-07 on both v5.49.1 arch images,
 # amd64 sha256:d60ac7ca and arm64 sha256:23fe0a7a, scanned without an
-# ignorefile: these two are the ONLY findings on either arch). Trivy attributes
-# urllib3 2.7.0 to the base image's pip install layer because
+# ignorefile: these two were the ONLY findings on either arch). Trivy
+# attributes urllib3 2.7.0 to the base image's pip install layer because
 # site-packages/pip/_vendor/vendor.txt pins `urllib3==2.7.0`. In those same
 # images site-packages/urllib3 is 2.8.0 — our own dependency, floored in
 # requirements.txt — so the application is unaffected; pip's vendored copy is
@@ -33,9 +52,3 @@
 # Remove both entries once pip vendors urllib3 >= 2.8.0.
 CVE-2026-97687
 CVE-2026-97689
-
-# Cleanup 2026-10-07: the two build-layer ghost entries that used to live here
-# (CVE-2025-47273 setuptools 70.3.0, GHSA-6v7p-g79w-8964 msgpack 1.1.2) were
-# removed as their own notes instructed — a full rebuild on the new
-# python:3.13-slim-trixie digest no longer carries either wheel, confirmed by
-# an ignorefile-free scan of both arch images.
