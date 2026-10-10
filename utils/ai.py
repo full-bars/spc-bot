@@ -71,10 +71,13 @@ async def call_openai_compatible(
     model: str | None = None,
     system_prompt: str = "You are an expert severe weather meteorologist.",
 ) -> Any | None:
-    """Calls an OpenAI-compatible chat completions endpoint (ZenProxy / OpenCode)."""
+    """Calls an OpenAI-compatible chat completions endpoint configured via AI_BASE_URL."""
     api_key = AI_API_KEY or OPENCODE_API_KEY
     if not api_key:
         logger.warning("AI_API_KEY is not set. Cannot call AI.")
+        return None
+    if not AI_BASE_URL:
+        logger.warning("AI_BASE_URL is not set. Cannot call the OpenAI-compatible endpoint.")
         return None
 
     target_model = model or AI_MODEL
@@ -138,7 +141,7 @@ async def call_openai_compatible(
 
 
 async def call_ai(prompt: str, is_json: bool = False) -> Any | None:
-    """Dispatches to primary model (kilo-free), then fallback model (zen-noapi-free), then Gemini."""
+    """Dispatches to primary model (AI_MODEL), then fallback model (AI_FALLBACK_MODEL), then Gemini."""
     tag = prompt.split("\n")[0][:60]  # first line of prompt as a short tag
     api_key = AI_API_KEY or OPENCODE_API_KEY
 

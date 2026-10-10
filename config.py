@@ -110,11 +110,9 @@ CONFIG = {
     "ai_api_key": os.getenv("ZENPROXY_API_KEY")
     or os.getenv("AI_API_KEY")
     or os.getenv("OPENCODE_API_KEY", ""),
-    "ai_base_url": os.getenv(
-        "AI_BASE_URL", os.getenv("ZENPROXY_BASE_URL", "https://ohmyproxy.12388321.xyz/v1")
-    ),
-    "ai_model": os.getenv("AI_MODEL", "kilo-free"),
-    "ai_fallback_model": os.getenv("AI_FALLBACK_MODEL", "zen-noapi-free"),
+    "ai_base_url": os.getenv("AI_BASE_URL", os.getenv("ZENPROXY_BASE_URL", "")),
+    "ai_model": os.getenv("AI_MODEL", ""),
+    "ai_fallback_model": os.getenv("AI_FALLBACK_MODEL", ""),
     "manual_cache_file": os.getenv("MANUAL_CACHE_FILE", "posted_records.json"),
     "auto_cache_file": os.getenv("AUTO_CACHE_FILE", "auto_posted_records.json"),
     "guild_id": _require_int("GUILD_ID"),
