@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [5.50.0] - 2026-10-10
 
 ### Added
 - **Hourly NHC updates reach every tracking channel.** The tracker only ever read the NHC cyclones page, which lags issuance by ~10 minutes — so the hourly `TCU`/`TCE` position updates were invisible to `/nhc` subscribers and Isaias went 379, 360, 360 and 360 minutes between posts while it was making landfall. Live advisory products (`TCP`/`TCU`/`TCE`) are now handed straight from the product feed to the tracker, which fans them out to every channel tracking that storm. Storm identity comes from the product header's storm ID (`AL092026`), never from the PIL suffix — the suffix only encodes the basin and a per-basin serial.

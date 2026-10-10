@@ -42,6 +42,10 @@ spc-bot/
 │   ├── discord_gateway.py   # Discord WebSocket gateway heartbeat monitoring
 │   ├── geo.py               # Rust-accelerated geospatial queries: haversine distance, R*-tree nearest stations, polygon queries
 │   ├── map_utils.py         # Map rendering and geographic visualization utilities
+│   ├── nhc_storms.py        # NHC product/page parsing: storm ID from the product header, advisory +
+│   │                        # issuance headers, position/wind/pressure/movement, zoom.earth deep links
+│   ├── nhc_landfall.py      # Official landfall statement detection — completed-event phrasing only,
+│   │                        # forecast wording and future-modal hedges rejected
 ├── backoff.py               # Exponential backoff tracker for task loops
 ├── worker_pool.py           # Two separate ProcessPoolExecutors: "Fast Hodo" (hodograph/VAD rendering) and "Heavy Sounding" (SounderPy plot generation)
 └── db.py                    # Async SQLite backend used internally by state_store as the durable mirror; also home of http_validators
@@ -60,7 +64,9 @@ spc-bot/
 │   ├── warnings.py          # NWS VTEC warning monitoring (SVR, TOR, FFW) — polling & deduplication logic
 │   ├── warning_channels.py  # Slash commands for per-type warning channel routing (/enablewarnings, /displaysetup, /disablewarnings)
 │   ├── tropical.py          # NHC tropical cyclone product auto-poster (TCV, TCD, TWD, TWO, TCU, TCE, TCP) from IEMBot/NWWS/botstalk
-│   ├── tropical_tracker.py  # Tropical storm tracker (/nhc, /nesdis): per-channel storm subscriptions, advisory-cadence updates with forecast cone + NESDIS satellite loops
+│   ├── tropical_tracker.py  # Tropical storm tracker (/nhc, /nesdis): per-channel storm subscriptions, updates pushed at product issuance
+│   │                        # (fan-out to every channel tracking the storm) plus the 30-minute page poll, forecast cone + NESDIS satellite
+│   │                        # loops, and red 🚨 landfall announcements deduplicated per channel per storm
 │   ├── warning_format.py    # Warning styling, narrative extraction, URL generation (decoupled from warnings.py)
 │   ├── warning_ui.py        # Discord UI views for tornado data: EnvironmentalView, TornadoPhotoView, TornadoDashboardView
 │   ├── reports.py           # LSR and PNS monitoring; logs tornado events and DAT survey links
