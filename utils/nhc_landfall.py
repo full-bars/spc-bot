@@ -10,7 +10,8 @@ quote the sentence.
 Only *completed* landfall language matches. Forecast wording uses the base
 verb ("will make landfall", "to cross the coastline"), which the phrase list
 deliberately omits; a second pass rejects anything still hedged by a future
-modal ("is expected to have made landfall") that precedes the match.
+modal ("is expected to have made landfall") that precedes the match, or by a
+forecast lead time after it ("making landfall in Jalisco in 24-36 h").
 """
 
 import re
@@ -49,6 +50,20 @@ _FUTURE_MODAL_RE = re.compile(
 _PLACE_RE = re.compile(
     r"\blandfall\s+near\s+"
     r"([A-Za-z][\w.'-]*(?:\s+[A-Za-z][\w.'-]*){0,4}(?:,\s*[A-Za-z][\w.'-]+)?)",
+    re.IGNORECASE,
+)
+
+# Forecast lead time written *after* the landfall phrase ("making landfall in
+# Jalisco in 24-36 h", "making landfall within 12 hours"). A completed
+# landfall is dated with a clock time ("around 830 PM CDT"), never with a lead
+# time, so seeing one after the phrase means the sentence is still a forecast.
+_FUTURE_OFFSET_RE = re.compile(
+    r"(?:"
+    r"\bin\s+\d+\s*(?:[-–]\s*\d+)?\s*(?:h|hr|hrs|hour|hours|d|day|days)\b"
+    r"|\bin\s+(?:the\s+)?(?:next|coming)\s+\d+"
+    r"|\bover\s+the\s+next\s+\d+"
+    r"|\bwithin\s+\d+\s*(?:h|hr|hrs|hour|hours|d|day|days)\b"
+    r")",
     re.IGNORECASE,
 )
 
@@ -111,7 +126,10 @@ def _has_completed_landfall(segment: str) -> bool:
     match = _LANDFALL_PHRASES.search(segment)
     if not match:
         return False
-    return not _FUTURE_MODAL_RE.search(segment[: match.start()])
+    if _FUTURE_MODAL_RE.search(segment[: match.start()]):
+        return False
+    # Lead times after the phrase ("in 24-36 h") mark a forecast, not a report.
+    return not _FUTURE_OFFSET_RE.search(segment[match.end() :])
 
 
 def _extract_place(sentence: str) -> str | None:

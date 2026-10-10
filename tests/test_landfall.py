@@ -120,6 +120,42 @@ def test_detect_landfall_rejects_non_landfall_text(text):
     assert detect_landfall(text) is None
 
 
+# Real Hurricane Simon TCD (202610102100-KNHC-WTPZ45-TCDEP5) that produced a
+# false landfall announcement: model guidance "making landfall ... in 24-36 h".
+SIMON_FORECAST_DISCUSSION = (
+    "One notable change from this morning, now all the hurricane-regional "
+    "model runs (HWRF, HMON, HAFS-A, HAFS-B) all show Simon making landfall "
+    "in Jalisco in 24-36 h."
+)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        SIMON_FORECAST_DISCUSSION,
+        "Guidance shows Simon making landfall in 12 hr.",
+        "The runs bring Simon making landfall within 12 hours.",
+        "Models trend Simon making landfall over the next 24 h.",
+        "Ensemble mean has Simon making landfall in the next 3 days.",
+    ],
+)
+def test_detect_landfall_rejects_forecast_lead_times(text):
+    """A lead time after the phrase marks a forecast, not a completed landfall."""
+    assert detect_landfall(text) is None
+
+
+def test_detect_landfall_still_accepts_clock_time_landfall():
+    """A real landfall is dated with a clock time, never a lead time."""
+    text = (
+        "NWS Doppler Radar data indicate that Hurricane Isaias made landfall "
+        "near Destin, Florida, around 830 PM CDT (0130 UTC) with maximum "
+        "sustained winds of 105 mph (165 km/h)."
+    )
+    match = detect_landfall(text)
+    assert match is not None
+    assert match.place == "Destin, Florida"
+
+
 def test_detect_landfall_headline_only_product_still_matches():
     """A product carrying only the all-caps banner must still announce."""
     text = """WTNT64 KNHC 100130
@@ -139,6 +175,90 @@ NWS National Hurricane Center Miami FL       AL092026
 
 def test_detect_landfall_hedged_past_tense_is_rejected():
     assert detect_landfall("Models suggest the center may have crossed the coastline.") is None
+
+
+@pytest.mark.asyncio
+async def test_announce_landfall_builds_fresh_file_per_channel():
+    """discord.File is single-use; reusing one uploads 0 bytes after the first.
+
+    Regression guard: the cone BytesIO must be re-wrapped for every channel so
+    the second and later sends are not empty attachments.
+    """
+    cog, bot = _make_cog()
+    first, second = _channel(999), _channel(777)
+    bot.get_channel = MagicMock(side_effect=lambda cid: {999: first}.get(cid))
+    state = _State()
+    sent = []
+    match = detect_landfall(LANDFALL_TCU)
+    assert match is not None
+    cone_payload = b"\x89PNG\r\n\x1a\n" + b"cone-data" * 20
+
+    async def _safe_send(channel, *, context, embed=None, files=None, **kwargs):
+        # Simulate discord.py draining the stream during the request.
+        drained = [f.fp.read() for f in (files or [])]
+        sent.append({"channel": channel, "files": files, "drained": drained})
+        return MagicMock()
+
+    with _stack(
+        patch.object(
+            tracker, "get_all_tracked_channels", AsyncMock(return_value={999: ["AL092026"]})
+        ),
+        patch.object(tracker, "get_active_storms", AsyncMock(return_value={})),
+        patch.object(tracker, "_download_cone_image", AsyncMock(return_value=cone_payload)),
+        patch.object(tracker, "safe_send", side_effect=_safe_send),
+        _state_stack(state),
+    ):
+        await cog.announce_landfall(
+            storm_id="AL092026",
+            product_id="202610100130-KNHC-WTNT64-TCUAT4",
+            match=match,
+            parsed=_parsed(),
+            extra_channels=(second,),
+        )
+
+    assert len(sent) == 2
+    # Distinct File objects wrapping distinct streams, both non-empty.
+    assert sent[0]["files"][0] is not sent[1]["files"][0]
+    assert sent[0]["files"][0].fp is not sent[1]["files"][0].fp
+    assert sent[0]["drained"] == [cone_payload]
+    assert sent[1]["drained"] == [cone_payload]
+
+
+# ── reset_landfall_announcements_once ────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_reset_landfall_announcements_once_clears_all_keys():
+    state = _State(
+        {
+            tracker._landfall_key(999, "AL092026"): "pid-1",
+            tracker._landfall_key(777, "EP202026"): "pid-2",
+            "tracked_storms:channel:999": "must-survive",
+        }
+    )
+
+    with _state_stack(state):
+        cleared = await tracker.reset_landfall_announcements_once()
+
+    assert cleared == 2
+    assert await state.get(tracker._landfall_key(999, "AL092026")) is None
+    assert await state.get(tracker._landfall_key(777, "EP202026")) is None
+    # Only the landfall namespace is touched.
+    assert await state.get("tracked_storms:channel:999") == "must-survive"
+    assert await state.get(tracker._LANDFALL_ANNOUNCED_RESET_KEY) == "1"
+
+
+@pytest.mark.asyncio
+async def test_reset_landfall_announcements_once_is_idempotent():
+    state = _State({tracker._landfall_key(999, "AL092026"): "pid-1"})
+
+    with _state_stack(state):
+        assert await tracker.reset_landfall_announcements_once() == 1
+        # Re-arm the key the sweep just cleared, then run again: the marker
+        # short-circuits, so a key written after the sweep survives.
+        await state.set(tracker._landfall_key(999, "AL092026"), "pid-2")
+        assert await tracker.reset_landfall_announcements_once() == 0
+        assert await state.get(tracker._landfall_key(999, "AL092026")) == "pid-2"
 
 
 # ── product header parsers ───────────────────────────────────────────────────

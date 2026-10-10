@@ -277,6 +277,37 @@ def _landfall_key(channel_id: int, storm_id: str) -> str:
     return f"landfall_announced:channel:{channel_id}:{storm_id}"
 
 
+# Marker guarding the one-time sweep below. Bump the suffix to re-arm it.
+_LANDFALL_ANNOUNCED_RESET_KEY = "landfall_announced_reset:v1"
+_LANDFALL_ANNOUNCED_PREFIX = "landfall_announced:"
+
+
+async def reset_landfall_announcements_once() -> int:
+    """One-time startup sweep clearing every landfall-announcement key.
+
+    A false-positive landfall writes ``landfall_announced:channel:<c>:<storm>``
+    for every tracking channel, which permanently mutes that storm — the real
+    landfall announcement is then suppressed. Rather than hunt those keys by
+    hand, wipe them all once per process version so a buggy detector can never
+    lock a storm out of its own landfall notice.
+
+    Returns the number of keys cleared (0 when the sweep already ran).
+    """
+    if await get_state(_LANDFALL_ANNOUNCED_RESET_KEY):
+        return 0
+    # list_state_keys strips the prefix, so re-attach it before deleting.
+    keys = [
+        f"{_LANDFALL_ANNOUNCED_PREFIX}{bare}"
+        for bare in await list_state_keys(_LANDFALL_ANNOUNCED_PREFIX)
+    ]
+    for key in keys:
+        await delete_state(key)
+    await set_state(_LANDFALL_ANNOUNCED_RESET_KEY, "1")
+    if keys:
+        logger.info(f"Cleared {len(keys)} landfall-announcement key(s) (one-time reset)")
+    return len(keys)
+
+
 def _normalize_issuance(issuance: str | None) -> str:
     """Strip NHC's decorations so page and product timestamps compare equal.
 
@@ -565,6 +596,7 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         self._dissipation_misses: dict[str, int] = {}
 
     async def cog_load(self):
+        await reset_landfall_announcements_once()
         self.update_loop.start()
 
     # ── /nhc ─────────────────────────────────────────────────────────────
@@ -1467,15 +1499,19 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
             name = info.get("name") or parsed.get("storm_name") or storm_id
             embed = self._build_landfall_embed(storm_id, name, match, parsed, info, product_id)
             cone_bytes = await _download_cone_image(info.get("graphics_url"))
-            files = (
-                [discord.File(io.BytesIO(cone_bytes), filename=f"{storm_id}_forecast.png")]
-                if cone_bytes
-                else None
-            )
 
             for channel_id, channel in targets.items():
                 if await get_state(_landfall_key(channel_id, storm_id)):
                     continue
+                # discord.File is single-use: it wraps a stream that is drained
+                # (and left at EOF) by the first request. Reusing one object
+                # across channels silently uploads 0 bytes after the first send,
+                # so build a fresh BytesIO + File per channel.
+                files = (
+                    [discord.File(io.BytesIO(cone_bytes), filename=f"{storm_id}_forecast.png")]
+                    if cone_bytes
+                    else None
+                )
                 msg = await safe_send(
                     channel,
                     context=f"landfall announcement for {storm_id}",
