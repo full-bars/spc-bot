@@ -6,6 +6,7 @@ import json
 import logging
 import re
 from datetime import datetime, timezone
+from typing import cast
 
 import discord
 from discord import app_commands
@@ -14,12 +15,19 @@ from discord.ext import commands, tasks
 from utils.change_detection import is_placeholder_image
 from utils.discord_send import safe_send
 from utils.http import http_get_bytes
+from utils.nhc_landfall import LandfallMatch
 from utils.nhc_storms import (
     SAFFIR_EMOJI,
     SAFFIR_SIMPSON_COLORS,
     active_storms_authoritative,
     category_label,
     get_active_storms,
+    parse_header_advisory,
+    parse_header_issuance,
+    parse_location,
+    parse_max_wind,
+    parse_movement,
+    parse_pressure,
     winds_to_category,
     zoom_earth_gusts_url,
     zoom_earth_pressure_url,
@@ -40,6 +48,16 @@ DISSIPATION_MIN_MISSES = 2
 
 # Full storm ID format: basin (AL/EP/CP) + two-digit number + four-digit year.
 _STORM_ID_RE = re.compile(r"^(AL|EP|CP)\d{6}$")
+
+# How long a page-scrape update is held back after any post. The NHC product
+# feed reaches us seconds after issuance while the cyclones page lags ~10 min,
+# so without this gate every product-driven post is duplicated by the loop.
+PAGE_UPDATE_GATE_SECONDS = 20 * 60
+
+# Red used for the landfall announcement — deliberately loud and unrelated to
+# the Saffir-Simpson palette used by routine tracker updates.
+LANDFALL_COLOR = 0xE74C3C
+
 
 # NHC storm types that mean the cyclone has lost tropical characteristics —
 # tracking stops with a final notice when NHC reclassifies a tracked storm.
@@ -145,14 +163,27 @@ async def get_tracked_storms(channel_id: int) -> list[dict]:
     storm_ids = await list_state_keys(f"tracked_storms:channel:{channel_id}:")
     storms: list[dict] = []
     for storm_id in storm_ids:
-        record = {"storm_id": storm_id, "last_etn": None, "sat_product": DEFAULT_SATELLITE_PRODUCT}
+        record = {
+            "storm_id": storm_id,
+            "last_etn": None,
+            "sat_product": DEFAULT_SATELLITE_PRODUCT,
+            "fingerprint": None,
+            "last_product_id": None,
+            "last_post_at": None,
+        }
         raw = await get_state(_state_key(channel_id, storm_id))
         if isinstance(raw, str):
             try:
                 data = json.loads(raw)
+                if not isinstance(data, dict):
+                    raise TypeError("tracked storm record is not an object")
                 record["last_etn"] = data.get("last_etn")
                 record["sat_product"] = data.get("sat_product") or DEFAULT_SATELLITE_PRODUCT
+                record["fingerprint"] = data.get("fingerprint")
+                record["last_product_id"] = data.get("last_product_id")
+                record["last_post_at"] = data.get("last_post_at")
             except (json.JSONDecodeError, TypeError, AttributeError):
+                # Legacy records stored the advisory number as a bare string.
                 record["last_etn"] = raw
         storms.append(record)
     return storms
@@ -209,8 +240,69 @@ async def remove_tracked_storm(channel_id: int, storm_id: str) -> bool:
     return True
 
 
-async def _update_last_etn(channel_id: int, storm_id: str, etn: str) -> None:
-    await set_state(_state_key(channel_id, storm_id), json.dumps({"last_etn": etn}))
+async def _record_post(
+    channel_id: int,
+    storm_id: str,
+    *,
+    advisory: str,
+    fingerprint: str,
+    product_id: str | None,
+) -> None:
+    """Persist what was just posted, preserving `sat_product` and prior fields.
+
+    Earlier revisions rewrote the record as `{"last_etn": ...}` only, silently
+    dropping the channel's chosen satellite product and any other metadata.
+    """
+    key = _state_key(channel_id, storm_id)
+    data: dict = {}
+    raw = await get_state(key)
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                data = parsed
+        except (json.JSONDecodeError, TypeError):
+            # Legacy bare-string record — only the advisory number survives.
+            data = {"last_etn": raw}
+    data["last_etn"] = advisory
+    data["fingerprint"] = fingerprint
+    data["last_product_id"] = product_id
+    data["last_post_at"] = datetime.now(timezone.utc).isoformat()
+    await set_state(key, json.dumps(data))
+
+
+def _landfall_key(channel_id: int, storm_id: str) -> str:
+    # Separate namespace from tracked_storms:* so a prefix scan of either
+    # can never pick up the other's keys.
+    return f"landfall_announced:channel:{channel_id}:{storm_id}"
+
+
+def _normalize_issuance(issuance: str | None) -> str:
+    """Strip NHC's decorations so page and product timestamps compare equal.
+
+    The cyclones page writes ``As of 900 PM CDT Fri Oct 09`` while the product
+    header writes ``900 PM CDT Fri Oct 09 2026`` — same issuance, one post.
+    """
+    text = (issuance or "").strip()
+    text = re.sub(r"^As of\s+", "", text, flags=re.IGNORECASE)
+    return re.sub(r"\s+\d{4}$", "", text)
+
+
+def update_fingerprint(info: dict) -> str:
+    """Content fingerprint identifying one distinct advisory state.
+
+    Advisory number is deliberately excluded: hourly TCUs carry no advisory
+    number of their own, so including it would make every product-derived
+    update look different from the page scrape that describes it.
+    """
+    return "|".join(
+        (
+            str(info.get("position") or ""),
+            str(info.get("winds_mph") or ""),
+            str(info.get("pressure") or ""),
+            _normalize_issuance(info.get("issuance")),
+        )
+    )
 
 
 # ── Per-channel auto-track threshold ──────────────────────────────────────────
@@ -1084,8 +1176,15 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         info: dict,
         channel_id: int,
         sat_product: str = DEFAULT_SATELLITE_PRODUCT,
+        *,
+        product_id: str | None = None,
     ) -> None:
-        """Post a status update for a tracked storm from NHC page data.
+        """Post a status update for a tracked storm.
+
+        Two feeds describe the same storm: the 30-minute cyclones-page scrape
+        and the live NHC product stream. Both funnel here and dedup on one
+        content fingerprint so an hourly update lands exactly once — as soon as
+        NHC issues it — instead of when the page finally catches up.
 
         The latest 5-day forecast cone is always the main embed image; the
         requested NESDIS satellite product is attached alongside it.
@@ -1094,7 +1193,20 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         stype = info.get("type") or "Unknown"
 
         advisory = info.get("advisory") or info.get("issuance") or "latest"
-        if await self._already_posted(channel_id, storm_id, advisory):
+        fingerprint = update_fingerprint(info)
+
+        record = (
+            next(
+                (r for r in await get_tracked_storms(channel_id) if r["storm_id"] == storm_id),
+                None,
+            )
+            or {}
+        )
+        if record.get("fingerprint") == fingerprint:
+            return
+        if product_id and record.get("last_product_id") == product_id:
+            return
+        if not product_id and not self._page_gate_passed(record):
             return
 
         wind_mph = info.get("winds_mph")
@@ -1165,14 +1277,219 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
             view=_build_location_view(info.get("position")),
         )
         if msg:
-            await _update_last_etn(channel_id, storm_id, advisory)
+            await _record_post(
+                channel_id,
+                storm_id,
+                advisory=advisory,
+                fingerprint=fingerprint,
+                product_id=product_id,
+            )
 
-    async def _already_posted(self, channel_id: int, storm_id: str, advisory: str) -> bool:
-        tracked = await get_tracked_storms(channel_id)
-        for t in tracked:
-            if t["storm_id"] == storm_id:
-                return t.get("last_etn") == advisory
-        return False
+    @staticmethod
+    def _page_gate_passed(record: dict) -> bool:
+        """True when the page scrape may post again after `record`'s last post.
+
+        Prevents the slower feed from re-announcing data the product stream
+        already delivered moments earlier.
+        """
+        last_post_at = record.get("last_post_at")
+        if not last_post_at:
+            return True
+        try:
+            posted_at = datetime.fromisoformat(str(last_post_at))
+        except (TypeError, ValueError):
+            return True
+        if posted_at.tzinfo is None:
+            posted_at = posted_at.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - posted_at).total_seconds()
+        return age >= PAGE_UPDATE_GATE_SECONDS
+
+    async def _info_from_product(self, storm_id: str, parsed: dict) -> dict:
+        """Merge fresher product values onto the cyclones-page record for a storm.
+
+        The page supplies name/graphics/type; the product supplies the numbers
+        NHC just issued, which is what an hourly post must show.
+        """
+        info = dict((await get_active_storms()).get(storm_id) or {})
+        raw = parsed.get("raw_text") or ""
+        if not info.get("name"):
+            info["name"] = parsed.get("storm_name")
+        if not info.get("type") and parsed.get("storm_type"):
+            info["type"] = parsed["storm_type"]
+        if not info.get("storm_id"):
+            info["storm_id"] = storm_id
+
+        position = parse_location(raw)
+        if position:
+            info["position"] = position
+        wind_mph = parse_max_wind(raw)
+        if wind_mph:
+            info["winds_mph"] = wind_mph
+        pressure = parse_pressure(raw)
+        if pressure:
+            info["pressure"] = pressure
+        movement = parse_movement(raw)
+        if movement:
+            info["movement"] = movement
+        advisory = parse_header_advisory(raw)
+        if advisory:
+            info["advisory"] = advisory
+        issuance = parse_header_issuance(raw)
+        if issuance:
+            info["issuance"] = issuance
+        return info
+
+    async def on_nhc_product(self, storm_id: str, product_id: str, parsed: dict) -> None:
+        """Post an official NHC product to every channel tracking `storm_id`.
+
+        The tracker loop only looks at the cyclones page, which lags the
+        product feed by ~10 minutes — long enough to miss most of the hourly
+        updates during a landfall event. Products arrive here instead and the
+        shared fingerprint keeps the loop from posting them a second time.
+        """
+        await self.bot.wait_until_ready()
+        if not self.bot.state.is_primary:
+            return
+        if not _STORM_ID_RE.match(storm_id or ""):
+            return
+        try:
+            targets = [
+                channel_id
+                for channel_id, storm_ids in (await get_all_tracked_channels()).items()
+                if storm_id in storm_ids
+            ]
+            if not targets:
+                return
+            info = await self._info_from_product(storm_id, parsed)
+            for channel_id in targets:
+                channel = cast("discord.abc.Messageable | None", self.bot.get_channel(channel_id))
+                if not channel:
+                    continue
+                record = (
+                    next(
+                        (
+                            r
+                            for r in await get_tracked_storms(channel_id)
+                            if r["storm_id"] == storm_id
+                        ),
+                        None,
+                    )
+                    or {}
+                )
+                sat_product = record.get("sat_product") or DEFAULT_SATELLITE_PRODUCT
+                await self._post_storm_update(
+                    channel, storm_id, info, channel_id, sat_product, product_id=product_id
+                )
+        except Exception as e:
+            logger.exception(f"Tracker product update failed for {storm_id} ({product_id}): {e}")
+
+    def _build_landfall_embed(
+        self,
+        storm_id: str,
+        name: str,
+        match: LandfallMatch,
+        parsed: dict,
+        info: dict,
+        product_id: str,
+    ) -> discord.Embed:
+        raw = parsed.get("raw_text") or ""
+        position = parse_location(raw) or info.get("position")
+        wind_mph = parse_max_wind(raw) or info.get("winds_mph")
+        pressure = parse_pressure(raw) or info.get("pressure")
+        movement = parse_movement(raw) or info.get("movement")
+        issuance = parse_header_issuance(raw) or info.get("issuance")
+
+        title = f"🚨 LANDFALL — {name} ({storm_id})"
+        if match.place:
+            title += f" — {match.place}"
+
+        parts: list[str] = []
+        if match.headline and match.headline != match.sentence:
+            parts.append(f"**{match.headline}**")
+        if match.sentence:
+            parts.append(f"> {match.sentence}")
+        parts.append("")
+
+        if position:
+            parts.append(f"📍 {position}" + (f" — moving {movement}" if movement else ""))
+        data_bits = []
+        if wind_mph:
+            data_bits.append(f"💨 **{wind_mph:.0f} MPH**")
+        if pressure:
+            data_bits.append(f"🌀 **{pressure} MB**")
+        if data_bits:
+            parts.append(" | ".join(data_bits))
+        if issuance:
+            parts.append(f"🕐 {issuance}")
+
+        embed = discord.Embed(
+            title=title,
+            description="\n".join(parts),
+            color=LANDFALL_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.set_footer(text=f"NHC official • {product_id}")
+        return embed
+
+    async def announce_landfall(
+        self,
+        *,
+        storm_id: str,
+        product_id: str,
+        match: LandfallMatch,
+        parsed: dict,
+        extra_channels: tuple = (),
+    ) -> None:
+        """Post the loud landfall announcement once per channel per storm.
+
+        Landfall does not stop tracking — the storm keeps producing inland
+        hazards — so this is purely an extra, unmistakable notice.
+        """
+        await self.bot.wait_until_ready()
+        if not self.bot.state.is_primary:
+            return
+        try:
+            targets: dict[int, discord.abc.Messageable] = {}
+            for channel in extra_channels:
+                channel_id = getattr(channel, "id", None)
+                if channel_id:
+                    targets[channel_id] = channel
+            for channel_id, storm_ids in (await get_all_tracked_channels()).items():
+                if storm_id not in storm_ids:
+                    continue
+                channel = cast("discord.abc.Messageable | None", self.bot.get_channel(channel_id))
+                if channel:
+                    targets[channel_id] = channel
+            if not targets:
+                return
+
+            info = dict((await get_active_storms()).get(storm_id) or {})
+            name = info.get("name") or parsed.get("storm_name") or storm_id
+            embed = self._build_landfall_embed(storm_id, name, match, parsed, info, product_id)
+            cone_bytes = await _download_cone_image(info.get("graphics_url"))
+            files = (
+                [discord.File(io.BytesIO(cone_bytes), filename=f"{storm_id}_forecast.png")]
+                if cone_bytes
+                else None
+            )
+
+            for channel_id, channel in targets.items():
+                if await get_state(_landfall_key(channel_id, storm_id)):
+                    continue
+                msg = await safe_send(
+                    channel,
+                    context=f"landfall announcement for {storm_id}",
+                    embed=embed,
+                    files=files,
+                )
+                if not msg:
+                    continue
+                await set_state(_landfall_key(channel_id, storm_id), product_id)
+                logger.info(
+                    f"Posted landfall announcement for {storm_id} to #{channel_id} ({product_id})"
+                )
+        except Exception as e:
+            logger.exception(f"Landfall announcement failed for {storm_id}: {e}")
 
     async def _post_dissipation_notice(
         self, channel: discord.abc.Messageable, storm_id: str

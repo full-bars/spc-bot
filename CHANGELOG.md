@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Hourly NHC updates reach every tracking channel.** The tracker only ever read the NHC cyclones page, which lags issuance by ~10 minutes — so the hourly `TCU`/`TCE` position updates were invisible to `/nhc` subscribers and Isaias went 379, 360, 360 and 360 minutes between posts while it was making landfall. Live advisory products (`TCP`/`TCU`/`TCE`) are now handed straight from the product feed to the tracker, which fans them out to every channel tracking that storm. Storm identity comes from the product header's storm ID (`AL092026`), never from the PIL suffix — the suffix only encodes the basin and a per-basin serial.
+- **Official landfall announcements.** When NHC reports that a storm has actually come ashore, every channel tracking it (plus the tropical product channel) gets a loud red `🚨 LANDFALL` embed quoting NHC's own sentence — headline, position, winds, pressure and issuance time, with the forecast cone attached. Detection matches completed-event language only (`made landfall`, `makes landfall`, `crossed the coastline`, `came ashore`, …); forecast wording uses the base verb (`will make landfall`, `to cross the coastline`) and any sentence still hedged by `will/expected/forecast/could/may/…` is rejected, so no pre-landfall advisory can fire it. Announcements are deduplicated per channel per storm in state (`landfall_announced:channel:{ch}:{storm}`) and do **not** stop tracking — the storm keeps producing inland hazards.
+
+### Fixed
+- **Tracker updates now post once per advisory state, on time.** The loop deduped on advisory number alone, which is static between advisories — exactly the data hourly updates change. Dedup now uses a content fingerprint (position + winds + pressure + issuance, normalized so the page's `As of 830 PM CDT Fri Oct 09` and the product's `830 PM CDT Fri Oct 09 2026` compare equal) plus a 20-minute hold on page-scrape posts so the slower feed can't re-announce what the product stream just delivered.
+- **The tracker's chosen satellite product was being wiped.** `_update_last_etn` rewrote the subscription record as `{"last_etn": …}` only, discarding `sat_product` (and any other metadata) on the first post. Post state is now merged into the existing record.
+- **`/nhc tracked` could lose its last-advisory display** after a legacy bare-string record was rewritten — legacy records still parse.
+
 ## [5.49.1] - 2026-10-07
 
 ### Added

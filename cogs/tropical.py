@@ -9,11 +9,14 @@ from discord.ext import commands
 
 from config import TROPICAL_CHANNEL_ID
 from utils.discord_send import safe_create_thread, safe_send
+from utils.nhc_landfall import detect_landfall
 from utils.nhc_storms import (
     SAFFIR_EMOJI,
     SAFFIR_SIMPSON_COLORS,
     classify_product,
+    extract_storm_id,
     fetch_nhc_product,
+    get_active_storms,
     parse_location,
     parse_location_desc,
     parse_max_wind,
@@ -27,6 +30,16 @@ logger = logging.getLogger("spc_bot")
 
 TROPICAL_PILS = {"TCV", "TCD", "TWD", "TCU", "TWO", "TCE", "TCP"}
 TROPICAL_OFFICES = {"KNHC", "KTPC", "PHFO"}
+
+# Products that carry NHC's official storm-fix statements — scanned for a
+# landfall announcement. Discussions count because they repeat the headline
+# if the hourly update itself is ever missed.
+LANDFALL_PRODUCT_TYPES = {"ADVISORY", "UPDATE", "POSITION ESTIMATE", "DISCUSSION"}
+
+# Products that describe the current storm state and must reach every
+# tracking channel immediately rather than waiting on the tracker's page
+# scrape (which lags issuance by ~10 minutes).
+TRACKER_PRODUCT_TYPES = {"ADVISORY", "UPDATE", "POSITION ESTIMATE"}
 
 _NHC_LABEL_RE = re.compile(
     r"(?:NATIONAL HURRICANE CENTER|NHC|TROPICAL|HURRICANE|TROPICAL STORM)", re.IGNORECASE
@@ -147,6 +160,54 @@ class TropicalCog(commands.Cog, name="Tropical"):
             logger.warning(f"Tropical channel {TROPICAL_CHANNEL_ID} not found")
         return channel
 
+    async def _resolve_storm_id(self, parsed: dict) -> str | None:
+        """Fall back to the active-storm list when a product header omits its ID."""
+        name = parsed.get("storm_name")
+        if not name:
+            return None
+        for storm_id, info in (await get_active_storms()).items():
+            if (info.get("name") or "").lower() == name.lower():
+                return storm_id
+        return None
+
+    async def _notify_tracker(self, product_type: str, product_id: str, parsed: dict) -> None:
+        """Hand a live NHC product to the tracker cog.
+
+        Two jobs, both driven straight off the product text rather than the
+        slower cyclones-page scrape:
+          * fan out an advisory/position update to every channel tracking the
+            storm (this is what makes hourly updates land on time), and
+          * announce an official landfall once per channel per storm.
+        """
+        tracker = self.bot.get_cog("TropicalTracker")
+        if tracker is None:
+            return
+
+        interesting = (LANDFALL_PRODUCT_TYPES | TRACKER_PRODUCT_TYPES) & {product_type}
+        if not interesting:
+            return
+
+        raw = parsed.get("raw_text") or ""
+        storm_id = extract_storm_id(raw) or await self._resolve_storm_id(parsed)
+        if not storm_id:
+            logger.warning(f"Could not resolve storm ID for {product_type} {product_id}")
+            return
+
+        if product_type in LANDFALL_PRODUCT_TYPES:
+            match = detect_landfall(raw)
+            if match:
+                channel = await self._resolve_channel()
+                await tracker.announce_landfall(
+                    storm_id=storm_id,
+                    product_id=product_id,
+                    match=match,
+                    parsed=parsed,
+                    extra_channels=(channel,) if channel else (),
+                )
+
+        if product_type in TRACKER_PRODUCT_TYPES:
+            await tracker.on_nhc_product(storm_id, product_id, parsed)
+
     async def post_tropical_product(
         self,
         product_id: str,
@@ -167,6 +228,10 @@ class TropicalCog(commands.Cog, name="Tropical"):
         parsed = await fetch_nhc_product(product_id, prefetched_text=raw_text or None)
         if not parsed:
             return
+
+        # Run before the tropical-channel check: tracked channels and the
+        # landfall announcement must not depend on the raw-product channel.
+        await self._notify_tracker(product_type, product_id, parsed)
 
         channel = await self._resolve_channel()
         if not channel:

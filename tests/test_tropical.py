@@ -110,6 +110,7 @@ async def test_post_tropical_product_handles_missing_summary():
     """A product with no 'SUMMARY OF' section (most NHC PILs) parses to
     summary=None — this must not crash the embed-building loop."""
     bot = MagicMock()
+    bot.get_cog.return_value = None
     channel = AsyncMock()
     bot.get_channel.return_value = channel
     cog = TropicalCog(bot)
@@ -132,6 +133,7 @@ async def test_post_tropical_product_handles_missing_summary():
 @pytest.mark.asyncio
 async def test_post_tropical_product_posts_to_prod_channel():
     bot = MagicMock()
+    bot.get_cog.return_value = None
     channel = AsyncMock()
     bot.get_channel.return_value = channel
     cog = TropicalCog(bot)
@@ -156,6 +158,7 @@ async def test_post_tropical_product_posts_full_text_in_thread():
     """The channel message should carry only the short summary; the full
     raw product text goes to a thread on that message, not the channel."""
     bot = MagicMock()
+    bot.get_cog.return_value = None
     channel = AsyncMock()
     main_msg = AsyncMock()
     thread = AsyncMock()
@@ -245,6 +248,7 @@ async def test_fetch_nhc_product_refetches_when_prefetched_text_is_html():
 async def test_post_tropical_product_passes_raw_text_through_to_parser():
     """The NWWS-supplied text must reach fetch_nhc_product, not be discarded."""
     bot = MagicMock()
+    bot.get_cog.return_value = None
     channel = AsyncMock()
     bot.get_channel.return_value = channel
     cog = TropicalCog(bot)

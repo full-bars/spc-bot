@@ -171,6 +171,52 @@ def extract_storm_name(text: str) -> str | None:
     return None
 
 
+# Full storm IDs NHC prints in product headers ("... Miami FL  AL092026").
+_STORM_ID_RE = re.compile(r"\b(AL|EP|CP)\d{6}\b")
+
+# Advisory number in a bulletin title ("Advisory Number 14", "Intermediate
+# Advisory Number 14A").
+_HEADER_ADVISORY_RE = re.compile(r"ADVISORY\s+NUMBER\s+(\d+[A-Z]?)", re.IGNORECASE)
+
+# Issuance line right under the WMO header ("830 PM CDT Fri Oct 09 2026").
+_HEADER_ISSUANCE_RE = re.compile(
+    r"^\d{1,4}:\d{2}\s*(?:AM|PM)\s+[A-Z]{2,4}\s+"
+    r"(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+[A-Za-z]{3}\s+\d{1,2}\s+\d{4}\s*$"
+    r"|^\d{3,4}\s*(?:AM|PM)\s+[A-Z]{2,4}\s+"
+    r"(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+[A-Za-z]{3}\s+\d{1,2}\s+\d{4}\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def extract_storm_id(text: str) -> str | None:
+    """Extract the basin/number/year storm ID from a product header.
+
+    The header line (``NWS National Hurricane Center Miami FL  AL092026``) is
+    authoritative, unlike the PIL suffix (``...AT4``), which encodes only the
+    basin and a per-basin serial — so the derived ID can never be trusted to
+    identify a storm on its own.
+    """
+    for line in text.splitlines():
+        if "NATIONAL HURRICANE CENTER" in line.upper() or "MIAMI FL" in line.upper():
+            m = _STORM_ID_RE.search(line)
+            if m:
+                return m.group(0)
+    m = _STORM_ID_RE.search(text)
+    return m.group(0) if m else None
+
+
+def parse_header_advisory(text: str) -> str | None:
+    """Advisory number from a bulletin title, e.g. ``14`` or ``14A``."""
+    m = _HEADER_ADVISORY_RE.search(text)
+    return m.group(1) if m else None
+
+
+def parse_header_issuance(text: str) -> str | None:
+    """Issuance timestamp line from a product header, e.g. ``830 PM CDT Fri Oct 09 2026``."""
+    m = _HEADER_ISSUANCE_RE.search(text)
+    return m.group(0).strip() if m else None
+
+
 def classify_product(product_id: str) -> str | None:
     pid = product_id.upper()
     for pil, name in NHC_PRODUCT_NAMES.items():
