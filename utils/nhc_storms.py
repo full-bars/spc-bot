@@ -133,10 +133,23 @@ def parse_pressure(text: str) -> int | None:
 
 
 def parse_movement(text: str) -> str | None:
-    m = re.search(r"PRESENT\s+MOVEMENT[\.\s:]+?(.+?\d+)\s*MPH", text, re.IGNORECASE)
-    if m:
-        return clean_dots(m.group(1))
-    return None
+    """Present-movement line, keeping its speed unit.
+
+    Two shapes exist in NHC products. Public advisories write
+    ``PRESENT MOVEMENT...N OR 360 DEGREES AT 5 MPH...7 KM/H``; forecast
+    advisories write ``PRESENT MOVEMENT TOWARD THE NORTH OR 330 DEGREES AT 9 KT``.
+    The unit has to be kept — "AT 5" alone is not a speed.
+    """
+    m = re.search(
+        r"PRESENT\s+MOVEMENT(?:\s+TOWARD)?[\.\s:]+?(.+?\d+\s*(?:MPH|KT))",
+        text,
+        re.IGNORECASE,
+    )
+    if not m:
+        return None
+    cleaned = re.sub(r"\s+", " ", clean_dots(m.group(1))).strip()
+    # The TCA shape leads with an article the public-advisory shape does not.
+    return re.sub(r"^THE\s+", "", cleaned, flags=re.IGNORECASE).strip() or None
 
 
 def classify_storm_type(text: str) -> str | None:
@@ -174,9 +187,10 @@ def extract_storm_name(text: str) -> str | None:
 # Full storm IDs NHC prints in product headers ("... Miami FL  AL092026").
 _STORM_ID_RE = re.compile(r"\b(AL|EP|CP)\d{6}\b")
 
-# Advisory number in a bulletin title ("Advisory Number 14", "Intermediate
-# Advisory Number 14A").
-_HEADER_ADVISORY_RE = re.compile(r"ADVISORY\s+NUMBER\s+(\d+[A-Z]?)", re.IGNORECASE)
+# Bulletin number in a title. TCP says "Advisory Number 14" (or "Intermediate
+# Advisory Number 14A"); TCD says "Discussion Number  14" and shares the TCP's
+# numbering, so both spellings resolve to the same archive number.
+_HEADER_ADVISORY_RE = re.compile(r"(?:ADVISORY|DISCUSSION)\s+NUMBER\s+(\d+[A-Z]?)", re.IGNORECASE)
 
 # Issuance line right under the WMO header ("830 PM CDT Fri Oct 09 2026").
 _HEADER_ISSUANCE_RE = re.compile(
@@ -338,6 +352,90 @@ def zoom_earth_pressure_url(position: str) -> str | None:
         return None
     lat, lon = coords
     return f"https://zoom.earth/maps/pressure/#view={lat:g},{lon:g},6z/model=gfs"
+
+
+# Archive-file code per product type. Only TCP and TCD land in NHC's public
+# archive under a storm-numbered filename; TCU (update) and TCE (position
+# estimate) are never archived, so those must fall through to the IEM mirror.
+# An intermediate advisory is NOT a separate file type — it is the same TCP
+# series, so "ADVISORY" covers both regular and intermediate numbers.
+_ARCHIVE_CODE_BY_TYPE = {
+    "ADVISORY": "public",
+    "DISCUSSION": "discus",
+}
+
+# Button label per product type; anything unmapped (TCU, TCE, unknown) gets a
+# generic label that is still accurate for whatever we are linking to.
+_NHC_LINK_LABEL_BY_TYPE = {
+    "ADVISORY": "Advisory",
+    "DISCUSSION": "Discussion",
+}
+
+# "14" or "14A" — the intermediate suffix is a letter on the advisory number.
+_ADVISORY_NUM_RE = re.compile(r"^(\d+)([A-Z]?)$")
+
+
+def nhc_product_label(product_type: str | None) -> str:
+    """Button label for a link to an NHC product."""
+    if product_type:
+        label = _NHC_LINK_LABEL_BY_TYPE.get(product_type.upper())
+        if label:
+            return label
+    return "NHC Text"
+
+
+def nhc_product_url(
+    storm_id: str | None,
+    advisory: str | None = None,
+    product_type: str | None = None,
+    product_id: str | None = None,
+) -> str | None:
+    """Build a link to the official text of an NHC product.
+
+    Prefers NHC's own archive, which serves a stable, human-readable page per
+    advisory number::
+
+        EP202026 advisory 14  -> .../2026/ep20/ep202026.public.014.shtml
+        EP202026 advisory 14A -> .../2026/ep20/ep202026.public_a.014.shtml
+
+    The intermediate-advisory letter stays on the *advisory number* only — it
+    never appears in the filename, so ``14A`` maps to ``public_a.014``. Getting
+    that wrong yields a 404.
+
+    Archives only ``public``/``public_a``/``discus`` (plus tables we do not
+    link). ``UPDATE`` (TCU) and ``POSITION ESTIMATE`` (TCE) products are not
+    archived, so when ``product_id`` is available those fall back to the IEM
+    mirror, which serves any product. Returns None if neither source can
+    produce a link.
+    """
+    storm = (storm_id or "").strip().upper()
+    if not _STORM_ID_RE.fullmatch(storm):
+        return None
+    slug = storm.lower()
+
+    ptype = (product_type or "").upper() or None
+    # Unidentified product: the cyclones page reports the public advisory, so
+    # treat an advisory number with no product type as the TCP series.
+    effective_type = ptype or "ADVISORY"
+    code = _ARCHIVE_CODE_BY_TYPE.get(effective_type)
+
+    if code:
+        num_match = _ADVISORY_NUM_RE.match((advisory or "").strip())
+        if num_match:
+            number, letter = num_match.group(1), num_match.group(2).lower()
+            basin = slug[:4]  # e.g. "ep20"
+            suffix = "_a" if letter else ""
+            return (
+                "https://www.nhc.noaa.gov/archive/"
+                f"{slug[4:]}/{basin}/{slug}.{code}{suffix}.{int(number):03d}.shtml"
+            )
+
+    # Non-archived product, or no usable advisory number: any product can be
+    # resolved through the IEM mirror as long as we have its WMO/AWIPS ID.
+    if product_id and product_id.strip():
+        return IEM_NWSTEXT_URL.format(product_id=product_id.strip())
+
+    return None
 
 
 def _extract_storms_from_html(html: str) -> dict[str, dict]:

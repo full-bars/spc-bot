@@ -21,7 +21,10 @@ from utils.nhc_storms import (
     SAFFIR_SIMPSON_COLORS,
     active_storms_authoritative,
     category_label,
+    classify_product,
     get_active_storms,
+    nhc_product_label,
+    nhc_product_url,
     parse_header_advisory,
     parse_header_issuance,
     parse_location,
@@ -496,35 +499,50 @@ async def _download_satellite_image(
     return None
 
 
-def _build_location_view(position: str | None) -> discord.ui.View | None:
-    """Link buttons to zoom.earth satellite and wind-gusts views for a position.
+def _build_location_view(
+    position: str | None, nhc_url: str | None = None, nhc_label: str = "NHC Text"
+) -> discord.ui.View | None:
+    """Link buttons to zoom.earth satellite/wind-gusts/pressure views and the
+    official NHC product text for a position.
 
     Link buttons never expire (clicking them sends no interaction to the bot),
     so the view stays functional for the message's lifetime with no timeout
-    management. Returns None if no button can be built (missing position).
+    management. Returns None if no button can be built (missing position and
+    no NHC URL).
     """
-    if not position:
-        return None
     view = discord.ui.View()
-    sat_url = zoom_earth_url(position)
-    if sat_url:
-        view.add_item(
-            discord.ui.Button(
-                label="Satellite", style=discord.ButtonStyle.secondary, url=sat_url, emoji="🛰️"
+    if position:
+        sat_url = zoom_earth_url(position)
+        if sat_url:
+            view.add_item(
+                discord.ui.Button(
+                    label="Satellite", style=discord.ButtonStyle.secondary, url=sat_url, emoji="🛰️"
+                )
             )
-        )
-    gusts_url = zoom_earth_gusts_url(position)
-    if gusts_url:
-        view.add_item(
-            discord.ui.Button(
-                label="Wind Gusts", style=discord.ButtonStyle.secondary, url=gusts_url, emoji="💨"
+        gusts_url = zoom_earth_gusts_url(position)
+        if gusts_url:
+            view.add_item(
+                discord.ui.Button(
+                    label="Wind Gusts",
+                    style=discord.ButtonStyle.secondary,
+                    url=gusts_url,
+                    emoji="💨",
+                )
             )
-        )
-    pressure_url = zoom_earth_pressure_url(position)
-    if pressure_url:
+        pressure_url = zoom_earth_pressure_url(position)
+        if pressure_url:
+            view.add_item(
+                discord.ui.Button(
+                    label="Pressure",
+                    style=discord.ButtonStyle.secondary,
+                    url=pressure_url,
+                    emoji="🌀",
+                )
+            )
+    if nhc_url:
         view.add_item(
             discord.ui.Button(
-                label="Pressure", style=discord.ButtonStyle.secondary, url=pressure_url, emoji="🌀"
+                label=nhc_label, style=discord.ButtonStyle.secondary, url=nhc_url, emoji="📋"
             )
         )
     return view if view.children else None
@@ -1299,6 +1317,13 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
         cone_bytes = cone_bytes if isinstance(cone_bytes, bytes) else None
         sat_bytes = sat_bytes if isinstance(sat_bytes, bytes) else None
 
+        product_type = classify_product(product_id) if product_id else None
+        nhc_url = nhc_product_url(
+            storm_id,
+            advisory if advisory != "latest" else None,
+            product_type,
+            product_id,
+        )
         msg = await _send_tracker_update(
             channel,
             context=f"tracker update for {storm_id}",
@@ -1306,7 +1331,9 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
             cone_bytes=cone_bytes,
             sat_bytes=sat_bytes,
             storm_id=storm_id,
-            view=_build_location_view(info.get("position")),
+            view=_build_location_view(
+                info.get("position"), nhc_url, nhc_product_label(product_type)
+            ),
         )
         if msg:
             await _record_post(
@@ -1500,6 +1527,17 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
             embed = self._build_landfall_embed(storm_id, name, match, parsed, info, product_id)
             cone_bytes = await _download_cone_image(info.get("graphics_url"))
 
+            raw = parsed.get("raw_text") or ""
+            position = parse_location(raw) or info.get("position")
+            product_type = classify_product(product_id) if product_id else None
+            nhc_url = nhc_product_url(
+                storm_id,
+                parse_header_advisory(raw) or info.get("advisory"),
+                product_type,
+                product_id,
+            )
+            view = _build_location_view(position, nhc_url, nhc_product_label(product_type))
+
             for channel_id, channel in targets.items():
                 if await get_state(_landfall_key(channel_id, storm_id)):
                     continue
@@ -1517,6 +1555,7 @@ class TropicalTrackerCog(commands.Cog, name="TropicalTracker"):
                     context=f"landfall announcement for {storm_id}",
                     embed=embed,
                     files=files,
+                    view=view,
                 )
                 if not msg:
                     continue

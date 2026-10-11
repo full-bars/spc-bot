@@ -510,3 +510,158 @@ def test_build_location_view_without_position_is_none():
     assert _build_location_view(None) is None
     assert _build_location_view("") is None
     assert _build_location_view("not a coordinate") is None
+
+
+def test_build_location_view_appends_nhc_button_as_fourth():
+    from cogs.tropical_tracker import _build_location_view
+
+    view = _build_location_view(
+        "17.1N 106.5W", "https://www.nhc.noaa.gov/archive/x.shtml", "Advisory"
+    )
+    assert view is not None
+    labels = [c.label for c in view.children]
+    assert labels == ["Satellite", "Wind Gusts", "Pressure", "Advisory"]
+    assert view.children[3].url == "https://www.nhc.noaa.gov/archive/x.shtml"
+
+
+def test_build_location_view_keeps_nhc_button_without_position():
+    """A missing position drops the zoom.earth buttons but must not drop the
+    link to the product text."""
+    from cogs.tropical_tracker import _build_location_view
+
+    view = _build_location_view(None, "https://example.com/nhc.shtml", "Discussion")
+    assert view is not None
+    assert [c.label for c in view.children] == ["Discussion"]
+    assert _build_location_view("not a coordinate", "https://example.com/nhc.shtml") is not None
+
+
+# ── parse_movement ───────────────────────────────────────────────────────────
+
+
+def test_parse_movement_keeps_unit_from_public_advisory():
+    from utils.nhc_storms import parse_movement
+
+    raw = "LOCATION...17.1N 104.8W\nPRESENT MOVEMENT...N OR 360 DEGREES AT 5 MPH...7 KM/H\n"
+    assert parse_movement(raw) == "N OR 360 DEGREES AT 5 MPH"
+
+
+def test_parse_movement_handles_forecast_advisory_knots():
+    """TCA writes "PRESENT MOVEMENT TOWARD ..." and uses knots — the unit used
+    to be dropped entirely."""
+    from utils.nhc_storms import parse_movement
+
+    raw = (
+        "LOCATION...18.4N 104.2W\n"
+        "PRESENT MOVEMENT TOWARD THE NORTH-NORTHWEST OR 330 DEGREES AT   9 KT\n"
+    )
+    assert parse_movement(raw) == "NORTH-NORTHWEST OR 330 DEGREES AT 9 KT"
+
+
+def test_parse_movement_collapses_internal_whitespace():
+    from utils.nhc_storms import parse_movement
+
+    raw = "PRESENT MOVEMENT TOWARD THE WEST OR 270 DEGREES AT  12 KT"
+    assert parse_movement(raw) == "WEST OR 270 DEGREES AT 12 KT"
+
+
+def test_parse_movement_none_when_absent():
+    from utils.nhc_storms import parse_movement
+
+    assert parse_movement("LOCATION...17.1N 104.8W") is None
+    assert parse_movement("") is None
+
+
+# ── nhc_product_url ──────────────────────────────────────────────────────────
+
+
+def test_nhc_product_url_public_advisory():
+    from utils.nhc_storms import nhc_product_url
+
+    assert nhc_product_url("EP202026", "14", "ADVISORY") == (
+        "https://www.nhc.noaa.gov/archive/2026/ep20/ep202026.public.014.shtml"
+    )
+
+
+def test_nhc_product_url_intermediate_advisory_drops_letter_from_filename():
+    """14A maps to public_a.014 — the letter never appears in the number.
+    Putting it there (public_a.014A) 404s."""
+    from utils.nhc_storms import nhc_product_url
+
+    assert nhc_product_url("EP202026", "14A", "ADVISORY") == (
+        "https://www.nhc.noaa.gov/archive/2026/ep20/ep202026.public_a.014.shtml"
+    )
+    assert nhc_product_url("EP182026", "55A", "ADVISORY") == (
+        "https://www.nhc.noaa.gov/archive/2026/ep18/ep182026.public_a.055.shtml"
+    )
+
+
+def test_nhc_product_url_discussion_uses_discus_file():
+    from utils.nhc_storms import nhc_product_url
+
+    assert nhc_product_url("EP202026", "14", "DISCUSSION") == (
+        "https://www.nhc.noaa.gov/archive/2026/ep20/ep202026.discus.014.shtml"
+    )
+
+
+def test_nhc_product_url_accepts_lowercase_storm_id():
+    from utils.nhc_storms import nhc_product_url
+
+    assert nhc_product_url("ep202026", "14", "ADVISORY") == (
+        "https://www.nhc.noaa.gov/archive/2026/ep20/ep202026.public.014.shtml"
+    )
+
+
+def test_nhc_product_url_falls_back_to_iem_for_unarchived_products():
+    """TCU (update) and TCE (position estimate) are not in NHC's archive, so
+    they resolve through the IEM mirror instead."""
+    from utils.nhc_storms import nhc_product_url
+
+    pid = "202610110000-KNHC-WTPZ25-TCUEP5"
+    assert nhc_product_url("EP202026", None, "UPDATE", pid) == (
+        f"https://mesonet.agron.iastate.edu/api/1/nwstext/{pid}"
+    )
+    pid = "202610110000-KNHC-WTPZ25-TCEEP5"
+    assert nhc_product_url("EP202026", None, "POSITION ESTIMATE", pid) == (
+        f"https://mesonet.agron.iastate.edu/api/1/nwstext/{pid}"
+    )
+
+
+def test_nhc_product_url_defaults_to_public_when_no_product_type():
+    """The cyclones-page scrape reports the public advisory and has no product
+    type, so an advisory number alone must still produce an archive link."""
+    from utils.nhc_storms import nhc_product_url
+
+    assert nhc_product_url("EP182026", "55A") == (
+        "https://www.nhc.noaa.gov/archive/2026/ep18/ep182026.public_a.055.shtml"
+    )
+
+
+def test_nhc_product_url_falls_back_to_iem_when_advisory_unusable():
+    """'latest' is the footer placeholder, not a number — resolve by product ID."""
+    from utils.nhc_storms import nhc_product_url
+
+    pid = "202610110000-KNHC-WTPZ35-TCPEP5"
+    assert nhc_product_url("EP202026", "latest", "ADVISORY", pid) == (
+        f"https://mesonet.agron.iastate.edu/api/1/nwstext/{pid}"
+    )
+
+
+def test_nhc_product_url_returns_none_when_it_cannot_build():
+    from utils.nhc_storms import nhc_product_url
+
+    assert nhc_product_url("EP202026", None, "ADVISORY") is None
+    assert nhc_product_url("bogus", "14", "ADVISORY") is None
+    assert nhc_product_url(None, None, None) is None
+    assert nhc_product_url("AL062026", "", "ADVISORY") is None
+    # No advisory number and no product ID: nothing to anchor a link on.
+    assert nhc_product_url("EP202026", None, "UPDATE") is None
+
+
+def test_nhc_product_label_by_type():
+    from utils.nhc_storms import nhc_product_label
+
+    assert nhc_product_label("ADVISORY") == "Advisory"
+    assert nhc_product_label("DISCUSSION") == "Discussion"
+    assert nhc_product_label("UPDATE") == "NHC Text"
+    assert nhc_product_label("POSITION ESTIMATE") == "NHC Text"
+    assert nhc_product_label(None) == "NHC Text"
