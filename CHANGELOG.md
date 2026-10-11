@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.50.1] - 2026-10-10
+
+### Added
+- **NHC advisory text is one click away.** Tracker updates and landfall announcements now carry a 📋 link button beside the zoom.earth links, pointing at the official NHC archive page for the product being reported — `Advisory` for public/intermediate advisories, `Discussion` for forecast discussions, `NHC Text` for the hourly `TCU`/`TCE` position updates that NHC does not archive. The archive URL keeps the intermediate-advisory letter on the advisory number and off the filename (`14A` → `public_a.014`), and non-archived product types fall back to the IEM mirror, which serves any product ID. Landfall announcements previously carried no buttons at all and now get the same links.
+
+### Fixed
+- **Movement speed was reported without its unit.** Tracker embeds showed Simon drifting "N OR 360 DEGREES AT 3" — the speed unit fell outside the regex capture group and was discarded, so "MPH" never reached the embed. The unit is now kept.
+- **Forecast-advisory movement lines were dropped entirely.** The same regex required the `MPH` spelling and the `PRESENT MOVEMENT...` shape, so the forecast-advisory form (`PRESENT MOVEMENT TOWARD THE NORTH-NORTHWEST OR 330 DEGREES AT 9 KT`) matched nothing and the "moving …" clause vanished from embeds sourced from those products. Both shapes — and both `MPH` and `KT` units — now parse.
+- **False landfall announcements for storms that had not made landfall.** Hurricane Simon's forecast discussion ("Simon making landfall in Jalisco in 24-36 h") matched the completed-event detector, so a red `🚨 LANDFALL` embed fired while the storm was still offshore. Detection now rejects any sentence that carries a future time offset (`in 12 h`, `by 8 AM`, `by 0600 UTC`, `within 24-36 h`) after the landfall phrase, so only a statement that the storm *has* come ashore can trigger an announcement. The `DISCUSSION` product type stays eligible — it is how NHC first reports many landfalls — but forecast wording no longer slips through.
+- **Landfall announcements uploaded a 0-byte forecast cone.** One `discord.File` was built per announcement and reused across every channel; `File` wraps a single-use stream that the first upload drains, so every channel after the first received an empty attachment. A fresh `BytesIO` is now built per channel. Existing channels that had already been announced for Simon were cleared from state so the next real landfall re-announces correctly.
+
+### Chores
+- **AI endpoint defaults no longer point at a personal proxy.** `AI_BASE_URL`, `AI_MODEL` and `AI_FALLBACK_MODEL` were hard-coded as config defaults, so a fresh clone targeted an endpoint nobody else can reach. Defaults are now empty and come from the environment; `call_openai_compatible` skips the request (instead of posting to a relative URL) when `AI_BASE_URL` is unset, and `.env.example` documents generic placeholders.
+
 ## [5.50.0] - 2026-10-10
 
 ### Added
