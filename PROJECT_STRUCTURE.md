@@ -43,9 +43,10 @@ spc-bot/
 │   ├── geo.py               # Rust-accelerated geospatial queries: haversine distance, R*-tree nearest stations, polygon queries
 │   ├── map_utils.py         # Map rendering and geographic visualization utilities
 │   ├── nhc_storms.py        # NHC product/page parsing: storm ID from the product header, advisory +
-│   │                        # issuance headers, position/wind/pressure/movement, zoom.earth deep links
+│   │                        # issuance headers, position/wind/pressure/movement (unit retained), zoom.earth
+│   │                        # deep links, and official NHC archive/IEM product-text URLs
 │   ├── nhc_landfall.py      # Official landfall statement detection — completed-event phrasing only,
-│   │                        # forecast wording and future-modal hedges rejected
+│   │                        # forecast wording, future-modal hedges and future time offsets rejected
 ├── backoff.py               # Exponential backoff tracker for task loops
 ├── worker_pool.py           # Two separate ProcessPoolExecutors: "Fast Hodo" (hodograph/VAD rendering) and "Heavy Sounding" (SounderPy plot generation)
 └── db.py                    # Async SQLite backend used internally by state_store as the durable mirror; also home of http_validators
