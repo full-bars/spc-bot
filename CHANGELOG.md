@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.50.2] - 2026-10-14
+
+### Fixed
+- **Tracker advisories were posted twice.** The same NHC advisory — e.g. Hurricane Simon Advisory 30 — landed in the channel twice, ~26 minutes apart: once from the live product feed and again from the 30-minute cyclones-page scrape. The page writes the issuance as `0200 PM MST Wed Oct 14` while the product header writes `200 PM MST Wed Oct 14 2026`; the dedup fingerprint normalized the `As of` prefix and the trailing year but not the clock's leading zero, so the two feeds produced different fingerprints and the page scrape re-posted the advisory the product feed had just delivered. `_normalize_issuance` now collapses every clock shape (`200 PM`, `0200 PM`, `2:00 PM`) to one canonical form, so the same issuance deduplicates across feeds no matter how each source formats it.
+
 ## [5.50.1] - 2026-10-10
 
 ### Added
