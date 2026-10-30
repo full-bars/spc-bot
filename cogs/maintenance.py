@@ -41,10 +41,27 @@ class MaintenanceCog(commands.Cog):
                 None, self._run_cleanup_worker, now, cutoff
             )
 
-            if deleted_count > 0:
-                mb_freed = total_size_freed / (1024 * 1024)
+            # Outlook panel versions (cache/outlook_versions). Kept in its own try so a
+            # failure here cannot stop the event prune or DAT backfill below.
+            # 48h, not the 24h default: /compare needs the latest and previous version of each
+            # product, and products refresh on the order of hours, so 48h keeps a second version.
+            # The newest version per product is kept even when older (see cleanup_old_versions).
+            from utils.compare_utils import cleanup_old_versions
+
+            try:
+                versions_deleted, versions_freed = await cleanup_old_versions(max_age_hours=48)
+            except Exception as e:
+                logger.warning(f"[MAINTENANCE] Outlook version prune failed: {e}")
+                versions_deleted, versions_freed = 0, 0
+
+            total_deleted = deleted_count + versions_deleted
+            total_freed = total_size_freed + versions_freed
+            if total_deleted > 0:
+                mb_freed = total_freed / (1024 * 1024)
+                versions_mb = versions_freed / (1024 * 1024)
                 logger.info(
-                    f"[MAINTENANCE] Cleanup complete. Removed {deleted_count} items ({mb_freed:.2f} MB freed)"
+                    f"[MAINTENANCE] Cleanup complete. Removed {total_deleted} items ({mb_freed:.2f} MB freed; "
+                    f"outlook versions {versions_deleted} / {versions_mb:.2f} MB)"
                 )
             else:
                 logger.info("[MAINTENANCE] Cleanup complete. No files needed deletion.")

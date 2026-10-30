@@ -4,6 +4,7 @@
 import asyncio
 import logging
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Tuple
@@ -117,25 +118,42 @@ async def get_comparison_pair(day: int, product: str) -> Tuple[Optional[str], Op
     return latest, previous, "Comparison ready"
 
 
-async def cleanup_old_versions(max_age_hours: int = 24) -> int:
+_VERSION_FILENAME_RE = re.compile(r"^(?P<key>.+)_\d{8}_\d{6}_\d{6}\.png$")
+
+
+async def cleanup_old_versions(max_age_hours: int = 24) -> Tuple[int, int]:
     """
-    Delete versions older than max_age_hours. Returns count deleted.
-    Should be called periodically (e.g., with periodic_cleanup task).
+    Delete versions older than max_age_hours. Returns (files_deleted, bytes_freed).
+    The newest version of each product is always kept, even when it is past the
+    cutoff, so /compare can still show a latest for products that have gone quiet.
+    Called daily from the maintenance pass (cogs/maintenance.py), which uses 48h.
     """
     _ensure_versions_dir()
     cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
     deleted_count = 0
+    bytes_freed = 0
 
     try:
+        by_product: dict[str, list[Path]] = {}
         for fpath in Path(OUTLOOK_VERSIONS_DIR).glob("*.png"):
-            mtime = datetime.fromtimestamp(fpath.stat().st_mtime, tz=timezone.utc)
-            if mtime < cutoff:
-                fpath.unlink()
-                deleted_count += 1
-                logger.debug(f"Deleted old version: {fpath.name}")
+            match = _VERSION_FILENAME_RE.match(fpath.name)
+            # Unparseable names form their own group, so they are never pruned as a stale product
+            key = match.group("key") if match else fpath.name
+            by_product.setdefault(key, []).append(fpath)
+
+        for versions in by_product.values():
+            versions.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            for fpath in versions[1:]:
+                stat = fpath.stat()
+                mtime = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+                if mtime < cutoff:
+                    fpath.unlink()
+                    deleted_count += 1
+                    bytes_freed += stat.st_size
+                    logger.debug(f"Deleted old version: {fpath.name}")
     except Exception as e:
         logger.warning(f"Error cleaning up old versions: {e}")
 
     if deleted_count > 0:
         logger.info(f"Cleaned up {deleted_count} old outlook versions")
-    return deleted_count
+    return deleted_count, bytes_freed
