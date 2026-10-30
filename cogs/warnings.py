@@ -66,6 +66,19 @@ from utils.state_store import (
 logger = logging.getLogger("spc_bot.warnings")
 
 
+def _should_image_warning(vtec: dict) -> bool:
+    """Image warnings only when the issuing office is a US NWS office."""
+    has_image_product = (vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS"
+    if not has_image_product:
+        return False
+
+    office = vtec.get("office", "")
+    if not office.startswith(("K", "P")):
+        logger.debug("[WARN_IMG_SKIP] %s: unsupported issuing office %s", vtec.get("vtec_id", "unknown"), office)
+        return False
+    return True
+
+
 def _log_task_exception(task: asyncio.Task) -> None:
     """Log any exception raised in a background task."""
     try:
@@ -421,9 +434,7 @@ class WarningsCog(commands.Cog):
                 # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS).
                 # Launched in background after the message is sent so the safety-critical
                 # warning text is never delayed by IEM's autoplot generation latency.
-                should_image = (vtec.get("etn") and vtec["etn"] != "0") or vtec.get(
-                    "phenom"
-                ) == "SPS"
+                should_image = _should_image_warning(vtec)
 
                 try:
                     if view is not None:
@@ -1148,7 +1159,7 @@ class WarningsCog(commands.Cog):
         # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS).
         # Launched in background after the message is sent so the safety-critical
         # warning text is never delayed by IEM's autoplot generation latency.
-        should_image = (vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS"
+        should_image = _should_image_warning(vtec)
 
         msg = await safe_send(
             channel,

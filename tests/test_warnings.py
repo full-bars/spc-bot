@@ -4,6 +4,7 @@ _tick poll path (disappeared detection, CON area updates, initial discovery)."""
 
 import asyncio
 import json
+import logging
 from collections import deque
 from unittest.mock import AsyncMock, MagicMock
 
@@ -179,6 +180,41 @@ def test_extract_narrative_falls_back_when_no_bulletin_header():
 
 
 # ── post_warning_now (iembot fast-path) ──────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_warning_image_gate_skips_canadian_office(monkeypatch, caplog):
+    vtec = parse_vtec("/O.NEW.CWTO.SP.S.0001.260430T1200Z-260430T1800Z/")
+    assert vtec is not None
+    http_get_bytes = AsyncMock(return_value=(b"\x89PNG\r\n\x1a\n", 200))
+    monkeypatch.setattr(warning_format_mod, "http_get_bytes", http_get_bytes)
+    monkeypatch.setattr(warning_format_mod.asyncio, "sleep", AsyncMock())
+
+    with caplog.at_level(logging.DEBUG, logger="spc_bot.warnings"):
+        if warnings_mod._should_image_warning(vtec):
+            await warning_format_mod._download_warning_image(
+                "https://example.test/image.png", "warning.png"
+            )
+
+    skipped = [record for record in caplog.records if "[WARN_IMG_SKIP]" in record.message]
+    assert len(skipped) == 1
+    assert skipped[0].levelno == logging.DEBUG
+    http_get_bytes.assert_not_awaited()
+
+
+@pytest.mark.parametrize("office", ["KOUN", "PHFO"])
+@pytest.mark.asyncio
+async def test_warning_image_gate_fetches_image_for_us_office(monkeypatch, office):
+    vtec = parse_vtec(f"/O.NEW.{office}.SP.S.0001.260430T1200Z-260430T1800Z/")
+    assert vtec is not None
+    http_get_bytes = AsyncMock(return_value=(b"\x89PNG\r\n\x1a\n", 200))
+    monkeypatch.setattr(warning_format_mod, "http_get_bytes", http_get_bytes)
+    monkeypatch.setattr(warning_format_mod.asyncio, "sleep", AsyncMock())
+
+    if warnings_mod._should_image_warning(vtec):
+        await warning_format_mod._download_warning_image("https://example.test/image.png", "warning.png")
+
+    http_get_bytes.assert_awaited_once()
 
 
 def _make_cog(posted: dict | None = None) -> WarningsCog:
