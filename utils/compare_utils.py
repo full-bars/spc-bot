@@ -122,6 +122,15 @@ _VERSION_FILENAME_RE = re.compile(r"^(?P<key>.+)_\d{8}_\d{6}_\d{6}\.png$")
 
 
 async def cleanup_old_versions(max_age_hours: int = 24) -> Tuple[int, int]:
+    """Prune old versions without blocking the event loop."""
+    import asyncio
+
+    return await asyncio.get_running_loop().run_in_executor(
+        None, _cleanup_old_versions_worker, max_age_hours
+    )
+
+
+def _cleanup_old_versions_worker(max_age_hours: int = 24) -> Tuple[int, int]:
     """
     Delete versions older than max_age_hours. Returns (files_deleted, bytes_freed).
     The newest version of each product is always kept, even when it is past the

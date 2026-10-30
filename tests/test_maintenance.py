@@ -3,6 +3,7 @@ Unit tests for cogs/maintenance.py — cache cleanup and DB pruning.
 """
 
 import os
+import threading
 import time
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
@@ -95,12 +96,33 @@ async def test_cleanup_cache_loop_invokes_outlook_version_prune(maintenance_dirs
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("maintenance_dirs")
+async def test_outlook_prune_runs_in_executor(caplog):
+    loop_thread = threading.get_ident()
+    observed = []
+
+    def prune(max_age_hours):
+        observed.append((threading.get_ident(), max_age_hours))
+        return 2, 1048576
+
+    with patch("utils.compare_utils._cleanup_old_versions_worker", prune), patch(
+        "utils.events_db.prune_old_significant_events", AsyncMock()
+    ), patch("utils.events_db.backfill_dat_guids", AsyncMock()), caplog.at_level("INFO"):
+        await _make_cog().cleanup_cache_loop()
+
+    assert len(observed) == 1
+    assert observed[0][0] != loop_thread
+    assert observed[0][1] == 48
+    assert "outlook versions 2 / 1.00 MB" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("maintenance_dirs")
 async def test_outlook_prune_failure_does_not_block_rest_of_pass():
     mock_prune_db = AsyncMock()
     mock_backfill = AsyncMock()
-    failing_prune = AsyncMock(side_effect=OSError("disk gone"))
+    failing_prune = MagicMock(side_effect=OSError("disk gone"))
 
-    with patch("utils.compare_utils.cleanup_old_versions", failing_prune), patch(
+    with patch("utils.compare_utils._cleanup_old_versions_worker", failing_prune), patch(
         "utils.events_db.prune_old_significant_events", mock_prune_db
     ), patch("utils.events_db.backfill_dat_guids", mock_backfill):
         await _make_cog().cleanup_cache_loop()

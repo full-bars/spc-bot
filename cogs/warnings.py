@@ -67,13 +67,14 @@ logger = logging.getLogger("spc_bot.warnings")
 
 
 def _should_image_warning(vtec: dict) -> bool:
-    """Image warnings only when the issuing office is a US NWS office."""
+    """Skip offices whose warning products IEM cannot plot."""
     has_image_product = (vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS"
     if not has_image_product:
         return False
 
     office = vtec.get("office", "")
-    if not office.startswith(("K", "P")):
+    # IEM cannot plot Canadian products and returns a permanent HTTP 400.
+    if office.startswith("C"):
         logger.debug("[WARN_IMG_SKIP] %s: unsupported issuing office %s", vtec.get("vtec_id", "unknown"), office)
         return False
     return True
@@ -485,7 +486,8 @@ class WarningsCog(commands.Cog):
             try:
                 if msg is None:
                     await self.bot.state.remove_posted_product_id(product_id)
-                    self.bot.state.active_warnings.pop(vtec_id, None)
+                    if not is_update:
+                        self.bot.state.active_warnings.pop(vtec_id, None)
             finally:
                 self._in_flight_vtecs.discard(vtec_id)
 

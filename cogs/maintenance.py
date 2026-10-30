@@ -46,10 +46,12 @@ class MaintenanceCog(commands.Cog):
             # 48h, not the 24h default: /compare needs the latest and previous version of each
             # product, and products refresh on the order of hours, so 48h keeps a second version.
             # The newest version per product is kept even when older (see cleanup_old_versions).
-            from utils.compare_utils import cleanup_old_versions
+            from utils.compare_utils import _cleanup_old_versions_worker
 
             try:
-                versions_deleted, versions_freed = await cleanup_old_versions(max_age_hours=48)
+                versions_deleted, versions_freed = await loop.run_in_executor(
+                    None, _cleanup_old_versions_worker, 48
+                )
             except Exception as e:
                 logger.warning(f"[MAINTENANCE] Outlook version prune failed: {e}")
                 versions_deleted, versions_freed = 0, 0
