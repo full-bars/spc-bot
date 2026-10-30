@@ -359,6 +359,89 @@ async def test_post_warning_now_dedups_by_product_id(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_post_warning_now_timeout_releases_product_for_retry(monkeypatch):
+    cog = _make_cog()
+    product_id = "PROD-timeout"
+    vtec_id = "KOUN.SV.W.0042"
+    channel = cog.bot.get_channel.return_value
+    cog.bot.state.add_posted_product_id.side_effect = cog.bot.state.posted_product_ids.append
+    cog.bot.state.remove_posted_product_id.side_effect = cog.bot.state.posted_product_ids.remove
+    channel.send.side_effect = [asyncio.TimeoutError(), MagicMock()]
+    monkeypatch.setattr(warning_format_mod, "_attach_warning_image_async", AsyncMock())
+
+    with pytest.raises(asyncio.TimeoutError):
+        await cog.post_warning_now(product_id, SAMPLE_RAW, "Severe Thunderstorm Warning")
+
+    assert product_id not in cog.bot.state.posted_product_ids
+    assert vtec_id not in cog.bot.state.active_warnings
+    await cog.post_warning_now(product_id, SAMPLE_RAW, "Severe Thunderstorm Warning")
+    assert channel.send.await_count == 2
+    assert product_id in cog.bot.state.posted_product_ids
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["forbidden", "http", "cancelled"])
+async def test_post_warning_now_send_failure_releases_product(monkeypatch, failure):
+    cog = _make_cog()
+    product_id = "PROD-send-failure"
+    vtec_id = "KOUN.SV.W.0042"
+    channel = cog.bot.get_channel.return_value
+    cog.bot.state.add_posted_product_id.side_effect = cog.bot.state.posted_product_ids.append
+    cog.bot.state.remove_posted_product_id.side_effect = cog.bot.state.posted_product_ids.remove
+    cog._notify_channel_error = AsyncMock()
+    response = MagicMock(status=403 if failure == "forbidden" else 500, reason="failed")
+    errors = {
+        "forbidden": discord.Forbidden(response, "failed"),
+        "http": discord.HTTPException(response, "failed"),
+        "cancelled": asyncio.CancelledError(),
+    }
+    channel.send.side_effect = errors[failure]
+    monkeypatch.setattr(warning_format_mod, "_attach_warning_image_async", AsyncMock())
+
+    if failure == "cancelled":
+        with pytest.raises(asyncio.CancelledError):
+            await cog.post_warning_now(product_id, SAMPLE_RAW, "Severe Thunderstorm Warning")
+    else:
+        await cog.post_warning_now(product_id, SAMPLE_RAW, "Severe Thunderstorm Warning")
+
+    assert product_id not in cog.bot.state.posted_product_ids
+    assert vtec_id not in cog.bot.state.active_warnings
+    assert vtec_id not in cog._in_flight_vtecs
+    if failure == "forbidden":
+        cog._notify_channel_error.assert_awaited_once_with(channel, ["send_messages (403 Forbidden)"])
+    else:
+        cog._notify_channel_error.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["runtime", "http"])
+async def test_post_warning_now_confirm_failure_keeps_sent_product(monkeypatch, failure):
+    cog = _make_cog()
+    product_id = "PROD-confirm"
+    channel = cog.bot.get_channel.return_value
+    cog.bot.state.add_posted_product_id.side_effect = cog.bot.state.posted_product_ids.append
+    cog.bot.state.remove_posted_product_id.side_effect = cog.bot.state.posted_product_ids.remove
+    error = (
+        RuntimeError("confirm failed")
+        if failure == "runtime"
+        else discord.HTTPException(MagicMock(status=500, reason="failed"), "confirm failed")
+    )
+    cog.bot.state.add_posted_warning.side_effect = error
+    monkeypatch.setattr(warning_format_mod, "_attach_warning_image_async", AsyncMock())
+
+    if failure == "runtime":
+        with pytest.raises(RuntimeError, match="confirm failed"):
+            await cog.post_warning_now(product_id, SAMPLE_RAW, "Severe Thunderstorm Warning")
+    else:
+        await cog.post_warning_now(product_id, SAMPLE_RAW, "Severe Thunderstorm Warning")
+
+    assert product_id in cog.bot.state.posted_product_ids
+    cog.bot.state.remove_posted_product_id.assert_not_awaited()
+    await cog.post_warning_now(product_id, SAMPLE_RAW, "Severe Thunderstorm Warning")
+    channel.send.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_post_warning_now_race_dedup(monkeypatch):
     """If two triggers arrive for the same VTEC ID at the same time,
     the second one must return early due to in-flight set."""

@@ -377,6 +377,7 @@ class WarningsCog(commands.Cog):
             self._in_flight_vtecs.discard(vtec_id)
             raise
 
+        msg = None
         try:
             async with self.bot.state.claim_posted_warning(vtec_id) as claim:
                 self.bot.state.active_warnings[vtec_id] = vtec
@@ -462,19 +463,20 @@ class WarningsCog(commands.Cog):
                     )
                 except discord.Forbidden as e:
                     await self._notify_channel_error(channel, ["send_messages (403 Forbidden)"])
-                    await self.bot.state.remove_posted_product_id(product_id)
-                    self.bot.state.active_warnings.pop(vtec_id, None)
                     logger.error(
                         f"iembot send forbidden for {vtec_id} in channel {channel.id}: {e}"
                     )
                     return  # claim auto-rolls back on context exit
                 except discord.HTTPException as e:
-                    await self.bot.state.remove_posted_product_id(product_id)
-                    self.bot.state.active_warnings.pop(vtec_id, None)
                     logger.exception(f"iembot send failed for {vtec_id}: {e}")
                     return  # claim auto-rolls back on context exit
         finally:
-            self._in_flight_vtecs.discard(vtec_id)
+            try:
+                if msg is None:
+                    await self.bot.state.remove_posted_product_id(product_id)
+                    self.bot.state.active_warnings.pop(vtec_id, None)
+            finally:
+                self._in_flight_vtecs.discard(vtec_id)
 
     async def _check_and_log_significant_event(
         self, event: str, raw_text: str, vtec: dict, params: Optional[dict] = None
