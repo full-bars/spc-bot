@@ -281,6 +281,7 @@ def _make_cog(posted: dict | None = None) -> WarningsCog:
     cog._discover_sem = asyncio.Semaphore(5)
     cog._absence_count = {}
     cog._cancelled_warnings = {}
+    cog._cancellation_claims = {}
     cog.bot = MagicMock()
     cog.bot.wait_until_ready = AsyncMock()
     cog.bot.state.is_primary = True
@@ -749,6 +750,7 @@ def _make_tick_cog(active=None, posted=None):
     cog._backoff = TaskBackoff("auto_poll_warnings")
     cog._validators = {"etag": "", "last_modified": ""}
     cog._cancelled_warnings = {}
+    cog._cancellation_claims = {}
     cog._absence_count = {}
     cog.bot = MagicMock()
     cog.bot.wait_until_ready = AsyncMock()
@@ -1106,3 +1108,147 @@ async def test_tick_cancelled_warning_not_reactivated(monkeypatch):
     await cog._tick()
 
     channel.send.assert_not_called()
+
+
+def _cancellation_cog(*vtec_ids):
+    cog = _make_cog(posted={v: {"message_id": 123, "channel_id": 456} for v in vtec_ids})
+    cog._resolve_warning_channel = AsyncMock(return_value=cog.bot.get_channel.return_value)
+    return cog
+
+
+@pytest.mark.asyncio
+async def test_cancellation_concurrent_triggers_send_once():
+    vtec_id = "KOUN.SV.W.0042"
+    cog = _cancellation_cog(vtec_id)
+    channel = cog.bot.get_channel.return_value
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def send(**kwargs):
+        entered.set()
+        await release.wait()
+        return MagicMock()
+
+    channel.send.side_effect = send
+    first = asyncio.ensure_future(cog._handle_cancellation(vtec_id))
+    await entered.wait()
+    second = asyncio.ensure_future(cog._handle_cancellation(vtec_id))
+    await asyncio.sleep(0)
+    release.set()
+    await asyncio.gather(first, second)
+    assert channel.send.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_cancellation_after_completion_is_suppressed():
+    vtec_id = "KOUN.SV.W.0042"
+    cog = _cancellation_cog(vtec_id)
+    await cog._handle_cancellation(vtec_id)
+    await cog._handle_cancellation(vtec_id)
+    assert cog.bot.get_channel.return_value.send.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_cancellation_different_vtecs_both_post():
+    first, second = "KOUN.SV.W.0042", "KOUN.SV.W.0043"
+    cog = _cancellation_cog(first, second)
+    await cog._handle_cancellation(first)
+    await cog._handle_cancellation(first)
+    await cog._handle_cancellation(second)
+    assert cog.bot.get_channel.return_value.send.await_count == 2
+    assert set(cog._cancelled_warnings) == {first, second}
+
+
+@pytest.mark.asyncio
+async def test_cancellation_failed_send_allows_fast_path_retry(monkeypatch):
+    monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(b"image", 200)))
+    vtec_id = "KOUN.SV.W.0042"
+    cog = _cancellation_cog(vtec_id)
+    cog.bot.state.active_warnings[vtec_id] = parse_vtec(SAMPLE_RAW)
+    channel = cog.bot.get_channel.return_value
+    channel.send.side_effect = [RuntimeError("send failed"), MagicMock()]
+    cancel = SAMPLE_RAW.replace("/O.NEW.", "/O.CAN.")
+    await cog.post_warning_now("product-1", cancel, "Severe Thunderstorm Warning")
+    assert vtec_id in cog.bot.state.active_warnings
+    await cog.post_warning_now("product-2", cancel, "Severe Thunderstorm Warning")
+    assert channel.send.await_count == 2
+    assert vtec_id not in cog.bot.state.active_warnings
+
+
+@pytest.mark.asyncio
+async def test_cancellation_upg_after_can_is_suppressed(monkeypatch):
+    monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(b"image", 200)))
+    vtec_id = "KOUN.SV.W.0042"
+    cog = _cancellation_cog(vtec_id)
+    vtec = parse_vtec(SAMPLE_RAW)
+    cog.bot.state.active_warnings[vtec_id] = vtec
+    cancel = SAMPLE_RAW.replace("/O.NEW.", "/O.CAN.")
+    upgrade = SAMPLE_RAW.replace("/O.NEW.", "/O.UPG.")
+    await cog.post_warning_now("product-can", cancel, "Severe Thunderstorm Warning")
+    # A poll can have snapshotted the active entry before the CAN completed.
+    cog.bot.state.active_warnings[vtec_id] = vtec
+    await cog.post_warning_now("product-upg", upgrade, "Severe Thunderstorm Warning")
+    assert cog.bot.get_channel.return_value.send.await_count == 1
+    assert vtec_id not in cog.bot.state.active_warnings
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rival", ["feed", "poll"])
+async def test_cancellation_fast_path_races_other_trigger(monkeypatch, rival):
+    monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(b"image", 200)))
+    vtec_id = "KOUN.SV.W.0042"
+    cog = _cancellation_cog(vtec_id)
+    cog._ABSENCE_THRESHOLD = 1
+    cog.bot.state.active_warnings[vtec_id] = parse_vtec(SAMPLE_RAW)
+    channel = cog.bot.get_channel.return_value
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def send(**kwargs):
+        entered.set()
+        await release.wait()
+        return MagicMock()
+
+    channel.send.side_effect = send
+    cancel = SAMPLE_RAW.replace("/O.NEW.", "/O.CAN.")
+    first = asyncio.ensure_future(
+        cog.post_warning_now("nwws", cancel, "Severe Thunderstorm Warning")
+    )
+    await entered.wait()
+    if rival == "feed":
+        await cog.post_warning_now("iem", cancel, "Severe Thunderstorm Warning")
+    else:
+        await cog._handle_disappeared_warnings(set(), {})
+    assert vtec_id in cog.bot.state.active_warnings
+    release.set()
+    await first
+    assert channel.send.await_count == 1
+    assert vtec_id not in cog.bot.state.active_warnings
+
+
+@pytest.mark.asyncio
+async def test_cancellation_failed_poll_retries_next_poll(monkeypatch):
+    monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(b"image", 200)))
+    vtec_id = "KOUN.SV.W.0042"
+    cog = _cancellation_cog(vtec_id)
+    cog._ABSENCE_THRESHOLD = 3
+    cog._absence_count[vtec_id] = 2
+    cog.bot.state.active_warnings[vtec_id] = parse_vtec(SAMPLE_RAW)
+    channel = cog.bot.get_channel.return_value
+    channel.send.side_effect = [RuntimeError("send failed"), MagicMock()]
+    await cog._handle_disappeared_warnings(set(), {})
+    assert vtec_id in cog.bot.state.active_warnings
+    await cog._handle_disappeared_warnings(set(), {})
+    assert channel.send.await_count == 2
+    assert vtec_id not in cog.bot.state.active_warnings
+
+
+@pytest.mark.asyncio
+async def test_cancellation_task_cancelled_releases_claim():
+    vtec_id = "KOUN.SV.W.0042"
+    cog = _cancellation_cog(vtec_id)
+    channel = cog.bot.get_channel.return_value
+    channel.send.side_effect = [asyncio.CancelledError(), MagicMock()]
+    with pytest.raises(asyncio.CancelledError):
+        await cog._handle_cancellation(vtec_id)
+    await cog._handle_cancellation(vtec_id)
+    assert channel.send.await_count == 2
