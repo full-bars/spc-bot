@@ -75,7 +75,11 @@ def _should_image_warning(vtec: dict) -> bool:
     office = vtec.get("office", "")
     # IEM cannot plot Canadian products and returns a permanent HTTP 400.
     if office.startswith("C"):
-        logger.debug("[WARN_IMG_SKIP] %s: unsupported issuing office %s", vtec.get("vtec_id", "unknown"), office)
+        logger.debug(
+            "[WARN_IMG_SKIP] %s: unsupported issuing office %s",
+            vtec.get("vtec_id", "unknown"),
+            office,
+        )
         return False
     return True
 

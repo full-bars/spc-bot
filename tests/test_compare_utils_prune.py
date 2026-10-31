@@ -2,8 +2,10 @@
 Unit tests for utils/compare_utils.cleanup_old_versions — outlook version retention.
 """
 
+import logging
 import os
 import time
+from pathlib import Path
 
 import pytest
 
@@ -66,3 +68,29 @@ async def test_cleanup_retains_latest_per_product_independently(versions_dir):
     assert stale_a_newest.exists()
     assert stale_b.exists()  # sole (and therefore newest) version of day2_wind
     assert deleted == 1
+
+
+@pytest.mark.asyncio
+async def test_cleanup_continues_after_one_unlink_error(versions_dir, monkeypatch, caplog):
+    """A single undeletable file must not strand every other version."""
+    blocked = _make_version(versions_dir, "day1_hail_20260701_000000_000000.png", 100)
+    also_old = _make_version(versions_dir, "day1_hail_20260701_060000_000000.png", 90)
+    newest = _make_version(versions_dir, "day1_hail_20260701_120000_000000.png", 2)
+
+    real_unlink = Path.unlink
+
+    def flaky_unlink(self, *args, **kwargs):
+        if self.name == blocked.name:
+            raise OSError("device busy")
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", flaky_unlink)
+
+    with caplog.at_level(logging.WARNING, logger="spc_bot.compare_utils"):
+        deleted, _ = await compare_utils.cleanup_old_versions(max_age_hours=48)
+
+    assert not also_old.exists()
+    assert blocked.exists()
+    assert newest.exists()
+    assert deleted == 1
+    assert any("could not process 1 file" in record.message for record in caplog.records)

@@ -197,18 +197,28 @@ async def test_download_warning_image_success(monkeypatch):
 
 @pytest.mark.parametrize(
     ("office", "expected"),
-    [("KOUN", True), ("PHFO", True), ("TJSJ", True), ("NSTU", True),
-     ("CWTO", False), ("", True), ("XXXX", True)],
+    [
+        ("KOUN", True),
+        ("PHFO", True),
+        ("TJSJ", True),
+        ("NSTU", True),
+        ("CWTO", False),
+        ("", True),
+        ("XXXX", True),
+    ],
 )
 def test_should_image_warning_office_truth_table(office, expected):
     assert warnings_mod._should_image_warning({"office": office, "etn": "0001"}) is expected
 
 
-@pytest.mark.parametrize("vtec, expected", [
-    ({"office": "KOUN", "etn": "0"}, False),
-    ({"office": "KOUN", "etn": "0", "phenom": "SPS"}, True),
-    ({"office": "CWTO", "etn": "0", "phenom": "SPS"}, False),
-])
+@pytest.mark.parametrize(
+    "vtec, expected",
+    [
+        ({"office": "KOUN", "etn": "0"}, False),
+        ({"office": "KOUN", "etn": "0", "phenom": "SPS"}, True),
+        ({"office": "CWTO", "etn": "0", "phenom": "SPS"}, False),
+    ],
+)
 def test_should_image_warning_product_truth_table(vtec, expected):
     assert warnings_mod._should_image_warning(vtec) is expected
 
@@ -487,7 +497,9 @@ async def test_post_warning_now_send_failure_releases_product(monkeypatch, failu
     assert vtec_id not in cog.bot.state.active_warnings
     assert vtec_id not in cog._in_flight_vtecs
     if failure == "forbidden":
-        cog._notify_channel_error.assert_awaited_once_with(channel, ["send_messages (403 Forbidden)"])
+        cog._notify_channel_error.assert_awaited_once_with(
+            channel, ["send_messages (403 Forbidden)"]
+        )
     else:
         cog._notify_channel_error.assert_not_awaited()
 
@@ -495,7 +507,9 @@ async def test_post_warning_now_send_failure_releases_product(monkeypatch, failu
 @pytest.mark.asyncio
 @pytest.mark.parametrize("action", ["CON", "EXT", "EXA"])
 @pytest.mark.parametrize("failure", ["http", "timeout", "cancelled"])
-async def test_failed_update_retains_active_warning_and_allows_cancellation(monkeypatch, action, failure):
+async def test_failed_update_retains_active_warning_and_allows_cancellation(
+    monkeypatch, action, failure
+):
     vtec_id = "KOUN.SV.W.0042"
     cog = _make_cog(posted={vtec_id: {"message_id": 1, "channel_id": 2}})
     cog.bot.state.active_warnings[vtec_id] = parse_vtec(SAMPLE_RAW)

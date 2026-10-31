@@ -1022,7 +1022,9 @@ async def _download_warning_image(image_url: str, filename: str) -> discord.File
                 return discord.File(BytesIO(content), filename=filename)
 
             if status == 400:
-                logger.debug(f"[IMG_DL_SKIP] {filename}: HTTP 400 means the product is not plottable")
+                logger.debug(
+                    f"[IMG_DL_SKIP] {filename}: HTTP 400 means the product is not plottable"
+                )
                 return None
 
             logger.debug(
