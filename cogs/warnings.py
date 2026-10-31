@@ -698,16 +698,16 @@ class WarningsCog(commands.Cog):
         finally:
             del self._cancellation_claims[vtec_id]
 
-    async def _send_cancellation(self, vtec_id: str, reason: str, vtec: dict | None) -> bool | None:
+    async def _send_cancellation(self, vtec_id: str, reason: str, vtec: dict | None) -> bool:
         """Post a new cancellation notice; leave the original warning post untouched."""
         info = self.bot.state.posted_warnings.get(vtec_id)
         if not info:
-            return
+            return False
 
         channel_id = info.get("channel_id")
         message_id = info.get("message_id")
         if not (channel_id and message_id):
-            return
+            return False
 
         self._absence_count.pop(vtec_id, None)
 
@@ -722,7 +722,7 @@ class WarningsCog(commands.Cog):
         if not channel:
             channel = cast(Optional[discord.abc.Messageable], self.bot.get_channel(channel_id))
         if not channel:
-            return
+            return False
 
         # Area was stored in posted_warnings when the warning was first posted.
         area = info.get("area", "")
