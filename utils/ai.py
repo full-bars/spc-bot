@@ -68,7 +68,10 @@ async def _call_gemini_model(prompt: str, model: str, is_json: bool = False) -> 
         "generationConfig": generation_config,
     }
 
-    response = await http_post_json(url, json_data=payload, retries=2, timeout=25)
+    # Scope the breaker per model: one model refusing traffic must not block the other.
+    response = await http_post_json(
+        url, json_data=payload, retries=2, timeout=25, breaker_key=f"gemini:{model}"
+    )
 
     if not response:
         return None

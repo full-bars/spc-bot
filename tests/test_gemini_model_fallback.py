@@ -97,3 +97,45 @@ async def test_missing_key_returns_none_without_calling(monkeypatch):
 
     assert await ai.call_gemini("prompt") is None
     post.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_each_model_gets_its_own_breaker_scope(monkeypatch):
+    """A refusal on the lite model must not shut the breaker for the fallback model."""
+    monkeypatch.setattr(ai, "GEMINI_MODEL", "gemini-lite", raising=False)
+    monkeypatch.setattr(ai, "GEMINI_FALLBACK_MODEL", "gemini-full", raising=False)
+    post = AsyncMock(side_effect=[None, _gemini_reply("ok")])
+    monkeypatch.setattr(ai, "http_post_json", post)
+
+    assert await ai.call_gemini("prompt") == "ok"
+    keys = [c.kwargs["breaker_key"] for c in post.await_args_list]
+    assert keys == ["gemini:gemini-lite", "gemini:gemini-full"]
+
+
+@pytest.mark.asyncio
+async def test_http_post_json_uses_the_breaker_key_not_the_host(monkeypatch):
+    import utils.http as http_mod
+
+    seen = []
+
+    class _FakeBreaker:
+        def is_open(self, key):
+            seen.append(key)
+            return True
+
+        def record_failure(self, key):
+            raise AssertionError("should not record when the breaker is open")
+
+        def record_success(self, key):
+            raise AssertionError("should not record when the breaker is open")
+
+    monkeypatch.setattr(http_mod, "circuit_breaker", _FakeBreaker())
+
+    result = await http_mod.http_post_json(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-lite:generateContent",
+        json_data={"contents": []},
+        breaker_key="gemini:gemini-lite",
+    )
+
+    assert result is None
+    assert seen == ["gemini:gemini-lite"]
