@@ -8,8 +8,10 @@ narrative extraction.
 
 import time
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock
 
 import discord
+import pytest
 
 from cogs import warning_format as wf
 
@@ -156,6 +158,33 @@ def test_get_warning_severity_display_names_and_unknown():
     assert wf.get_warning_severity("DESTRUCTIVE Severe Tstorm Warning", "") == "destructive"
     assert wf.get_warning_severity("Flash Flood Emergency", "") == "emergency"
     assert wf.get_warning_severity("Blizzard Warning", "") is None
+
+
+# ── Warning image download retries ──────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_download_warning_image_does_not_retry_400(monkeypatch):
+    request = AsyncMock(return_value=(None, 400))
+    monkeypatch.setattr(wf, "http_get_bytes", request)
+    monkeypatch.setattr(wf.asyncio, "sleep", AsyncMock())
+
+    result = await wf._download_warning_image("https://example.test/image.png", "warning.png")
+
+    assert result is None
+    request.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_download_warning_image_retries_404(monkeypatch):
+    request = AsyncMock(side_effect=[(None, 404), (b"\x89PNG\r\n\x1a\n", 200)])
+    monkeypatch.setattr(wf, "http_get_bytes", request)
+    monkeypatch.setattr(wf.asyncio, "sleep", AsyncMock())
+
+    result = await wf._download_warning_image("https://example.test/image.png", "warning.png")
+
+    assert result is not None
+    assert request.await_count == 2
 
 
 # ── IEM autoplot URL ─────────────────────────────────────────────────────────

@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **A failed send no longer silences a warning.** The fast path marked a product as posted before the Discord send, then un-marked it only on a 403 Forbidden or a Discord HTTP error. A timeout or a connection error therefore left the product marked as posted, and every feed deduplicated it away, dropping the warning entirely. The claim is now released whenever no message came back, and kept when the message did go out but the bookkeeping after it failed, which is what stops a duplicate post.
+- **Failed updates no longer hide a live warning from its cancellation.** A failed update send used to remove the warning from the active map as part of the same cleanup. The cancellation fast path only acts on warnings still in that map, so a later cancellation or expiry could be skipped and the original post stayed as the last visible state. A failed update now releases only its product claim, and the warning stays active until its end state arrives.
+- **Canadian products no longer spend the retry budget on an image that cannot exist.** IEM cannot plot Environment Canada products, so every autoplot request for a CWTO, CWNT, CWWG or CWVR product returns HTTP 400 permanently. They were 75 of the 75 image download failures in a week, each retried eight times across about a minute. Image attachment now skips Canadian offices, and an HTTP 400 is final rather than retried, while a 404 keeps its retries because the map may still be generating.
+- **The outlook version cache is pruned daily.** `cache/outlook_versions` keeps every distinct outlook panel so `/compare` can diff the current one against its predecessor, but the helper that removes old versions was never called, and the directory held 1.4 GB of panels going back to July on the primary node. The daily maintenance pass now prunes at 48 hours, always keeps the newest version of each product, and does the scan off the event loop. A product that has not updated in two days keeps its latest panel, and `/compare` says only the latest is available.
+
 ## [5.50.2] - 2026-10-14
 
 ### Fixed

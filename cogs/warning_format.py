@@ -990,8 +990,7 @@ async def _download_warning_image(image_url: str, filename: str) -> discord.File
     """Fetch an IEM Autoplot image with up to 8 attempts (~60s window).
 
     Returns a ready-to-send discord.File, or None if all attempts fail.
-    Retries on 404 (IEM map not yet generated), 400 (bad request/pending),
-    or network errors with exponential backoff.
+    Retries on 404 (IEM map not yet generated) or network errors with exponential backoff.
     """
     logger.debug(f"[IMG_DL_START] Attempting to download: {image_url}")
     for attempt in range(8):
@@ -1022,11 +1021,17 @@ async def _download_warning_image(image_url: str, filename: str) -> discord.File
                 logger.debug(f"[IMG_DL_SUCCESS] {filename}: got {len(content)} bytes")
                 return discord.File(BytesIO(content), filename=filename)
 
+            if status == 400:
+                logger.debug(
+                    f"[IMG_DL_SKIP] {filename}: HTTP 400 means the product is not plottable"
+                )
+                return None
+
             logger.debug(
                 f"[IMG_DL_RETRY] Attempt {attempt + 1}/8: status={status}, content_len={len(content) if content else 0}"
             )
 
-            # Map might be pending (404/400). Use exponential backoff: 2s, 4s, 8s, 10s...
+            # A 404 may be pending while IEM generates the map. Retry with exponential backoff.
             if attempt < 7:
                 delay = min(2 ** (attempt + 1), 10)
                 await asyncio.sleep(delay)

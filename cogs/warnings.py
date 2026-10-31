@@ -66,6 +66,24 @@ from utils.state_store import (
 logger = logging.getLogger("spc_bot.warnings")
 
 
+def _should_image_warning(vtec: dict) -> bool:
+    """Skip offices whose warning products IEM cannot plot."""
+    has_image_product = (vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS"
+    if not has_image_product:
+        return False
+
+    office = vtec.get("office", "")
+    # IEM cannot plot Canadian products and returns a permanent HTTP 400.
+    if office.startswith("C"):
+        logger.debug(
+            "[WARN_IMG_SKIP] %s: unsupported issuing office %s",
+            vtec.get("vtec_id", "unknown"),
+            office,
+        )
+        return False
+    return True
+
+
 def _log_task_exception(task: asyncio.Task) -> None:
     """Log any exception raised in a background task."""
     try:
@@ -377,6 +395,7 @@ class WarningsCog(commands.Cog):
             self._in_flight_vtecs.discard(vtec_id)
             raise
 
+        msg = None
         try:
             async with self.bot.state.claim_posted_warning(vtec_id) as claim:
                 self.bot.state.active_warnings[vtec_id] = vtec
@@ -420,9 +439,7 @@ class WarningsCog(commands.Cog):
                 # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS).
                 # Launched in background after the message is sent so the safety-critical
                 # warning text is never delayed by IEM's autoplot generation latency.
-                should_image = (vtec.get("etn") and vtec["etn"] != "0") or vtec.get(
-                    "phenom"
-                ) == "SPS"
+                should_image = _should_image_warning(vtec)
 
                 try:
                     if view is not None:
@@ -462,19 +479,21 @@ class WarningsCog(commands.Cog):
                     )
                 except discord.Forbidden as e:
                     await self._notify_channel_error(channel, ["send_messages (403 Forbidden)"])
-                    await self.bot.state.remove_posted_product_id(product_id)
-                    self.bot.state.active_warnings.pop(vtec_id, None)
                     logger.error(
                         f"iembot send forbidden for {vtec_id} in channel {channel.id}: {e}"
                     )
                     return  # claim auto-rolls back on context exit
                 except discord.HTTPException as e:
-                    await self.bot.state.remove_posted_product_id(product_id)
-                    self.bot.state.active_warnings.pop(vtec_id, None)
                     logger.exception(f"iembot send failed for {vtec_id}: {e}")
                     return  # claim auto-rolls back on context exit
         finally:
-            self._in_flight_vtecs.discard(vtec_id)
+            try:
+                if msg is None:
+                    await self.bot.state.remove_posted_product_id(product_id)
+                    if not is_update:
+                        self.bot.state.active_warnings.pop(vtec_id, None)
+            finally:
+                self._in_flight_vtecs.discard(vtec_id)
 
     async def _check_and_log_significant_event(
         self, event: str, raw_text: str, vtec: dict, params: Optional[dict] = None
@@ -1146,7 +1165,7 @@ class WarningsCog(commands.Cog):
         # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS).
         # Launched in background after the message is sent so the safety-critical
         # warning text is never delayed by IEM's autoplot generation latency.
-        should_image = (vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS"
+        should_image = _should_image_warning(vtec)
 
         msg = await safe_send(
             channel,

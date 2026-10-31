@@ -4,6 +4,7 @@ _tick poll path (disappeared detection, CON area updates, initial discovery)."""
 
 import asyncio
 import json
+import logging
 from collections import deque
 from unittest.mock import AsyncMock, MagicMock
 
@@ -181,6 +182,94 @@ def test_extract_narrative_falls_back_when_no_bulletin_header():
 # ── post_warning_now (iembot fast-path) ──────────────────────────────────────
 
 
+@pytest.mark.asyncio
+async def test_download_warning_image_success(monkeypatch):
+    http_get_bytes = AsyncMock(return_value=(b"\x89PNG\r\n\x1a\n", 200))
+    monkeypatch.setattr(warning_format_mod, "http_get_bytes", http_get_bytes)
+    image = await warning_format_mod._download_warning_image(
+        "https://example.test/image.png", "warning.png"
+    )
+    assert image is not None
+    assert image.filename == "warning.png"
+    http_get_bytes.assert_awaited_once()
+    image.close()
+
+
+@pytest.mark.parametrize(
+    ("office", "expected"),
+    [
+        ("KOUN", True),
+        ("PHFO", True),
+        ("TJSJ", True),
+        ("NSTU", True),
+        ("CWTO", False),
+        ("", True),
+        ("XXXX", True),
+    ],
+)
+def test_should_image_warning_office_truth_table(office, expected):
+    assert warnings_mod._should_image_warning({"office": office, "etn": "0001"}) is expected
+
+
+@pytest.mark.parametrize(
+    "vtec, expected",
+    [
+        ({"office": "KOUN", "etn": "0"}, False),
+        ({"office": "KOUN", "etn": "0", "phenom": "SPS"}, True),
+        ({"office": "CWTO", "etn": "0", "phenom": "SPS"}, False),
+    ],
+)
+def test_should_image_warning_product_truth_table(vtec, expected):
+    assert warnings_mod._should_image_warning(vtec) is expected
+
+
+async def _post_for_image_gate(monkeypatch, office, path):
+    cog = _make_cog()
+    cog._dispatch_subscriptions = AsyncMock()
+    cog._check_and_log_significant_event = AsyncMock(return_value=None)
+    image = AsyncMock()
+    monkeypatch.setattr(warning_format_mod, "_attach_warning_image_async", image)
+    raw = SAMPLE_RAW.replace("KOUN", office)
+    vtec = parse_vtec(raw)
+    assert vtec is not None
+    channel = cog.bot.get_channel.return_value
+    msg = channel.send.return_value
+    if path == "fast":
+        await cog.post_warning_now("PROD-image", raw, "Severe Thunderstorm Warning")
+    else:
+        feature = MagicMock()
+        feature.properties.description = "Test description."
+        feature.properties.parameters = None
+        feature.properties.geocode = None
+        feature.properties.areaDesc = "Noble"
+        feature.model_dump.return_value = {}
+        await cog._post_warning(feature, channel, vtec, "Severe Thunderstorm Warning")
+    await asyncio.sleep(0)
+    channel.send.assert_awaited_once()
+    return image, msg, vtec
+
+
+@pytest.mark.asyncio
+@pytest.mark.real_create_task
+@pytest.mark.parametrize("path", ["fast", "poll"])
+async def test_warning_image_gate_skips_canadian_office(monkeypatch, caplog, path):
+    with caplog.at_level(logging.DEBUG, logger="spc_bot.warnings"):
+        image, _, _ = await _post_for_image_gate(monkeypatch, "CWTO", path)
+    image.assert_not_called()
+    skipped = [record for record in caplog.records if "[WARN_IMG_SKIP]" in record.message]
+    assert len(skipped) == 1
+    assert skipped[0].levelno == logging.DEBUG
+
+
+@pytest.mark.parametrize("office", ["KOUN", "PHFO", "TJSJ", "NSTU"])
+@pytest.mark.parametrize("path", ["fast", "poll"])
+@pytest.mark.asyncio
+@pytest.mark.real_create_task
+async def test_warning_image_gate_fetches_image_for_us_office(monkeypatch, office, path):
+    image, msg, vtec = await _post_for_image_gate(monkeypatch, office, path)
+    image.assert_awaited_once_with(msg, vtec, vtec["vtec_id"])
+
+
 def _make_cog(posted: dict | None = None) -> WarningsCog:
     """Build a WarningsCog with mocked bot/channel for unit testing the
     iembot path without touching Discord, the DB, or the network."""
@@ -356,6 +445,127 @@ async def test_post_warning_now_dedups_by_product_id(monkeypatch):
     )
     # Call count should still be 1
     assert cog.bot.get_channel.return_value.send.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_post_warning_now_timeout_releases_product_for_retry(monkeypatch):
+    cog = _make_cog()
+    product_id = "PROD-timeout"
+    vtec_id = "KOUN.SV.W.0042"
+    channel = cog.bot.get_channel.return_value
+    cog.bot.state.add_posted_product_id.side_effect = cog.bot.state.posted_product_ids.append
+    cog.bot.state.remove_posted_product_id.side_effect = cog.bot.state.posted_product_ids.remove
+    channel.send.side_effect = [asyncio.TimeoutError(), MagicMock()]
+    monkeypatch.setattr(warning_format_mod, "_attach_warning_image_async", AsyncMock())
+
+    with pytest.raises(asyncio.TimeoutError):
+        await cog.post_warning_now(product_id, SAMPLE_RAW, "Severe Thunderstorm Warning")
+
+    assert product_id not in cog.bot.state.posted_product_ids
+    assert vtec_id not in cog.bot.state.active_warnings
+    await cog.post_warning_now(product_id, SAMPLE_RAW, "Severe Thunderstorm Warning")
+    assert channel.send.await_count == 2
+    assert product_id in cog.bot.state.posted_product_ids
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["forbidden", "http", "cancelled"])
+async def test_post_warning_now_send_failure_releases_product(monkeypatch, failure):
+    cog = _make_cog()
+    product_id = "PROD-send-failure"
+    vtec_id = "KOUN.SV.W.0042"
+    channel = cog.bot.get_channel.return_value
+    cog.bot.state.add_posted_product_id.side_effect = cog.bot.state.posted_product_ids.append
+    cog.bot.state.remove_posted_product_id.side_effect = cog.bot.state.posted_product_ids.remove
+    cog._notify_channel_error = AsyncMock()
+    response = MagicMock(status=403 if failure == "forbidden" else 500, reason="failed")
+    errors = {
+        "forbidden": discord.Forbidden(response, "failed"),
+        "http": discord.HTTPException(response, "failed"),
+        "cancelled": asyncio.CancelledError(),
+    }
+    channel.send.side_effect = errors[failure]
+    monkeypatch.setattr(warning_format_mod, "_attach_warning_image_async", AsyncMock())
+
+    if failure == "cancelled":
+        with pytest.raises(asyncio.CancelledError):
+            await cog.post_warning_now(product_id, SAMPLE_RAW, "Severe Thunderstorm Warning")
+    else:
+        await cog.post_warning_now(product_id, SAMPLE_RAW, "Severe Thunderstorm Warning")
+
+    assert product_id not in cog.bot.state.posted_product_ids
+    assert vtec_id not in cog.bot.state.active_warnings
+    assert vtec_id not in cog._in_flight_vtecs
+    if failure == "forbidden":
+        cog._notify_channel_error.assert_awaited_once_with(
+            channel, ["send_messages (403 Forbidden)"]
+        )
+    else:
+        cog._notify_channel_error.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["CON", "EXT", "EXA"])
+@pytest.mark.parametrize("failure", ["http", "timeout", "cancelled"])
+async def test_failed_update_retains_active_warning_and_allows_cancellation(
+    monkeypatch, action, failure
+):
+    vtec_id = "KOUN.SV.W.0042"
+    cog = _make_cog(posted={vtec_id: {"message_id": 1, "channel_id": 2}})
+    cog.bot.state.active_warnings[vtec_id] = parse_vtec(SAMPLE_RAW)
+    cog.bot.state.add_posted_product_id.side_effect = cog.bot.state.posted_product_ids.append
+    cog.bot.state.remove_posted_product_id.side_effect = cog.bot.state.posted_product_ids.remove
+    errors = {
+        "http": discord.HTTPException(MagicMock(status=500, reason="failed"), "failed"),
+        "timeout": asyncio.TimeoutError(),
+        "cancelled": asyncio.CancelledError(),
+    }
+    cog.bot.get_channel.return_value.send.side_effect = errors[failure]
+    monkeypatch.setattr(warning_format_mod, "_attach_warning_image_async", AsyncMock())
+    update = SAMPLE_RAW.replace("/O.NEW.", f"/O.{action}.")
+    if failure == "http":
+        await cog.post_warning_now("PROD-update", update, "Severe Thunderstorm Warning")
+    else:
+        with pytest.raises(type(errors[failure])):
+            await cog.post_warning_now("PROD-update", update, "Severe Thunderstorm Warning")
+
+    assert "PROD-update" not in cog.bot.state.posted_product_ids
+    cog.bot.state.remove_posted_product_id.assert_awaited_once_with("PROD-update")
+    assert vtec_id in cog.bot.state.active_warnings
+    assert vtec_id not in cog._in_flight_vtecs
+    cog._handle_cancellation = AsyncMock()
+    cancel = SAMPLE_RAW.replace("/O.NEW.", "/O.CAN.")
+    await cog.post_warning_now("PROD-cancel", cancel, "Severe Thunderstorm Warning")
+    cog._handle_cancellation.assert_awaited_once()
+    assert vtec_id not in cog.bot.state.active_warnings
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["runtime", "http"])
+async def test_post_warning_now_confirm_failure_keeps_sent_product(monkeypatch, failure):
+    cog = _make_cog()
+    product_id = "PROD-confirm"
+    channel = cog.bot.get_channel.return_value
+    cog.bot.state.add_posted_product_id.side_effect = cog.bot.state.posted_product_ids.append
+    cog.bot.state.remove_posted_product_id.side_effect = cog.bot.state.posted_product_ids.remove
+    error = (
+        RuntimeError("confirm failed")
+        if failure == "runtime"
+        else discord.HTTPException(MagicMock(status=500, reason="failed"), "confirm failed")
+    )
+    cog.bot.state.add_posted_warning.side_effect = error
+    monkeypatch.setattr(warning_format_mod, "_attach_warning_image_async", AsyncMock())
+
+    if failure == "runtime":
+        with pytest.raises(RuntimeError, match="confirm failed"):
+            await cog.post_warning_now(product_id, SAMPLE_RAW, "Severe Thunderstorm Warning")
+    else:
+        await cog.post_warning_now(product_id, SAMPLE_RAW, "Severe Thunderstorm Warning")
+
+    assert product_id in cog.bot.state.posted_product_ids
+    cog.bot.state.remove_posted_product_id.assert_not_awaited()
+    await cog.post_warning_now(product_id, SAMPLE_RAW, "Severe Thunderstorm Warning")
+    channel.send.assert_awaited_once()
 
 
 @pytest.mark.asyncio
