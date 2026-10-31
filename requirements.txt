@@ -1,6 +1,6 @@
 discord.py==2.7.1
 defusedxml>=0.7.1,<1.0
-aiohttp==3.14.3
+aiohttp==3.14.4
 pytz==2026.4
 python-dotenv==1.2.4
 slixmpp==1.15.0
