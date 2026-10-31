@@ -1252,3 +1252,61 @@ async def test_cancellation_task_cancelled_releases_claim():
         await cog._handle_cancellation(vtec_id)
     await cog._handle_cancellation(vtec_id)
     assert channel.send.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_cancellation_concludes_when_original_post_is_gone():
+    """A warning with no stored post can never produce a notice: stop retrying it."""
+    vtec_id = "KOUN.SV.W.0042"
+    cog = _cancellation_cog(vtec_id)
+    cog._ABSENCE_THRESHOLD = 3
+    cog.bot.state.posted_warnings.clear()
+    cog.bot.state.active_warnings[vtec_id] = parse_vtec(SAMPLE_RAW)
+    channel = cog.bot.get_channel.return_value
+
+    cog._absence_count[vtec_id] = cog._ABSENCE_THRESHOLD
+    await cog._handle_disappeared_warnings(set(), {})
+    # A second poll must not find anything left to retry.
+    await cog._handle_disappeared_warnings(set(), {})
+
+    channel.send.assert_not_awaited()
+    assert vtec_id not in cog.bot.state.active_warnings
+    assert vtec_id in cog._cancelled_warnings
+
+
+@pytest.mark.asyncio
+async def test_cancellation_concludes_when_channel_is_gone():
+    """A deleted channel is permanent too: no send, no endless re-poll."""
+    vtec_id = "KOUN.SV.W.0042"
+    cog = _cancellation_cog(vtec_id)
+    cog._ABSENCE_THRESHOLD = 3
+    cog.bot.get_channel.return_value = None
+    cog.bot.state.active_warnings[vtec_id] = parse_vtec(SAMPLE_RAW)
+
+    for _ in range(3):
+        cog._absence_count[vtec_id] = cog._ABSENCE_THRESHOLD
+        await cog._handle_disappeared_warnings(set(), {})
+
+    assert vtec_id not in cog.bot.state.active_warnings
+    assert vtec_id in cog._cancelled_warnings
+
+
+@pytest.mark.asyncio
+async def test_cancellation_transient_failure_still_retries():
+    """A failed send must stay retryable, unlike the permanent cases above."""
+    vtec_id = "KOUN.SV.W.0042"
+    cog = _cancellation_cog(vtec_id)
+    cog._ABSENCE_THRESHOLD = 3
+    cog.bot.state.active_warnings[vtec_id] = parse_vtec(SAMPLE_RAW)
+    channel = cog.bot.get_channel.return_value
+    channel.send.side_effect = [RuntimeError("network"), MagicMock()]
+
+    cog._absence_count[vtec_id] = cog._ABSENCE_THRESHOLD
+    await cog._handle_disappeared_warnings(set(), {})
+    assert vtec_id in cog.bot.state.active_warnings
+    assert vtec_id not in cog._cancelled_warnings
+
+    cog._absence_count[vtec_id] = cog._ABSENCE_THRESHOLD
+    await cog._handle_disappeared_warnings(set(), {})
+    assert vtec_id not in cog.bot.state.active_warnings
+    assert channel.send.await_count == 2

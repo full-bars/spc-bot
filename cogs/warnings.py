@@ -691,23 +691,34 @@ class WarningsCog(commands.Cog):
         try:
             if vtec_id in self._cancelled_warnings:
                 return True
-            if await self._send_cancellation(vtec_id, reason, vtec):
+            outcome = await self._send_cancellation(vtec_id, reason, vtec)
+            if outcome is None:
+                # Nothing could ever be posted for this VTEC (the original post is gone
+                # or its channel no longer exists). Conclude it as handled: retrying on
+                # every poll would never succeed and would keep the warning active.
+                self._cancelled_warnings[vtec_id] = None
+                return True
+            if outcome:
                 self._cancelled_warnings[vtec_id] = None
                 return True
             return False
         finally:
             del self._cancellation_claims[vtec_id]
 
-    async def _send_cancellation(self, vtec_id: str, reason: str, vtec: dict | None) -> bool:
-        """Post a new cancellation notice; leave the original warning post untouched."""
+    async def _send_cancellation(self, vtec_id: str, reason: str, vtec: dict | None) -> bool | None:
+        """Post a cancellation notice; leave the original warning post untouched.
+
+        Returns True when the notice was posted, False when the send failed and should be
+        retried, and None when no notice can ever be posted for this VTEC.
+        """
         info = self.bot.state.posted_warnings.get(vtec_id)
         if not info:
-            return False
+            return None
 
         channel_id = info.get("channel_id")
         message_id = info.get("message_id")
         if not (channel_id and message_id):
-            return False
+            return None
 
         self._absence_count.pop(vtec_id, None)
 
@@ -722,7 +733,7 @@ class WarningsCog(commands.Cog):
         if not channel:
             channel = cast(Optional[discord.abc.Messageable], self.bot.get_channel(channel_id))
         if not channel:
-            return False
+            return None
 
         # Area was stored in posted_warnings when the warning was first posted.
         area = info.get("area", "")
