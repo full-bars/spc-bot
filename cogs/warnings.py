@@ -711,7 +711,12 @@ class WarningsCog(commands.Cog):
         Returns True when the notice was posted, False when the send failed and should be
         retried, and None when no notice can ever be posted for this VTEC.
         """
-        info = self.bot.state.posted_warnings.get(vtec_id)
+        stored = self.bot.state.posted_warnings
+        info = stored.get(vtec_id)
+        if vtec_id in stored and not info:
+            # Empty entry is the in-flight placeholder written before the send; the ids
+            # arrive with claim.confirm(). Treat it as retryable, never as concluded.
+            return False
         if not info:
             return None
 
@@ -733,6 +738,10 @@ class WarningsCog(commands.Cog):
         if not channel:
             channel = cast(Optional[discord.abc.Messageable], self.bot.get_channel(channel_id))
         if not channel:
+            # A gateway reconnect or an unavailable guild hides channels that still exist,
+            # so an unresolved channel is only permanent once the client is ready.
+            if not self.bot.is_ready():
+                return False
             return None
 
         # Area was stored in posted_warnings when the warning was first posted.
