@@ -110,6 +110,7 @@ class WarningsCog(commands.Cog):
         self._validators = {"etag": "", "last_modified": ""}
         self._cancelled_warnings: dict[str, None] = {}
         self._cancellation_claims: dict[str, object] = {}
+        self._cancellation_attempts: dict[str, int] = {}
         self._in_flight_vtecs: set[str] = set()
         self._perm_warned: set[int] = set()
         self._discover_sem = asyncio.Semaphore(5)
@@ -671,6 +672,11 @@ class WarningsCog(commands.Cog):
         await interaction.followup.send(embed=embed, view=view)
 
     # phenom+sig → human-readable event name, for cancellation posts
+    # A cancellation that cannot be delivered is retried on later polls, but only this
+    # many times: past that it is either permanently forbidden or else the channel is gone,
+    # and retrying every 30 seconds would never succeed.
+    _CANCELLATION_MAX_ATTEMPTS = 5
+
     _PHENOM_EVENT = {
         ("TO", "W"): "Tornado Warning",
         ("SV", "W"): "Severe Thunderstorm Warning",
@@ -680,6 +686,13 @@ class WarningsCog(commands.Cog):
         ("SV", "A"): "Severe Thunderstorm Watch",
         ("SPS", "S"): "Special Weather Statement",
     }
+
+    def _guilds_available(self) -> bool:
+        """False while Discord reports a guild as unavailable (an outage, not a deletion)."""
+        guilds = getattr(self.bot, "guilds", None)
+        if not isinstance(guilds, (list, tuple, set)):
+            return True
+        return not any(getattr(guild, "unavailable", False) for guild in guilds)
 
     async def _handle_cancellation(
         self, vtec_id: str, reason: str = "Expired / Cancelled", vtec: dict | None = None
@@ -693,12 +706,24 @@ class WarningsCog(commands.Cog):
                 return True
             outcome = await self._send_cancellation(vtec_id, reason, vtec)
             if outcome is None:
+                self._cancellation_attempts.pop(vtec_id, None)
                 # Nothing could ever be posted for this VTEC (the original post is gone
                 # or its channel no longer exists). Conclude it as handled: retrying on
                 # every poll would never succeed and would keep the warning active.
                 self._cancelled_warnings[vtec_id] = None
                 return True
             if outcome:
+                self._cancellation_attempts.pop(vtec_id, None)
+                self._cancelled_warnings[vtec_id] = None
+                return True
+            # A send that keeps failing would otherwise retry on every poll forever.
+            attempts = self._cancellation_attempts.get(vtec_id, 0) + 1
+            self._cancellation_attempts[vtec_id] = attempts
+            if attempts >= self._CANCELLATION_MAX_ATTEMPTS:
+                logger.warning(
+                    f"Giving up on cancellation for {vtec_id} after {attempts} failed attempts"
+                )
+                self._cancellation_attempts.pop(vtec_id, None)
                 self._cancelled_warnings[vtec_id] = None
                 return True
             return False
@@ -725,8 +750,6 @@ class WarningsCog(commands.Cog):
         if not (channel_id and message_id):
             return None
 
-        self._absence_count.pop(vtec_id, None)
-
         # Route the cancellation to the type-specific channel if configured;
         # fall back to the channel the original was posted in.
         phenom = (vtec or {}).get("phenom", "")
@@ -739,8 +762,8 @@ class WarningsCog(commands.Cog):
             channel = cast(Optional[discord.abc.Messageable], self.bot.get_channel(channel_id))
         if not channel:
             # A gateway reconnect or an unavailable guild hides channels that still exist,
-            # so an unresolved channel is only permanent once the client is ready.
-            if not self.bot.is_ready():
+            # so an unresolved channel is only permanent once the client is fully ready.
+            if not self.bot.is_ready() or not self._guilds_available():
                 return False
             return None
 
@@ -832,6 +855,7 @@ class WarningsCog(commands.Cog):
             channel, context=f"cancellation for {vtec_id}", embed=embed, files=files
         )
         if msg:
+            self._absence_count.pop(vtec_id, None)
             logger.info(f"Posted cancellation for {vtec_id}")
             return True
         return False

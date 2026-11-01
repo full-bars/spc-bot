@@ -281,6 +281,7 @@ def _make_cog(posted: dict | None = None) -> WarningsCog:
     cog._discover_sem = asyncio.Semaphore(5)
     cog._absence_count = {}
     cog._cancelled_warnings = {}
+    cog._cancellation_attempts = {}
     cog._cancellation_claims = {}
     cog.bot = MagicMock()
     cog.bot.wait_until_ready = AsyncMock()
@@ -750,6 +751,7 @@ def _make_tick_cog(active=None, posted=None):
     cog._backoff = TaskBackoff("auto_poll_warnings")
     cog._validators = {"etag": "", "last_modified": ""}
     cog._cancelled_warnings = {}
+    cog._cancellation_attempts = {}
     cog._cancellation_claims = {}
     cog._absence_count = {}
     cog.bot = MagicMock()
@@ -1372,3 +1374,75 @@ async def test_send_cancellation_return_contract(monkeypatch):
 
     channel.send.return_value = MagicMock(id=9, channel=MagicMock(id=1))
     assert await cog._send_cancellation(vtec_id, "Expired", vtec) is True
+
+
+@pytest.mark.asyncio
+async def test_cancellation_transient_while_a_guild_is_unavailable(monkeypatch):
+    """GUILD_UNAVAILABLE keeps the client ready but hides channels: retry, do not conclude."""
+    vtec_id = "KOUN.SV.W.0042"
+    cog = _cancellation_cog(vtec_id)
+    cog.bot.is_ready.return_value = True
+    cog.bot.guilds = [MagicMock(unavailable=True)]
+    cog._resolve_warning_channel = AsyncMock(return_value=None)
+    cog.bot.get_channel.return_value = None
+    cog.bot.state.active_warnings[vtec_id] = parse_vtec(SAMPLE_RAW)
+
+    cog._absence_count[vtec_id] = cog._ABSENCE_THRESHOLD
+    await cog._handle_disappeared_warnings(set(), {})
+
+    assert vtec_id in cog.bot.state.active_warnings
+    assert vtec_id not in cog._cancelled_warnings
+
+
+@pytest.mark.asyncio
+async def test_cancellation_gives_up_after_bounded_attempts(monkeypatch, caplog):
+    """A permanently forbidden channel must not retry every poll forever."""
+    monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(b"image", 200)))
+    vtec_id = "KOUN.SV.W.0042"
+    cog = _cancellation_cog(vtec_id)
+    cog._ABSENCE_THRESHOLD = 3
+    cog.bot.state.active_warnings[vtec_id] = parse_vtec(SAMPLE_RAW)
+    channel = cog.bot.get_channel.return_value
+    channel.send.side_effect = discord.Forbidden(MagicMock(status=403), "missing permissions")
+
+    with caplog.at_level(logging.WARNING, logger="spc_bot.warnings"):
+        for _ in range(cog._CANCELLATION_MAX_ATTEMPTS):
+            cog._absence_count[vtec_id] = cog._ABSENCE_THRESHOLD
+            await cog._handle_disappeared_warnings(set(), {})
+
+    assert vtec_id not in cog.bot.state.active_warnings
+    assert vtec_id in cog._cancelled_warnings
+    assert any("Giving up on cancellation" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_cancellation_failure_preserves_the_absence_debounce(monkeypatch):
+    """A failed send must not wipe the poll's accumulated absence count."""
+    monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(b"image", 200)))
+    vtec_id = "KOUN.SV.W.0042"
+    cog = _cancellation_cog(vtec_id)
+    cog._absence_count[vtec_id] = 2
+    cog.bot.state.active_warnings[vtec_id] = parse_vtec(SAMPLE_RAW)
+    cog.bot.get_channel.return_value.send.side_effect = RuntimeError("network")
+
+    await cog._handle_cancellation(vtec_id)
+
+    assert cog._absence_count.get(vtec_id) == 2
+
+
+@pytest.mark.asyncio
+async def test_send_cancellation_channel_branches(monkeypatch):
+    """Guard 3 must distinguish a transient outage from a genuinely gone channel."""
+    monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(b"image", 200)))
+    vtec_id = "KOUN.SV.W.0042"
+    cog = _cancellation_cog(vtec_id)
+    vtec = parse_vtec(SAMPLE_RAW)
+    cog._resolve_warning_channel = AsyncMock(return_value=None)
+    cog.bot.get_channel.return_value = None
+
+    cog.bot.is_ready.return_value = False
+    assert await cog._send_cancellation(vtec_id, "Expired", vtec) is False
+
+    cog.bot.is_ready.return_value = True
+    cog.bot.guilds = []
+    assert await cog._send_cancellation(vtec_id, "Expired", vtec) is None
