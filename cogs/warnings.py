@@ -672,10 +672,10 @@ class WarningsCog(commands.Cog):
         await interaction.followup.send(embed=embed, view=view)
 
     # phenom+sig → human-readable event name, for cancellation posts
-    # A cancellation that cannot be delivered is retried on later polls, but only this
-    # many times: past that it is either permanently forbidden or else the channel is gone,
-    # and retrying every 30 seconds would never succeed.
-    _CANCELLATION_MAX_ATTEMPTS = 5
+    # A cancellation that cannot be delivered is retried on later polls, but only this many
+    # times. At the 30s poll cadence that is about 15 minutes, long enough to ride out a
+    # Discord outage, and bounded so a permanently forbidden channel is not retried forever.
+    _CANCELLATION_MAX_ATTEMPTS = 30
 
     _PHENOM_EVENT = {
         ("TO", "W"): "Tornado Warning",
@@ -713,15 +713,17 @@ class WarningsCog(commands.Cog):
                 self._cancelled_warnings[vtec_id] = None
                 return True
             if outcome:
-                self._cancellation_attempts.pop(vtec_id, None)
+                # The send path works, so no warning is near its budget any more.
+                self._cancellation_attempts.clear()
                 self._cancelled_warnings[vtec_id] = None
                 return True
             # A send that keeps failing would otherwise retry on every poll forever.
             attempts = self._cancellation_attempts.get(vtec_id, 0) + 1
             self._cancellation_attempts[vtec_id] = attempts
             if attempts >= self._CANCELLATION_MAX_ATTEMPTS:
-                logger.warning(
-                    f"Giving up on cancellation for {vtec_id} after {attempts} failed attempts"
+                logger.error(
+                    f"Giving up on cancellation for {vtec_id} after {attempts} failed attempts; "
+                    "the original warning stays posted with no cancellation notice"
                 )
                 self._cancellation_attempts.pop(vtec_id, None)
                 self._cancelled_warnings[vtec_id] = None
@@ -933,6 +935,10 @@ class WarningsCog(commands.Cog):
         # a single glitch doesn't put it on the path to cancellation.
         for vtec_id in current_vtec_ids & self._absence_count.keys():
             del self._absence_count[vtec_id]
+        # A warning that reappears starts a fresh give-up budget: failures from an earlier
+        # episode must not push a later one into giving up early.
+        for vtec_id in current_vtec_ids & self._cancellation_attempts.keys():
+            del self._cancellation_attempts[vtec_id]
 
         disappeared = set(self.bot.state.active_warnings.keys()) - current_vtec_ids
         for vtec_id in disappeared:
