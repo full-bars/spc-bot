@@ -1470,8 +1470,8 @@ async def test_cancellation_budget_resets_when_the_warning_reappears(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_cancellation_success_clears_every_budget(monkeypatch):
-    """A delivered notice proves the send path works, so no warning is near its budget."""
+async def test_cancellation_success_leaves_other_budgets_alone(monkeypatch):
+    """A notice delivered in one channel must not rescue a warning stuck in another."""
     monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(b"image", 200)))
     ok_id, stuck_id = "KOUN.SV.W.0042", "KOUN.SV.W.0043"
     cog = _cancellation_cog(ok_id, stuck_id)
@@ -1481,7 +1481,7 @@ async def test_cancellation_success_clears_every_budget(monkeypatch):
     cog.bot.get_channel.return_value.send.return_value = MagicMock(id=9, channel=MagicMock(id=1))
 
     assert await cog._handle_cancellation(ok_id) is True
-    assert cog._cancellation_attempts == {}
+    assert cog._cancellation_attempts == {stuck_id: 12}
 
 
 @pytest.mark.asyncio

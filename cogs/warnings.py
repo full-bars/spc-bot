@@ -713,8 +713,9 @@ class WarningsCog(commands.Cog):
                 self._cancelled_warnings[vtec_id] = None
                 return True
             if outcome:
-                # The send path works, so no warning is near its budget any more.
-                self._cancellation_attempts.clear()
+                # Only this warning's budget is settled by its own success. Successes
+                # elsewhere must not keep a warning on a failing channel retrying forever.
+                self._cancellation_attempts.pop(vtec_id, None)
                 self._cancelled_warnings[vtec_id] = None
                 return True
             # A send that keeps failing would otherwise retry on every poll forever.
