@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- **Updated dependencies**: pyo3 0.30.1, rstar 0.14.0, pydantic >=2.14.3, pytest >=9.2.0, pytest-asyncio >=1.4.1.post1.
+
 ### Fixed
 - **A retried cancellation gets a realistic budget and gives up loudly.** The one-notice-per-warning rule stops retrying after a fixed number of failures, but the budget was five attempts — about two and a half minutes at the poll cadence, shorter than a routine Discord outage — and reaching it dropped the warning while the original post stayed visible, so the channel never learned it had ended. The budget is now thirty attempts (about fifteen minutes), a warning that reappears on a later poll starts a fresh budget, a delivered notice settles only its own warning so a channel that keeps failing still reaches the limit, and giving up logs at error level because the visible outcome is a live warning with no termination notice.
 - **The Gemini fallback model is now configurable, with a second Gemini model behind it.** `call_gemini` hardcoded `gemini-3.1-flash-lite`, so when that model was refused with a 503 under load the whole AI chain ended even though the account had another model available; it also meant a model rename could only be handled by editing code. The model now comes from `GEMINI_MODEL`; `GEMINI_FALLBACK_MODEL` names a second model to try when the first returns nothing, and is empty by default, so nothing changes until it is set. Each model gets its own circuit-breaker scope, because the breaker is keyed by host by default and a refusal from one model would otherwise close the door on the other at exactly the wrong moment. The intended order keeps the generous lite-model allowance in front and the rationed full model as a last resort.
