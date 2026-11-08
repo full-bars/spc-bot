@@ -86,3 +86,7 @@ updates:
     labels:
       - dependencies
       - docker
+    ignore:
+      # Keep base image on the Python 3.13 line; only accept digest / patch bumps.
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]

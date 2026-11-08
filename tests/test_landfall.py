@@ -297,6 +297,29 @@ def test_fingerprint_treats_page_and_product_issuance_as_equal():
     assert tracker.update_fingerprint(page) == tracker.update_fingerprint(product)
 
 
+def test_fingerprint_ignores_clock_padding_between_page_and_product():
+    # Real-world double post: the product header pads the hour as "200 PM"
+    # while the cyclones page writes "0200 PM" for the same Advisory #30.
+    product = {
+        "position": "19.3N 108.3W",
+        "winds_mph": 75.0,
+        "pressure": 989,
+        "issuance": "200 PM MST Wed Oct 14 2026",
+    }
+    page = {
+        "position": "19.3N 108.3W",
+        "winds_mph": 75.0,
+        "pressure": 989,
+        "issuance": "As of 0200 PM MST Wed Oct 14",
+    }
+    colon = dict(page, issuance="As of 2:00 PM MST Wed Oct 14")
+    assert tracker.update_fingerprint(page) == tracker.update_fingerprint(product)
+    assert tracker.update_fingerprint(colon) == tracker.update_fingerprint(product)
+    # Distinct issuance times must still differ.
+    later = dict(product, issuance="500 PM MST Wed Oct 14 2026")
+    assert tracker.update_fingerprint(later) != tracker.update_fingerprint(product)
+
+
 def test_fingerprint_changes_with_new_advisory_state():
     base = {"position": "30.4N 86.5W", "winds_mph": 105.0, "pressure": 971, "issuance": "830 PM"}
     moved = dict(base, position="30.5N 86.4W")

@@ -764,11 +764,18 @@ async def http_post_json(
     retries: int = 1,
     timeout: int = TIMEOUT_STANDARD,
     extra_headers: Optional[Dict[str, str]] = None,
+    breaker_key: Optional[str] = None,
 ) -> Optional[dict]:
-    """POST JSON to a URL with retries and circuit breaker."""
+    """POST JSON to a URL with retries and circuit breaker.
+
+    ``breaker_key`` overrides the breaker scope, which defaults to the host. A caller
+    that talks to several models behind one hostname can pass a per-model key so one
+    failing model does not shut the door on the others.
+    """
     parsed = urlparse(url)
     host = parsed.netloc
-    if circuit_breaker.is_open(host):
+    breaker = breaker_key or host
+    if circuit_breaker.is_open(breaker):
         return None
 
     retry_decorator = _get_retry_decorator(retries + 1)
@@ -792,9 +799,9 @@ async def http_post_json(
                 text = await r.text()
                 logger.warning(f"JSON POST failed for {url}: {r.status} {text}")
                 if r.status >= 500 or r.status == 429:
-                    circuit_breaker.record_failure(host)
+                    circuit_breaker.record_failure(breaker)
                 return None
-            circuit_breaker.record_success(host)
+            circuit_breaker.record_success(breaker)
             return await r.json()
 
     try:

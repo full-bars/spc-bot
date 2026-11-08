@@ -66,6 +66,24 @@ from utils.state_store import (
 logger = logging.getLogger("spc_bot.warnings")
 
 
+def _should_image_warning(vtec: dict) -> bool:
+    """Skip offices whose warning products IEM cannot plot."""
+    has_image_product = (vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS"
+    if not has_image_product:
+        return False
+
+    office = vtec.get("office", "")
+    # IEM cannot plot Canadian products and returns a permanent HTTP 400.
+    if office.startswith("C"):
+        logger.debug(
+            "[WARN_IMG_SKIP] %s: unsupported issuing office %s",
+            vtec.get("vtec_id", "unknown"),
+            office,
+        )
+        return False
+    return True
+
+
 def _log_task_exception(task: asyncio.Task) -> None:
     """Log any exception raised in a background task."""
     try:
@@ -91,6 +109,8 @@ class WarningsCog(commands.Cog):
         self._backoff = TaskBackoff("auto_poll_warnings")
         self._validators = {"etag": "", "last_modified": ""}
         self._cancelled_warnings: dict[str, None] = {}
+        self._cancellation_claims: dict[str, object] = {}
+        self._cancellation_attempts: dict[str, int] = {}
         self._in_flight_vtecs: set[str] = set()
         self._perm_warned: set[int] = set()
         self._discover_sem = asyncio.Semaphore(5)
@@ -335,9 +355,9 @@ class WarningsCog(commands.Cog):
                 )
                 # Use stored vtec if available, or current one
                 vtec_to_use = vtec or self.bot.state.active_warnings.get(vtec_id)
-                await self._handle_cancellation(vtec_id, reason=reason, vtec=vtec_to_use)
-                self.bot.state.active_warnings.pop(vtec_id, None)
-                await self.bot.state.add_posted_product_id(product_id)
+                if await self._handle_cancellation(vtec_id, reason=reason, vtec=vtec_to_use):
+                    self.bot.state.active_warnings.pop(vtec_id, None)
+                    await self.bot.state.add_posted_product_id(product_id)
             return
 
         # ── Pipeline fast-path for updates (CON, EXT, EXA) ─────────────────────
@@ -377,6 +397,7 @@ class WarningsCog(commands.Cog):
             self._in_flight_vtecs.discard(vtec_id)
             raise
 
+        msg = None
         try:
             async with self.bot.state.claim_posted_warning(vtec_id) as claim:
                 self.bot.state.active_warnings[vtec_id] = vtec
@@ -420,9 +441,7 @@ class WarningsCog(commands.Cog):
                 # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS).
                 # Launched in background after the message is sent so the safety-critical
                 # warning text is never delayed by IEM's autoplot generation latency.
-                should_image = (vtec.get("etn") and vtec["etn"] != "0") or vtec.get(
-                    "phenom"
-                ) == "SPS"
+                should_image = _should_image_warning(vtec)
 
                 try:
                     if view is not None:
@@ -462,19 +481,21 @@ class WarningsCog(commands.Cog):
                     )
                 except discord.Forbidden as e:
                     await self._notify_channel_error(channel, ["send_messages (403 Forbidden)"])
-                    await self.bot.state.remove_posted_product_id(product_id)
-                    self.bot.state.active_warnings.pop(vtec_id, None)
                     logger.error(
                         f"iembot send forbidden for {vtec_id} in channel {channel.id}: {e}"
                     )
                     return  # claim auto-rolls back on context exit
                 except discord.HTTPException as e:
-                    await self.bot.state.remove_posted_product_id(product_id)
-                    self.bot.state.active_warnings.pop(vtec_id, None)
                     logger.exception(f"iembot send failed for {vtec_id}: {e}")
                     return  # claim auto-rolls back on context exit
         finally:
-            self._in_flight_vtecs.discard(vtec_id)
+            try:
+                if msg is None:
+                    await self.bot.state.remove_posted_product_id(product_id)
+                    if not is_update:
+                        self.bot.state.active_warnings.pop(vtec_id, None)
+            finally:
+                self._in_flight_vtecs.discard(vtec_id)
 
     async def _check_and_log_significant_event(
         self, event: str, raw_text: str, vtec: dict, params: Optional[dict] = None
@@ -651,6 +672,11 @@ class WarningsCog(commands.Cog):
         await interaction.followup.send(embed=embed, view=view)
 
     # phenom+sig → human-readable event name, for cancellation posts
+    # A cancellation that cannot be delivered is retried on later polls, but only this many
+    # times. At the 30s poll cadence that is about 15 minutes, long enough to ride out a
+    # Discord outage, and bounded so a permanently forbidden channel is not retried forever.
+    _CANCELLATION_MAX_ATTEMPTS = 30
+
     _PHENOM_EVENT = {
         ("TO", "W"): "Tornado Warning",
         ("SV", "W"): "Severe Thunderstorm Warning",
@@ -661,20 +687,71 @@ class WarningsCog(commands.Cog):
         ("SPS", "S"): "Special Weather Statement",
     }
 
+    def _guilds_available(self) -> bool:
+        """False while Discord reports a guild as unavailable (an outage, not a deletion)."""
+        guilds = getattr(self.bot, "guilds", None)
+        if not isinstance(guilds, (list, tuple, set)):
+            return True
+        return not any(getattr(guild, "unavailable", False) for guild in guilds)
+
     async def _handle_cancellation(
         self, vtec_id: str, reason: str = "Expired / Cancelled", vtec: dict | None = None
     ):
-        """Post a new cancellation notice; leave the original warning post untouched."""
-        info = self.bot.state.posted_warnings.get(vtec_id)
+        """Claim one terminal post per VTEC, releasing the claim on failure."""
+        token = object()
+        if self._cancellation_claims.setdefault(vtec_id, token) is not token:
+            return False
+        try:
+            if vtec_id in self._cancelled_warnings:
+                return True
+            outcome = await self._send_cancellation(vtec_id, reason, vtec)
+            if outcome is None:
+                self._cancellation_attempts.pop(vtec_id, None)
+                # Nothing could ever be posted for this VTEC (the original post is gone
+                # or its channel no longer exists). Conclude it as handled: retrying on
+                # every poll would never succeed and would keep the warning active.
+                self._cancelled_warnings[vtec_id] = None
+                return True
+            if outcome:
+                # Only this warning's budget is settled by its own success. Successes
+                # elsewhere must not keep a warning on a failing channel retrying forever.
+                self._cancellation_attempts.pop(vtec_id, None)
+                self._cancelled_warnings[vtec_id] = None
+                return True
+            # A send that keeps failing would otherwise retry on every poll forever.
+            attempts = self._cancellation_attempts.get(vtec_id, 0) + 1
+            self._cancellation_attempts[vtec_id] = attempts
+            if attempts >= self._CANCELLATION_MAX_ATTEMPTS:
+                logger.error(
+                    f"Giving up on cancellation for {vtec_id} after {attempts} failed attempts; "
+                    "the original warning stays posted with no cancellation notice"
+                )
+                self._cancellation_attempts.pop(vtec_id, None)
+                self._cancelled_warnings[vtec_id] = None
+                return True
+            return False
+        finally:
+            del self._cancellation_claims[vtec_id]
+
+    async def _send_cancellation(self, vtec_id: str, reason: str, vtec: dict | None) -> bool | None:
+        """Post a cancellation notice; leave the original warning post untouched.
+
+        Returns True when the notice was posted, False when the send failed and should be
+        retried, and None when no notice can ever be posted for this VTEC.
+        """
+        stored = self.bot.state.posted_warnings
+        info = stored.get(vtec_id)
+        if vtec_id in stored and not info:
+            # Empty entry is the in-flight placeholder written before the send; the ids
+            # arrive with claim.confirm(). Treat it as retryable, never as concluded.
+            return False
         if not info:
-            return
+            return None
 
         channel_id = info.get("channel_id")
         message_id = info.get("message_id")
         if not (channel_id and message_id):
-            return
-
-        self._absence_count.pop(vtec_id, None)
+            return None
 
         # Route the cancellation to the type-specific channel if configured;
         # fall back to the channel the original was posted in.
@@ -687,7 +764,11 @@ class WarningsCog(commands.Cog):
         if not channel:
             channel = cast(Optional[discord.abc.Messageable], self.bot.get_channel(channel_id))
         if not channel:
-            return
+            # A gateway reconnect or an unavailable guild hides channels that still exist,
+            # so an unresolved channel is only permanent once the client is fully ready.
+            if not self.bot.is_ready() or not self._guilds_available():
+                return False
+            return None
 
         # Area was stored in posted_warnings when the warning was first posted.
         area = info.get("area", "")
@@ -777,8 +858,10 @@ class WarningsCog(commands.Cog):
             channel, context=f"cancellation for {vtec_id}", embed=embed, files=files
         )
         if msg:
-            self._cancelled_warnings[vtec_id] = None
+            self._absence_count.pop(vtec_id, None)
             logger.info(f"Posted cancellation for {vtec_id}")
+            return True
+        return False
 
     @tasks.loop(hours=1)
     async def prune_posted_warnings_loop(self):
@@ -853,6 +936,10 @@ class WarningsCog(commands.Cog):
         # a single glitch doesn't put it on the path to cancellation.
         for vtec_id in current_vtec_ids & self._absence_count.keys():
             del self._absence_count[vtec_id]
+        # A warning that reappears starts a fresh give-up budget: failures from an earlier
+        # episode must not push a later one into giving up early.
+        for vtec_id in current_vtec_ids & self._cancellation_attempts.keys():
+            del self._cancellation_attempts[vtec_id]
 
         disappeared = set(self.bot.state.active_warnings.keys()) - current_vtec_ids
         for vtec_id in disappeared:
@@ -876,9 +963,12 @@ class WarningsCog(commands.Cog):
             vtec_context = current_vtec_data.get(vtec_id) or self.bot.state.active_warnings.get(
                 vtec_id
             )
-            await self._handle_cancellation(vtec_id, reason="Expired", vtec=vtec_context)
-            self.bot.state.active_warnings.pop(vtec_id, None)
-            self._absence_count.pop(vtec_id, None)
+            if await self._handle_cancellation(vtec_id, reason="Expired", vtec=vtec_context):
+                self.bot.state.active_warnings.pop(vtec_id, None)
+                self._absence_count.pop(vtec_id, None)
+            else:
+                # Keep the warning eligible for retry on the next absent poll.
+                self._absence_count[vtec_id] = self._ABSENCE_THRESHOLD - 1
 
     async def _tick(self):
         await self.bot.wait_until_ready()
@@ -1146,7 +1236,7 @@ class WarningsCog(commands.Cog):
         # Download IEM Autoplot image (only if we have a real ETN, or it's an SPS).
         # Launched in background after the message is sent so the safety-critical
         # warning text is never delayed by IEM's autoplot generation latency.
-        should_image = (vtec.get("etn") and vtec["etn"] != "0") or vtec.get("phenom") == "SPS"
+        should_image = _should_image_warning(vtec)
 
         msg = await safe_send(
             channel,

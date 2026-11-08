@@ -4,6 +4,7 @@
 import asyncio
 import logging
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Tuple
@@ -117,25 +118,72 @@ async def get_comparison_pair(day: int, product: str) -> Tuple[Optional[str], Op
     return latest, previous, "Comparison ready"
 
 
-async def cleanup_old_versions(max_age_hours: int = 24) -> int:
+_VERSION_FILENAME_RE = re.compile(r"^(?P<key>.+)_\d{8}_\d{6}_\d{6}\.png$")
+
+
+async def cleanup_old_versions(max_age_hours: int = 24) -> Tuple[int, int]:
+    """Prune old versions without blocking the event loop."""
+    import asyncio
+
+    return await asyncio.get_running_loop().run_in_executor(
+        None, _cleanup_old_versions_worker, max_age_hours
+    )
+
+
+def _cleanup_old_versions_worker(max_age_hours: int = 24) -> Tuple[int, int]:
     """
-    Delete versions older than max_age_hours. Returns count deleted.
-    Should be called periodically (e.g., with periodic_cleanup task).
+    Delete versions older than max_age_hours. Returns (files_deleted, bytes_freed).
+    The newest version of each product is always kept, even when it is past the
+    cutoff, so /compare can still show a latest for products that have gone quiet.
+    Called daily from the maintenance pass (cogs/maintenance.py), which uses 48h.
     """
     _ensure_versions_dir()
     cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
     deleted_count = 0
+    bytes_freed = 0
+    failed_count = 0
 
+    by_product: dict[str, list[Path]] = {}
     try:
         for fpath in Path(OUTLOOK_VERSIONS_DIR).glob("*.png"):
-            mtime = datetime.fromtimestamp(fpath.stat().st_mtime, tz=timezone.utc)
-            if mtime < cutoff:
-                fpath.unlink()
-                deleted_count += 1
-                logger.debug(f"Deleted old version: {fpath.name}")
+            match = _VERSION_FILENAME_RE.match(fpath.name)
+            # Unparseable names form their own group, so they are never pruned as a stale product
+            key = match.group("key") if match else fpath.name
+            by_product.setdefault(key, []).append(fpath)
     except Exception as e:
         logger.warning(f"Error cleaning up old versions: {e}")
+        return deleted_count, bytes_freed
+
+    def _safe_mtime(path: Path) -> float:
+        """Sort key that tolerates an unreadable file instead of failing the group."""
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    for versions in by_product.values():
+        # One unreadable or undeletable file must not abort the whole pass: a single
+        # failure here used to strand every remaining version for another day.
+        versions.sort(key=_safe_mtime, reverse=True)
+
+        for fpath in versions[1:]:
+            try:
+                stat = fpath.stat()
+                if datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc) < cutoff:
+                    fpath.unlink()
+                    deleted_count += 1
+                    bytes_freed += stat.st_size
+                    logger.debug(f"Deleted old version: {fpath.name}")
+            except OSError as e:
+                failed_count += 1
+                logger.debug(f"Could not prune old version {fpath.name}: {e}")
+
+    if failed_count:
+        logger.warning(
+            f"Outlook version prune could not process {failed_count} file(s); "
+            f"deleted {deleted_count}, freed {bytes_freed} bytes"
+        )
 
     if deleted_count > 0:
         logger.info(f"Cleaned up {deleted_count} old outlook versions")
-    return deleted_count
+    return deleted_count, bytes_freed

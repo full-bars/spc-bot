@@ -8,6 +8,8 @@ from config import (
     AI_MODEL,
     AI_API_KEY,
     GEMINI_API_KEY,
+    GEMINI_FALLBACK_MODEL,
+    GEMINI_MODEL,
     OPENCODE_API_KEY,
 )
 from utils.http import http_post_json
@@ -16,12 +18,43 @@ logger = logging.getLogger("spc_bot.ai")
 
 
 async def call_gemini(prompt: str, is_json: bool = False) -> Any | None:
-    """Calls Gemini 3.1 Flash Lite via REST API to generate a text or JSON response."""
+    """Calls Gemini via REST API, trying GEMINI_MODEL then GEMINI_FALLBACK_MODEL.
+
+    The two-model shape exists because the free tier is not symmetric: the lite model
+    has a large daily allowance but is regularly refused with 503 while it is busy,
+    and the full model answers but allows only a handful of calls per day. Using the
+    lite model first and the full model only when the lite model is unavailable keeps
+    the generous quota in front and the rationed one as a last resort.
+    """
     if not GEMINI_API_KEY:
         logger.warning("GEMINI_API_KEY is not set. Cannot call AI.")
         return None
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={GEMINI_API_KEY}"
+    models: list[str] = []
+    for candidate in (GEMINI_MODEL, GEMINI_FALLBACK_MODEL):
+        if candidate and candidate not in models:
+            models.append(candidate)
+    if not models:
+        logger.warning("No Gemini model configured (set GEMINI_MODEL).")
+        return None
+
+    for index, model in enumerate(models):
+        result = await _call_gemini_model(prompt, model, is_json)
+        if result is not None:
+            return result
+        remaining = models[index + 1 :]
+        if remaining:
+            logger.warning(f"Gemini [{model}] returned nothing; trying {remaining[0]}")
+
+    return None
+
+
+async def _call_gemini_model(prompt: str, model: str, is_json: bool = False) -> Any | None:
+    """Calls one Gemini model via the REST API and parses its text or JSON reply."""
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}"
+        f":generateContent?key={GEMINI_API_KEY}"
+    )
 
     generation_config: dict[str, Any] = {
         "temperature": 0.2,
@@ -35,7 +68,10 @@ async def call_gemini(prompt: str, is_json: bool = False) -> Any | None:
         "generationConfig": generation_config,
     }
 
-    response = await http_post_json(url, json_data=payload, retries=2, timeout=25)
+    # Scope the breaker per model: one model refusing traffic must not block the other.
+    response = await http_post_json(
+        url, json_data=payload, retries=2, timeout=25, breaker_key=f"gemini:{model}"
+    )
 
     if not response:
         return None

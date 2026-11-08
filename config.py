@@ -107,6 +107,8 @@ CONFIG = {
     ),
     "weather_chat_channel_id": _optional_int("WEATHER_CHAT_CHANNEL_ID", "SPC_CHANNEL_ID"),
     "gemini_api_key": os.getenv("GEMINI_API_KEY", ""),
+    "gemini_model": os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite"),
+    "gemini_fallback_model": os.getenv("GEMINI_FALLBACK_MODEL", ""),
     "ai_api_key": os.getenv("ZENPROXY_API_KEY")
     or os.getenv("AI_API_KEY")
     or os.getenv("OPENCODE_API_KEY", ""),
@@ -139,6 +141,8 @@ DEV_CHANNEL_ID = CONFIG["dev_channel_id"]
 TROPICAL_CHANNEL_ID = CONFIG["tropical_channel_id"]
 WEATHER_CHAT_CHANNEL_ID = CONFIG["weather_chat_channel_id"]
 GEMINI_API_KEY: str = str(CONFIG["gemini_api_key"] or "")
+GEMINI_MODEL: str = str(CONFIG["gemini_model"] or "")
+GEMINI_FALLBACK_MODEL: str = str(CONFIG["gemini_fallback_model"] or "")
 AI_API_KEY: str = str(CONFIG["ai_api_key"] or "")
 OPENCODE_API_KEY: str = AI_API_KEY  # Backward compatibility
 AI_BASE_URL: str = str(CONFIG["ai_base_url"] or "")

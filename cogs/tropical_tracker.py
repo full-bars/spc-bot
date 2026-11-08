@@ -311,15 +311,39 @@ async def reset_landfall_announcements_once() -> int:
     return len(keys)
 
 
+# NHC writes the same issuance as ``200 PM`` in a product header and
+# ``0200 PM`` on the cyclones page (a few feeds use ``2:00 PM``). Left as-is,
+# the leading zero makes the two fingerprints differ, so the page scrape
+# re-posts the advisory the product feed already delivered. Collapse every
+# clock shape to one ``H:MM AM|PM`` form.
+_ISSUANCE_CLOCK_RE = re.compile(
+    r"^(?:(?P<hour>\d{1,2}):(?P<minute>\d{2})|(?P<digits>\d{3,4}))\s*(?P<ampm>AM|PM)\b",
+    re.IGNORECASE,
+)
+
+
+def _canonical_clock(match: re.Match) -> str:
+    """Rewrite a 12-hour clock token as ``H:MM AM|PM`` (``0200 PM`` → ``2:00 PM``)."""
+    if match.group("digits"):
+        digits = match.group("digits")
+        hour, minute = int(digits[:-2]), digits[-2:]
+    else:
+        hour, minute = int(match.group("hour")), match.group("minute")
+    return f"{hour}:{minute} {match.group('ampm').upper()}"
+
+
 def _normalize_issuance(issuance: str | None) -> str:
     """Strip NHC's decorations so page and product timestamps compare equal.
 
-    The cyclones page writes ``As of 900 PM CDT Fri Oct 09`` while the product
-    header writes ``900 PM CDT Fri Oct 09 2026`` — same issuance, one post.
+    The cyclones page writes ``As of 0200 PM MST Wed Oct 14`` while the product
+    header writes ``200 PM MST Wed Oct 14 2026`` — same issuance, one post. The
+    ``As of`` prefix, the trailing year, and the clock's leading zero all have
+    to go, otherwise the fingerprints differ and the advisory double-posts.
     """
     text = (issuance or "").strip()
     text = re.sub(r"^As of\s+", "", text, flags=re.IGNORECASE)
-    return re.sub(r"\s+\d{4}$", "", text)
+    text = re.sub(r"\s+\d{4}$", "", text)
+    return _ISSUANCE_CLOCK_RE.sub(_canonical_clock, text)
 
 
 def update_fingerprint(info: dict) -> str:
