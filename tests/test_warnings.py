@@ -1446,3 +1446,57 @@ async def test_send_cancellation_channel_branches(monkeypatch):
     cog.bot.is_ready.return_value = True
     cog.bot.guilds = []
     assert await cog._send_cancellation(vtec_id, "Expired", vtec) is None
+
+
+@pytest.mark.asyncio
+async def test_cancellation_budget_resets_when_the_warning_reappears(monkeypatch):
+    """Failures from an earlier episode must not push a later one into giving up early."""
+    monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(b"image", 200)))
+    vtec_id = "KOUN.SV.W.0042"
+    cog = _cancellation_cog(vtec_id)
+    cog._ABSENCE_THRESHOLD = 3
+    cog.bot.state.active_warnings[vtec_id] = parse_vtec(SAMPLE_RAW)
+    channel = cog.bot.get_channel.return_value
+    channel.send.side_effect = RuntimeError("network")
+
+    for _ in range(2):
+        cog._absence_count[vtec_id] = cog._ABSENCE_THRESHOLD
+        await cog._handle_disappeared_warnings(set(), {})
+    assert cog._cancellation_attempts[vtec_id] == 2
+
+    # The warning comes back on the next poll.
+    await cog._handle_disappeared_warnings({vtec_id}, {})
+    assert vtec_id not in cog._cancellation_attempts
+
+
+@pytest.mark.asyncio
+async def test_cancellation_success_leaves_other_budgets_alone(monkeypatch):
+    """A notice delivered in one channel must not rescue a warning stuck in another."""
+    monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(b"image", 200)))
+    ok_id, stuck_id = "KOUN.SV.W.0042", "KOUN.SV.W.0043"
+    cog = _cancellation_cog(ok_id, stuck_id)
+    cog.bot.state.active_warnings[ok_id] = parse_vtec(SAMPLE_RAW)
+    cog.bot.state.active_warnings[stuck_id] = parse_vtec(SAMPLE_RAW)
+    cog._cancellation_attempts[stuck_id] = 12
+    cog.bot.get_channel.return_value.send.return_value = MagicMock(id=9, channel=MagicMock(id=1))
+
+    assert await cog._handle_cancellation(ok_id) is True
+    assert cog._cancellation_attempts == {stuck_id: 12}
+
+
+@pytest.mark.asyncio
+async def test_cancellation_gives_up_at_error_level(monkeypatch, caplog):
+    """Giving up leaves the warning posted with no notice, so it must be loud."""
+    monkeypatch.setattr(warnings_mod, "http_get_bytes", AsyncMock(return_value=(b"image", 200)))
+    vtec_id = "KOUN.SV.W.0042"
+    cog = _cancellation_cog(vtec_id)
+    cog.bot.state.active_warnings[vtec_id] = parse_vtec(SAMPLE_RAW)
+    cog.bot.get_channel.return_value.send.side_effect = discord.Forbidden(
+        MagicMock(status=403), "missing permissions"
+    )
+    cog._cancellation_attempts[vtec_id] = cog._CANCELLATION_MAX_ATTEMPTS - 1
+
+    with caplog.at_level(logging.ERROR, logger="spc_bot.warnings"):
+        assert await cog._handle_cancellation(vtec_id) is True
+
+    assert any(r.levelno == logging.ERROR and "Giving up" in r.message for r in caplog.records)
